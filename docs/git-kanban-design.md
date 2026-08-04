@@ -46,7 +46,8 @@ athena-agent/docs/kanban/
 ```
 任何 Worker 领取 ticket:
   1. git pull（最新看板）
-  2. 选 ticket: status ∈ {backlog, rejected} 且 assignee 空/自己
+  2. 选 ticket: status = backlog 且 assignee 空/自己
+     （注意: rejected 的 ticket 不可直接认领 — 需先通知 Eng Director 重新生成）
   3. 改 T1.md frontmatter:
      status: in_progress
      assignee: pi-a
