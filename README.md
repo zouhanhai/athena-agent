@@ -58,7 +58,8 @@ athena-agent/
 ├── docs/
 │   ├── adr/                      # 架构决策记录 (每条一个文件)
 │   ├── git-kanban-design.md      # git 驱动 Kanban 设计
-│   └── knowledge-rag-design.md   # 知识库与 RAG 路由设计
+│   ├── knowledge-rag-design.md   # 知识库与 RAG 路由设计
+│   └── output-design.md          # Output 页面设计 (NotebookLM 式)
 ├── server/           # Node/TS Fastify 后端
 │   ├── src/
 │   │   ├── agents/   # AgentSession 管理
@@ -77,6 +78,7 @@ athena-agent/
 2. **M2**: 知识图谱 (LightRAG) + Wiki (llm_wiki)
 3. **M3**: Pi 驱动 Kanban + 团队对话
 4. **M4**: CodeGraph + 多员工隔离 + 部署 6900XT
+5. **M5**: Output 页面 (txt/blog/图表/pptx/html) — 核心跑通后实施
 
 ## 关键风险
 
