@@ -74,11 +74,27 @@ athena-agent/
 
 ## 里程碑（MVP 顺序）
 
-1. **M1**: 项目骨架 + AgentSession 本地跑通个人对话
+每个 Milestone 有明确验收标准（Definition of Done），对应 Goal 全部完成才算 done。
+
+1. **M1**: 项目骨架 + AgentSession 个人对话
+   - 验收: Node/TS 后端能启动；AgentSession 内嵌 Pi 成功；个人对话端到端跑通（前端→后端→Pi→回答）；Vue 前端有侧边栏骨架
+   - 对应: G1 (项目骨架 + AgentSession)
+
 2. **M2**: 知识图谱 (LightRAG) + Wiki (llm_wiki)
+   - 验收: LightRAG 启动配 DeepSeek+Postgres；llm_wiki headless 跑提供 :19828；Pi 能通过 MCP 检索两个系统；图谱面板 iframe 显示
+   - 对应: G2 (LightRAG + llm_wiki)
+
 3. **M3**: Pi 驱动 Kanban + 团队对话
+   - 验收: git-driven kanban 跑通（G创建/领取锁/PR/Reject）；3 员工可并行领 ticket；团队对话共享 Pi；pi-intercom 协调
+   - 对应: G3 (Pi Kanban + 团队对话)
+
 4. **M4**: CodeGraph + 多员工隔离 + 部署 6900XT
+   - 验收: CodeGraph 部署索引代码；3 员工独立 git 身份 + 独立 AgentSession；门户部署 6900XT 经 Tailscale 访问；认证(Resend)可用
+   - 对应: G4 (CodeGraph + 多员工隔离 + 部署)
+
 5. **M5**: Output 页面 (txt/blog/图表/pptx/html) — 核心跑通后实施
+   - 验收: 从知识库+Web 来源生成 txt/blog/图表；pptx/html 生成可用；前端预览 + 下载
+   - 对应: G5 (Output 页面)
 
 ## 关键风险
 

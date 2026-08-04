@@ -106,6 +106,41 @@ branch: ""                  # feat/t1-login-api
 [2026-08-04] pi-a 完成实现
 ```
 
+## 五bis、三层完成标准（Definition of Done）
+
+每个层级必须有明确的"怎样算完成"，否则无法对齐进度、无法判断完成。
+
+```
+Milestone (M1-M5)  → 验收标准 (项目阶段完成条件)
+  └─ Goal (G1-G5)  → 验收标准 (顶层任务完成条件)
+      └─ Spec (G1.S1) → 验收标准 (功能容器完成条件)
+          └─ Ticket (T1-TX) → acceptance_criteria ✅ 已有
+```
+
+### Ticket 层（已有）
+- frontmatter `acceptance_criteria`（如 "GET /api 返回 200"）
+- Worker 实现后，Reviewer 按此验收
+
+### Spec 层
+- Spec.md 里描述该功能容器完成意味着什么
+- 判断：其下所有 Ticket approved
+
+### Goal 层
+- Goal.md 里写 `acceptance_criteria`（顶层任务完成条件）
+- 判断：其下所有 Spec 完成 + 整体目标达成
+
+### Milestone 层
+- 项目 README 里每个 Milestone 写验收标准
+- 判断：对应 Goal 全部完成
+
+### 判断逻辑（自底向上）
+
+```
+Ticket approved → Spec 完成 → Goal 完成 → Milestone 完成
+```
+
+每个层级的 `acceptance_criteria` 定义"达成什么才算这个层级 done"。
+
 ## 六、状态机
 
 ```
