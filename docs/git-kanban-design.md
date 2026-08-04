@@ -17,7 +17,7 @@ docs/kanban/
 ├── G1/                           ← Goal 1 文件夹（发起时创建）
 │   ├── Goal.md                   ← G1 grill 产出 (owner: pi-a) — to-spec 输入
 │   ├── S1/                       ← Spec 1
-│   │   ├── spec.md               ← G1.S1 spec
+│   │   ├── Spec.md               ← G1.S1 spec
 │   │   ├── T1.md                 ← Ticket 卡片
 │   │   ├── T2.md
 │   │   └── ...
@@ -33,7 +33,7 @@ docs/kanban/
 | 层 | 目录 | 文件 | 编号在哪 |
 |----|------|------|---------|
 | Goal | `G1/`, `G2/`... | `Goal.md` | 目录名 G1/G2 |
-| Spec | `S1/`, `S2/`... | `spec.md` | 子目录名 S1/S2 |
+| Spec | `S1/`, `S2/`... | `Spec.md` | 子目录名 S1/S2 |
 | Ticket | 同 spec 目录下 | `T1.md`, `T2.md` | 文件名 T1/T2 |
 
 **唯一性靠路径，显示靠 frontmatter**：
@@ -175,7 +175,7 @@ Pi-B → Pi-A: "好，我领了"
 
 G1/Goal.md（grill 产出）           ← to-spec 的输入！
    ✓ 描述 G1 目标/上下文/决策
-   ✓ PM 读它 → to-spec → G1/S1/spec.md
+   ✓ PM 读它 → to-spec → G1/S1/Spec.md
 
 流程:
   grill G1 → G1/Goal.md（grill 产出，不叫 CONTEXT.md 以避免与项目根术语表混淆）
