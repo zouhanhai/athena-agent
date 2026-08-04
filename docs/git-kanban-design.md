@@ -13,7 +13,7 @@
 ## 二、目录结构 = Gx.Sx.Tx 三层
 
 ```
-athena-agent/docs/kanban/
+docs/kanban/
 ├── G1/                           ← Goal 1 文件夹（发起时创建）
 │   ├── Goal.md                   ← G1 grill 产出 (owner: pi-a) — to-spec 输入
 │   ├── S1/                       ← Spec 1
@@ -24,6 +24,27 @@ athena-agent/docs/kanban/
 │   └── S2/
 ├── G2/                           ← Goal 2（其他 Pi 发起）
 │   └── ...
+```
+
+### 命名规范（方案 B：目录层级 + frontmatter 编号）
+
+**文件命名固定，靠目录层级区分**：
+
+| 层 | 目录 | 文件 | 编号在哪 |
+|----|------|------|---------|
+| Goal | `G1/`, `G2/`... | `Goal.md` | 目录名 G1/G2 |
+| Spec | `S1/`, `S2/`... | `spec.md` | 子目录名 S1/S2 |
+| Ticket | 同 spec 目录下 | `T1.md`, `T2.md` | 文件名 T1/T2 |
+
+**唯一性靠路径，显示靠 frontmatter**：
+- 完整标识 = 路径（`G1/S1/T1` 天然唯一）
+- 显示名称 = frontmatter 里的 `title: "G1.S1.T1: ..."`
+- 不同 spec 下的 `T1.md` 路径不同（`G1/S1/T1` vs `G1/S2/T1`），不冲突
+
+**示例**：
+```
+G1/S1/T1.md  → title: "G1.S1.T1: 实现登录 API"
+G1/S2/T1.md  → title: "G1.S2.T1: 实现订单 API"  (同名文件，路径区分)
 ```
 
 ## 三、G 编号分配（全局递增，git 原子）
