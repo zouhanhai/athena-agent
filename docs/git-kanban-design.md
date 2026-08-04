@@ -158,7 +158,27 @@ Pi-B → Pi-A: "好，我领了"
   blocked_by 未done → 等依赖
 ```
 
-## 十一、异常处理
+## 十一、Reject 流程（Reviewer 打回 → Eng Director 重新生成）
+
+```
+Reviewer (Pi-B) 审查 Pi-A 的 T1 → 发现问题:
+  1. T1 标记 rejected（保留历史，不修改原 ticket，`qa_feedback` 记录意见）
+  2. 通知 Eng Director（发起该 G 的 Pi）
+  3. Eng Director 分析 qa_feedback → 重新拆解 → 创建新 ticket
+     ├─ 小返工 → T1.1（parent_id=T1, reopen_reason, qa_feedback）
+     └─ 大问题 → 重新审视 spec，可能拆成多个新 ticket
+  4. 新 ticket 进入 backlog，等 Worker 认领（领取锁）
+```
+
+**关键规则**：
+- **新 ticket 由 Eng Director 生成**（发起 G 的 Pi），不是 Reviewer
+- **原 ticket 标记 rejected 保留**，不修改（历史不丢）
+- 新 ticket 带 `parent_id` 链接旧 ticket + `qa_feedback` + `reopen_reason`
+- 任何 Worker 都可认领新 ticket（保持协作开放），但会标注来源
+
+**理由**：Eng Director（规划者）最清楚 spec 全局，review 发现问题往往意味着需要重新审视拆解是否合理，而非简单返工。规划权集中在规划者手里。
+
+## 十二、异常处理
 
 - **Worker 崩溃卡 in_progress**：看 git log 时间戳，超时未更新 → 另一 Worker 可接管（改回 backlog 或接手）
 - **md 冲突**：不同 Worker 改不同 ticket 文件不冲突；抢同一 ticket 冲突正是互斥锁
