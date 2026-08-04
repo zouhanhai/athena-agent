@@ -54,10 +54,10 @@
 
 ```
 athena-agent/
+├── CONTEXT.md            # 全局术语表 (ubiquitous language)
 ├── docs/
-│   ├── adr/          # 架构决策记录
-│   ├── glossary.md   # 术语表
-│   └── architecture.md  # 架构说明
+│   ├── adr/              # 架构决策记录 (每条一个文件)
+│   └── git-kanban-design.md  # git 驱动 Kanban 设计
 ├── server/           # Node/TS Fastify 后端
 │   ├── src/
 │   │   ├── agents/   # AgentSession 管理

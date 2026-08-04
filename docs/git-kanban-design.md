@@ -15,10 +15,9 @@
 ```
 athena-agent/docs/kanban/
 ├── G1/                           ← Goal 1 文件夹（发起时创建）
-│   ├── _goal.md                  ← G1 卡片 (owner: pi-a)
-│   ├── CONTEXT.md                ← grill 产物（Consultant 写）
+│   ├── Goal.md                   ← G1 grill 产出 (owner: pi-a) — to-spec 输入
 │   ├── S1/                       ← Spec 1
-│   │   ├── _spec.md              ← G1.S1 卡片
+│   │   ├── spec.md               ← G1.S1 spec
 │   │   ├── T1.md                 ← Ticket 卡片
 │   │   ├── T2.md
 │   │   └── ...
@@ -34,7 +33,7 @@ athena-agent/docs/kanban/
   1. git pull（同步最新）
   2. 扫描 docs/kanban/ 找当前最大 G 号（max G 文件夹名）
   3. 新 G = max + 1（如当前到 G5 → 创建 G6）
-  4. 创建 G6/ 文件夹 + _goal.md（owner = 发起 Pi）
+  4. 创建 G<号>/ 文件夹 + Goal.md（owner = 发起 Pi）
   5. git commit + push
   6. 若 push 冲突（别人同时建了 G6）→ pull → 重新计算（G7）→ 重试
 ```
@@ -126,7 +125,7 @@ Goal 发起（多 Pi 各自发起，编号递增）:
 单 Goal 生命周期:
   前 3 阶段（发起 Pi 单人多角色，不拆给他人）:
     Consultant → PM → Eng Director
-    （同一个 Pi 扮演，产出 CONTEXT.md + spec + tickets）
+    （同一个 Pi 扮演，产出 Goal.md + spec + tickets）
   
   Worker 阶段（多人协作开始）:
     Pi-A 领 T1, Pi-B 领 T2, Pi-C 领 T3（git 领取锁）
@@ -146,6 +145,27 @@ Pi-B → Pi-A: "好，我领了"
 
 - 团队对话 = 实时协商（谁帮谁、谁做哪个）
 - git 看板 = 持久记录（协商后认领结果写进 md）
+
+## 九bis、文档层级（grill → spec 的输入链）
+
+```
+项目根 CONTEXT.md（全局术语表）     ← 全项目 ubiquitous language
+   ✗ 不作为 to-spec 输入（术语，非某个 Goal 目标）
+
+G1/Goal.md（grill 产出）           ← to-spec 的输入！
+   ✓ 描述 G1 目标/上下文/决策
+   ✓ PM 读它 → to-spec → G1/S1/spec.md
+
+流程:
+  grill G1 → G1/Goal.md（grill 产出，不叫 CONTEXT.md 以避免与项目根术语表混淆）
+    → PM 读 G1/Goal.md → to-spec → G1.S1 spec
+    → Eng Director 读 spec → to-tickets → G1.S1.T1-TX
+```
+
+**关键**：
+- **项目根 CONTEXT.md** = 术语表，grill 时若有全局新术语会补充，**不作为 to-spec 输入**
+- **G1/Goal.md** = grill 产出（就是 grill 生成的 goal 文档），**是 to-spec 的输入**
+- **ADR 库**（docs/adr/）跨 Goal 累积，每次 grill 可能新增（三条件全满足才写）
 
 ## 十、"谁该做什么、继续做什么"判断逻辑
 
