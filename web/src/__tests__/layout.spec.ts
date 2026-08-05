@@ -68,15 +68,10 @@ describe("portal sidebar navigation", () => {
 
     expect(logo.exists()).toBe(true);
     const src = logo.attributes("src")!;
-    expect(src === "/athena-logo.svg" || src.startsWith("data:image/svg+xml")).toBe(
-      true,
-    );
-    if (src.startsWith("data:")) {
-      expect(decodeURIComponent(src.replace(/^data:image\/svg\+xml,/, ""))).toContain(
-        "#ff6633",
-      );
-    }
-    expect(header.find('img[src="/caleo-logo-clean.png"]').exists()).toBe(false);
+    expect(src).toBe("/athena-logo-ai.png");
+    // CALEO logo 作为副标题图片
+    expect(header.find('img[src="/caleo-logo-clean.png"]').exists()).toBe(true);
+    expect(subtitle.exists()).toBe(false);
     expect(logo.element.compareDocumentPosition(brandName.element)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
