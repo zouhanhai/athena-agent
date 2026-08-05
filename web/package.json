@@ -17,13 +17,18 @@
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "d3-force": "^3.0.0",
+    "markdown-it": "^15.0.0",
     "pinia": "^3.0.3",
     "tdesign-icons-vue-next": "^0.4.7",
     "tdesign-vue-next": "^1.13.4",
+    "v-network-graph": "^0.9.23",
     "vue": "^3.5.17",
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "@vue/test-utils": "^2.4.6",
