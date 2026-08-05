@@ -69,3 +69,11 @@ Deploy llm_wiki service (Karpathy-style wiki knowledge base) on 6900XT.
 - None (can parallel with G2.S1)
 
 ## Log
+
+### 2026-08-05 — S2 deployed (T1+T2 done)
+
+- Rust 1.97.1 installed; nashsu/llm_wiki compiled in Docker builder (host lacks webkit2gtk dev pkgs + passwordless sudo) → `~/llm_wiki-dist/llm-wiki` (66MB).
+- Running headless via `xvfb-run`, bound `0.0.0.0:19828` (env `LLM_WIKI_BIND_HOST=0.0.0.0`), detached.
+- LLM = OpenRouter `https://openrouter.ai/api/v1` (`api.openrouter.ai` DNS broken on this network) + `deepseek/deepseek-v4-flash`, key from `~/.bashrc`.
+- Verified: health, projects, rescan/ingest, LLM wiki page generation (interlinked), keyword search, graph, MCP `tools/list` retrieval tools.
+- Data: project `~/athena-data/wiki` (+ `~/athena-data/input` shared input-dir). Config: `~/.local/share/com.llmwiki.app/app-state.json`.

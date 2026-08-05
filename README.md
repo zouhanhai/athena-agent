@@ -48,7 +48,8 @@ Employee browser → Tailscale → 6900XT Portal (Vue frontend)
 |------------------------|--------|-----------------------|
 | llama-server (Qwythos) | 8080   | 127.0.0.1 (must change to 0.0.0.0) |
 | LightRAG               | 9621   | 0.0.0.0               |
-| llm_wiki               | 19828  | 127.0.0.1 (must change to 0.0.0.0) |
+| llm_wiki               | 19828  | 0.0.0.0 (headless, Xvfb) |
+| llm_wiki clip server  | 19827  | 0.0.0.0 (headless, Xvfb) |
 | Portal backend (Fastify)| Main   | 0.0.0.0               |
 | Portal frontend (Vue)  | TBD    | 0.0.0.0               |
 
@@ -121,8 +122,6 @@ Coverage:
 
 ## Key Risks
 
-- llm_wiki is a Tauri desktop app; must verify it can run headless (Xvfb is available) and serve its API
-- Service binds must be changed from 127.0.0.1 to 0.0.0.0 for Tailscale access
 - Resend test mode can only send to self; must verify caleo.com domain before sending to employees
 - LightRAG NetworkX is fine for POC; at scale Neo4j may be needed
 
@@ -131,4 +130,4 @@ Coverage:
 - CodeGraph specific deployment approach
 - Portal frontend/backend specific ports
 - Resend domain verification
-- llm_wiki headless feasibility verification
+- `api.openrouter.ai` DNS does not resolve on 6900XT network; `openrouter.ai` works as OpenRouter endpoint
