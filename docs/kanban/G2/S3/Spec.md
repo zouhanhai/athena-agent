@@ -41,6 +41,15 @@ Build knowledge access layer (athena backend encapsulating both knowledge source
 - Register tools (knowledge_search/query_graph/wiki_search/wiki_read_page) + Capability requirements
 - Pi (ReAct) does deterministic routing by intent + capability declaration + cost
 
+### 5. Pi Model Configuration (OpenRouter unified)
+Pi (AgentSession) models must use **OpenRouter** (base_url `https://openrouter.ai/api/v1`):
+- Main model: `deepseek/deepseek-v4-flash` (conversation/reasoning)
+- Vision: `qwen/qwen3.7-flash` (image recognition)
+- Embedding: `qwen/qwen3-embedding-8b` (LightRAG/llm_wiki embedding)
+- Image generation: `qwen/qwen-image-3` (M5 output)
+Update `~/.pi/agent/models.json` (+ models-store.json) and `auth.json` so Pi uses
+`openrouter/deepseek-v4-flash` instead of the direct DeepSeek API.
+
 ### 4. Verification
 - Dual-pipeline ingest a document → both systems have it
 - Pi retrieves from LightRAG + llm_wiki via MCP
