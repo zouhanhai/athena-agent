@@ -124,10 +124,10 @@ const sidebarTopOffset = "24px";
 }
 
 .brand-caleo-logo {
-  height: 22px;
+  height: 30px;
   width: auto;
   object-fit: contain;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .side-menu {
