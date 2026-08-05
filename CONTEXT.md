@@ -12,6 +12,25 @@ _Avoid_: user, member
 The underlying AI coding agent (`@earendil-works/pi-coding-agent`), each employee's intelligent assistant. Embedded in the portal backend via AgentSession.
 _Avoid_: bot, assistant
 
+**Agent (generic)**:
+Any agent in the federation — not necessarily Pi. Can be Hermes, Claude Code, Codex, or
+any agent implementing the unified interface. Each has a **fixed namespaced name**.
+_Avoid_: worker, chatbot
+
+**Athena**:
+The server-side knowledge steward (knowledge assistant). Fixed federation name = `Athena`.
+_Avoid_: server bot
+
+**Agent name (federation identity)**:
+Fixed, namespaced: `{employee}::{agent}` (e.g. `zhang.wei::Hermes`, `zhang.wei::PiB`).
+The server knowledge steward is `Athena`. Every agent in the server is uniquely identified.
+_Avoid_: unnamed agent
+
+**Multi-Agent Federation**:
+The 3-tier architecture: server (Athena + knowledge) / local (each employee's agent) /
+remote (each employee's SAP Pi). See `docs/distributed-pi-collaboration.md`.
+_Avoid_: distributed system
+
 **AgentSession**:
 Pi's core class, an in-process embedded agent session instance. One per employee (long-lived, naturally isolated).
 _Avoid_: session, worker process

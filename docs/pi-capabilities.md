@@ -10,7 +10,7 @@
 - `createAgentSession()` — one AgentSession per employee (natural isolation)
 - `prompt()/steer()/followUp()` — conversation control
 - `subscribe()` — streaming events (real-time frontend display)
-- `setModel()/cycleModel()` — model switching (DeepSeek/Qwythos)
+- `setModel()/cycleModel()` — model switching (OpenRouter unified: deepseek/deepseek-v4-flash main, qwen/qwen3.7-flash vision, qwen/qwen3-embedding-8b embedding)
 - `compact()` — context compression
 - Image support (base64)
 - `SessionManager` — session persistence

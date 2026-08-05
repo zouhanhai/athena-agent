@@ -28,18 +28,23 @@ Provide the 3 employees of the CALEO department with a **unified collaboration p
 ## System Architecture
 
 ```
-Employee browser → Tailscale → 6900XT Portal (Vue frontend)
-  │
-  ├─ 💬 Personal conv  → Portal backend → AgentSession (Pi) → DeepSeek/Qwythos
-  ├─ 👥 Team conv      → Portal backend → Shared AgentSession (Pi)
-  ├─ 📚 Wiki           → Portal backend → llm_wiki (:19828) → markdown → Vue rendering
-  ├─ 🕸 Graph          → iframe embed LightRAG built-in graph UI
-  ├─ 🐙 GitHub         → Portal backend → GitHub REST API (repos/PR/Issue/files) → Vue GitHub panel
-  ├─ 📁 CodeGraph      → Deployed on 6900XT → code analysis
-  └─ 🎫 Kanban         → Portal backend → Pi-driven task flow (TS) + GitHub PR/Issue
-       ├─ pi-task (task decomposition)
-       ├─ pi-goal-list-loop-audit (audit & acceptance)
-       └─ pi-dynamic-workflows (parallel execution)
+SERVER (company server; 6900XT today) — athena federation hub
+  └─ Portal (Vue) ─┬─ Personal conv → backend → AgentSession (Pi) → OpenRouter
+                   ├─ Team conv     → backend → Shared AgentSession (Pi)
+                   ├─ 📚 Wiki       → llm_wiki (:19828) → Vue rendering
+                   ├─ 🕸 Knowledge  → LightRAG (:9621) graph + retrieval
+                   ├─ 🐙 GitHub     → GitHub REST API (repos/PR/Issue/files)
+                   ├─ 📁 CodeGraph  → code analysis
+                   └─ 🎫 Kanban     → Pi-driven task flow + GitHub
+        Server knowledge steward = Athena (fixed name)
+
+LOCAL (each employee PC) — any agent (Hermes / Claude Code / Codex / Pi)
+  └─ Local agent_i + OpenCode_i → LAN/HTTP → server
+
+REMOTE (SAP server) — per-employee
+  └─ PiB_i + ABAP MCP + OpenCode_i → HTTP → server
+
+See docs/distributed-pi-collaboration.md (Multi-Agent Federation).
 ```
 
 ## Port Plan
@@ -89,8 +94,8 @@ Each Milestone has explicit acceptance criteria (Definition of Done); all corres
    - Corresponds to: G1 (Project skeleton + AgentSession) — G1/S1 + G1/S2 complete
 
 2. **M2** 🔄 IN PROGRESS: Knowledge Graph (LightRAG) + Wiki (llm_wiki)
-   - Acceptance: LightRAG starts with DeepSeek+Postgres; llm_wiki runs headless serving :19828; Pi can retrieve from both systems via MCP; graph panel iframe displays; docling unified ingestion + progress bar
-   - Corresponds to: G2 (LightRAG + llm_wiki) — 5 specs planned (S1..S5)
+   - Acceptance: LightRAG starts (OpenRouter); llm_wiki runs headless :19828; Pi retrieves from both via MCP; graph panel 2D renders; docling unified ingestion + progress bar
+   - Corresponds to: G2 (LightRAG + llm_wiki) — G2.S1/S2/S3 complete, S4/S5 in progress
 
 3. **M3**: Pi-driven Kanban + Team Conversation + GitHub Integration
    - Acceptance: git-driven kanban works (Goal create / claim lock / PR / Reject); 3 employees can claim tickets in parallel; team conversation shares Pi; pi-intercom coordinates; **GitHub integration: portal can browse repos / PRs / Issues / files via GitHub REST API**
@@ -103,6 +108,10 @@ Each Milestone has explicit acceptance criteria (Definition of Done); all corres
 5. **M5**: Output Page (txt/blog/charts/pptx/html) — implement after core is working
    - Acceptance: Generate txt/blog/charts from knowledge base + web sources; pptx/html generation functional; frontend preview + download
    - Corresponds to: G5 (Output Page)
+
+6. **M6**: Multi-Agent Federation (local agent + remote SAP integration)
+   - Acceptance: local agents (Hermes etc.) integrate into the federation (joinable in chat); remote SAP PiB_i per-employee with HTTP endpoint; agent naming convention (`{employee}::{agent}`, server steward `Athena`); conversation routing across the 3 tiers
+   - Reference: docs/distributed-pi-collaboration.md
 
 ## Testing
 
