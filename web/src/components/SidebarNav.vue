@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
+import { storeToRefs } from "pinia";
 import {
   BookIcon,
   ChatBubbleIcon,
@@ -8,6 +9,8 @@ import {
   ViewGanttIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
+import SettingsPanel from "@/components/SettingsPanel.vue";
+import { useThemeStore } from "@/stores/theme";
 
 interface NavItem {
   label: string;
@@ -17,6 +20,10 @@ interface NavItem {
 
 const route = useRoute();
 const activeMenu = computed(() => route.path);
+
+const theme = useThemeStore();
+const { mode } = storeToRefs(theme);
+const menuTheme = computed(() => (mode.value === "dark" ? "dark" : "light"));
 
 const navItems: NavItem[] = [
   { label: "Chat", path: "/chat", icon: ChatBubbleIcon },
@@ -30,14 +37,18 @@ const navItems: NavItem[] = [
   <t-aside class="app-aside">
     <header class="app-header">
       <div class="brand">
-        <span class="brand-mark">C</span>
+        <img
+          class="brand-logo"
+          src="/caleo-logo.png"
+          alt="CALEO logo"
+        />
         <div class="brand-text">
           <span class="brand-name">Athena Agent</span>
           <span class="brand-tag">CALEO Portal</span>
         </div>
       </div>
     </header>
-    <t-menu theme="dark" class="side-menu" :value="activeMenu">
+    <t-menu :theme="menuTheme" class="side-menu" :value="activeMenu">
       <t-menu-item
         v-for="item in navItems"
         :key="item.path"
@@ -50,6 +61,9 @@ const navItems: NavItem[] = [
         {{ item.label }}
       </t-menu-item>
     </t-menu>
+    <footer class="app-footer">
+      <SettingsPanel />
+    </footer>
   </t-aside>
 </template>
 
@@ -57,14 +71,15 @@ const navItems: NavItem[] = [
 .app-aside {
   width: 220px;
   height: 100%;
-  background: var(--caleo-dark);
+  background: var(--caleo-sidebar-bg);
+  border-right: 1px solid var(--caleo-sidebar-border);
   display: flex;
   flex-direction: column;
 }
 
 .app-header {
   padding: 20px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--caleo-sidebar-border);
 }
 
 .brand {
@@ -73,17 +88,12 @@ const navItems: NavItem[] = [
   gap: 10px;
 }
 
-.brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
+.brand-logo {
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
-  background: var(--caleo-primary);
-  color: #fff;
-  font-weight: 700;
-  font-size: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .brand-text {
@@ -93,13 +103,13 @@ const navItems: NavItem[] = [
 }
 
 .brand-name {
-  color: #fff;
+  color: var(--caleo-sidebar-text);
   font-size: 15px;
   font-weight: 600;
 }
 
 .brand-tag {
-  color: var(--caleo-sky);
+  color: var(--caleo-sidebar-sub);
   font-size: 12px;
 }
 
@@ -107,5 +117,10 @@ const navItems: NavItem[] = [
   flex: 1;
   width: 100%;
   padding-top: 8px;
+}
+
+.app-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--caleo-sidebar-border);
 }
 </style>

@@ -62,8 +62,20 @@ function controllableStream(): {
 }
 
 async function send(wrapper: ChatWrapper, text: string) {
-  await wrapper.find(".composer-input input").setValue(text);
+  await wrapper.find(".composer-input textarea").setValue(text);
   await wrapper.find(".send-button").trigger("click");
+  await flushPromises();
+}
+
+function composerTextarea(wrapper: ChatWrapper) {
+  return wrapper.find(".composer-input textarea");
+}
+
+async function pressEnter(wrapper: ChatWrapper, shift = false) {
+  await composerTextarea(wrapper).trigger("keydown", {
+    key: "Enter",
+    shiftKey: shift,
+  });
   await flushPromises();
 }
 
@@ -85,7 +97,7 @@ describe("ChatView personal chat panel (store-backed)", () => {
       store.userId,
     );
     expect(wrapper.find(".message-list").exists()).toBe(true);
-    expect(wrapper.find(".composer-input input").exists()).toBe(true);
+    expect(wrapper.find(".composer-input textarea").exists()).toBe(true);
     expect(wrapper.find(".send-button").exists()).toBe(true);
     wrapper.unmount();
   });
@@ -113,7 +125,7 @@ describe("ChatView personal chat panel (store-backed)", () => {
   it("typewriter: renders partial assistant content as deltas arrive through the store", async () => {
     streamChatMock.mockResolvedValue(undefined);
     const wrapper = mountChat();
-    await wrapper.find(".composer-input input").setValue("ping");
+    await wrapper.find(".composer-input textarea").setValue("ping");
     await wrapper.find(".send-button").trigger("click");
 
     const stream = controllableStream();
@@ -147,7 +159,7 @@ describe("ChatView personal chat panel (store-backed)", () => {
   it("disables the send button and shows loading while streaming", async () => {
     streamChatMock.mockImplementation(() => new Promise(() => {}));
     const wrapper = mountChat();
-    await wrapper.find(".composer-input input").setValue("ping");
+    await wrapper.find(".composer-input textarea").setValue("ping");
     await wrapper.find(".send-button").trigger("click");
     await flushPromises();
 
@@ -177,6 +189,40 @@ describe("ChatView personal chat panel (store-backed)", () => {
 
     expect(streamChatMock).not.toHaveBeenCalled();
     expect(wrapper.findAll(".message-row")).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("uses a multiline textarea as the composer input", async () => {
+    const wrapper = mountChat();
+    expect(composerTextarea(wrapper).element.tagName).toBe("TEXTAREA");
+    wrapper.unmount();
+  });
+
+  it("sends the message and clears the composer on Enter", async () => {
+    stubStream();
+    const wrapper = mountChat();
+    await composerTextarea(wrapper).setValue("Hello there");
+    await pressEnter(wrapper);
+
+    expect(streamChatMock).toHaveBeenCalledWith(
+      "hermes",
+      "Hello there",
+      expect.any(Object),
+    );
+    expect((composerTextarea(wrapper).element as HTMLTextAreaElement).value).toBe("");
+    wrapper.unmount();
+  });
+
+  it("does not send on Shift+Enter so the user can insert a newline", async () => {
+    streamChatMock.mockResolvedValue(undefined);
+    const wrapper = mountChat();
+    await composerTextarea(wrapper).setValue("line one");
+    await pressEnter(wrapper, true);
+
+    expect(streamChatMock).not.toHaveBeenCalled();
+    expect((composerTextarea(wrapper).element as HTMLTextAreaElement).value).toBe(
+      "line one",
+    );
     wrapper.unmount();
   });
 

@@ -1,10 +1,20 @@
 <script setup lang="ts">
+import { watch } from "vue";
 import SidebarNav from "@/components/SidebarNav.vue";
-import { caleoThemeVars } from "@/theme";
+import { applyTheme } from "@/theme";
+import { useThemeStore } from "@/stores/theme";
+
+const theme = useThemeStore();
+
+watch(
+  () => theme.mode,
+  (mode) => applyTheme(mode),
+  { immediate: true },
+);
 </script>
 
 <template>
-  <t-layout class="app-shell" :style="caleoThemeVars()">
+  <t-layout class="app-shell">
     <SidebarNav />
     <t-content class="app-content">
       <router-view />
@@ -18,6 +28,6 @@ import { caleoThemeVars } from "@/theme";
 }
 
 .app-content {
-  background: #f5f6f7;
+  background: var(--caleo-body-bg);
 }
 </style>

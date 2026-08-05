@@ -15,6 +15,13 @@ function sendMessage() {
   chat.send(text);
   input.value = "";
 }
+
+function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
+  if (ctx.e.key === "Enter" && !ctx.e.shiftKey) {
+    ctx.e.preventDefault();
+    sendMessage();
+  }
+}
 </script>
 
 <template>
@@ -51,12 +58,12 @@ function sendMessage() {
     <p v-if="error" class="chat-error">{{ error }}</p>
 
     <footer class="chat-composer">
-      <t-input
+      <t-textarea
         v-model="input"
         class="composer-input"
-        placeholder="Type a message..."
+        placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
         :disabled="loading"
-        @enter="sendMessage"
+        @keydown="onKeydown"
       />
       <t-button class="send-button" :disabled="loading" @click="sendMessage">
         {{ loading ? "Sending..." : "Send" }}
@@ -84,7 +91,7 @@ function sendMessage() {
 .chat-title {
   margin: 0;
   font-size: 20px;
-  color: var(--caleo-dark);
+  color: var(--caleo-text);
 }
 
 .user-id-field {
@@ -95,7 +102,7 @@ function sendMessage() {
 
 .user-id-label {
   font-size: 13px;
-  color: var(--caleo-light-gray);
+  color: var(--caleo-text-secondary);
 }
 
 .user-id-input {
@@ -106,8 +113,8 @@ function sendMessage() {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
-  background: #fff;
-  border: 1px solid #e7e7e7;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -116,7 +123,7 @@ function sendMessage() {
 
 .empty-hint {
   margin: auto;
-  color: var(--caleo-light-gray);
+  color: var(--caleo-text-secondary);
   text-align: center;
 }
 
@@ -149,13 +156,13 @@ function sendMessage() {
 }
 
 .message-row.assistant .bubble {
-  background: #f0f1f3;
-  color: var(--caleo-dark);
+  background: var(--caleo-bubble-bg);
+  color: var(--caleo-text);
   border-bottom-left-radius: 2px;
 }
 
 .bubble.typing {
-  color: var(--caleo-light-gray);
+  color: var(--caleo-text-secondary);
   font-style: italic;
 }
 
@@ -167,11 +174,18 @@ function sendMessage() {
 
 .chat-composer {
   display: flex;
+  align-items: flex-end;
   gap: 12px;
   margin-top: 16px;
 }
 
 .composer-input {
   flex: 1;
+}
+
+.composer-input :deep(.t-textarea__inner) {
+  min-height: 66px;
+  max-height: 180px;
+  resize: vertical;
 }
 </style>

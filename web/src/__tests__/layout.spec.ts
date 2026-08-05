@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
 import TDesign from "tdesign-vue-next";
@@ -6,6 +6,11 @@ import "tdesign-vue-next/es/style/index.css";
 
 import App from "@/App.vue";
 import router from "@/router";
+import { useThemeStore } from "@/stores/theme";
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 async function waitForRoute(path: string) {
   for (let i = 0; i < 100; i++) {
@@ -54,6 +59,15 @@ describe("portal sidebar navigation", () => {
     wrapper.unmount();
   });
 
+  it("shows the CALEO logo image instead of the letter mark", async () => {
+    const wrapper = await mountApp();
+    const logo = wrapper.find(".brand-logo");
+    expect(logo.exists()).toBe(true);
+    expect(logo.attributes("src")).toBe("/caleo-logo.png");
+    expect(wrapper.find(".brand-mark").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("redirects / to /chat and shows the chat view", async () => {
     const wrapper = await mountApp();
     await router.push("/");
@@ -88,13 +102,56 @@ describe("portal sidebar navigation", () => {
 });
 
 describe("CALEO theme", () => {
-  it("applies CALEO brand colors as CSS custom properties on the app root", async () => {
+  it("applies CALEO brand colors as CSS custom properties on the document root", async () => {
+    await mountApp();
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--caleo-primary")).toBe("#ff6633");
+    expect(root.style.getPropertyValue("--caleo-dark")).toBe("#2d3142");
+    expect(root.style.getPropertyValue("--caleo-sky")).toBe("#69b3e7");
+    expect(root.style.getPropertyValue("--td-brand-color")).toBe("#ff6633");
+  });
+});
+
+describe("theme settings panel", () => {
+  function themeOptions(wrapper: AppWrapper) {
+    return wrapper.findAll(".theme-option");
+  }
+
+  it("renders a settings button at the sidebar bottom", async () => {
     const wrapper = await mountApp();
-    const style = (wrapper.element as HTMLElement).style;
-    expect(style.getPropertyValue("--caleo-primary")).toBe("#ff6633");
-    expect(style.getPropertyValue("--caleo-dark")).toBe("#2d3142");
-    expect(style.getPropertyValue("--caleo-sky")).toBe("#69b3e7");
-    expect(style.getPropertyValue("--td-brand-color")).toBe("#ff6633");
+    expect(wrapper.find(".settings-trigger").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("opens a dialog with dark and light theme options", async () => {
+    const wrapper = await mountApp();
+    await wrapper.find(".settings-trigger").trigger("click");
+    await flushPromises();
+
+    const options = themeOptions(wrapper);
+    const labels = options.map((el) => el.text());
+    expect(options).toHaveLength(2);
+    expect(labels.some((t) => t.includes("Dark"))).toBe(true);
+    expect(labels.some((t) => t.includes("Light"))).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("switches to light theme globally and persists the choice", async () => {
+    const wrapper = await mountApp();
+    await wrapper.find(".settings-trigger").trigger("click");
+    await flushPromises();
+
+    const light = themeOptions(wrapper).find((el) =>
+      el.text().includes("Light"),
+    );
+    await light!.trigger("click");
+    await flushPromises();
+
+    expect(useThemeStore().mode).toBe("light");
+    expect(
+      document.documentElement.style.getPropertyValue("--caleo-body-bg"),
+    ).toBe("#f5f6f7");
+    expect(localStorage.getItem("caleo-theme")).toBe("light");
     wrapper.unmount();
   });
 });
