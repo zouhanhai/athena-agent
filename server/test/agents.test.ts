@@ -2,11 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgent } from "../src/agents/agent.js";
 
-test("createAgent creates DeepSeek AgentSession", async () => {
+test("createAgent creates OpenRouter AgentSession", async () => {
   const agent = await createAgent();
   try {
     assert.ok(agent.session, "should return AgentSession");
-    assert.equal(agent.model, "deepseek/deepseek-v4-flash");
+    assert.equal(agent.model, "openrouter/deepseek/deepseek-v4-flash");
   } finally {
     agent.dispose();
   }

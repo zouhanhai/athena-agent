@@ -13,7 +13,7 @@ let tmpRoots: string[] = [];
 function makeStubAgent(disposed: () => void = () => {}): Agent {
   return {
     session: {} as never,
-    model: "deepseek/deepseek-v4-flash",
+    model: "openrouter/deepseek/deepseek-v4-flash",
     packages: [],
     extensionErrors: [],
     prompt: async () => "ok",

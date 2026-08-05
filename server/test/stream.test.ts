@@ -43,7 +43,7 @@ function makeFakeAgent(deltas: string[]): {
 
   const agent = {
     session,
-    model: "deepseek/deepseek-v4-flash",
+    model: "openrouter/deepseek/deepseek-v4-flash",
     packages: [],
     extensionErrors: [],
     prompt: async () => "",

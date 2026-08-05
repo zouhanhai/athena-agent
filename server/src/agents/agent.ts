@@ -4,12 +4,16 @@ import {
   ModelRuntime,
   type AgentSession,
   type SessionManager,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { createKnowledgeTools, type KnowledgeToolServices } from "../kb/tools.js";
+import { LightRagClient } from "../kb/lightrag.js";
+import { LlmWikiClient } from "../kb/llmwiki.js";
 
 export interface CreateAgentOptions {
-  /** Provider id. Default: "deepseek" */
+  /** Provider id. Default: "openrouter" */
   providerId?: string;
-  /** Model id within the provider. Default: "deepseek-v4-flash" */
+  /** Model id within the provider. Default: "deepseek/deepseek-v4-flash" */
   modelId?: string;
   /** Global Pi config dir. Default: ~/.pi/agent */
   agentDir?: string;
@@ -17,6 +21,12 @@ export interface CreateAgentOptions {
   cwd?: string;
   /** Pi SessionManager for conversation persistence / per-employee isolation. Default: new persistent session. */
   sessionManager?: SessionManager;
+  /** Register the 5 knowledge tools (Agentic RAG routing). Default: true. */
+  knowledgeTools?: boolean;
+  /** Services backing the knowledge tools. Default: live LightRAG + llm_wiki clients. */
+  knowledgeToolServices?: KnowledgeToolServices;
+  /** Additional custom tools registered on the session. */
+  customTools?: ToolDefinition[];
 }
 
 export interface Agent {
@@ -32,11 +42,11 @@ export interface Agent {
   dispose(): void;
 }
 
-const DEFAULT_PROVIDER = "deepseek";
-const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_PROVIDER = "openrouter";
+const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
 
 /**
- * Create an AgentSession wrapping the Pi SDK (ModelRuntime + DeepSeek).
+ * Create an AgentSession wrapping the Pi SDK (ModelRuntime + OpenRouter).
  * Reusable per-employee entry point for personal conversations.
  */
 export async function createAgent(options: CreateAgentOptions = {}): Promise<Agent> {
@@ -59,12 +69,26 @@ export async function createAgent(options: CreateAgentOptions = {}): Promise<Age
     );
   }
 
+  const customTools: ToolDefinition[] = [];
+  if (options.knowledgeTools !== false) {
+    customTools.push(
+      ...createKnowledgeTools(
+        options.knowledgeToolServices ?? {
+          lightrag: new LightRagClient(),
+          llmwiki: new LlmWikiClient(),
+        },
+      ),
+    );
+  }
+  customTools.push(...(options.customTools ?? []));
+
   const { session, extensionsResult } = await createAgentSession({
     model,
     modelRuntime,
     cwd: options.cwd,
     agentDir: options.agentDir,
     sessionManager: options.sessionManager,
+    customTools,
   });
 
   const packages = extensionsResult.extensions.map((ext) =>
