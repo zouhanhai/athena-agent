@@ -46,7 +46,11 @@ const sidebarTopOffset = "24px";
         />
         <div class="brand-text">
           <span class="brand-name">Athena Agent</span>
-          <span class="brand-subtitle">CALEO Portal</span>
+          <img
+            class="brand-caleo-logo"
+            src="/caleo-logo-clean.png"
+            alt="CALEO"
+          />
         </div>
       </div>
     </header>
@@ -77,7 +81,7 @@ const sidebarTopOffset = "24px";
 <style scoped>
 .app-aside {
   width: 220px;
-  height: 100%;
+  min-height: 100vh;
   background: var(--caleo-sidebar-bg);
   border-right: 1px solid var(--caleo-sidebar-border);
   display: flex;
@@ -119,11 +123,11 @@ const sidebarTopOffset = "24px";
   white-space: nowrap;
 }
 
-.brand-subtitle {
-  color: var(--caleo-sidebar-sub);
-  font-size: 12px;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
+.brand-caleo-logo {
+  height: 14px;
+  width: auto;
+  object-fit: contain;
+  opacity: 0.9;
 }
 
 .side-menu {
@@ -154,6 +158,6 @@ const sidebarTopOffset = "24px";
 .app-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--caleo-sidebar-border);
-  background: var(--caleo-sidebar-bg);
+  background: var(--caleo-sidebar-footer-bg);
 }
 </style>
