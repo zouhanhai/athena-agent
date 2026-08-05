@@ -28,9 +28,10 @@ are owned by a remote endpoint — all reachable through one unified interface.
                 │ HTTP (Tailscale) │
    ┌────────────┴─────────┐   ┌────┴─────────────┐
    │ REMOTE (SAP server)  │   │ LOCAL (each PC)   │
-   │ Remote PiB + ABAP MCP│   │ Local agent       │
-   │ + OpenCode workers   │   │ Hermes/Claude/    │
-   │ (HTTP shell)         │   │ Codex/Pi + OpenCode│
+   │ Per-employee:        │   │ Per-employee:     │
+   │  PiB_i + ABAP MCP    │   │  Local agent_i    │
+   │  + OpenCode_i        │   │  Hermes/Claude/   │
+   │ (HTTP shell)         │   │  Codex/Pi+OpenCode│
    └──────────────────────┘   └──────────────────┘
 ```
 
@@ -63,8 +64,8 @@ Employee → ① Local agent   (development, daily work, local OpenCode)
 | Server | LightRAG + llm_wiki | Centralized knowledge (vector+graph / wiki pages) |
 | Server | athena portal | Unified UI: conversations, knowledge, kanban, wiki |
 | Local | **Local agent** (any) | Employee's dev + chat; local OpenCode for coding; HTTP shell → server |
-| Remote | **Remote PiB** (shared) | Owns external codebase context (ABAP MCP); dispatches OpenCode workers |
-| Remote | OpenCode workers | Actual coders for remote tasks |
+| Remote | **Remote PiB_i** (per-employee) | Owns external codebase context (ABAP MCP); dispatches OpenCode workers |
+| Remote | OpenCode_i | Employee's own coder on the remote (each has own virtual client / SAP env) |
 
 ## Communication
 
@@ -79,11 +80,15 @@ Server HTTP API (Fastify shell) + MCP:
 ```
 Local + Remote agents talk to the server through this interface over **Tailscale**.
 
-### Remote PiB (SAP) reachable from server/local
+### Remote PiB_i (SAP) reachable from server/local
+Each employee's remote PiB_i is reachable (HTTP shell) from the server/local:
 ```
-POST /api/task   → PiB dispatches an OpenCode worker
+POST /api/task   → PiB_i dispatches its OpenCode_i worker
 GET  /api/status → worker/task status
 ```
+Why per-employee on the remote: each employee has their **own virtual client / SAP
+environment**, so each runs a PiB_i + OpenCode_i in that environment (equivalent to a
+second local setup on the remote). No shared PiB on the remote.
 
 ## Conversation Routing (3 agents per employee)
 
@@ -91,7 +96,7 @@ GET  /api/status → worker/task status
 |--------|-------|
 | Knowledge / team processes / general | Server PiA_srv (knowledge graph) |
 | Local development / own code | Local agent |
-| External codebase (SAP ABAP) | Remote PiB |
+| External codebase (SAP ABAP) | Remote PiB_i (employee's own) |
 
 - **Private chat**: default local agent; knowledge → server Pi; SAP → @PiB / SAP session.
 - UI labels each agent (avatar/name): "Local Hermes", "Server Pi - Knowledge", "PiB - SAP".
@@ -111,15 +116,16 @@ GET  /api/status → worker/task status
 1. Today: athena + Pi + LightRAG + llm_wiki all on 6900XT.
 2. Next: move knowledge services (LightRAG/llm_wiki) + athena portal to a company server.
 3. Then: server PiA_srv becomes the knowledge steward; each employee runs local agent.
-4. Remote SAP endpoint (PiB + OpenCode) added when remote-codebase work begins.
+4. Remote SAP endpoint (per-employee PiB_i + OpenCode_i) added when remote-codebase work begins.
 
 ## Open Questions / Next Steps
 
 - Authentication between tiers (Tailscale identity + API token).
 - Knowledge access permissions per employee.
 - Whether server PiA_srv is one shared instance or per-employee (recommend shared for
-  knowledge stewardship; local agent is per-employee).
+  knowledge stewardship; local + remote agents are per-employee).
 - HTTP protocol versioning for the unified interface.
+- Remote SAP environment: each employee's virtual client / separate PiB_i isolation.
 
 ## Reference
 
