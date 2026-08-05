@@ -17,7 +17,7 @@ Provide the 3 employees of the CALEO department with a **unified collaboration p
 | 3  | Backend             | Node/TS + Fastify + AgentSession embedding Pi                         |
 | 4  | Frontend            | Vue3 + TDesign, referencing WeKnora layout, CALEO orange (#ff6633)    |
 | 5  | Database            | Postgres + pgvector (vectors); graph = LightRAG NetworkX (POC)        |
-| 6  | Conversation model  | DeepSeek (conversation) + Qwythos MTP (local/vision, :8080)           |
+| 6  | Conversation model  | OpenRouter unified (deepseek/deepseek-v4-flash main; qwen/qwen3.7-flash vision; qwen/qwen3-embedding-8b embedding) |
 | 7  | Knowledge retrieval | LightRAG (retrieval + graph, with built-in UI)                        |
 | 8  | Wiki accumulation   | llm_wiki service (:19828 API + MCP), custom CALEO-style frontend      |
 | 9  | Kanban              | TS rewrite, Pi-driven (pi-task/glla/dynamic-workflows)                |
@@ -68,11 +68,12 @@ athena-agent/
 │   ├── adr/                      # Architecture Decision Records (one per file)
 │   ├── git-kanban-design.md      # git-driven Kanban design
 │   ├── knowledge-rag-design.md   # Knowledge base & RAG routing design
+│   ├── distributed-pi-collaboration.md # Multi-Agent Federation design
 │   ├── output-design.md          # Output page design (NotebookLM-style)
 │   ├── pi-capabilities.md        # Pi capabilities & Package mapping
 │   └── kanban/                   # Goals → Specs → Tickets (git-driven board)
 │       ├── G1/ (S1, S2)          # M1: skeleton + personal conversation (DONE)
-│       └── G2/ (S1..S5)          # M2: knowledge base (planned)
+│       └── G2/ (S1..S5)          # M2: knowledge base (S1/S2/S3 done, S4/S5 in progress)
 ├── server/           # Node/TS Fastify backend
 │   ├── src/
 │   │   ├── agents/   # AgentSession management
@@ -126,8 +127,8 @@ npm run typecheck   # type checking (tsc --noEmit)
 Coverage:
 
 - Unit/Integration: AgentSession creation and conversation, AgentManager session management (reuse / isolation / teardown), POST /api/chat streaming + non-streaming
-- E2E (`test/e2e-conversation.test.ts`): Real DeepSeek end-to-end — single message, multi-turn context (same userId reuses session), different userId context isolation, error handling (empty message / invalid fields / conversation service not started)
-- Real conversation test cases require `~/.pi/agent/auth.json` (DeepSeek key)
+- E2E (`test/e2e-conversation.test.ts`): Real OpenRouter end-to-end — single message, multi-turn context (same userId reuses session), different userId context isolation, error handling (empty message / invalid fields / conversation service not started)
+- Real conversation test cases require `~/.pi/agent/auth.json` (OpenRouter key)
 
 ## Key Risks
 
@@ -137,6 +138,6 @@ Coverage:
 ## Open Items (to be confirmed later)
 
 - CodeGraph specific deployment approach
-- Portal frontend/backend specific ports
-- Resend domain verification
-- `api.openrouter.ai` DNS does not resolve on 6900XT network; `openrouter.ai` works as OpenRouter endpoint
+- Portal frontend/backend specific ports (Vite dev :5173, backend :3000)
+- Resend domain verification (caleo.com)
+- Future: migrate from 6900XT to a company server (see Multi-Agent Federation)
