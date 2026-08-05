@@ -1,9 +1,9 @@
-# Wiki 用 llm_wiki 服务 + 前端自绘
+# Wiki using llm_wiki Service + Custom Frontend
 
-Wiki 面板用 nashsu/llm_wiki 作为服务（:19828 HTTP API + MCP），门户后端调其 API 拿 wiki 数据，前端用 Vue 自绘（CALEO 风格）。
+The Wiki panel uses nashsu/llm_wiki as a service (:19828 HTTP API + MCP). The portal backend calls its API to fetch wiki data; the frontend renders it with Vue (CALEO style).
 
-**背景**: 需要"Wiki 沉淀"能力（Karpathy 模式：LLM 增量生成互联 markdown wiki）。候选有 nashsu/llm_wiki 桌面应用、nvk/llm-wiki CLI、WeKnora 内置 agent。
+**Context**: A "Wiki accumulation" capability is needed (Karpathy pattern: LLM incrementally generates interlinked markdown wikis). Candidates include nashsu/llm_wiki desktop app, nvk/llm-wiki CLI, and WeKnora's built-in agent.
 
-**决策**: 用 nashsu/llm_wiki。它虽是 Tauri 桌面应用，但有独立 HTTP API（tiny_http，:19828）+ MCP server，数据能力完整（混合检索 keyword+vector+graph）。其前端是桌面不能 Web iframe，故前端自绘。
+**Decision**: Use nashsu/llm_wiki. Although it is a Tauri desktop app, it exposes an independent HTTP API (tiny_http, :19828) + MCP server, with complete data capabilities (hybrid retrieval: keyword + vector + graph). Its frontend is desktop-only and cannot be iframed on the web, so the frontend must be custom-built.
 
-**后果**: 需验证 llm_wiki 能 headless 跑（6900XT 有 Xvfb 虚拟显示）；需装 Rust 编译；前端要自绘 Wiki 浏览 UI（CALEO 风格）。
+**Consequences**: Must verify llm_wiki can run headless (6900XT has Xvfb for virtual display); Rust compilation required; the frontend must implement a custom Wiki browsing UI (CALEO style).

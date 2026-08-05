@@ -1,9 +1,9 @@
-# Node/TS + Fastify + AgentSession 内嵌 Pi
+# Node/TS + Fastify + AgentSession Embedded Pi
 
-门户后端用 Node.js/TypeScript + Fastify，通过 `AgentSession`（`@earendil-works/pi-coding-agent`）进程内嵌 Pi，而非 spawn 子进程走 RPC。
+The portal backend uses Node.js/TypeScript + Fastify, embedding Pi in-process via `AgentSession` (`@earendil-works/pi-coding-agent`), rather than spawning a child process over RPC.
 
-**背景**: Pi 是纯 TS 项目，官方推荐 `AgentSession` 内嵌（`src/core/agent-session.ts`）。Python 只能 spawn 子进程走 RPC JSONL，是二等公民。
+**Context**: Pi is a pure TS project, with the officially recommended approach being `AgentSession` embedding (`src/core/agent-session.ts`). Python can only spawn a child process over RPC JSONL and is a second-class citizen.
 
-**决策**: Node/TS + Fastify 后端，AgentSession 内嵌 Pi。每员工一个常驻实例。
+**Decision**: Node/TS + Fastify backend, AgentSession embeds Pi. One long-lived instance per employee.
 
-**后果**: 后端必须 Node.js；门户后端与 Pi 引擎同进程；复用 Pi 的 8 个 npm 扩展。
+**Consequences**: The backend must be Node.js; the portal backend and Pi engine run in the same process; all 8 of Pi's npm extensions are reused.

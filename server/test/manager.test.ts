@@ -38,7 +38,7 @@ test.after(() => {
   }
 });
 
-test("getAgent 不同员工创建独立 AgentSession", async () => {
+test("getAgent creates independent AgentSession for different employees", async () => {
   const calls: string[] = [];
   const manager = new AgentManager({}, async (userId) => {
     calls.push(userId);
@@ -46,11 +46,11 @@ test("getAgent 不同员工创建独立 AgentSession", async () => {
   });
   const alice = await manager.getAgent("alice");
   const bob = await manager.getAgent("bob");
-  assert.notEqual(alice, bob, "不同员工应为独立实例");
+  assert.notEqual(alice, bob, "different employees should have independent instances");
   assert.deepEqual(calls, ["alice", "bob"]);
 });
 
-test("getAgent 同一员工复用同一 session", async () => {
+test("getAgent reuses the same session for the same employee", async () => {
   let createCount = 0;
   const manager = new AgentManager({}, async () => {
     createCount++;
@@ -58,11 +58,11 @@ test("getAgent 同一员工复用同一 session", async () => {
   });
   const a = await manager.getAgent("alice");
   const b = await manager.getAgent("alice");
-  assert.equal(a, b, "同员工应复用同一实例");
+  assert.equal(a, b, "same employee should reuse the same instance");
   assert.equal(createCount, 1);
 });
 
-test("getAgent 并发请求复用同一 session（只创建一次）", async () => {
+test("getAgent concurrent requests reuse the same session (created only once)", async () => {
   let createCount = 0;
   const manager = new AgentManager({}, async () => {
     createCount++;
@@ -72,13 +72,13 @@ test("getAgent 并发请求复用同一 session（只创建一次）", async () 
   const results = await Promise.all(
     Array.from({ length: 10 }, () => manager.getAgent("alice")),
   );
-  assert.equal(createCount, 1, "并发重复请求应只创建一次");
+  assert.equal(createCount, 1, "concurrent duplicate requests should create only once");
   for (const agent of results) {
     assert.equal(agent, results[0]);
   }
 });
 
-test("removeAgent 销毁会话，之后 getAgent 创建新实例", async () => {
+test("removeAgent disposes the session, then getAgent creates a new instance", async () => {
   let disposedCount = 0;
   const manager = new AgentManager({}, async () =>
     makeStubAgent(() => {
@@ -88,44 +88,44 @@ test("removeAgent 销毁会话，之后 getAgent 创建新实例", async () => {
   const first = await manager.getAgent("alice");
   assert.equal(manager.size, 1);
   await manager.removeAgent("alice");
-  assert.equal(disposedCount, 1, "旧实例应被销毁");
+  assert.equal(disposedCount, 1, "old instance should be disposed");
   assert.equal(manager.size, 0);
   const second = await manager.getAgent("alice");
-  assert.notEqual(first, second, "销毁后应创建新实例");
+  assert.notEqual(first, second, "should create a new instance after disposal");
   assert.equal(disposedCount, 1);
 });
 
-test("removeAgent 不存在的用户为 no-op", async () => {
+test("removeAgent is a no-op for non-existent users", async () => {
   const manager = new AgentManager({}, async () => makeStubAgent());
   await manager.removeAgent("ghost");
   assert.equal(manager.size, 0);
 });
 
-test("createEmployeeSessionManager 每员工独立持久化 session 目录", () => {
+test("createEmployeeSessionManager has an independent persistent session directory per employee", () => {
   const alice = createEmployeeSessionManager("alice", { cwd: CWD, sessionDir: sessionBase });
   const bob = createEmployeeSessionManager("bob", { cwd: CWD, sessionDir: sessionBase });
   const alice2 = createEmployeeSessionManager("alice", { cwd: CWD, sessionDir: sessionBase });
   assert.ok(alice.isPersisted());
-  assert.notEqual(alice.getSessionDir(), bob.getSessionDir(), "不同员工目录应不同");
-  assert.equal(alice.getSessionDir(), alice2.getSessionDir(), "同员工目录应一致");
+  assert.notEqual(alice.getSessionDir(), bob.getSessionDir(), "different employee directories should differ");
+  assert.equal(alice.getSessionDir(), alice2.getSessionDir(), "same employee directories should be identical");
   assert.ok(
     alice.getSessionDir().startsWith(sessionBase),
-    "session 应落在配置的 sessionDir 下",
+    "session should reside under configured sessionDir",
   );
 });
 
-test("createEmployeeSessionManager 重启后恢复同一会话", () => {
+test("createEmployeeSessionManager restores the same session after restart", () => {
   const first = createEmployeeSessionManager("alice", { cwd: CWD, sessionDir: sessionBase });
   const id = first.getSessionId();
   type SessionMessage = Parameters<typeof first.appendMessage>[0];
   first.appendMessage({ role: "user", content: "hi" } as unknown as SessionMessage);
   first.appendMessage({ role: "assistant", content: "hello" } as unknown as SessionMessage);
   const resumed = createEmployeeSessionManager("alice", { cwd: CWD, sessionDir: sessionBase });
-  assert.equal(resumed.getSessionId(), id, "重启后应恢复同一会话");
-  assert.equal(resumed.buildSessionContext().messages.length, 2, "应恢复已持久化的对话");
+  assert.equal(resumed.getSessionId(), id, "should restore the same session after restart");
+  assert.equal(resumed.buildSessionContext().messages.length, 2, "should restore persisted conversations");
 });
 
-test("createEmployeeSessionManager inMemory 不持久化", () => {
+test("createEmployeeSessionManager inMemory does not persist", () => {
   const sm = createEmployeeSessionManager("alice", { cwd: CWD, sessionDir: sessionBase, inMemory: true });
   assert.equal(sm.isPersisted(), false);
 });

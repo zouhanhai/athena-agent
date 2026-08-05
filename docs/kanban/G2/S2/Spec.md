@@ -1,71 +1,71 @@
 ---
 id: g2_s2
-title: "G2.S2: llm_wiki 服务部署"
+title: "G2.S2: llm_wiki Service Deployment"
 layer: S
 parent: G2
 owner: eng-director
 status: active
 milestone: M2
 acceptance_criteria:
-  - "llm_wiki (nashsu/llm_wiki) 在 6900XT headless 运行"
-  - "提供 HTTP API (127.0.0.1:19828)"
-  - "能读共享 input-dir 的 Markdown 生成 wiki 页面"
-  - "有混合检索 (keyword + vector) 能力"
-  - "服务绑定 0.0.0.0 供 Tailscale 访问"
-  - "Rust/Cargo 已装并成功编译"
+  - "llm_wiki (nashsu/llm_wiki) running headless on 6900XT"
+  - "Provides HTTP API (127.0.0.1:19828)"
+  - "Can read Markdown from shared input-dir and generate wiki pages"
+  - "Has hybrid retrieval (keyword + vector) capability"
+  - "Service bound to 0.0.0.0 for Tailscale access"
+  - "Rust/Cargo installed and successfully compiled"
 ---
 
-# G2.S2: llm_wiki 服务部署
+# G2.S2: llm_wiki Service Deployment
 
 ## Task
 
-在 6900XT 部署 llm_wiki 服务 (Karpathy 模式 wiki 知识库)。
+Deploy llm_wiki service (Karpathy-style wiki knowledge base) on 6900XT.
 
-## 关键依赖
+## Key Dependencies
 
-- Rust/Cargo (需装, 6900XT 暂无)
-- Xvfb (headless 显示, 6900XT 已有)
-- DeepSeek API (wiki 页面生成用)
+- Rust/Cargo (needs install, not yet on 6900XT)
+- Xvfb (headless display, already on 6900XT)
+- DeepSeek API (for wiki page generation)
 
-## 实现
+## Implementation
 
-1. **装 Rust**: rustup 装 stable (Rust/Cargo)
-2. **克隆编译**: nashsu/llm_wiki (Tauri 应用)
-   - 编译 Rust backend (含 tiny_http :19828 + MCP server)
-3. **headless 运行**: 用 Xvfb (xvfb-run) 启动, 提供 :19828 API
-   - 即使无 GUI, 后台跑 Rust backend 提供 HTTP API
-4. **配置**:
-   - 数据目录 (wiki md 文件 + 索引)
-   - 读共享 input-dir 的 Markdown 生成 wiki 页面
-   - DeepSeek LLM 配置
-5. **验证**:
-   - :19828 API 可访问 (健康检查)
-   - 摄入 Markdown → 生成 wiki 页面
-   - 关键词检索 (wiki_search 等价物) 可用
-   - MCP server 是否暴露检索工具 (确认)
-6. **服务绑定**: 0.0.0.0 (供 Tailscale)
+1. **Install Rust**: rustup install stable (Rust/Cargo)
+2. **Clone & Compile**: nashsu/llm_wiki (Tauri application)
+   - Compile Rust backend (includes tiny_http :19828 + MCP server)
+3. **Headless run**: Use Xvfb (xvfb-run) to start, providing :19828 API
+   - Even without GUI, background runs Rust backend providing HTTP API
+4. **Configure**:
+   - Data directory (wiki md files + index)
+   - Read Markdown from shared input-dir to generate wiki pages
+   - DeepSeek LLM configuration
+5. **Verify**:
+   - :19828 API accessible (health check)
+   - Ingest Markdown → generate wiki pages
+   - Keyword retrieval (wiki_search equivalent) usable
+   - MCP server whether exposes retrieval tools (confirm)
+6. **Service binding**: 0.0.0.0 (for Tailscale)
 
-## 参考
+## Reference
 
 - Spec: `docs/kanban/G2/Goal.md`
-- 设计: `docs/knowledge-rag-design.md`
+- Design: `docs/knowledge-rag-design.md`
 - ADR: `docs/adr/0004-llm-wiki-service.md`
-- 6900XT: 需 SSH 操作
+- 6900XT: requires SSH operation
 
-## 如何定位参考文档
+## How to Locate Reference Docs
 
 - `parent: G2` → `docs/kanban/G2/Goal.md`
 - ADR-0004: `docs/adr/0004-llm-wiki-service.md`
 
-## 说明
+## Notes
 
-- llm_wiki 是 Tauri 桌面应用, 前端不能 Web iframe → 后端调 API, 前端自绘
-- 核心价值: 混合检索 (keyword+vector+graph) + 增量生成互联 wiki
-- **风险**: headless 运行 + Rust 编译是主要验证点
-- 用 **implement** + tdd (验证脚本) + code-review
+- llm_wiki is a Tauri desktop app, frontend cannot be web iframe → backend calls API, frontend custom renders
+- Core value: hybrid retrieval (keyword+vector+graph) + incremental interlinked wiki generation
+- **Risk**: headless running + Rust compilation are main verification points
+- Use **implement** + tdd (verification scripts) + code-review
 
-## 依赖
+## Dependencies
 
-- 无 (可与 G2.S1 并行)
+- None (can parallel with G2.S1)
 
 ## Log

@@ -1,91 +1,91 @@
-# athena-agent — Output 页面设计（NotebookLM 式内容合成）
+# athena-agent — Output Page Design (NotebookLM-Style Content Synthesis)
 
-> 状态：**已规划，待核心功能（对话/Kanban/知识库）跑通后实施**
-> 目标：从知识库文件 + Web 来源，生成 txt / blog / 图表 / pptx / html 展示文件。
-> 类似 NotebookLM 的"生成笔记本/报告/演示文稿"能力。
+> Status: **Planned; to be implemented after core functionality (conversation/Kanban/knowledge base) is working**
+> Goal: Generate txt / blog / charts / pptx / html output files from knowledge base files + web sources.
+> Similar to NotebookLM's "generate notebook / report / presentation" capability.
 
-## 一、功能定位
+## 1. Functional Positioning
 
-用户在前端 Output 页面：
-1. 选择知识库文件（llm_wiki 检索到的 wiki 页面 / 文档）
-2. 添加 Web 来源（URL，可选）
-3. 选择输出格式：txt / blog / 图表 / pptx / html
-4. 生成 → Pi 检索 + 合成 → 调工具 → 文件预览/下载
+User on the frontend Output page:
+1. Select knowledge base files (wiki pages / documents retrieved by llm_wiki)
+2. Add web sources (URLs, optional)
+3. Choose output format: txt / blog / charts / pptx / html
+4. Generate → Pi retrieves + synthesizes → calls tools → file preview / download
 
-## 二、生成工具矩阵
+## 2. Generation Tool Matrix
 
-| 输出格式 | 生成方式 | 工具 | 状态 |
-|---------|---------|------|------|
-| txt | Pi 直接生成纯文本 | Pi 能力 | ✅ 可用 |
-| blog | Pi 生成 markdown/HTML 博客 | Pi 能力 | ✅ 可用 |
-| 图表 | AI 数据可视化 | microsoft/data-formulator (16k) | ⚠️ 需验证 |
-| pptx | 原生 PPTX（形状/动画/图表）| ppt-master（已装 v4.3.0）| ⚠️ 需验证 Pi 运行 |
-| html | 高保真 HTML 展示 | huashu-design (22k) | ⚠️ 需验证 |
+| Output Format | Generation Method                     | Tool                    | Status          |
+|---------------|---------------------------------------|-------------------------|-----------------|
+| txt           | Pi directly generates plain text      | Pi capability           | ✅ Available    |
+| blog          | Pi generates markdown/HTML blog       | Pi capability           | ✅ Available    |
+| charts        | AI data visualization                 | microsoft/data-formulator (16k) | ⚠️ Needs verification |
+| pptx          | Native PPTX (shapes/animations/charts)| ppt-master (installed v4.3.0) | ⚠️ Needs verification in Pi |
+| html          | High-fidelity HTML presentation       | huashu-design (22k)     | ⚠️ Needs verification |
 
-## 三、架构：Pi 作为输出调度器
+## 3. Architecture: Pi as Output Dispatcher
 
 ```
-Output 页面:
-  用户选: 知识库文件 + Web URL + 输出格式
+Output Page:
+  User selects: knowledge base files + web URLs + output format
     ↓
-  门户后端 → Pi (AgentSession):
-    ├─ 检索知识库 (llm_wiki/LightRAG)
-    ├─ 拉取 Web URL
-    ├─ 合成内容
-    └─ 按格式调用生成工具:
-        ├─ txt/blog → Pi 直接写
-        ├─ 图表     → data-formulator
+  Portal backend → Pi (AgentSession):
+    ├─ Retrieve knowledge base (llm_wiki/LightRAG)
+    ├─ Fetch web URLs
+    ├─ Synthesize content
+    └─ Call generation tools by format:
+        ├─ txt/blog → Pi writes directly
+        ├─ charts   → data-formulator
         ├─ pptx     → ppt-master
         └─ html     → huashu-design
     ↓
-  生成文件 → 前端预览/下载
+  Generated file → frontend preview / download
 ```
 
-## 四、候选工具调研
+## 4. Candidate Tool Survey
 
-| Repo | Stars | 类型 | 说明 |
-|------|-------|------|------|
-| hugohe3/ppt-master | 43k | Claude Code skill | 原生 PPTX（形状/动画/图表/模板/旁白），最强 |
-| alchaincyf/huashu-design | 22.2k | HTML skill | 高保真原型/幻灯片/动画 + MP4 导出 |
-| Anionex/banana-slides | 15.4k | 完整应用 | "Vibe PPT"，一句话生成，可编辑 pptx |
-| addsumtech/slides_maker | 324 | Codex/Claude skill | 论文/代码→PPTX，原生图表/方程 |
-| microsoft/data-formulator | 16k | Python 系统 | AI 交互式数据可视化 |
+| Repo                    | Stars  | Type              | Notes                                                      |
+|-------------------------|--------|-------------------|------------------------------------------------------------|
+| hugohe3/ppt-master      | 43k    | Claude Code skill | Native PPTX (shapes/animations/charts/templates/narration), best in class |
+| alchaincyf/huashu-design| 22.2k  | HTML skill        | High-fidelity prototypes/slides/animations + MP4 export    |
+| Anionex/banana-slides   | 15.4k  | Full app          | "Vibe PPT", one-sentence generation, editable pptx         |
+| addsumtech/slides_maker | 324    | Codex/Claude skill| Paper/code → PPTX, native charts/equations                 |
+| microsoft/data-formulator | 16k  | Python system     | AI interactive data visualization                          |
 
-**关键事实**：
-- 本地已装 **ppt-master v4.3.0**（含完整 workflows，就是 hugohe3/ppt-master）
-- huashu-design 是 HTML 原生，匹配"html 展示文件"需求
-- data-formulator 是微软 AI 可视化系统
+**Key facts**:
+- **ppt-master v4.3.0** is already installed locally (includes full workflows; it IS hugohe3/ppt-master)
+- huashu-design is HTML-native, matching the "html display file" requirement
+- data-formulator is Microsoft's AI visualization system
 
-## 五、实施策略（分层）
+## 5. Implementation Strategy (Layered)
 
-### POC 阶段（核心跑通后先做）
-- txt / blog：Pi 直接生成（能力最成熟）
-- 图表：Pi 生成数据 + 基础图表库（ECharts / matplotlib）
-- html：Pi 生成 HTML 模板（CALEO 风格）
-- pptx：Pi + python-pptx 基础生成
+### POC Phase (after core runs, do first)
+- txt / blog: Pi directly generates (most mature capability)
+- charts: Pi generates data + basic chart library (ECharts / matplotlib)
+- html: Pi generates HTML templates (CALEO style)
+- pptx: Pi + python-pptx basic generation
 
-### 增强阶段（验证 skill 可行性后）
-- 图表 → 接入 data-formulator（如能 API 化）
-- pptx → 接入 ppt-master
-- html → 接入 huashu-design
+### Enhancement Phase (after verifying skill feasibility)
+- charts → integrate data-formulator (if API-izable)
+- pptx → integrate ppt-master
+- html → integrate huashu-design
 
-## 六、关键待验证
+## 6. Key Items to Verify
 
-- ppt-master / huashu-design 是 Claude Code/Codex skill，**能否在 Pi 中运行**需验证
-- data-formulator 能否作为无头 API 被 Pi 调用
-- Pi 的 ReAct 能否可靠调度多格式生成
+- ppt-master / huashu-design are Claude Code/Codex skills — **whether they can run inside Pi** needs verification
+- Whether data-formulator can act as a headless API callable by Pi
+- Whether Pi's ReAct can reliably orchestrate multi-format generation
 
-## 七、里程碑
+## 7. Milestones
 
-- **核心功能**（M1-M4）：对话 / Kanban / 知识库
-- **Output 页面**：核心跑通后实施（M5）
-  - 先做 txt / blog / 图表（Pi 能力）
-  - 后做 pptx / html 增强（接入 skill）
+- **Core functionality** (M1-M4): Conversation / Kanban / Knowledge Base
+- **Output Page**: implement after core is working (M5)
+  - First: txt / blog / charts (Pi capability)
+  - Later: pptx / html enhancement (integrate skills)
 
-## 八、落地要点
+## 8. Implementation Essentials
 
-1. Output 页面在 Vue 前端侧边栏新增入口
-2. 门户后端加 /output 路由，调度 Pi + 工具
-3. Pi 用 pi-mcp-adapter 接知识库检索
-4. 生成文件存 6900XT，前端预览 + 下载
-5. 复用的 skill：ppt-master（已装）、huashu-design、data-formulator
+1. Output Page added as a new sidebar entry in the Vue frontend
+2. Portal backend adds /output route, dispatches Pi + tools
+3. Pi connects to knowledge base retrieval via pi-mcp-adapter
+4. Generated files stored on 6900XT, frontend preview + download
+5. Reusable skills: ppt-master (installed), huashu-design, data-formulator

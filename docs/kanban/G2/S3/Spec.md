@@ -1,69 +1,69 @@
 ---
 id: g2_s3
-title: "G2.S3: 知识接入层 + Pi 检索路由"
+title: "G2.S3: Knowledge Access Layer + Pi Retrieval Routing"
 layer: S
 parent: G2
 owner: eng-director
 status: active
 milestone: M2
 acceptance_criteria:
-  - "athena 后端有 kb/ 服务层封装 (LightRAG + llm_wiki 客户端)"
-  - "双管道摄入服务: 接收 Markdown → 投给 LightRAG + llm_wiki"
-  - "pi-mcp-adapter 接两个知识源的 MCP"
-  - "Pi 注册知识工具 (knowledge_search/query_graph/wiki_search/wiki_read_page)"
-  - "Capabilities 路由 (AnyOf/AllOf) 生效"
-  - "Pi 能通过 MCP 检索两个系统 (Agentic RAG)"
+  - "athena backend has kb/ service layer encapsulation (LightRAG + llm_wiki clients)"
+  - "Dual-pipeline ingestion service: receives Markdown → feeds LightRAG + llm_wiki"
+  - "pi-mcp-adapter connects both knowledge source MCPs"
+  - "Pi registers knowledge tools (knowledge_search/query_graph/wiki_search/wiki_read_page)"
+  - "Capabilities routing (AnyOf/AllOf) takes effect"
+  - "Pi can retrieve from both systems via MCP (Agentic RAG)"
 ---
 
-# G2.S3: 知识接入层 + Pi 检索路由
+# G2.S3: Knowledge Access Layer + Pi Retrieval Routing
 
 ## Task
 
-建立知识接入层 (athena 后端封装两个知识源) + Pi 通过 MCP 检索的路由机制。
+Build knowledge access layer (athena backend encapsulating both knowledge sources) + Pi retrieval routing mechanism via MCP.
 
-## 关键依赖
+## Key Dependencies
 
-- G2.S1 (LightRAG 服务) + G2.S2 (llm_wiki 服务) 已部署
+- G2.S1 (LightRAG service) + G2.S2 (llm_wiki service) deployed
 
-## 实现
+## Implementation
 
-### 1. 后端知识服务层 (server/src/kb/)
-- `kb/lightrag.ts`: LightRAG API 客户端 (摄入 + 检索 + 图谱)
-- `kb/llmwiki.ts`: llm_wiki API 客户端 (摄入 + 关键词检索 + 读页面)
-- `kb/ingest.ts`: 双管道摄入服务 (Markdown → LightRAG + llm_wiki)
+### 1. Backend Knowledge Service Layer (server/src/kb/)
+- `kb/lightrag.ts`: LightRAG API client (ingestion + retrieval + graph)
+- `kb/llmwiki.ts`: llm_wiki API client (ingestion + keyword retrieval + read page)
+- `kb/ingest.ts`: dual-pipeline ingestion service (Markdown → LightRAG + llm_wiki)
 
-### 2. Capabilities 声明 (knowledge-rag-design.md)
+### 2. Capabilities Declaration (knowledge-rag-design.md)
 - LightRAG → ["vector", "graph"]
 - llm_wiki → ["wiki", "keyword"]
 
-### 3. Pi 工具注册 + 路由
-- 用 pi-mcp-adapter 接两个知识源 MCP
-- 注册工具 (knowledge_search/query_graph/wiki_search/wiki_read_page) + Capability 要求
-- Pi (ReAct) 按意图 + 能力声明 + 成本做确定性路由
+### 3. Pi Tool Registration + Routing
+- Use pi-mcp-adapter to connect both knowledge source MCPs
+- Register tools (knowledge_search/query_graph/wiki_search/wiki_read_page) + Capability requirements
+- Pi (ReAct) does deterministic routing by intent + capability declaration + cost
 
-### 4. 验证
-- 双管道摄入一篇文档 → 两个系统都有
-- Pi 通过 MCP 检索 LightRAG + llm_wiki
-- 意图路由正确 (流程问 wiki, 事实问 RAG, 关系问图谱)
+### 4. Verification
+- Dual-pipeline ingest a document → both systems have it
+- Pi retrieves from LightRAG + llm_wiki via MCP
+- Intent routing correct (process questions → wiki, facts → RAG, relationships → graph)
 
-## 参考
+## Reference
 
 - Spec: `docs/kanban/G2/Goal.md`
-- 设计: `docs/knowledge-rag-design.md` (唯一参考, Capabilities 模式)
-- 现有: `server/src/agents/agent.ts` (Pi 封装)
+- Design: `docs/knowledge-rag-design.md` (single source of truth, Capabilities pattern)
+- Existing: `server/src/agents/agent.ts` (Pi encapsulation)
 
-## 如何定位参考文档
+## How to Locate Reference Docs
 
 - `parent: G2` → `docs/kanban/G2/Goal.md`
-- Capabilities 路由: `docs/knowledge-rag-design.md`
+- Capabilities routing: `docs/knowledge-rag-design.md`
 
-## 说明
+## Notes
 
-- Pi 工具注册用 @earendil-works/pi-coding-agent (AgentSession)
-- 检索路由遵循 knowledge-rag-design.md 的意图→策略映射
-- 用 **implement** + tdd + code-review
+- Pi tool registration uses @earendil-works/pi-coding-agent (AgentSession)
+- Retrieval routing follows knowledge-rag-design.md's intent→strategy mapping
+- Use **implement** + tdd + code-review
 
-## 依赖
+## Dependencies
 
 - G2.S1, G2.S2
 

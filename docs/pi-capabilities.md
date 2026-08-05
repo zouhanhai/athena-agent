@@ -1,107 +1,107 @@
-# athena-agent — Pi 能力与 Package 映射
+# athena-agent — Pi Capabilities & Package Mapping
 
-> 核心：athena 以 **Pi 为主体**（对话/知识图谱维护/RAG/Output 都用 Pi 底层）。
-> 本文档调研 Pi SDK + Pi Packages 生态，明确"哪些功能用现成 package，哪些要自建"，避免重复造轮子。
-> 参考: https://pi.dev/packages · https://pi.dev/docs/latest
+> Core: athena uses **Pi as the primary agent** (conversation / knowledge graph maintenance / RAG / Output all use Pi at the bottom layer).
+> This document surveys the Pi SDK + Pi Packages ecosystem, clarifying "which features use existing packages, which need to be built from scratch," to avoid reinventing the wheel.
+> References: https://pi.dev/packages · https://pi.dev/docs/latest
 
-## 一、Pi SDK（backend 核心引擎）
+## 1. Pi SDK (Backend Core Engine)
 
-**Pi 通过 SDK 内嵌**（`@earendil-works/pi-coding-agent`），这是 athena backend 的主体：
-- `createAgentSession()` — 每员工一个 AgentSession（天然隔离）
-- `prompt()/steer()/followUp()` — 对话控制
-- `subscribe()` — 流式事件（前端实时显示）
-- `setModel()/cycleModel()` — 模型切换（DeepSeek/Qwythos）
-- `compact()` — 上下文压缩
-- 支持图片（base64）
-- `SessionManager` — 会话持久化
-- `createCodingTools/createReadOnlyTools` — 工具工厂
-- `runRpcMode()` / `runPrintMode()` — 其他接入方式
+**Pi is embedded via SDK** (`@earendil-works/pi-coding-agent`), which is the main body of the athena backend:
+- `createAgentSession()` — one AgentSession per employee (natural isolation)
+- `prompt()/steer()/followUp()` — conversation control
+- `subscribe()` — streaming events (real-time frontend display)
+- `setModel()/cycleModel()` — model switching (DeepSeek/Qwythos)
+- `compact()` — context compression
+- Image support (base64)
+- `SessionManager` — session persistence
+- `createCodingTools/createReadOnlyTools` — tool factories
+- `runRpcMode()` / `runPrintMode()` — other integration modes
 
-**架构**: Fastify 只是 HTTP 薄壳，核心逻辑全在 Pi SDK。
+**Architecture**: Fastify is only a thin HTTP shell; all core logic lives in the Pi SDK.
 
-## 二、Package 映射（按 athena 功能）
+## 2. Package Mapping (by athena feature)
 
-### 对话 / 会话
-| Package | 能力 | 对应功能 | 状态 |
-|---------|------|---------|------|
-| Pi SDK createAgentSession | 对话+多员工隔离 | 个人/团队对话主体 | ✅ 核心 |
-| pi-intercom | Pi 会话间 1:1 消息 | 团队对话/多 Pi 协作 | ✅ 已装 |
-| @juicesharp/rpiv-todo | 实时任务清单面板 | Ticket 进度追踪 | 建议装 |
-| @narumitw/pi-plan-mode | 只读 plan 模式 | Eng Director 规划 | 考虑 |
-| @plannotator/pi-extension | 计划/代码/PR 审查 | Review 阶段 | 考虑 |
+### Conversation / Sessions
+| Package                      | Capability                        | Corresponding Feature     | Status        |
+|------------------------------|-----------------------------------|---------------------------|---------------|
+| Pi SDK createAgentSession    | Conversation + multi-employee isolation | Personal/team conversation core | ✅ Core    |
+| pi-intercom                  | Inter-Pi-session 1:1 messaging    | Team conversation / multi-Pi collaboration | ✅ Installed |
+| @juicesharp/rpiv-todo        | Real-time task list panel         | Ticket progress tracking  | Recommended   |
+| @narumitw/pi-plan-mode       | Read-only plan mode               | Eng Director planning     | Consider      |
+| @plannotator/pi-extension    | Plan/code/PR review               | Review phase              | Consider      |
 
-### 知识 / 检索
-| Package | 能力 | 对应功能 | 状态 |
-|---------|------|---------|------|
-| pi-mcp-adapter | MCP 接入 | 接 LightRAG/llm_wiki/CodeGraph | ✅ 已装 |
-| pi-web-access | 网络/PDF/URL | 检索工具 | ✅ 已装 |
-| pi-deepseek-search | DeepSeek 搜索 | 网络搜索 | 可选 |
-| pi-agent-browser-native | 浏览器自动化 | 网页抓取 | 可选 |
+### Knowledge / Retrieval
+| Package                   | Capability                  | Corresponding Feature          | Status        |
+|---------------------------|-----------------------------|--------------------------------|---------------|
+| pi-mcp-adapter            | MCP integration             | Connect LightRAG/llm_wiki/CodeGraph | ✅ Installed |
+| pi-web-access             | Web/PDF/URL                 | Retrieval tools                | ✅ Installed  |
+| pi-deepseek-search        | DeepSeek search             | Web search                     | Optional      |
+| pi-agent-browser-native   | Browser automation          | Web scraping                   | Optional      |
 
-### 记忆 / 状态
-| Package | 能力 | 对应功能 | 状态 |
-|---------|------|---------|------|
-| pi-hermes-memory | 持久记忆+搜索 | 记忆层 | ✅ 已装 |
-| pi-memory | qmd 语义搜索 | 记忆备选 | 可选 |
-| open-zk-kb | 持久记忆 | 记忆备选 | 可选 |
+### Memory / State
+| Package              | Capability                  | Corresponding Feature | Status        |
+|----------------------|-----------------------------|-----------------------|---------------|
+| pi-hermes-memory     | Persistent memory + search  | Memory layer          | ✅ Installed  |
+| pi-memory            | qmd semantic search         | Memory alternative    | Optional      |
+| open-zk-kb           | Persistent memory           | Memory alternative    | Optional      |
 
-### 团队 / 协作 / 编排
-| Package | 能力 | 对应功能 | 状态 |
-|---------|------|---------|------|
-| pi-crew | AI 团队/工作流编排 | 团队协作 | 建议装 |
-| pi-subagents | 子 agent 委派 | 复杂任务分解 | 考虑 |
-| @quintinshaw/pi-dynamic-workflows | 并行执行 | 大规模任务 | ✅ 已装 |
-| pi-task | 任务拆解管线 | Kanban 任务拆 | ✅ 已装 |
-| pi-goal-list-loop-audit | 目标审计验收 | 验收/Review | ✅ 已装 |
-| pi-fabric | 可编程工具/agent 运行时 | 复杂工作流编排 | 考虑 |
+### Team / Collaboration / Orchestration
+| Package                              | Capability                        | Corresponding Feature     | Status        |
+|--------------------------------------|-----------------------------------|---------------------------|---------------|
+| pi-crew                              | AI team / workflow orchestration  | Team collaboration        | Recommended   |
+| pi-subagents                         | Sub-agent delegation              | Complex task decomposition| Consider      |
+| @quintinshaw/pi-dynamic-workflows    | Parallel execution                | Large-scale tasks         | ✅ Installed  |
+| pi-task                              | Task decomposition pipeline       | Kanban task splitting     | ✅ Installed  |
+| pi-goal-list-loop-audit              | Goal audit & acceptance           | Acceptance / Review       | ✅ Installed  |
+| pi-fabric                            | Programmable tools / agent runtime| Complex workflow orchestration | Consider  |
 
-### 开发流程
-| Package | 能力 | 对应功能 | 状态 |
-|---------|------|---------|------|
-| gentle-pi | SDD/OpenSpec+审查护栏 | 规范开发 | 考虑 |
-| pi-lens | LSP/lint 实时反馈 | 代码质量 | 可选 |
-| pi-simplify | 代码简化审查 | 代码清理 | 可选 |
-| @plannotator/pi-extension | 代码/PR 审查 | Review | 考虑 |
+### Development Workflow
+| Package                       | Capability                        | Corresponding Feature | Status   |
+|-------------------------------|-----------------------------------|-----------------------|----------|
+| gentle-pi                     | SDD/OpenSpec+ review guardrails   | Standards-based dev   | Consider |
+| pi-lens                       | LSP/lint real-time feedback       | Code quality          | Optional |
+| pi-simplify                   | Code simplification review        | Code cleanup          | Optional |
+| @plannotator/pi-extension     | Code/PR review                    | Review                | Consider |
 
-### 其他工具
-| Package | 能力 | 对应功能 | 状态 |
-|---------|------|---------|------|
-| pi-landstrip | 沙箱 Bash | 安全执行 | 考虑 |
-| @llblab/pi-telegram | Telegram 适配 | 移动端对话 | 可选 |
-| pi-vault-mind | Obsidian 集成 | 笔记库 | 可选 |
+### Other Tools
+| Package                | Capability                  | Corresponding Feature | Status   |
+|------------------------|-----------------------------|-----------------------|----------|
+| pi-landstrip           | Sandbox Bash                | Secure execution      | Consider |
+| @llblab/pi-telegram    | Telegram adapter            | Mobile conversation   | Optional |
+| pi-vault-mind          | Obsidian integration        | Note vault            | Optional |
 
-## 三、已装 vs 待评估
+## 3. Installed vs To-Be-Evaluated
 
-### 已装（10 个）
+### Installed (10)
 pi-mcp-adapter, pi-intercom, @mjasnikovs/pi-task, pi-goal-list-loop-audit,
 @quintinshaw/pi-dynamic-workflows, @juicesharp/rpiv-ask-user-question,
 pi-hermes-memory, pi-web-access, pi-crew, @juicesharp/rpiv-todo
 
-### 建议装（核心协作）
-无（核心协作已装齐）
+### Recommended (Core Collaboration)
+None (core collaboration packages are already fully installed)
 
-### 考虑（按需评估，避免重复）
-- 计划/审查: @narumitw/pi-plan-mode, @plannotator/pi-extension, gentle-pi（三选一评估）
-- 编排进阶: pi-fabric（与 pi-crew/pi-task 有重叠，需评估）
-- 子 agent: pi-subagents（与 pi-dynamic-workflows 有重叠）
-- 沙箱: pi-landstrip（需要时再看）
+### Consider (evaluate on demand, avoid duplication)
+- Planning/Review: @narumitw/pi-plan-mode, @plannotator/pi-extension, gentle-pi (evaluate and pick one)
+- Advanced orchestration: pi-fabric (overlaps with pi-crew/pi-task, needs evaluation)
+- Sub-agents: pi-subagents (overlaps with pi-dynamic-workflows)
+- Sandbox: pi-landstrip (evaluate when needed)
 
-## 四、athena 功能 → 实现方式（关键结论）
+## 4. athena Feature → Implementation Approach (Key Conclusions)
 
-| athena 功能 | 用现成还是自建 | 方案 |
-|------------|--------------|------|
-| 个人/团队对话 | ✅ Pi SDK + pi-intercom | createAgentSession 主体 |
-| 知识库接入 | ✅ pi-mcp-adapter | 接 LightRAG/llm_wiki |
-| 记忆 | ✅ pi-hermes-memory | 复用 Hermes 移植 |
-| 任务拆解/验收 | ✅ pi-task + glla | 复用 |
-| 并行执行 | ✅ pi-dynamic-workflows | 复用 |
-| 代码审查 Review | ⚠️ 评估 plannotator/gentle-pi | 或自建 git-driven review |
-| Kanban 协作 | 🛠️ 自建 | git-driven kanban（我们的设计）|
-| 前端门户 | 🛠️ 自建 | Vue3 + TDesign |
-| Output 生成 | ⚠️ 评估 + 自建 | Pi + ppt-master 等 |
+| athena Feature           | Existing or Custom | Approach                             |
+|--------------------------|--------------------|--------------------------------------|
+| Personal/team conversation | ✅ Existing      | Pi SDK + pi-intercom core            |
+| Knowledge base integration | ✅ Existing      | pi-mcp-adapter, connect LightRAG/llm_wiki |
+| Memory                   | ✅ Existing       | pi-hermes-memory, reuse Hermes port  |
+| Task decomposition/audit | ✅ Existing       | pi-task + glla, reuse                |
+| Parallel execution       | ✅ Existing       | pi-dynamic-workflows, reuse          |
+| Code review / Review     | ⚠️ Evaluate       | plannotator/gentle-pi, or custom git-driven review |
+| Kanban collaboration     | 🛠️ Custom        | git-driven kanban (our design)       |
+| Frontend portal          | 🛠️ Custom        | Vue3 + TDesign                       |
+| Output generation        | ⚠️ Evaluate + Custom | Pi + ppt-master etc.              |
 
-**结论**：Pi 生态已覆盖大部分"agent 能力"（对话/记忆/协作/任务），自建的主要是：
-1. **门户前端**（Vue，展示层）
-2. **git-driven Kanban**（协作机制，我们的核心设计）
-3. **Fastify HTTP 壳**（薄层，转调 Pi SDK）
-4. **知识库编排**（接 LightRAG/llm_wiki + Capabilities 路由）
+**Conclusion**: The Pi ecosystem already covers most "agent capabilities" (conversation / memory / collaboration / tasks). What needs to be built from scratch is mainly:
+1. **Portal frontend** (Vue, presentation layer)
+2. **git-driven Kanban** (collaboration mechanism, our core design)
+3. **Fastify HTTP shell** (thin layer, forwarding to Pi SDK)
+4. **Knowledge base orchestration** (connecting LightRAG/llm_wiki + Capabilities routing)

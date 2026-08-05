@@ -13,8 +13,8 @@ export interface ChatStreamHandlers {
 }
 
 /**
- * 非流式对话：POST /api/chat { userId, message } → { reply }。
- * 失败时抛出 Error（含 HTTP 状态码或网络错误）。
+ * Non-streaming chat: POST /api/chat { userId, message } → { reply }.
+ * Throws an Error on failure (includes HTTP status code or network error).
  */
 export async function sendChat(userId: string, message: string): Promise<string> {
   const res = await postChat(userId, message);
@@ -23,8 +23,8 @@ export async function sendChat(userId: string, message: string): Promise<string>
 }
 
 /**
- * 流式对话：POST /api/chat (Accept: text/event-stream)，
- * 通过 consumeSSEStream 逐块回调 onDelta，done/error 事件分发 onDone/onError。
+ * Streaming chat: POST /api/chat (Accept: text/event-stream),
+ * calls onDelta chunk by chunk via consumeSSEStream, dispatches done/error to onDone/onError.
  */
 export async function streamChat(
   userId: string,

@@ -22,8 +22,8 @@ export const useChatStore = defineStore("chat", {
   }),
   actions: {
     /**
-     * 发送一条消息：追加 user 气泡 + 空 assistant 气泡，
-     * 流式把回答逐块写入 assistant 气泡。
+     * Send a message: append a user bubble + empty assistant bubble,
+     * stream the reply chunk by chunk into the assistant bubble.
      */
     async send(message: string) {
       const text = message.trim();

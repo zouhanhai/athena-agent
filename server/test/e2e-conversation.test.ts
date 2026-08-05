@@ -52,31 +52,31 @@ function makeFailingManager(): AgentManager {
           return () => {};
         },
         prompt: async () => {
-          throw new Error("服务未启动");
+          throw new Error("service not started");
         },
       } as never,
       model: "deepseek/deepseek-v4-flash",
       packages: [],
       extensionErrors: [],
       prompt: async () => {
-        throw new Error("服务未启动");
+        throw new Error("service not started");
       },
       dispose: () => {},
     } as unknown as Agent;
   });
 }
 
-test("E2E 单条消息 → 非流式返回回答并写入会话", async () => {
+test("E2E single message → non-streaming response with answer written to session", async () => {
   const res = await chat("alice", "用一句话介绍你自己");
   assert.equal(res.statusCode, 200);
   const reply = (res.json() as { reply: string }).reply;
   assert.equal(typeof reply, "string");
-  assert.ok(reply.trim().length > 0, "回答不应为空");
+  assert.ok(reply.trim().length > 0, "reply should not be empty");
   const users = (await sessionMessages("alice")).filter((m) => m.role === "user");
-  assert.equal(users.length, 1, "会话应记录该用户消息");
+  assert.equal(users.length, 1, "session should record the user message");
 });
 
-test("E2E 单条消息 → 流式逐块返回 delta 并以 done 结束", async () => {
+test("E2E single message → streaming returns deltas chunk by chunk and ends with done", async () => {
   const res = await chat("alice", "用一句话介绍你自己", { accept: "text/event-stream" });
   assert.equal(res.statusCode, 200);
   assert.match(res.headers["content-type"], /^text\/event-stream/);
@@ -86,44 +86,44 @@ test("E2E 单条消息 → 流式逐块返回 delta 并以 done 结束", async (
     .map((f) => JSON.parse(f.replace(/^data: /, "")));
   assert.ok(
     frames.some((f) => typeof f.delta === "string" && f.delta.length > 0),
-    "应产出文本 delta",
+    "should produce text deltas",
   );
-  assert.equal(frames[frames.length - 1].done, true, "应以 done 事件结束");
+  assert.equal(frames[frames.length - 1].done, true, "should end with done event");
 });
 
-test("E2E 多轮对话（同 userId）保持上下文并复用 session", async () => {
+test("E2E multi-turn conversation (same userId) maintains context and reuses session", async () => {
   const first = await chat("alice", "我的名字是林小满。请记住我的名字，这一轮只回复两个字：好的");
   assert.equal(first.statusCode, 200);
 
   const second = await chat("alice", "我叫什么名字？只回答我的名字");
   assert.equal(second.statusCode, 200);
   const reply = (second.json() as { reply: string }).reply;
-  assert.ok(reply.includes("林小满"), `第二轮应能记住第一轮的名字, 实际: ${reply}`);
+  assert.ok(reply.includes("林小满"), `second round should remember the name from first round, actual: ${reply}`);
 
-  assert.equal(manager.size, 1, "同一员工不应新建会话实例");
+  assert.equal(manager.size, 1, "same employee should not create new session instance");
   const users = (await sessionMessages("alice")).filter((m) => m.role === "user");
-  assert.equal(users.length, 2, "会话历史应保留两轮用户消息");
-  assert.ok(users[0].content.includes("林小满"), "第一轮消息应保留在会话历史中");
+  assert.equal(users.length, 2, "session history should retain two rounds of user messages");
+  assert.ok(users[0].content.includes("林小满"), "first round message should remain in session history");
 });
 
-test("E2E 不同 userId 上下文隔离（不串会话）", async () => {
+test("E2E different userId context isolation (no cross-session leak)", async () => {
   const token = randomToken();
   await chat("alice", `请记住这个令牌: ${token}。这一轮只回复: ok`);
   const bobRes = await chat("bob", "你好，打个招呼");
   assert.equal(bobRes.statusCode, 200);
 
-  assert.equal(manager.size, 2, "两位员工应为独立会话");
+  assert.equal(manager.size, 2, "two employees should have independent sessions");
   const bobMessages = await sessionMessages("bob");
   const aliceMessages = await sessionMessages("alice");
-  assert.ok(!JSON.stringify(bobMessages).includes(token), "bob 的会话不应包含 alice 的令牌");
-  assert.ok(JSON.stringify(aliceMessages).includes(token), "alice 的会话应保留她自己的令牌");
+  assert.ok(!JSON.stringify(bobMessages).includes(token), "bob's session should not contain alice's token");
+  assert.ok(JSON.stringify(aliceMessages).includes(token), "alice's session should preserve her own token");
   assert.ok(
     !(bobRes.json() as { reply: string }).reply.includes(token),
-    "bob 的回答不应泄露 alice 的令牌",
+    "bob's reply should not leak alice's token",
   );
 });
 
-test("E2E 错误处理: 空消息/缺字段/非字符串 → 400", async () => {
+test("E2E error handling: empty message/missing field/non-string → 400", async () => {
   const cases: Array<{ payload: unknown }> = [
     { payload: { userId: "alice", message: "" } },
     { payload: { userId: "alice", message: "   " } },
@@ -134,12 +134,12 @@ test("E2E 错误处理: 空消息/缺字段/非字符串 → 400", async () => {
   ];
   for (const { payload } of cases) {
     const res = await app.inject({ method: "POST", url: "/api/chat", payload });
-    assert.equal(res.statusCode, 400, `payload=${JSON.stringify(payload)} 应返回 400`);
+    assert.equal(res.statusCode, 400, `payload=${JSON.stringify(payload)} should return 400`);
     assert.equal(typeof (res.json() as { error: string }).error, "string");
   }
 });
 
-test("E2E 错误处理: 对话服务未启动 → 非流式返回 500 + 错误信息", async () => {
+test("E2E error handling: agent service not started → non-streaming returns 500 + error message", async () => {
   const failingManager = makeFailingManager();
   const failingApp = buildApp({ manager: failingManager });
   try {
@@ -148,14 +148,14 @@ test("E2E 错误处理: 对话服务未启动 → 非流式返回 500 + 错误�
       url: "/api/chat",
       payload: { userId: "alice", message: "hi" },
     });
-    assert.equal(res.statusCode, 500, "上游模型不可用应返回 500");
-    assert.equal((res.json() as { error: string }).error, "服务未启动");
+    assert.equal(res.statusCode, 500, "upstream model unavailable should return 500");
+    assert.equal((res.json() as { error: string }).error, "service not started");
   } finally {
     await failingApp.close();
   }
 });
 
-test("E2E 错误处理: 对话服务未启动 → 流式返回 SSE error 帧", async () => {
+test("E2E error handling: agent service not started → streaming returns SSE error frame", async () => {
   const failingManager = makeFailingManager();
   const failingApp = buildApp({ manager: failingManager });
   try {
@@ -166,7 +166,7 @@ test("E2E 错误处理: 对话服务未启动 → 流式返回 SSE error 帧", a
       payload: { userId: "alice", message: "hi" },
     });
     assert.equal(res.statusCode, 200);
-    assert.match(res.body, /"error":"服务未启动"/, "流式响应应包含 error 帧");
+    assert.match(res.body, /"error":"service not started"/, "streaming response should contain error frame");
   } finally {
     await failingApp.close();
   }

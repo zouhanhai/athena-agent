@@ -7,9 +7,9 @@ export interface SSEHandlers {
 const EVENT_SEPARATOR = "\n\n";
 
 /**
- * 消费一个 SSE Response body，逐事件分发给 handlers。
- * 事件 data 行为 JSON: {"delta":"..."} | {"done":true} | {"error":"..."}
- * fetch 流式读取，事件可能跨 chunk 边界，需缓冲重组。
+ * Consumes an SSE Response body, dispatching each event to handlers.
+ * Event data is JSON: {"delta":"..."} | {"done":true} | {"error":"..."}
+ * Uses fetch streaming read; events may span chunk boundaries, requiring buffer reassembly.
  */
 export async function consumeSSEStream(
   response: Response,

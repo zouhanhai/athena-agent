@@ -25,7 +25,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("sendChat (非流式)", () => {
+describe("sendChat (non-streaming)", () => {
   it("POSTs { userId, message } without a stream Accept header and returns the reply", async () => {
     stubFetch(jsonResponse({ reply: "Hello back" }));
     const reply = await sendChat("hermes", "hi");
@@ -53,7 +53,7 @@ describe("sendChat (非流式)", () => {
   });
 });
 
-describe("streamChat (流式)", () => {
+describe("streamChat (streaming)", () => {
   it("POSTs with Accept: text/event-stream and feeds deltas to onDelta", async () => {
     stubFetch(sseResponse(['data: {"delta":"Hel"}\n\n', 'data: {"delta":"lo"}\n\n', 'data: {"done":true}\n\n']));
 

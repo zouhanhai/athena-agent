@@ -1,90 +1,90 @@
-# athena-agent — Git 驱动协作 Kanban 设计
+# athena-agent — Git-Driven Collaborative Kanban Design
 
-> 核心设计：3 员工 + 3 Pi 操作同一个 git repo，通过 GitHub 上的 markdown 文件状态 + git commit 历史协调"谁该做什么、继续做什么"。
-> 这是纯 git + markdown 模式（无本地 SQLite 真相源）。
+> Core design: 3 employees + 3 Pis operate on the same git repo, coordinating "who should do what, and what to continue" via markdown file state in GitHub + git commit history.
+> This is a pure git + markdown model (no local SQLite source of truth).
 
-## 一、核心原则
+## 1. Core Principles
 
-1. **Markdown 是唯一真相源** — `docs/kanban/*.md` 存所有任务状态
-2. **Git 是协调机制** — commit 历史 = 活动记录，push 冲突 = 互斥锁
-3. **GitHub 是共享中枢** — 3 员工 + 3 Pi 都 push/pull 同一个 repo
-4. **每人独立 git 身份** — git commit 能区分是谁操作的
+1. **Markdown is the sole source of truth** — `docs/kanban/*.md` stores all task state
+2. **Git is the coordination mechanism** — commit history = activity log, push conflicts = mutual exclusion lock
+3. **GitHub is the shared hub** — 3 employees + 3 Pis all push/pull the same repo
+4. **Each person has an independent git identity** — git commits distinguish who performed the operation
 
-## 二、目录结构 = Gx.Sx.Tx 三层
+## 2. Directory Structure = Gx.Sx.Tx Three Layers
 
 ```
 docs/kanban/
-├── G1/                           ← Goal 1 文件夹（发起时创建）
-│   ├── Goal.md                   ← G1 grill 产出 (owner: pi-a) — to-spec 输入
+├── G1/                           ← Goal 1 folder (created on launch)
+│   ├── Goal.md                   ← G1 grill output (owner: pi-a) — to-spec input
 │   ├── S1/                       ← Spec 1
 │   │   ├── Spec.md               ← G1.S1 spec
-│   │   ├── T1.md                 ← Ticket 卡片
+│   │   ├── T1.md                 ← Ticket card
 │   │   ├── T2.md
 │   │   └── ...
 │   └── S2/
-├── G2/                           ← Goal 2（其他 Pi 发起）
+├── G2/                           ← Goal 2 (launched by another Pi)
 │   └── ...
 ```
 
-### 命名规范（方案 B：目录层级 + frontmatter 编号）
+### Naming Convention (Plan B: Directory Hierarchy + Frontmatter Numbering)
 
-**文件命名固定，靠目录层级区分**：
+**File names are fixed; distinction comes from directory hierarchy**:
 
-| 层 | 目录 | 文件 | 编号在哪 |
-|----|------|------|---------|
-| Goal | `G1/`, `G2/`... | `Goal.md` | 目录名 G1/G2 |
-| Spec | `S1/`, `S2/`... | `Spec.md` | 子目录名 S1/S2 |
-| Ticket | 同 spec 目录下 | `T1.md`, `T2.md` | 文件名 T1/T2 |
+| Layer  | Directory       | File       | Where numbering lives |
+|--------|-----------------|------------|-----------------------|
+| Goal   | `G1/`, `G2/`... | `Goal.md`  | Directory name G1/G2  |
+| Spec   | `S1/`, `S2/`... | `Spec.md`  | Subdirectory name S1/S2 |
+| Ticket | Same spec dir   | `T1.md`, `T2.md` | Filename T1/T2 |
 
-**唯一性靠路径，显示靠 frontmatter**：
-- 完整标识 = 路径（`G1/S1/T1` 天然唯一）
-- 显示名称 = frontmatter 里的 `title: "G1.S1.T1: ..."`
-- 不同 spec 下的 `T1.md` 路径不同（`G1/S1/T1` vs `G1/S2/T1`），不冲突
+**Uniqueness via path, display via frontmatter**:
+- Full identifier = path (`G1/S1/T1` is naturally unique)
+- Display name = `title` in frontmatter: `"G1.S1.T1: ..."`
+- `T1.md` under different specs have different paths (`G1/S1/T1` vs `G1/S2/T1`), no conflict
 
-**示例**：
+**Example**:
 ```
-G1/S1/T1.md  → title: "G1.S1.T1: 实现登录 API"
-G1/S2/T1.md  → title: "G1.S2.T1: 实现订单 API"  (同名文件，路径区分)
+G1/S1/T1.md  → title: "G1.S1.T1: Implement login API"
+G1/S2/T1.md  → title: "G1.S2.T1: Implement order API"  (same filename, distinguished by path)
 ```
 
-## 三、G 编号分配（全局递增，git 原子）
+## 3. G Number Assignment (Globally Incrementing, Git Atomic)
 
 ```
-任何 Pi 发起新 Goal:
-  1. git pull（同步最新）
-  2. 扫描 docs/kanban/ 找当前最大 G 号（max G 文件夹名）
-  3. 新 G = max + 1（如当前到 G5 → 创建 G6）
-  4. 创建 G<号>/ 文件夹 + Goal.md（owner = 发起 Pi）
+Any Pi launching a new Goal:
+  1. git pull (sync latest)
+  2. Scan docs/kanban/ to find current max G number (max G folder name)
+  3. New G = max + 1 (e.g. current max is G5 → create G6)
+  4. Create G<N>/ folder + Goal.md (owner = launching Pi)
   5. git commit + push
-  6. 若 push 冲突（别人同时建了 G6）→ pull → 重新计算（G7）→ 重试
+  6. If push conflict (someone else simultaneously created G6) → pull → recalculate (G7) → retry
 ```
 
-**保证唯一性**：git push 原子性 —— 两个 Pi 同时建 G6，只有一个 push 成功，另一个冲突后重试建 G7。
+**Uniqueness guarantee**: git push atomicity — two Pis simultaneously creating G6: only one push succeeds, the other retries with G7 after conflict.
 
-## 四、Ticket 领取锁（Worker 认领）
+## 4. Ticket Claim Lock (Worker Claim)
 
 ```
-任何 Worker 领取 ticket:
-  1. git pull（最新看板）
-  2. 选 ticket: status = backlog 且 assignee 空/自己
-     （注意: rejected 的 ticket 不可直接认领 — 需先通知 Eng Director 重新生成）
-  3. 改 T1.md frontmatter:
+Any Worker claiming a ticket:
+  1. git pull (latest board)
+  2. Select ticket: status = backlog AND assignee = empty/self
+     (Note: rejected tickets cannot be directly claimed — must first notify Eng Director to regenerate)
+  3. Modify T1.md frontmatter:
      status: in_progress
      assignee: pi-a
-     started_at: <时间>
-  4. git commit -m "领取 G1.S1.T1 (in_progress)" + push
-  5. push 成功 → 锁定，开始开发
-  6. push 冲突 → pull → 看到 status 已变 → 放弃，选下一个
+     started_at: <timestamp>
+  4. git commit -m "claim G1.S1.T1 (in_progress)" + push
+  5. Push succeeds → locked, begin development
+  6. Push conflicts → pull → see status already changed → give up, pick next
 ```
 
-**互斥保证**：git push 原子性 —— 只有第一个 push 成功者获得 ticket。
+**Mutual exclusion guarantee**: git push atomicity — only the first successful push gets the ticket.
 
-## 五、Ticket Markdown 格式
+## 5. Ticket Markdown Format
 
 ```markdown
 ---
 id: t_abc123
-title: "G1.S1.T1: 实现登录 API"
+title: "G1.S1.T1: Implement login API"
 layer: T
 parent: G1.S1
 owner: pi-a
@@ -93,170 +93,170 @@ assignee: pi-a
 started_at: 2026-08-04
 blocked_by: []
 acceptance_criteria:
-  - "POST /api/login 返回 200"
-pr: 0                       # GitHub PR 号
+  - "POST /api/login returns 200"
+pr: 0                       # GitHub PR number
 branch: ""                  # feat/t1-login-api
 ---
 
 ## Task
-实现细节...
+Implementation details...
 
 ## Log
-[2026-08-04] pi-a 领取并开始
-[2026-08-04] pi-a 完成实现
+[2026-08-04] pi-a claimed and started
+[2026-08-04] pi-a completed implementation
 ```
 
-## 五bis、三层完成标准（Definition of Done）
+## 5bis. Three-Layer Definition of Done
 
-每个层级必须有明确的"怎样算完成"，否则无法对齐进度、无法判断完成。
-
-```
-Milestone (M1-M5)  → 验收标准 (项目阶段完成条件)
-  └─ Goal (G1-G5)  → 验收标准 (顶层任务完成条件)
-      └─ Spec (G1.S1) → 验收标准 (功能容器完成条件)
-          └─ Ticket (T1-TX) → acceptance_criteria ✅ 已有
-```
-
-### Ticket 层（已有）
-- frontmatter `acceptance_criteria`（如 "GET /api 返回 200"）
-- Worker 实现后，Reviewer 按此验收
-
-### Spec 层
-- Spec.md 里描述该功能容器完成意味着什么
-- 判断：其下所有 Ticket approved
-
-### Goal 层
-- Goal.md 里写 `acceptance_criteria`（顶层任务完成条件）
-- 判断：其下所有 Spec 完成 + 整体目标达成
-
-### Milestone 层
-- 项目 README 里每个 Milestone 写验收标准
-- 判断：对应 Goal 全部完成
-
-### 判断逻辑（自底向上）
+Each layer must have a clear "what counts as done"; otherwise progress cannot be aligned or completion judged.
 
 ```
-Ticket approved → Spec 完成 → Goal 完成 → Milestone 完成
+Milestone (M1-M5)  → acceptance criteria (project phase completion conditions)
+  └─ Goal (G1-G5)  → acceptance criteria (top-level task completion conditions)
+      └─ Spec (G1.S1) → acceptance criteria (feature container completion conditions)
+          └─ Ticket (T1-TX) → acceptance_criteria ✅ already present
 ```
 
-每个层级的 `acceptance_criteria` 定义"达成什么才算这个层级 done"。
+### Ticket Layer (existing)
+- Frontmatter `acceptance_criteria` (e.g. "GET /api returns 200")
+- Worker implements, Reviewer verifies against these
 
-## 六、状态机
+### Spec Layer
+- Spec.md describes what "this feature container is complete" means
+- Criterion: all Tickets under it are approved
+
+### Goal Layer
+- Goal.md contains `acceptance_criteria` (top-level task completion conditions)
+- Criterion: all Specs under it are complete + overall goal achieved
+
+### Milestone Layer
+- Project README lists acceptance criteria for each Milestone
+- Criterion: corresponding Goals are all complete
+
+### Judgment Logic (Bottom-Up)
 
 ```
-backlog ──领取(push)──▶ in_progress ──实现完成──▶ done
+Ticket approved → Spec complete → Goal complete → Milestone complete
+```
+
+Each layer's `acceptance_criteria` defines "what must be achieved for this layer to be done."
+
+## 6. State Machine
+
+```
+backlog ──claim(push)──▶ in_progress ──implementation done──▶ done
    ▲                        │                      │
-   │                        │                      ├─ 开 PR → in_review
+   │                        │                      ├─ open PR → in_review
    │                        │                      │
    └──── reject ◀───────────┴──────────────────────┴→ approved (PR merged)
 ```
 
-| 状态 | 含义 | 谁设置 |
-|------|------|--------|
-| backlog | 未开始，可认领 | 规划者 |
-| in_progress | 已认领，开发中 | Worker（领取锁）|
-| done | 实现完成 | Worker |
-| in_review | PR 待审查 | Worker（开 PR 后）|
-| approved | 审查通过 + merged | Reviewer |
-| rejected | 审查发现问题 | Reviewer |
+| State       | Meaning                    | Set by        |
+|-------------|----------------------------|---------------|
+| backlog     | Not started, claimable     | Planner       |
+| in_progress | Claimed, in development    | Worker (claim lock) |
+| done        | Implementation complete    | Worker        |
+| in_review   | PR pending review          | Worker (after opening PR) |
+| approved    | Review passed + merged     | Reviewer      |
+| rejected    | Review found issues        | Reviewer      |
 
-## 七、PR/Merge 集成
-
-```
-T1 done（分支 feat/t1-login-api）:
-  → 开 GitHub PR → 更新 ticket: status=in_review, pr=<号>, branch=<名>
-  → Reviewer 审查
-  → 通过 → merge → ticket: status=approved
-  → 拒绝 → PR 更新 → 重新 review
-```
-
-自动化选项：GitHub Actions / webhook 检测 PR 状态 → 自动更新 md frontmatter。
-
-## 八、多人协作流程（谁在什么阶段做什么）
+## 7. PR/Merge Integration
 
 ```
-Goal 发起（多 Pi 各自发起，编号递增）:
-  Pi-A 发 G1, Pi-B 发 G2, Pi-C 发 G3
+T1 done (branch feat/t1-login-api):
+  → Open GitHub PR → update ticket: status=in_review, pr=<number>, branch=<name>
+  → Reviewer reviews
+  → Pass → merge → ticket: status=approved
+  → Reject → PR updated → re-review
+```
 
-单 Goal 生命周期:
-  前 3 阶段（发起 Pi 单人多角色，不拆给他人）:
+Automation option: GitHub Actions / webhook detect PR status → auto-update md frontmatter.
+
+## 8. Multi-Person Collaboration Flow (Who Does What at Which Stage)
+
+```
+Goal launch (multiple Pis each launch, numbering increments):
+  Pi-A launches G1, Pi-B launches G2, Pi-C launches G3
+
+Single Goal lifecycle:
+  First 3 stages (launching Pi plays multiple roles solo, not delegated to others):
     Consultant → PM → Eng Director
-    （同一个 Pi 扮演，产出 Goal.md + spec + tickets）
-  
-  Worker 阶段（多人协作开始）:
-    Pi-A 领 T1, Pi-B 领 T2, Pi-C 领 T3（git 领取锁）
-    通过团队频道 (pi-intercom) 协调分工
-  
-  审核阶段（另一个 Pi）:
-    Pi-B 审查 Pi-A 的 T1 → approve/reject
+    (Same Pi plays all, producing Goal.md + specs + tickets)
+
+  Worker stage (multi-person collaboration begins):
+    Pi-A claims T1, Pi-B claims T2, Pi-C claims T3 (git claim lock)
+    Coordinate division of work via team channel (pi-intercom)
+
+  Review stage (another Pi):
+    Pi-B reviews Pi-A's T1 → approve/reject
 ```
 
-## 九、Pi 之间沟通（团队频道）
+## 9. Inter-Pi Communication (Team Channel)
 
-用 **pi-intercom**（已装）实现 Pi 会话间协调：
+Use **pi-intercom** (installed) for inter-Pi-session coordination:
 ```
-Pi-A → Pi-B: "T2 你帮做一下？"
-Pi-B → Pi-A: "好，我领了"
-```
-
-- 团队对话 = 实时协商（谁帮谁、谁做哪个）
-- git 看板 = 持久记录（协商后认领结果写进 md）
-
-## 九bis、文档层级（grill → spec 的输入链）
-
-```
-项目根 CONTEXT.md（全局术语表）     ← 全项目 ubiquitous language
-   ✗ 不作为 to-spec 输入（术语，非某个 Goal 目标）
-
-G1/Goal.md（grill 产出）           ← to-spec 的输入！
-   ✓ 描述 G1 目标/上下文/决策
-   ✓ PM 读它 → to-spec → G1/S1/Spec.md
-
-流程:
-  grill G1 → G1/Goal.md（grill 产出，不叫 CONTEXT.md 以避免与项目根术语表混淆）
-    → PM 读 G1/Goal.md → to-spec → G1.S1 spec
-    → Eng Director 读 spec → to-tickets → G1.S1.T1-TX
+Pi-A → Pi-B: "Can you help with T2?"
+Pi-B → Pi-A: "Sure, I'll claim it"
 ```
 
-**关键**：
-- **项目根 CONTEXT.md** = 术语表，grill 时若有全局新术语会补充，**不作为 to-spec 输入**
-- **G1/Goal.md** = grill 产出（就是 grill 生成的 goal 文档），**是 to-spec 的输入**
-- **ADR 库**（docs/adr/）跨 Goal 累积，每次 grill 可能新增（三条件全满足才写）
+- Team conversation = real-time negotiation (who helps whom, who does what)
+- Git board = persistent record (claim results written to md after negotiation)
 
-## 十、"谁该做什么、继续做什么"判断逻辑
+## 9bis. Document Hierarchy (grill → spec input chain)
 
 ```
-每个员工/Pi 启动时:
-  git pull → 读所有 T-layer md
-  status=backlog + assignee=空 → 候选可领
-  status=in_progress + assignee=我 → 我继续做
-  status=done + 有PR → 等 review
-  status=in_review + 我是reviewer → 我审查
-  blocked_by 未done → 等依赖
+Project root CONTEXT.md (global glossary)     ← whole-project ubiquitous language
+   ✗ NOT used as to-spec input (terminology, not a Goal objective)
+
+G1/Goal.md (grill output)                     ← IS to-spec input!
+   ✓ Describes G1 objective/context/decisions
+   ✓ PM reads it → to-spec → G1/S1/Spec.md
+
+Flow:
+  grill G1 → G1/Goal.md (grill output; not named CONTEXT.md to avoid confusion with project root glossary)
+    → PM reads G1/Goal.md → to-spec → G1.S1 spec
+    → Eng Director reads spec → to-tickets → G1.S1.T1-TX
 ```
 
-## 十一、Reject 流程（Reviewer 打回 → Eng Director 重新生成）
+**Key points**:
+- **Project root CONTEXT.md** = glossary; if grill surfaces new global terms they may be added, **NOT used as to-spec input**
+- **G1/Goal.md** = grill output (the goal document produced by grill), **IS the input to to-spec**
+- **ADR library** (`docs/adr/`) accumulates across Goals; each grill may add new entries (only when all three conditions are met)
+
+## 10. "Who Should Do What, What to Continue" Judgment Logic
 
 ```
-Reviewer (Pi-B) 审查 Pi-A 的 T1 → 发现问题:
-  1. T1 标记 rejected（保留历史，不修改原 ticket，`qa_feedback` 记录意见）
-  2. 通知 Eng Director（发起该 G 的 Pi）
-  3. Eng Director 分析 qa_feedback → 重新拆解 → 创建新 ticket
-     ├─ 小返工 → T1.1（parent_id=T1, reopen_reason, qa_feedback）
-     └─ 大问题 → 重新审视 spec，可能拆成多个新 ticket
-  4. 新 ticket 进入 backlog，等 Worker 认领（领取锁）
+Each employee/Pi on startup:
+  git pull → read all T-layer md
+  status=backlog + assignee=empty → candidate for claiming
+  status=in_progress + assignee=me → I continue working on it
+  status=done + has PR → awaiting review
+  status=in_review + I am reviewer → I review
+  blocked_by not done → waiting on dependency
 ```
 
-**关键规则**：
-- **新 ticket 由 Eng Director 生成**（发起 G 的 Pi），不是 Reviewer
-- **原 ticket 标记 rejected 保留**，不修改（历史不丢）
-- 新 ticket 带 `parent_id` 链接旧 ticket + `qa_feedback` + `reopen_reason`
-- 任何 Worker 都可认领新 ticket（保持协作开放），但会标注来源
+## 11. Reject Flow (Reviewer Rejects → Eng Director Regenerates)
 
-**理由**：Eng Director（规划者）最清楚 spec 全局，review 发现问题往往意味着需要重新审视拆解是否合理，而非简单返工。规划权集中在规划者手里。
+```
+Reviewer (Pi-B) reviews Pi-A's T1 → finds issues:
+  1. T1 marked rejected (history preserved, original ticket unchanged; qa_feedback records comments)
+  2. Notify Eng Director (the Pi that launched this G)
+  3. Eng Director analyzes qa_feedback → re-decomposes → creates new ticket(s)
+     ├─ Minor rework → T1.1 (parent_id=T1, reopen_reason, qa_feedback)
+     └─ Major issue → re-examine spec, may split into multiple new tickets
+  4. New ticket enters backlog, awaits Worker claim (claim lock)
+```
 
-## 十二、异常处理
+**Key rules**:
+- **New tickets are generated by the Eng Director** (the Pi that launched the G), not the Reviewer
+- **Original ticket marked rejected is preserved**, not modified (history is not lost)
+- New ticket carries `parent_id` linking to old ticket + `qa_feedback` + `reopen_reason`
+- Any Worker can claim the new ticket (keeping collaboration open), but the source is annotated
 
-- **Worker 崩溃卡 in_progress**：看 git log 时间戳，超时未更新 → 另一 Worker 可接管（改回 backlog 或接手）
-- **md 冲突**：不同 Worker 改不同 ticket 文件不冲突；抢同一 ticket 冲突正是互斥锁
-- **main 并发**：多 PR 同时 merge 可能冲突 → rebase 解决
+**Rationale**: The Eng Director (planner) best understands the spec holistically; review findings often mean the decomposition itself needs re-examination, not just simple rework. Planning authority is centralized with the planner.
+
+## 12. Exception Handling
+
+- **Worker crash leaves ticket stuck in_progress**: check git log timestamps; if timeout with no update → another Worker can take over (revert to backlog or take over)
+- **md conflicts**: different Workers modifying different ticket files won't conflict; two workers racing for the same ticket — the conflict IS the mutual exclusion lock
+- **main concurrency**: multiple PRs merging simultaneously may conflict → resolve via rebase

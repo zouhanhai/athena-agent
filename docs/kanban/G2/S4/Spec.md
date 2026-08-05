@@ -1,68 +1,68 @@
 ---
 id: g2_s4
-title: "G2.S4: 前端知识面板"
+title: "G2.S4: Frontend Knowledge Panels"
 layer: S
 parent: G2
 owner: eng-director
 status: active
 milestone: M2
 acceptance_criteria:
-  - "Knowledge 面板显示 LightRAG 知识图谱 (iframe 嵌入自带 UI 或自绘)"
-  - "Wiki 面板显示 llm_wiki 页面 (Vue 自绘, CALEO 风格)"
-  - "知识检索框 (调后端知识接口)"
-  - "图谱和 wiki 数据来自后端 kb/ 服务层"
-  - "与现有侧边栏/CALEO 主题协调"
+  - "Knowledge panel displays LightRAG knowledge graph (iframe embed built-in UI or custom rendered)"
+  - "Wiki panel displays llm_wiki pages (Vue custom rendered, CALEO style)"
+  - "Knowledge search box (calls backend knowledge API)"
+  - "Graph and wiki data come from backend kb/ service layer"
+  - "Coordinates with existing sidebar/CALEO theme"
 ---
 
-# G2.S4: 前端知识面板
+# G2.S4: Frontend Knowledge Panels
 
 ## Task
 
-实现门户前端的 Knowledge (图谱) 和 Wiki 面板。
+Implement the portal frontend Knowledge (graph) and Wiki panels.
 
-## 关键依赖
+## Key Dependencies
 
-- G2.S3 (知识接入层, 后端 kb/ 服务 + 检索 API)
-- G2.S1/S2 (LightRAG 图谱 + llm_wiki 数据)
+- G2.S3 (knowledge access layer, backend kb/ service + retrieval API)
+- G2.S1/S2 (LightRAG graph + llm_wiki data)
 
-## 实现
+## Implementation
 
-### 1. Knowledge 图谱面板 (/knowledge)
-- LightRAG 知识图谱可视化:
-  - 首选: iframe 嵌入 LightRAG 自带图谱 UI (G2.S1 部署的 server)
-  - 或: 后端 /api/kb/graph 返回图谱数据 → Vue 自绘 (CALEO 风格)
-- 显示实体关系图
+### 1. Knowledge Graph Panel (/knowledge)
+- LightRAG knowledge graph visualization:
+  - Preferred: iframe embed LightRAG built-in graph UI (server deployed in G2.S1)
+  - Or: backend /api/kb/graph returns graph data → Vue custom render (CALEO style)
+- Display entity relationship graph
 
-### 2. Wiki 面板 (/wiki)
-- llm_wiki 页面浏览:
-  - 后端 /api/kb/wiki 读 llm_wiki API → markdown
-  - Vue 自绘 (CALEO 风格, 参考 G1.S2 布局)
-- 页面列表 + 内容渲染 (markdown)
+### 2. Wiki Panel (/wiki)
+- llm_wiki page browsing:
+  - Backend /api/kb/wiki reads llm_wiki API → markdown
+  - Vue custom render (CALEO style, reference G1.S2 layout)
+- Page list + content rendering (markdown)
 
-### 3. 知识检索
-- 检索框: 输入 → 后端知识检索 API → 显示结果
-- 调 G2.S3 的知识接口
+### 3. Knowledge Search
+- Search box: input → backend knowledge retrieval API → display results
+- Calls G2.S3 knowledge APIs
 
-## 参考
+## Reference
 
 - Spec: `docs/kanban/G2/Goal.md`
-- 设计: `docs/knowledge-rag-design.md`
-- 现有前端: `web/src/views/KnowledgeView.vue`, `WikiView.vue` (G1.S2 占位)
-- 布局: G1.S2 (CALEO 主题 + 侧边栏)
+- Design: `docs/knowledge-rag-design.md`
+- Existing frontend: `web/src/views/KnowledgeView.vue`, `WikiView.vue` (G1.S2 placeholders)
+- Layout: G1.S2 (CALEO theme + sidebar)
 
-## 如何定位参考文档
+## How to Locate Reference Docs
 
 - `parent: G2` → `docs/kanban/G2/Goal.md`
-- 现有视图: `web/src/views/`
+- Existing views: `web/src/views/`
 
-## 说明
+## Notes
 
-- 复用 G1.S2 的 API 层 + store 分层 (web/src/api/, stores/)
-- 图谱优先 iframe (简单), 后续可自绘
-- CALEO 风格: 橙#ff6633 + 深蓝#2d3142 + 天空蓝#69b3e7
-- 用 **implement** + tdd + code-review
+- Reuse G1.S2's API layer + store layering (web/src/api/, stores/)
+- Graph prefers iframe (simple), can custom render later
+- CALEO style: orange #ff6633 + dark blue #2d3142 + sky blue #69b3e7
+- Use **implement** + tdd + code-review
 
-## 依赖
+## Dependencies
 
 - G2.S3
 

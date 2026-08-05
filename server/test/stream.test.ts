@@ -57,24 +57,24 @@ function makeFakeAgent(deltas: string[]): {
   };
 }
 
-test("streamAgentText 按序产出所有 text_delta 块", async () => {
-  const { agent } = makeFakeAgent(["你", "好", "，", "世界"]);
+test("streamAgentText yields all text_delta chunks in order", async () => {
+  const { agent } = makeFakeAgent(["He", "llo", ",", " World"]);
   const chunks: string[] = [];
   for await (const chunk of streamAgentText(agent, "hi")) {
     chunks.push(chunk);
   }
-  assert.deepEqual(chunks, ["你", "好", "，", "世界"]);
+  assert.deepEqual(chunks, ["He", "llo", ",", " World"]);
 });
 
-test("streamAgentText 把用户消息传给 session.prompt", async () => {
+test("streamAgentText passes user message to session.prompt", async () => {
   const { agent, prompts } = makeFakeAgent(["ok"]);
-  for await (const _ of streamAgentText(agent, "你好")) {
-    // 消费完整个流
+  for await (const _ of streamAgentText(agent, "hello")) {
+    // consume entire stream
   }
-  assert.deepEqual(prompts, ["你好"]);
+  assert.deepEqual(prompts, ["hello"]);
 });
 
-test("streamAgentText 无 text_delta 时流为空", async () => {
+test("streamAgentText stream is empty when no text_delta", async () => {
   const { agent } = makeFakeAgent([]);
   const chunks: string[] = [];
   for await (const chunk of streamAgentText(agent, "hi")) {
@@ -83,10 +83,10 @@ test("streamAgentText 无 text_delta 时流为空", async () => {
   assert.deepEqual(chunks, []);
 });
 
-test("streamAgentText 结束后退订 subscribe", async () => {
+test("streamAgentText unsubscribes after completion", async () => {
   const { agent, unsubscribed } = makeFakeAgent(["x"]);
   for await (const _ of streamAgentText(agent, "hi")) {
-    // 消费完整个流
+    // consume entire stream
   }
-  assert.equal(unsubscribed(), true, "流结束后应退订事件监听");
+  assert.equal(unsubscribed(), true, "should unsubscribe event listener after stream ends");
 });

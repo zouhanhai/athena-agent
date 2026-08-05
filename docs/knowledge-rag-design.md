@@ -1,121 +1,121 @@
-# athena-agent — 知识库与 RAG 路由设计
+# athena-agent — Knowledge Base & RAG Routing Design
 
-> 核心：llm_wiki + LightRAG 双系统，通过 Capabilities 声明 + Pi(ReAct) 确定性路由，实现 Agentic RAG。
-> 参考 WeKnora 的 Capabilities 机制（详见下文分析）。
-> 本文档是后续实现知识库、检索、Pi 查询路由时的唯一参考。
+> Core: llm_wiki + LightRAG dual-system, using Capabilities declarations + Pi(ReAct) deterministic routing for Agentic RAG.
+> Referencing WeKnora's Capabilities mechanism (see analysis below).
+> This document is the sole reference for subsequent implementation of knowledge base, retrieval, and Pi query routing.
 
-## 一、总体架构
+## 1. Overall Architecture
 
 ```
-知识源（两个独立系统，共享原始文件目录）:
+Knowledge sources (two independent systems, sharing raw file directory):
   llm_wiki  → capabilities: ["wiki", "keyword"]
   LightRAG  → capabilities: ["vector", "graph"]
 
-Pi (AgentSession) → pi-mcp-adapter → 各知识源 MCP
-  └─ 按 user 意图 + 工具描述 + 能力声明，决定查询策略
+Pi (AgentSession) → pi-mcp-adapter → each knowledge source MCP
+  └─ Determines query strategy based on user intent + tool descriptions + capability declarations
 ```
 
-## 二、文件摄入（方案 C：共享原始文件，双管道处理）
+## 2. File Ingestion (Plan C: Shared Raw Files, Dual Pipeline Processing)
 
 ```
-上传一份文档到共享 input-dir:
-  ├─ llm_wiki: 读文件 → 生成 wiki 页面 (md) + 关键词索引
-  └─ LightRAG: 读同一份文件 → chunk → 向量库(pgvector) + 知识图谱(NetworkX)
+Upload one document to shared input-dir:
+  ├─ llm_wiki: read file → generate wiki pages (md) + keyword index
+  └─ LightRAG: read same file → chunk → vector store (pgvector) + knowledge graph (NetworkX)
 
-原始文件只存一份，各自处理产物独立。
+Raw files stored only once; each system produces its own processing artifacts independently.
 ```
 
-## 三、Capabilities 模式（核心路由机制，参考 WeKnora）
+## 3. Capabilities Pattern (Core Routing Mechanism, Referencing WeKnora)
 
-### 1. 每个知识源声明自己的能力面
+### 1. Each knowledge source declares its own capability surface
 
 ```
-llm_wiki  → ["wiki", "keyword"]   (有 wiki 页面 + 关键词/BM25 索引)
-LightRAG  → ["vector", "graph"]   (有向量索引 + 知识图谱)
+llm_wiki  → ["wiki", "keyword"]   (has wiki pages + keyword/BM25 index)
+LightRAG  → ["vector", "graph"]   (has vector index + knowledge graph)
 ```
 
-**能力是"知识源级别"的确定性声明**（不是探测）。Pi 看到就知道能干什么。
+**Capabilities are deterministic declarations at the "knowledge source level"** (not probing). Pi sees them and knows what's possible.
 
-### 2. 每个 Pi 工具声明自己需要什么能力（ToolRequirement）
+### 2. Each Pi tool declares what capability it needs (ToolRequirement)
 
 ```typescript
-// 在 athena 后端注册 Pi 的工具
+// Register Pi's tools in the athena backend
 const tools = [
-  // RAG 类工具: 需要 vector 或 keyword
+  // RAG tools: need vector OR keyword
   { name: 'knowledge_search',  requireCapability: { anyOf: ['vector', 'keyword'] } },
   { name: 'query_graph',       requireCapability: { anyOf: ['vector', 'graph'] } },
-  // Wiki 类工具: 必须都有 wiki
+  // Wiki tools: must have wiki
   { name: 'wiki_search',       requireCapability: { allOf: ['wiki'] } },
   { name: 'wiki_read_page',    requireCapability: { allOf: ['wiki'] } },
 ]
 ```
 
-**两个操作符**：
-- **AnyOf**：满足任意一个即可（如 vector OR keyword）
-- **AllOf**：必须全部满足（如 wiki 工具要 wiki 能力）
+**Two operators**:
+- **AnyOf**: any one suffices (e.g. vector OR keyword)
+- **AllOf**: all must be present (e.g. wiki tools require wiki capability)
 
-### 3. Pi 的路由逻辑（Agentic RAG）
-
-```
-user 查询 → Pi (ReAct agent):
-  1. 看每个知识源的能力声明 + 工具描述
-  2. 判断 user 意图:
-     ├─ "流程文档怎么说"        → wiki_search (llm_wiki)
-     ├─ "哪些实体和 X 相关"     → query_graph (LightRAG)
-     ├─ "关于 Y 的资料"         → knowledge_search (LightRAG)
-     ├─ "对比 A 和 B 实现"      → 多个都查（wiki + RAG）
-     └─ 简单问题/闲聊           → 不查，直接答
-  3. 收集结果 → 总结 → 回答
-```
-
-**决策因素**（Pi 综合考量）：
-| 因素 | 影响 |
-|------|------|
-| user 问题意图 | 决定查哪个（wiki vs vector vs graph）|
-| 工具描述 | 帮 Pi 判断何时用哪个工具 |
-| 知识源能力声明 | 确定性：哪个工具可用 |
-| 成本/效率 | 简单问题只查一个，复杂问题多查 |
-
-## 四、意图 → 查询策略映射
-
-| user 意图 | 查询策略 | 知识源 |
-|-----------|---------|--------|
-| 流程/规范/概念定义 | wiki_search | llm_wiki |
-| 具体事实/模糊语义/资料 | knowledge_search | LightRAG |
-| 实体关系/依赖 | query_graph | LightRAG |
-| 综合对比/复杂推理 | 多源混合 | 都查 |
-| 简单/闲聊 | 不检索 | - |
-
-## 五、工具描述（帮 Pi 判断）
+### 3. Pi's Routing Logic (Agentic RAG)
 
 ```
-wiki_search: "查项目沉淀的 wiki 页面（适合：流程、规范、概念定义）"
-knowledge_search: "语义检索原始文档块（适合：具体事实、模糊语义、资料查找）"
-query_graph: "查实体关系图谱（适合：谁和谁相关、依赖关系）"
+user query → Pi (ReAct agent):
+  1. Inspect each knowledge source's capability declaration + tool descriptions
+  2. Judge user intent:
+     ├─ "What does the process doc say"  → wiki_search (llm_wiki)
+     ├─ "Which entities relate to X"     → query_graph (LightRAG)
+     ├─ "Materials about Y"              → knowledge_search (LightRAG)
+     ├─ "Compare A and B implementations" → query multiple (wiki + RAG)
+     └─ Simple question / chit-chat      → don't query, answer directly
+  3. Collect results → summarize → answer
 ```
 
-## 六、对比 WeKnora 的差异
+**Decision factors** (Pi considers holistically):
+| Factor                | Impact                                           |
+|-----------------------|--------------------------------------------------|
+| User query intent     | Decides which to query (wiki vs vector vs graph) |
+| Tool descriptions     | Helps Pi judge when to use which tool            |
+| Knowledge source capabilities | Deterministic: which tool is available    |
+| Cost / efficiency     | Simple questions query one; complex ones query many |
 
-| 维度 | WeKnora | 我们的方案 |
-|------|---------|-----------|
-| 能力面分布 | 一个 KB 多能力面 | 两个系统各一能力面 |
-| 路由依据 | 看 KB.Capabilities() | 看知识源 capabilities 声明 |
-| 工具 | 内置 agent 调多个 | Pi 调多个 MCP 工具 |
-| wiki 存储 | DB 行 (Postgres) | md 文件 (llm_wiki, Karpathy 模式) |
-| 图谱 | 内置 | LightRAG NetworkX |
+## 4. Intent → Query Strategy Mapping
 
-**殊途同归**：共享原始文件 + 分层处理产物 + 能力声明路由。
+| User intent                          | Query strategy    | Knowledge source |
+|--------------------------------------|-------------------|------------------|
+| Process / standards / concept definitions | wiki_search    | llm_wiki         |
+| Specific facts / fuzzy semantics / materials | knowledge_search | LightRAG      |
+| Entity relationships / dependencies | query_graph       | LightRAG         |
+| Comprehensive comparison / complex reasoning | multi-source hybrid | Query all     |
+| Simple / chit-chat                   | No retrieval      | -                |
 
-## 七、落地要点
+## 5. Tool Descriptions (Helping Pi Decide)
 
-1. 上传文档 → 共享 input-dir → 双管道处理
-2. Pi 通过 pi-mcp-adapter 接 llm_wiki + LightRAG 的 MCP
-3. 每个工具注册能力要求（AnyOf/AllOf）
-4. Pi 按意图 + 能力 + 成本做确定性路由
-5. 简单问题先走单一知识源，复杂问题才多源
+```
+wiki_search: "Search accumulated wiki pages (suitable for: processes, standards, concept definitions)"
+knowledge_search: "Semantic search over raw document chunks (suitable for: specific facts, fuzzy semantics, material lookup)"
+query_graph: "Query entity relationship graph (suitable for: who relates to whom, dependency relationships)"
+```
 
-## 八、后续待验证
+## 6. Differences vs WeKnora
 
-- llm_wiki 的 MCP 是否暴露检索工具（wiki_search 等价物）
-- LightRAG 的 MCP/API 检索能力确认
-- Pi 的 ReAct 路由在实际查询中的表现
+| Dimension             | WeKnora                        | Our approach                       |
+|-----------------------|--------------------------------|------------------------------------|
+| Capability surface distribution | One KB, multiple capability surfaces | Two systems, one capability surface each |
+| Routing basis         | Inspect KB.Capabilities()      | Inspect knowledge source capabilities declaration |
+| Tools                 | Built-in agent calls multiple  | Pi calls multiple MCP tools        |
+| Wiki storage          | DB rows (Postgres)             | md files (llm_wiki, Karpathy pattern) |
+| Graph                 | Built-in                       | LightRAG NetworkX                  |
+
+**Different paths, same destination**: shared raw files + layered processing artifacts + capability-declaration routing.
+
+## 7. Implementation Essentials
+
+1. Upload document → shared input-dir → dual pipeline processing
+2. Pi connects to llm_wiki + LightRAG MCP via pi-mcp-adapter
+3. Each tool registers capability requirements (AnyOf/AllOf)
+4. Pi routes deterministically based on intent + capabilities + cost
+5. Simple questions go through a single knowledge source first; complex questions go multi-source
+
+## 8. To Be Verified
+
+- Whether llm_wiki's MCP exposes retrieval tools (wiki_search equivalent)
+- LightRAG's MCP/API retrieval capability confirmation
+- Pi's ReAct routing performance in real queries

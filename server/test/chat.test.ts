@@ -46,7 +46,7 @@ function makeStubAgent(session: FakeSession): Agent {
     model: "deepseek/deepseek-v4-flash",
     packages: [],
     extensionErrors: [],
-    prompt: async () => "模拟回复",
+    prompt: async () => "mock reply",
     dispose: () => {},
   } as unknown as Agent;
 }
@@ -54,7 +54,7 @@ function makeStubAgent(session: FakeSession): Agent {
 let app: FastifyInstance;
 
 beforeEach(async () => {
-  const manager = new AgentManager({}, async (userId) => makeStubAgent(makeFakeSession([`${userId}-块1`, "-块2"])));
+  const manager = new AgentManager({}, async (userId) => makeStubAgent(makeFakeSession([`${userId}-chunk1`, "-chunk2"])));
   app = buildApp({ manager });
 });
 
@@ -64,17 +64,17 @@ after(async () => {
   }
 });
 
-test("POST /api/chat 非流式返回 Pi 回答", async () => {
+test("POST /api/chat non-streaming returns Pi answer", async () => {
   const res = await app.inject({
     method: "POST",
     url: "/api/chat",
     payload: { userId: "alice", message: "hi" },
   });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { reply: "模拟回复" });
+  assert.deepEqual(res.json(), { reply: "mock reply" });
 });
 
-test("POST /api/chat 流式 (Accept: text/event-stream) 逐块返回 SSE", async () => {
+test("POST /api/chat streaming (Accept: text/event-stream) returns SSE chunk by chunk", async () => {
   const res = await app.inject({
     method: "POST",
     url: "/api/chat",
@@ -84,12 +84,12 @@ test("POST /api/chat 流式 (Accept: text/event-stream) 逐块返回 SSE", async
   assert.equal(res.statusCode, 200);
   assert.match(res.headers["content-type"], /^text\/event-stream/);
   const body = res.body;
-  assert.ok(body.includes(`data: ${JSON.stringify({ delta: "alice-块1" })}\n\n`), "应包含第一块 delta");
-  assert.ok(body.includes(`data: ${JSON.stringify({ delta: "-块2" })}\n\n`), "应包含第二块 delta");
-  assert.ok(body.includes(`data: ${JSON.stringify({ done: true })}\n\n`), "应以 done 事件结束");
+  assert.ok(body.includes(`data: ${JSON.stringify({ delta: "alice-chunk1" })}\n\n`), "should contain first delta chunk");
+  assert.ok(body.includes(`data: ${JSON.stringify({ delta: "-chunk2" })}\n\n`), "should contain second delta chunk");
+  assert.ok(body.includes(`data: ${JSON.stringify({ done: true })}\n\n`), "should end with done event");
 });
 
-test("POST /api/chat 缺少 message 返回 400", async () => {
+test("POST /api/chat missing message returns 400", async () => {
   const res = await app.inject({
     method: "POST",
     url: "/api/chat",
@@ -98,7 +98,7 @@ test("POST /api/chat 缺少 message 返回 400", async () => {
   assert.equal(res.statusCode, 400);
 });
 
-test("POST /api/chat 缺少 userId 返回 400", async () => {
+test("POST /api/chat missing userId returns 400", async () => {
   const res = await app.inject({
     method: "POST",
     url: "/api/chat",
@@ -107,8 +107,8 @@ test("POST /api/chat 缺少 userId 返回 400", async () => {
   assert.equal(res.statusCode, 400);
 });
 
-test("POST /api/chat 不同 userId 各自创建独立会话", async () => {
-  const manager = new AgentManager({}, async (userId) => makeStubAgent(makeFakeSession([`${userId}-专属`])));
+test("POST /api/chat different userId creates independent sessions", async () => {
+  const manager = new AgentManager({}, async (userId) => makeStubAgent(makeFakeSession([`${userId}-dedicated`])));
   const chatApp = buildApp({ manager });
   try {
     const res = await chatApp.inject({
@@ -117,7 +117,7 @@ test("POST /api/chat 不同 userId 各自创建独立会话", async () => {
       headers: { accept: "text/event-stream" },
       payload: { userId: "bob", message: "hi" },
     });
-    assert.ok(res.body.includes("data: {\"delta\":\"bob-专属\"}\n\n"), "bob 应命中 bob 的会话");
+    assert.ok(res.body.includes("data: {\"delta\":\"bob-dedicated\"}\n\n"), "bob should hit bob's session");
   } finally {
     await chatApp.close();
   }

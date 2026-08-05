@@ -1,9 +1,9 @@
-# Kanban 用 TS 重写，Pi 驱动（git-driven）
+# Kanban Rewritten in TS, Pi-Driven (git-driven)
 
-不用现有 Python Kanban，门户内用 TypeScript 重新实现，由 Pi 驱动任务流转。
+Do not use the existing Python Kanban. Reimplement in TypeScript within the portal, with Pi driving task state transitions.
 
-**背景**: 现有 Kanban 是 Python 写的（hermes-opencode-template），单机 SQLite。但 athena 需要 3 员工 + 3 Pi 跨机器协作，通过 GitHub md 状态协调。
+**Context**: The existing Kanban is written in Python (hermes-opencode-template), single-machine SQLite. But athena requires 3 employees + 3 Pis collaborating across machines, coordinated via GitHub markdown state.
 
-**决策**: 完全重写为 git-driven kanban（`docs/kanban/*.md` 为真相源），TS 实现。结合 pi-task / pi-goal-list-loop-audit / pi-dynamic-workflows 让 Pi 自动拆解/审计/并行执行。
+**Decision**: Completely rewrite as a git-driven kanban (`docs/kanban/*.md` is the source of truth), implemented in TS. Combine pi-task / pi-goal-list-loop-audit / pi-dynamic-workflows to let Pi auto-decompose / audit / execute in parallel.
 
-**后果**: 需重新实现 Kanban（工作量大），但换来 Pi 驱动的自动化 + 天然跨机器多用户协作。
+**Consequences**: The Kanban must be reimplemented (significant effort), but in return this yields Pi-driven automation + natural cross-machine multi-user collaboration.

@@ -1,9 +1,9 @@
-# 对话结构：个人独立 AgentSession + 团队共享 Pi（演进到方案 B）
+# Dialogue Structure: Individual AgentSession per Person + Shared Pi for Team (Evolving to Plan B)
 
-个人对话 = 每员工独立 AgentSession（常驻）；团队对话 = 一个共享 AgentSession。最终目标方案 B：Pi 作为可发言的团队成员，通过 pi-intercom 通信。
+Personal conversations = one independent AgentSession per employee (long-lived); team conversations = one shared AgentSession. The ultimate goal, Plan B: Pi acts as a speakable team member, communicating via pi-intercom.
 
-**背景**: 需要个人对话隔离 + 团队协作对话。对话结构影响 AgentSession 数量和消息架构。
+**Context**: Requires personal conversation isolation + team collaboration conversations. The dialogue structure affects the number of AgentSessions and the messaging architecture.
 
-**决策**: POC 用方案 A（Pi 是助手）：个人=独立 AgentSession，团队=共享 Pi。架构预留方案 B（Pi 可发言）：团队消息用统一事件流，Pi 接入即加订阅者。
+**Decision**: POC uses Plan A (Pi as assistant): personal = independent AgentSession, team = shared Pi. The architecture reserves Plan B (Pi can speak): team messages use a unified event stream, and Pi joins by adding a subscriber.
 
-**后果**: POC 简单清晰（每员工一个常驻 AgentSession）；方案 B 需团队对话从"消息流"演进为"事件总线"，Pi 作为订阅者接入。
+**Consequences**: The POC is simple and clear (one long-lived AgentSession per employee). Plan B requires evolving team conversations from a "message stream" to an "event bus," with Pi joining as a subscriber.
