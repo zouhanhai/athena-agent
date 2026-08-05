@@ -27,17 +27,20 @@ Implement the portal frontend Knowledge (graph) and Wiki panels.
 
 ## Implementation
 
-### 1. Knowledge Graph Panel (/knowledge)
-- LightRAG knowledge graph visualization:
-  - Preferred: iframe embed LightRAG built-in graph UI (server deployed in G2.S1)
-  - Or: backend /api/kb/graph returns graph data → Vue custom render (CALEO style)
-- Display entity relationship graph
+### 1. Knowledge Graph Panel (/knowledge) — 2D graph
+- LightRAG knowledge graph visualization (entity-relation graph):
+  - Data: backend `/api/kb/graph` returns `{nodes, edges}` from LightRAG `/graphs`
+  - Render: **2D force-directed graph** in Vue (e.g. `v-network-graph` or `3d-force-graph` 2D mode / `sigma` Vue wrapper)
+  - Nodes = entities, edges = relationships; click node to see details
+- CALEO style colors (orange primary, sky blue links)
+- Optionally show llm_wiki wikilinks graph as a separate tab/view
 
-### 2. Wiki Panel (/wiki)
+### 2. Wiki Panel (/wiki) — wiki tree
 - llm_wiki page browsing:
-  - Backend /api/kb/wiki reads llm_wiki API → markdown
-  - Vue custom render (CALEO style, reference G1.S2 layout)
-- Page list + content rendering (markdown)
+  - Data: backend `/api/kb/wiki` reads llm_wiki API → page tree + markdown content
+  - Render: **wiki tree** (Vue TDesign Tree component) — click to expand each level until files, click file to open content
+  - Content: markdown rendering (CALEO style)
+- Left: wiki tree navigation; Right: page content viewer
 
 ### 3. Knowledge Search
 - Search box: input → backend knowledge retrieval API → display results
@@ -58,7 +61,8 @@ Implement the portal frontend Knowledge (graph) and Wiki panels.
 ## Notes
 
 - Reuse G1.S2's API layer + store layering (web/src/api/, stores/)
-- Graph prefers iframe (simple), can custom render later
+- Graph: **2D force-directed** (not 3D, for readability); use a Vue graph lib feeding LightRAG `/graphs` data
+- Wiki: TDesign Tree for navigation + markdown renderer for content
 - CALEO style: orange #ff6633 + dark blue #2d3142 + sky blue #69b3e7
 - Use **implement** + tdd + code-review
 
