@@ -103,6 +103,15 @@ second local setup on the remote). No shared PiB on the remote.
 - **Agent↔agent in conversation**: local agent consults server Pi or remote PiB via HTTP,
   then fuses the answer; sub-replies rendered source-labeled.
 
+## Agent Naming Convention (Federation identity)
+
+Every agent in the federation has a **fixed, namespaced name** so it is uniquely
+identifiable in the server / portal:
+
+- **Server knowledge steward** = `Athena`.
+- **Each employee's agent** = `{employee-prefix}::{agent}` (employee name prefix, then agent name).
+- Examples: `Athena`, `zhang.wei::Hermes`, `zhang.wei::PiB`, `li.na::OpenCode`.
+
 ## Per-Employee Isolation + Independent OpenRouter Key
 
 - Each employee's agent has **independent context/session** (already via AgentSession).

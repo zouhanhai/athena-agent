@@ -21,12 +21,12 @@
 
 ## In Progress
 
-### M2 — Knowledge Base (G2) — 5 specs planned
-- [ ] G2.S1 LightRAG service deployment (DeepSeek + Postgres + pgvector)
-- [ ] G2.S2 llm_wiki service deployment (Rust compile + headless :19828)
-- [ ] G2.S3 Knowledge access layer + Pi retrieval routing (docling + dual pipeline + MCP)
-- [ ] G2.S4 Frontend knowledge panels (graph iframe + Wiki browse)
-- [ ] G2.S5 Data/document input interface (upload + URL + docling + progress bar)
+### M2 — Knowledge Base (G2) — 5 specs
+- [x] G2.S1 LightRAG service deployment (OpenRouter deepseek-v4-flash + qwen3-embedding-8b + Postgres/pgvector)
+- [x] G2.S2 llm_wiki service deployment (Rust compile + headless :19828)
+- [x] G2.S3 Knowledge access layer + Pi retrieval routing (dual pipeline + 5 knowledge tools + capability routing, Pi→OpenRouter)
+- [ ] G2.S4 Frontend knowledge panels (2D graph + Wiki tree, 4 tickets)
+- [ ] G2.S5 Data/document input interface (docling + Add Data in Knowledge panel, 4 tickets)
 
 ## Planned
 
@@ -49,8 +49,37 @@
 - [ ] pptx/html generation functional
 - [ ] Frontend preview + download
 
+### M6 — Multi-Agent Federation (local agent + remote SAP integration)
+- [ ] Integrate local agents (e.g. local Hermes) into the athena federation (via LAN, joinable in chat)
+- [ ] Remote SAP PiB_i per-employee + HTTP endpoint connecting to athena server
+- [ ] Agent naming convention: fixed names in the server (see Naming Convention below)
+- [ ] Conversation routing among the 3 agent tiers (local / server Athena / remote SAP)
+
+## Naming Convention (Agent identity in the federation)
+
+Every agent appearing in the server has a **fixed, namespaced name**:
+
+- **Server knowledge steward** = named **`Athena`** (the server-side knowledge assistant).
+- **Each employee's personal agent** = `{employee-name}-prefix` + agent name:
+  e.g. `{First}.{Last}::{agent}` — employee prefix first, agent name follows.
+- Any agent in the federation is uniquely identifiable by this fixed name.
+
+Examples:
+```
+Athena                          # server knowledge steward
+zhang.wei::Hermes               # employee zhang.wei's local Hermes
+zhang.wei::PiB                  # employee zhang.wei's remote SAP Pi
+li.na::OpenCode                 # employee li.na's local OpenCode
+```
+
+## Architecture Reference
+
+- `docs/distributed-pi-collaboration.md` — Multi-Agent Federation design (3-tier: server / local / remote SAP)
+
 ---
 
 ## Recent Changes
 - 2026-08-05: M1 complete, G2 (M2) planned (5 specs), repo synced to CALEO org
 - 2026-08-05: Full project i18n (docs + comments + tests), logo cleanup
+- 2026-08-05: G2.S1/S2/S3 done (knowledge services + access layer + Pi→OpenRouter), S4/S5 tickets split
+- 2026-08-05: Multi-Agent Federation design recorded; M6 added (local agent + remote SAP + naming convention)
