@@ -9,8 +9,9 @@ milestone: M2
 acceptance_criteria:
   - "athena backend has kb/ service layer encapsulation (LightRAG + llm_wiki clients)"
   - "Dual-pipeline ingestion service: receives Markdown → feeds LightRAG + llm_wiki"
+  - "Pi models switched to OpenRouter (deepseek-v4-flash main, qwen vision/embedding/image)"
   - "pi-mcp-adapter connects both knowledge source MCPs"
-  - "Pi registers knowledge tools (knowledge_search/query_graph/wiki_search/wiki_read_page)"
+  - "Pi registers knowledge tools (knowledge_search/query_graph/wiki_search/wiki_read_page/wiki_graph)"
   - "Capabilities routing (AnyOf/AllOf) takes effect"
   - "Pi can retrieve from both systems via MCP (Agentic RAG)"
 ---
@@ -27,14 +28,17 @@ Build knowledge access layer (athena backend encapsulating both knowledge source
 
 ## Implementation
 
-### 1. Backend Knowledge Service Layer (server/src/kb/)
+## 1. Backend Knowledge Service Layer (server/src/kb/)
 - `kb/lightrag.ts`: LightRAG API client (ingestion + retrieval + graph)
-- `kb/llmwiki.ts`: llm_wiki API client (ingestion + keyword retrieval + read page)
+- `kb/llmwiki.ts`: llm_wiki API client (file tree + search + graph + read page)
 - `kb/ingest.ts`: dual-pipeline ingestion service (Markdown → LightRAG + llm_wiki)
 
-### 2. Capabilities Declaration (knowledge-rag-design.md)
+> **Scope note**: docling parsing (raw files/URL → Markdown) belongs to **G2.S5** (input interface),
+> NOT here. S3's ingest consumes already-parsed Markdown.
+
+## 2. Capabilities Declaration (knowledge-rag-design.md)
 - LightRAG → ["vector", "graph"]
-- llm_wiki → ["wiki", "keyword"]
+- llm_wiki → ["wiki", "keyword", "graph"]
 
 ### 3. Pi Tool Registration + Routing
 - Use pi-mcp-adapter to connect both knowledge source MCPs
