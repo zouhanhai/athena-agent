@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { consumeSSEStream } from "@/api/sse";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -23,17 +24,32 @@ async function sendMessage() {
   loading.value = true;
   error.value = "";
 
+  messages.value.push({ role: "assistant", content: "" });
+  const assistantIndex = messages.value.length - 1;
+
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
       body: JSON.stringify({ userId: userId.value, message: text }),
     });
     if (!res.ok) {
       throw new Error(`Request failed with status ${res.status}`);
     }
-    const data = (await res.json()) as { reply?: string };
-    messages.value.push({ role: "assistant", content: data.reply ?? "" });
+    await consumeSSEStream(res, {
+      onDelta: (delta) => {
+        messages.value[assistantIndex]!.content += delta;
+      },
+      onError: (message) => {
+        error.value = message;
+        if (messages.value[assistantIndex]!.content === "") {
+          messages.value.splice(assistantIndex, 1);
+        }
+      },
+    });
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -67,10 +83,9 @@ async function sendMessage() {
         class="message-row"
         :class="msg.role"
       >
-        <div class="bubble">{{ msg.content }}</div>
-      </div>
-      <div v-if="loading" class="message-row assistant">
-        <div class="bubble typing">Pi is typing...</div>
+        <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
+          {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
+        </div>
       </div>
     </div>
 
