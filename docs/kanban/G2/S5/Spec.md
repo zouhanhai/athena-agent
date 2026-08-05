@@ -7,10 +7,10 @@ owner: eng-director
 status: active
 milestone: M2
 acceptance_criteria:
-  - "Frontend Knowledge panel has 'Add Data' area: file upload + URL input"
+  - "Frontend 'Add Data' area INSIDE Knowledge panel (no new tab, keep 4 tabs)"
   - "Supports all docling formats (pdf/docx/xlsx/pptx/image/HTML/URL etc.)"
   - "docling uniformly parses raw files/URLs → Markdown → dual-pipeline ingestion"
-  - "Each source has processing progress bar (pending/parsing/ingesting/done/failed)"
+  - "BOTH systems tracked: each source has per-stage progress (docling parsing → LightRAG ingesting → llm_wiki ingesting → done/failed)"
   - "Backend has /api/kb/ingest (files) + /api/kb/ingest-url (URL)"
   - "Task status pollable (progress bar)"
 ---
@@ -29,14 +29,20 @@ Implement knowledge base data/document input interface — frontend upload/URL +
 ## Architecture
 
 ```
-Frontend 'Add Data' area (file drag/drop/select + URL)
+Frontend 'Add Data' area — INSIDE Knowledge panel (no new tab; keep Chat/Knowledge/Kanban/Wiki)
   → Backend /api/kb/ingest (files) / /api/kb/ingest-url (URL)
     → docling unified parsing (pdf/docx/xlsx/pptx/image/HTML/URL → Markdown)
       → Save to shared input-dir (markdown)
-      → Dual pipeline: LightRAG (S1) + llm_wiki (S2)
-    → Task status tracking (pending/parsing/ingesting/done/failed)
+      → Dual pipeline: LightRAG (S1) + llm_wiki (S2) — BOTH track progress
+    → Task status tracking (per-stage, per-system)
   → Frontend progress bar polls /api/kb/task/:id
 ```
+
+## UI Placement (Decided)
+
+- **No new tab.** The 'Add Data' area lives **inside the Knowledge panel** (KnowledgeView.vue),
+  alongside the 2D graph (S4.T2). Keep sidebar: Chat / Knowledge / Kanban / Wiki.
+- Add Data area: file drag/drop/select + URL input + per-source progress bars.
 
 ## Implementation
 
