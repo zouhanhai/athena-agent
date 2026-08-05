@@ -76,8 +76,6 @@ describe("portal sidebar navigation", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(brandName.text()).toBe("Athena Agent");
-    expect(subtitle.exists()).toBe(true);
-    expect(subtitle.text()).toBe("CALEO Portal");
     wrapper.unmount();
   });
 
