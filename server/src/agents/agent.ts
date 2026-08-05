@@ -27,6 +27,8 @@ export interface CreateAgentOptions {
   knowledgeToolServices?: KnowledgeToolServices;
   /** Additional custom tools registered on the session. */
   customTools?: ToolDefinition[];
+  /** Allowlist of active tool names; when provided only these tools are exposed. */
+  tools?: string[];
 }
 
 export interface Agent {
@@ -89,6 +91,7 @@ export async function createAgent(options: CreateAgentOptions = {}): Promise<Age
     agentDir: options.agentDir,
     sessionManager: options.sessionManager,
     customTools,
+    tools: options.tools,
   });
 
   const packages = extensionsResult.extensions.map((ext) =>
