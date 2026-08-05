@@ -124,10 +124,10 @@ const sidebarTopOffset = "24px";
 }
 
 .brand-caleo-logo {
-  height: 30px;
+  height: 18px;
   width: auto;
   object-fit: contain;
-  margin-top: 3px;
+  margin-top: 1px;
 }
 
 .side-menu {
@@ -158,6 +158,6 @@ const sidebarTopOffset = "24px";
 .app-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--caleo-sidebar-border);
-  background: var(--caleo-sidebar-footer-bg);
+  background: var(--caleo-sidebar-bg);
 }
 </style>
