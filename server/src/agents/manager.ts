@@ -86,6 +86,32 @@ export class AgentManager {
     return this.agents.size;
   }
 
+  /**
+   * 读取该员工当前会话的对话历史（测试/审计用）。
+   * 会话尚未创建或创建失败时返回空数组。
+   */
+  async getSessionMessages(
+    userId: string,
+  ): Promise<Array<{ role: string; content: string }>> {
+    const pending = this.agents.get(userId);
+    if (!pending) {
+      return [];
+    }
+    try {
+      const agent = await pending;
+      const { messages } = agent.session.sessionManager.buildSessionContext();
+      return messages.map((m) => {
+        const content = (m as { content?: unknown }).content;
+        return {
+          role: m.role,
+          content: typeof content === "string" ? content : JSON.stringify(m),
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
   /** 销毁全部会话。 */
   async dispose(): Promise<void> {
     const pending = [...this.agents.values()];

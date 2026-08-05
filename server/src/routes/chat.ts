@@ -64,7 +64,13 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
       return;
     }
 
-    const replyText = await agent.prompt(message);
-    return { reply: replyText };
+    try {
+      const replyText = await agent.prompt(message);
+      return { reply: replyText };
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 }

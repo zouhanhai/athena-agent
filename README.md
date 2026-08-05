@@ -97,6 +97,22 @@ athena-agent/
    - 验收: 从知识库+Web 来源生成 txt/blog/图表；pptx/html 生成可用；前端预览 + 下载
    - 对应: G5 (Output 页面)
 
+## 测试
+
+后端测试在 `server/` 下，基于 `node:test`（无需额外测试框架）：
+
+```bash
+cd server
+npm test            # 单元 + 集成 + E2E 对话测试
+npm run typecheck   # 类型检查 (tsc --noEmit)
+```
+
+覆盖范围：
+
+- 单元/集成：AgentSession 创建与对话、AgentManager 会话管理（复用/隔离/销毁）、POST /api/chat 流式 + 非流式
+- E2E（`test/e2e-conversation.test.ts`）：真实 DeepSeek 端到端 —— 单条消息、多轮上下文（同 userId 复用 session）、不同 userId 上下文隔离、错误处理（空消息 / 无效字段 / 对话服务未启动）
+- 真实对话用例需配置 `~/.pi/agent/auth.json`（DeepSeek key）
+
 ## 关键风险
 
 - llm_wiki 是 Tauri 桌面应用，需验证 headless 跑（Xvfb 已有）提供 API
