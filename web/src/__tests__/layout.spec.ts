@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { createPinia } from "pinia";
 import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
@@ -17,7 +18,7 @@ async function waitForRoute(path: string) {
 async function mountApp() {
   const wrapper = mount(App, {
     global: {
-      plugins: [TDesign, router],
+      plugins: [createPinia(), TDesign, router],
     },
     attachTo: document.body,
   });

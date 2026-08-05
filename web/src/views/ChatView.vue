@@ -1,60 +1,19 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { consumeSSEStream } from "@/api/sse";
+import { storeToRefs } from "pinia";
+import { useChatStore } from "@/stores/chat";
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+const chat = useChatStore();
+const { messages, loading, error, userId } = storeToRefs(chat);
 
-const defaultUserId = "hermes";
-
-const userId = ref(defaultUserId);
 const input = ref("");
-const messages = ref<ChatMessage[]>([]);
-const loading = ref(false);
-const error = ref("");
 
-async function sendMessage() {
+function sendMessage() {
   const text = input.value.trim();
   if (!text || loading.value) return;
 
-  messages.value.push({ role: "user", content: text });
+  chat.send(text);
   input.value = "";
-  loading.value = true;
-  error.value = "";
-
-  messages.value.push({ role: "assistant", content: "" });
-  const assistantIndex = messages.value.length - 1;
-
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify({ userId: userId.value, message: text }),
-    });
-    if (!res.ok) {
-      throw new Error(`Request failed with status ${res.status}`);
-    }
-    await consumeSSEStream(res, {
-      onDelta: (delta) => {
-        messages.value[assistantIndex]!.content += delta;
-      },
-      onError: (message) => {
-        error.value = message;
-        if (messages.value[assistantIndex]!.content === "") {
-          messages.value.splice(assistantIndex, 1);
-        }
-      },
-    });
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    loading.value = false;
-  }
 }
 </script>
 

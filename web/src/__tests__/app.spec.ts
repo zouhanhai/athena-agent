@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
+import { createPinia } from "pinia";
 import TDesign from "tdesign-vue-next";
 import App from "@/App.vue";
 import router from "@/router";
@@ -8,7 +9,7 @@ describe("App shell", () => {
   it("renders the portal header skeleton", async () => {
     const wrapper = mount(App, {
       global: {
-        plugins: [TDesign, router],
+        plugins: [createPinia(), TDesign, router],
         stubs: {
           RouterView: { template: "<div />" },
         },
