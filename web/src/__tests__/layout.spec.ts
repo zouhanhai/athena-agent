@@ -69,8 +69,8 @@ describe("portal sidebar navigation", () => {
     expect(logo.exists()).toBe(true);
     const src = logo.attributes("src")!;
     expect(src).toBe("/athena-logo-ai.png");
-    // CALEO logo 作为副标题图片
-    expect(header.find('img[src="/caleo-logo-clean.png"]').exists()).toBe(true);
+    // CALEO logo 作为副标题图片 (裁剪版 word)
+    expect(header.find('img[src="/caleo-logo-word.png"]').exists()).toBe(true);
     expect(subtitle.exists()).toBe(false);
     expect(logo.element.compareDocumentPosition(brandName.element)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
