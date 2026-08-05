@@ -80,6 +80,57 @@ Server HTTP API (Fastify shell) + MCP:
 ```
 Local + Remote agents talk to the server through this interface over **Tailscale**.
 
+## Agent Connection Protocol (SDK spec) — M6
+
+Any agent (Hermes / Claude Code / Codex / Pi / custom) connects to the athena server by
+implementing this standard. Purpose: agent knows how to register, operate, and (for
+local agents) expose an HTTP shell.
+
+### 1. Agent registration (on server)
+```
+POST /api/agents/register
+  { name: "zhang.wei::Hermes", type: "hermes"|"pi"|"opencode"|"custom",
+    endpoint: "http://<host>:<port>", capabilities: ["chat","code","knowledge"] }
+→ 200 { agentId, token }   # server issues a token for this agent
+```
+Agent names must follow the naming convention and be unique (409 if duplicate).
+
+### 2. Agent heartbeat / status (optional but recommended)
+```
+POST /api/agents/:name/heartbeat   # keep-alive, update status (online/busy/idle)
+GET  /api/agents                    # list registered agents (for portal routing)
+```
+
+### 3. Message routing (server → agent)
+For agent↔agent or server→agent messages:
+```
+POST /api/agents/:name/message   # server forwards a message to the agent
+  { from: "Athena", text, context? }
+```
+The target agent receives it on its own HTTP shell (`/incoming`).
+
+### 4. Local agent HTTP shell (each local agent exposes this)
+A thin HTTP shell wrapping the local agent so the server can reach it:
+```
+GET  /health                 # liveness
+POST /incoming               # receive a routed message (from server/other agent)
+POST /ask                    # ask the agent a question (blocking → answer)
+GET  /status                 # busy/idle
+```
+- Must bind 0.0.0.0 (or reachable) and be registered via the server.
+- Wraps any agent (Hermes → shell, Pi → AgentSession shell, OpenCode → serve).
+
+### 5. Authentication
+- Server issues per-agent token on registration; agent includes it as `Authorization: Bearer`.
+- Identity derives from the token + name (Tailscale mTLS optional for stronger trust).
+
+### 6. SDK
+Provide a small **client SDK** (TS/Python) that implements: register, heartbeat, send
+message, expose local shell. Any agent repo imports it to join the federation with
+minimal code.
+
+**Deliverable (M6)**: this spec + a reference SDK + a "connect your local agent" guide.
+
 ### Remote PiB_i (SAP) reachable from server/local
 Each employee's remote PiB_i is reachable (HTTP shell) from the server/local:
 ```

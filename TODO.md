@@ -54,6 +54,9 @@
 - [ ] Remote SAP PiB_i per-employee + HTTP endpoint connecting to athena server
 - [ ] Agent naming convention: fixed names in the server (see Naming Convention below)
 - [ ] Conversation routing among the 3 agent tiers (local / server Athena / remote SAP)
+- [ ] **Agent connection SDK / HTTP protocol**: define a standard spec + SDK so any agent
+      (Hermes/Claude/Codex/Pi) can connect to athena, register itself, and operate —
+      local HTTP-shell setup guide (see Connection Protocol in design doc)
 
 ## Naming Convention (Agent identity in the federation)
 
