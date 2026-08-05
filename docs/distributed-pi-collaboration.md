@@ -1,110 +1,129 @@
-# Distributed Pi Collaboration Design (Local PiA + Remote Shared PiB)
+# Multi-Agent Federation Design (Athena as Coordination Hub)
 
-> Multi-Pi distributed collaboration for remote-codebase projects (e.g. SAP ABAP).
-> Local Pi (knowledge) + Remote shared Pi (SAP codebase context + OpenCode worker dispatch).
+> Distributed collaboration where each employee talks to **multiple agents** through
+> one unified hub. Local agent is **abstraction-agnostic** (Hermes / Claude Code / Codex /
+> Pi / any agent), server owns knowledge, remote endpoint owns external codebases (e.g. SAP).
+> Athena = the federation hub: unified HTTP/MCP interface + git-kanban + portal.
 
 ## Problem
 
-Athena runs with Pi embedded locally (6900XT). For projects that live on a **remote
-server** (e.g. SAP ABAP objects, not a git repo the local Pi can read), the local Pi
-cannot see the codebase, test changes, or review worker output. A single Pi is
-insufficient.
+Athena embeds Pi locally. For remote-codebase projects (e.g. SAP ABAP objects, not a git
+repo the local agent can read), a single Pi cannot see the codebase, test, or review.
+We need a distributed model where: (a) each employee runs their own local agent +
+development environment, (b) knowledge is centralized on a server, (c) remote codebases
+are owned by a remote endpoint — all reachable through one unified interface.
 
-## Architecture (Two-Pi Model)
-
-```
-LOCAL (athena / 6900XT)
-  ├─ Local PiA₁  (Employee 1 AgentSession, knowledge graph: LightRAG + llm_wiki)
-  ├─ Local PiA₂  (Employee 2 AgentSession)
-  ├─ Local PiA₃  (Employee 3 AgentSession)
-  └─ Team PiA_team (shared team conversation)
-
-REMOTE (SAP server)
-  └─ Remote PiB (SHARED, single instance)
-        ├─ ABAP MCP → understands SAP codebase (SE38/ADT/CTS)
-        └─ dispatches OpenCode serve → allocates OpenCode workers (parallel)
-```
-
-**Key roles:**
-- **Local PiA_i**: owns the employee's knowledge context (graph RAG) + orchestration.
-- **Remote PiB (shared, 1)**: owns the remote codebase context (via ABAP MCP) and
-  dispatches OpenCode workers. It is NOT itself the coder — it schedules workers.
-- **OpenCode workers**: the actual coders, spawned by PiB for each task.
-
-## Why PiB is shared (not per-employee)
-
-PiB's job is querying remote SAP code + dispatching OpenCode workers. Multiple employees
-can talk to PiB concurrently; PiB allocates a **separate OpenCode worker** per task. One
-shared PiB avoids N SAP connections while still parallelizing via workers.
-
-## Total Pi Count
-
-| Scope | Local PiA | Remote PiB | OpenCode workers |
-|-------|-----------|------------|------------------|
-| 3 employees + team | 4 (PiA₁-₃ + team) | 1 shared | dynamic per task |
-
-## Communication (Remote PiB as HTTP service)
-
-PiB is wrapped in an athena-style Fastify HTTP shell (like athena's server), reachable
-over **Tailscale VPN** (already meshed for German employees).
+## Architecture (Three-Tier Federation)
 
 ```
-Local PiA ──HTTP (Tailscale)──▶ Remote PiB API
-  ├─ POST /api/task   (dispatch task)
-  ├─ POST /api/ask    (consult SAP codebase / ask PiB)
-  ├─ GET  /api/status (worker/task status)
-  └─ GET  /api/result (retrieve result)
+┌────────────────────────────────────────────────────┐
+│ SERVER (company server; 6900XT today)               │
+│  ┌─────────┐ ┌─────────┐ ┌─────────────┐ ┌────────┐ │
+│  │LightRAG  │ │llm_wiki │ │ athena portal│ │Server  │ │
+│  │ :9621    │ │ :19828   │ │ (Vue)       │ │PiA_srv │ │
+│  └─────────┘ └─────────┘ └─────────────┘ └────────┘ │
+│  │ Unified Interface Layer (HTTP API + MCP)          │
+│  │   knowledge · ingest · status · git-kanban        │
+└───────────────┬──────────────────┬──────────────────┘
+                │ HTTP (Tailscale) │
+   ┌────────────┴─────────┐   ┌────┴─────────────┐
+   │ REMOTE (SAP server)  │   │ LOCAL (each PC)   │
+   │ Remote PiB + ABAP MCP│   │ Local agent       │
+   │ + OpenCode workers   │   │ Hermes/Claude/    │
+   │ (HTTP shell)         │   │ Codex/Pi + OpenCode│
+   └──────────────────────┘   └──────────────────┘
 ```
 
-Communication channels (composable):
-1. **HTTP API** (primary): local PiA → remote PiB dispatch/consult.
-2. **git-kanban** (async): shared GitHub board for ticket state.
-3. **athena portal** (status): employees view progress.
+## Core Design Principles
 
-## Conversation Routing (who is the user talking to?)
+### 1. Local agent is abstraction-agnostic
+- The local agent is **NOT required to be Pi**. It can be **Hermes, Claude Code, Codex, Pi,
+  or any agent** that implements the unified interface.
+- Requirements: call server HTTP API, claim/submit git-kanban tickets, return results.
+- Server assumes NO local agent type.
 
-### Private chat — session isolation + explicit @
-- Private chat default = **local PiA_i** (knowledge graph).
-- Need SAP/codebase → employee uses a **SAP session** (routes to PiB) or **@PiB** in
-  conversation.
-- UI clearly labels current Pi (avatar/name/tag: "PiA - Knowledge" vs "PiB - SAP").
-
-### Pi↔Pi in conversation (agent collaboration)
-Local PiA can trigger remote PiB mid-conversation via HTTP:
+### 2. Each employee talks to 3 agents
 ```
-User: "Explain this SAP program ZPRGM_001"
-PiA:   "Consulting the SAP expert (PiB)…"
-       [PiB: "This program does…; I can dispatch a worker to modify it."]
-PiA:   integrates the answer for the user.
+Employee → ① Local agent   (development, daily work, local OpenCode)
+         → ② Server Pi     (knowledge: LightRAG + llm_wiki, ingest, wiki)
+         → ③ Remote PiB    (external codebase: SAP ABAP, dispatch OpenCode workers)
 ```
-- PiA is the primary conversation; PiB's contribution rendered as an inline sub-reply / quote block (source-labeled).
-- Optionally fork into two conversations (PiA thread + PiB thread) switchable.
 
-### Team channel — shared PiA_team + shared PiB
+### 3. Athena = federation hub (not a single-agent system)
+- **Unified protocol**: HTTP API + MCP for knowledge/ingest/status/tasks.
+- **Unified state**: git-kanban (async coordination).
+- **Unified display**: athena portal (Vue) shows all agents' status.
+- Any agent implementing the protocol joins the federation.
+
+## Roles
+
+| Tier | Component | Role |
+|------|-----------|------|
+| Server | **Server PiA_srv** | Knowledge steward: ingest, embedding, wiki maintenance; serves knowledge via HTTP/MCP |
+| Server | LightRAG + llm_wiki | Centralized knowledge (vector+graph / wiki pages) |
+| Server | athena portal | Unified UI: conversations, knowledge, kanban, wiki |
+| Local | **Local agent** (any) | Employee's dev + chat; local OpenCode for coding; HTTP shell → server |
+| Remote | **Remote PiB** (shared) | Owns external codebase context (ABAP MCP); dispatches OpenCode workers |
+| Remote | OpenCode workers | Actual coders for remote tasks |
+
+## Communication
+
+### Unified Interface (server-side)
 ```
-Team channel:
-  Employee1: "The SAP report has a bug"
-  Team PiA_team: coordinates → triggers PiB → PiB allocates OpenCode worker
+Server HTTP API (Fastify shell) + MCP:
+  GET  /api/knowledge/search   (RAG)
+  POST /api/knowledge/ingest   (docling → LightRAG + llm_wiki)
+  GET  /api/wiki/:path         (wiki page)
+  GET  /api/status             (agent/task status)
+  git-kanban: ticket claim/submit
 ```
-- 3 employees share the team conversation + the single remote PiB.
+Local + Remote agents talk to the server through this interface over **Tailscale**.
 
-## Intent Routing (Local PiA)
+### Remote PiB (SAP) reachable from server/local
+```
+POST /api/task   → PiB dispatches an OpenCode worker
+GET  /api/status → worker/task status
+```
 
-| User intent | Route |
-|-------------|-------|
-| Knowledge / team processes / general | Local PiA (knowledge graph) |
-| SAP codebase / ABAP / remote project | Remote PiB (via HTTP) |
-| Cross-domain | PiA consults PiB then fuses |
+## Conversation Routing (3 agents per employee)
+
+| Intent | Agent |
+|--------|-------|
+| Knowledge / team processes / general | Server PiA_srv (knowledge graph) |
+| Local development / own code | Local agent |
+| External codebase (SAP ABAP) | Remote PiB |
+
+- **Private chat**: default local agent; knowledge → server Pi; SAP → @PiB / SAP session.
+- UI labels each agent (avatar/name): "Local Hermes", "Server Pi - Knowledge", "PiB - SAP".
+- **Agent↔agent in conversation**: local agent consults server Pi or remote PiB via HTTP,
+  then fuses the answer; sub-replies rendered source-labeled.
+
+## Per-Employee Isolation + Independent OpenRouter Key
+
+- Each employee's agent has **independent context/session** (already via AgentSession).
+- Optionally **independent OpenRouter API key** → exact per-employee cost tracking,
+  isolated quotas, no cross-employee cache interference.
+- Knowledge (LightRAG/llm_wiki) remains shared at the service level (optionally
+  permission-gated per employee).
+
+## Migration Path (6900XT → company server)
+
+1. Today: athena + Pi + LightRAG + llm_wiki all on 6900XT.
+2. Next: move knowledge services (LightRAG/llm_wiki) + athena portal to a company server.
+3. Then: server PiA_srv becomes the knowledge steward; each employee runs local agent.
+4. Remote SAP endpoint (PiB + OpenCode) added when remote-codebase work begins.
 
 ## Open Questions / Next Steps
 
-- SAP connection limit (single PiB vs N workers' ABAP access).
-- OpenCode worker isolation on the remote server (per-task sessions, already supported by serve).
-- Authentication between local and remote (Tailscale identity + API token).
-- Whether the remote PiB + worker shell should be deployed as a second athena instance or standalone.
+- Authentication between tiers (Tailscale identity + API token).
+- Knowledge access permissions per employee.
+- Whether server PiA_srv is one shared instance or per-employee (recommend shared for
+  knowledge stewardship; local agent is per-employee).
+- HTTP protocol versioning for the unified interface.
 
 ## Reference
 
-- `docs/adr/0005-dialogue-structure.md` (existing single-Pi dialogue model)
+- `docs/adr/0005-dialogue-structure.md` (single-Pi dialogue model, to evolve)
 - `docs/git-kanban-design.md` (async coordination)
-- `docs/knowledge-rag-design.md` (local PiA knowledge context)
+- `docs/knowledge-rag-design.md` (knowledge context)
+- `docs/distributed-pi-collaboration.md` was the precursor (now superseded by this doc)
