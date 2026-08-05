@@ -47,7 +47,7 @@ Employee browser → Tailscale → 6900XT Portal (Vue frontend)
 | Service                | Port   | Bind                  |
 |------------------------|--------|-----------------------|
 | llama-server (Qwythos) | 8080   | 127.0.0.1 (must change to 0.0.0.0) |
-| LightRAG               | TBD    | -                     |
+| LightRAG               | 9621   | 0.0.0.0               |
 | llm_wiki               | 19828  | 127.0.0.1 (must change to 0.0.0.0) |
 | Portal backend (Fastify)| Main   | 0.0.0.0               |
 | Portal frontend (Vue)  | TBD    | 0.0.0.0               |
