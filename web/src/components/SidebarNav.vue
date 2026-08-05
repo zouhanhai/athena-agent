@@ -41,7 +41,7 @@ const sidebarTopOffset = "24px";
       <div class="brand">
         <img
           class="brand-logo"
-          src="/athena-logo.svg"
+          src="/athena-logo-ai.png"
           alt="Athena Agent logo"
         />
         <div class="brand-text">
