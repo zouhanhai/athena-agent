@@ -39,7 +39,7 @@ const navItems: NavItem[] = [
       <div class="brand">
         <img
           class="brand-logo"
-          src="/caleo-logo.png"
+          src="/caleo-logo-clean.png"
           alt="CALEO logo"
         />
         <div class="brand-text">
