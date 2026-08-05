@@ -3,6 +3,7 @@ import {
   createAgentSession,
   ModelRuntime,
   type AgentSession,
+  type SessionManager,
 } from "@earendil-works/pi-coding-agent";
 
 export interface CreateAgentOptions {
@@ -14,6 +15,8 @@ export interface CreateAgentOptions {
   agentDir?: string;
   /** Working directory for project-local discovery. Default: process.cwd() */
   cwd?: string;
+  /** Pi SessionManager for conversation persistence / per-employee isolation. Default: new persistent session. */
+  sessionManager?: SessionManager;
 }
 
 export interface Agent {
@@ -61,6 +64,7 @@ export async function createAgent(options: CreateAgentOptions = {}): Promise<Age
     modelRuntime,
     cwd: options.cwd,
     agentDir: options.agentDir,
+    sessionManager: options.sessionManager,
   });
 
   const packages = extensionsResult.extensions.map((ext) =>
