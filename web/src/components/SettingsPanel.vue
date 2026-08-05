@@ -70,11 +70,11 @@ function open() {
   width: 100%;
   justify-content: flex-start;
   color: var(--caleo-sidebar-text) !important;
+  background: transparent !important;
 }
-
 .settings-trigger:hover {
   color: var(--caleo-primary) !important;
-  background: var(--caleo-sidebar-hover);
+  background: var(--caleo-sidebar-hover) !important;
 }
 
 .settings-title {

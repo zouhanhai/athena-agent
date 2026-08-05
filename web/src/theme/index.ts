@@ -71,7 +71,7 @@ const themePalettes: Record<ThemeMode, Record<string, string>> = {
     "--caleo-sidebar-sub": "#64748b",
     "--caleo-sidebar-hover": "#e5e7eb",
     "--caleo-sidebar-active": "rgba(105, 179, 231, 0.16)",
-    "--caleo-sidebar-footer-bg": "#e5e7eb",
+    "--caleo-sidebar-footer-bg": "#e0e2e6",
     "--caleo-shadow": "0 1px 3px rgba(31, 35, 41, 0.08)",
     "--caleo-bubble-ai": "#e5e7eb",
     "--caleo-bubble-user": caleoPalette.sky,
