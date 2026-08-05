@@ -74,6 +74,7 @@ A ticket's full lifecycle:
 
 ## Tech Stack
 
+- **Language**: All files (docs, comments, tickets, specs, code) are written in **English** — the whole team reads them.
 - Node 24+ / TypeScript (strict mode)
 - Backend: Fastify + @earendil-works/pi-coding-agent (Pi SDK)
 - Frontend: Vue3 + TDesign + Vite
