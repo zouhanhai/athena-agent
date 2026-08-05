@@ -63,7 +63,10 @@ Implement the portal frontend Knowledge (graph) and Wiki panels.
 - Reuse G1.S2's API layer + store layering (web/src/api/, stores/)
 - Graph: **2D force-directed** (not 3D, for readability); use a Vue graph lib feeding LightRAG `/graphs` data
 - Wiki: TDesign Tree for navigation + markdown renderer for content
-- CALEO style: orange #ff6633 + dark blue #2d3142 + sky blue #69b3e7
+- **Design consistency (mandatory)**: all new pages must follow the existing frontend design language —
+  use `--caleo-*` + TDesign `--td-*` CSS variables (no hardcoded colors), card layout matching ChatView,
+  CALEO palette (orange #ff6633 primary, dark #2d3142, sky #69b3e7), dark/light theme toggle aware,
+  consistent header/empty/loading/error states. Reference ChatView.vue + SidebarNav.vue + theme/index.ts.
 - Use **implement** + tdd + code-review
 
 ## Dependencies
