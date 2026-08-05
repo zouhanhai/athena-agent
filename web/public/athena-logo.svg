@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Athena 猫头鹰 logo: 简约几何萌系, 品牌橙 #ff6633 + 深蓝 #2d3142 + 天空蓝 #69b3e7 -->
+  
+  <!-- 身体 (橙色圆角六边形/椭圆) -->
+  <ellipse cx="32" cy="38" rx="24" ry="22" fill="#ff6633"/>
+  
+  <!-- 眼睛外圈 (深蓝) -->
+  <circle cx="22" cy="28" r="10" fill="#2d3142"/>
+  <circle cx="42" cy="28" r="10" fill="#2d3142"/>
+  
+  <!-- 大眼睛 (白色高光区) -->
+  <circle cx="22" cy="28" r="6.5" fill="#ffffff"/>
+  <circle cx="42" cy="28" r="6.5" fill="#ffffff"/>
+  
+  <!-- 瞳孔 (深蓝, 萌点) -->
+  <circle cx="24" cy="29" r="3.2" fill="#2d3142"/>
+  <circle cx="40" cy="29" r="3.2" fill="#2d3142"/>
+  
+  <!-- 眼神高光 (小白点) -->
+  <circle cx="25.2" cy="27.6" r="1.2" fill="#ffffff"/>
+  <circle cx="41.2" cy="27.6" r="1.2" fill="#ffffff"/>
+  
+  <!-- 喙 (小三角形, 橙色浅/天空蓝) -->
+  <path d="M32 32 L29 36 L35 36 Z" fill="#69b3e7"/>
+  
+  <!-- 眉毛/头顶装饰 (呆毛, 深蓝) -->
+  <path d="M32 6 Q36 12 32 16 Q28 12 32 6" fill="#2d3142"/>
+  
+  <!-- 腹部斑纹 (浅色椭圆) -->
+  <ellipse cx="32" cy="44" rx="10" ry="6" fill="#e65a2b"/>
+</svg>
