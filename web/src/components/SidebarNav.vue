@@ -37,18 +37,20 @@ const navItems: NavItem[] = [
   <t-aside class="app-aside">
     <header class="app-header">
       <div class="brand">
+        <span class="brand-name">Athena Agent</span>
         <img
           class="brand-logo"
           src="/caleo-logo-clean.png"
           alt="CALEO logo"
         />
-        <div class="brand-text">
-          <span class="brand-name">Athena Agent</span>
-          <span class="brand-tag">CALEO Portal</span>
-        </div>
       </div>
     </header>
-    <t-menu :theme="menuTheme" class="side-menu" :value="activeMenu">
+    <t-menu
+      :theme="menuTheme"
+      class="side-menu"
+      :value="activeMenu"
+      width="100%"
+    >
       <t-menu-item
         v-for="item in navItems"
         :key="item.path"
@@ -80,47 +82,60 @@ const navItems: NavItem[] = [
 .app-header {
   padding: 20px 16px;
   border-bottom: 1px solid var(--caleo-sidebar-border);
+  background: var(--caleo-sidebar-bg);
 }
 
 .brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  text-align: center;
 }
 
 .brand-logo {
-  width: 36px;
-  height: 36px;
+  width: 88px;
+  height: 88px;
   border-radius: 8px;
   object-fit: contain;
   flex-shrink: 0;
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
 }
 
 .brand-name {
   color: var(--caleo-sidebar-text);
   font-size: 15px;
   font-weight: 600;
-}
-
-.brand-tag {
-  color: var(--caleo-sidebar-sub);
-  font-size: 12px;
+  letter-spacing: 0.2px;
 }
 
 .side-menu {
   flex: 1;
   width: 100%;
   padding-top: 8px;
+  background: var(--caleo-sidebar-bg);
+}
+
+.side-menu :deep(.t-menu__item) {
+  color: var(--caleo-sidebar-sub);
+}
+
+.side-menu :deep(.t-menu__item:hover) {
+  color: var(--caleo-sidebar-text);
+  background: var(--caleo-sidebar-hover);
+}
+
+.side-menu :deep(.t-menu__item.t-is-active) {
+  color: var(--caleo-primary);
+  background: var(--caleo-sidebar-active);
+}
+
+.side-menu :deep(.t-menu__item.t-is-active .t-icon) {
+  color: var(--caleo-primary);
 }
 
 .app-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--caleo-sidebar-border);
+  background: var(--caleo-sidebar-bg);
 }
 </style>

@@ -69,11 +69,12 @@ function open() {
 .settings-trigger {
   width: 100%;
   justify-content: flex-start;
-  color: var(--caleo-sidebar-text);
+  color: var(--caleo-sidebar-text) !important;
 }
 
 .settings-trigger:hover {
-  color: var(--caleo-primary);
+  color: var(--caleo-primary) !important;
+  background: var(--caleo-sidebar-hover);
 }
 
 .settings-title {
@@ -103,6 +104,7 @@ function open() {
 
 .theme-option:hover {
   border-color: var(--caleo-primary);
+  background: var(--caleo-surface-hover);
 }
 
 .theme-option.active {

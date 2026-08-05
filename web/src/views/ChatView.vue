@@ -86,6 +86,11 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+  padding: 16px 20px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  box-shadow: var(--caleo-shadow);
 }
 
 .chat-title {
@@ -116,6 +121,7 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
+  box-shadow: var(--caleo-shadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -150,13 +156,13 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
 }
 
 .message-row.user .bubble {
-  background: var(--caleo-primary);
-  color: #fff;
+  background: var(--caleo-bubble-user);
+  color: var(--caleo-bubble-user-text);
   border-bottom-right-radius: 2px;
 }
 
 .message-row.assistant .bubble {
-  background: var(--caleo-bubble-bg);
+  background: var(--caleo-bubble-ai);
   color: var(--caleo-text);
   border-bottom-left-radius: 2px;
 }
@@ -177,6 +183,11 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   align-items: flex-end;
   gap: 12px;
   margin-top: 16px;
+  padding: 16px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  box-shadow: var(--caleo-shadow);
 }
 
 .composer-input {

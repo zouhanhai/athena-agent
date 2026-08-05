@@ -45,14 +45,43 @@ describe("theme css variables", () => {
 
     expect(dark["--caleo-body-bg"]).not.toBe(light["--caleo-body-bg"]);
     expect(dark["--caleo-text"]).not.toBe(light["--caleo-text"]);
-    expect(light["--caleo-sidebar-bg"]).toBe("#ffffff");
+    expect(light["--caleo-sidebar-bg"]).toBe("#f5f6f7");
     expect(dark["--caleo-sidebar-bg"]).toBe("#2d3142");
+  });
+
+  it("uses light-gray layered light theme (gray page + white cards)", () => {
+    const light = caleoThemeVars("light");
+    expect(light["--caleo-body-bg"]).toBe("#f0f1f3");
+    expect(light["--caleo-surface"]).toBe("#ffffff");
+    expect(light["--caleo-bubble-ai"]).toBe("#f0f1f3");
+  });
+
+  it("overrides TDesign component variables per theme", () => {
+    const dark = caleoThemeVars("dark");
+    const light = caleoThemeVars("light");
+
+    expect(dark["--td-bg-color-page"]).toBe("#1f2128");
+    expect(dark["--td-bg-color-container"]).toBe("#262a33");
+    expect(dark["--td-text-color-primary"]).toBe("#e8e9ec");
+    expect(light["--td-bg-color-page"]).toBe("#f0f1f3");
+    expect(light["--td-bg-color-container"]).toBe("#ffffff");
+    expect(light["--td-text-color-primary"]).toBe("#1f2329");
+  });
+
+  it("distinguishes AI vs user bubbles in both themes", () => {
+    const dark = caleoThemeVars("dark");
+    const light = caleoThemeVars("light");
+
+    expect(dark["--caleo-bubble-ai"]).not.toBe(dark["--caleo-bubble-user"]);
+    expect(light["--caleo-bubble-ai"]).not.toBe(light["--caleo-bubble-user"]);
+    expect(light["--caleo-bubble-user"]).toBe("#69b3e7");
+    expect(dark["--caleo-bubble-user"]).toBe("#ff6633");
   });
 
   it("applyTheme writes theme variables onto the document root", () => {
     applyTheme("light");
     const root = document.documentElement;
-    expect(root.style.getPropertyValue("--caleo-body-bg")).toBe("#f5f6f7");
+    expect(root.style.getPropertyValue("--caleo-body-bg")).toBe("#f0f1f3");
     expect(root.style.getPropertyValue("--caleo-text")).toBe("#1f2329");
 
     applyTheme("dark");

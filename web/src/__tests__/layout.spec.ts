@@ -59,12 +59,18 @@ describe("portal sidebar navigation", () => {
     wrapper.unmount();
   });
 
-  it("shows the CALEO logo image instead of the letter mark", async () => {
+  it("shows the enlarged CALEO logo image below the brand name", async () => {
     const wrapper = await mountApp();
-    const logo = wrapper.find(".brand-logo");
+    const header = wrapper.find(".app-header");
+    const brandName = header.find(".brand-name");
+    const logo = header.find(".brand-logo");
     expect(logo.exists()).toBe(true);
-    expect(logo.attributes("src")).toBe("/caleo-logo.png");
-    expect(wrapper.find(".brand-mark").exists()).toBe(false);
+    expect(logo.attributes("src")).toBe("/caleo-logo-clean.png");
+    expect(header.find(".brand-mark").exists()).toBe(false);
+    expect(brandName.element.compareDocumentPosition(logo.element)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(logo.classes()).toContain("brand-logo");
     wrapper.unmount();
   });
 
@@ -99,6 +105,15 @@ describe("portal sidebar navigation", () => {
     expect(active[0]!.text()).toContain("Kanban");
     wrapper.unmount();
   });
+
+  it("nav menu fills the sidebar width and does not protrude", async () => {
+    const wrapper = await mountApp();
+    const menu = wrapper.find(".side-menu");
+    expect(menu.exists()).toBe(true);
+    expect(menu.attributes("style")).toContain("width: 100%");
+    expect(menu.element.parentElement).toBe(wrapper.find(".app-aside").element);
+    wrapper.unmount();
+  });
 });
 
 describe("CALEO theme", () => {
@@ -109,6 +124,20 @@ describe("CALEO theme", () => {
     expect(root.style.getPropertyValue("--caleo-dark")).toBe("#2d3142");
     expect(root.style.getPropertyValue("--caleo-sky")).toBe("#69b3e7");
     expect(root.style.getPropertyValue("--td-brand-color")).toBe("#ff6633");
+  });
+
+  it("re-themes TDesign component variables when switching theme", async () => {
+    await mountApp();
+    const root = document.documentElement;
+
+    expect(root.style.getPropertyValue("--td-bg-color-page")).toBe("#1f2128");
+    expect(root.style.getPropertyValue("--td-bg-color-container")).toBe("#262a33");
+
+    useThemeStore().setMode("light");
+    await flushPromises();
+
+    expect(root.style.getPropertyValue("--td-bg-color-page")).toBe("#f0f1f3");
+    expect(root.style.getPropertyValue("--td-bg-color-container")).toBe("#ffffff");
   });
 });
 
@@ -150,7 +179,7 @@ describe("theme settings panel", () => {
     expect(useThemeStore().mode).toBe("light");
     expect(
       document.documentElement.style.getPropertyValue("--caleo-body-bg"),
-    ).toBe("#f5f6f7");
+    ).toBe("#f0f1f3");
     expect(localStorage.getItem("caleo-theme")).toBe("light");
     wrapper.unmount();
   });
