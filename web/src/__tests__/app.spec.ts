@@ -1,17 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
+import TDesign from "tdesign-vue-next";
 import App from "@/App.vue";
+import router from "@/router";
 
 describe("App shell", () => {
-  it("renders the portal header skeleton", () => {
+  it("renders the portal header skeleton", async () => {
     const wrapper = mount(App, {
       global: {
+        plugins: [TDesign, router],
         stubs: {
           RouterView: { template: "<div />" },
         },
       },
     });
+    await router.isReady();
     expect(wrapper.find(".app-header").exists()).toBe(true);
     expect(wrapper.text()).toContain("Athena Agent");
+    wrapper.unmount();
   });
 });
