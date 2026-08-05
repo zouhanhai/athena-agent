@@ -20,19 +20,19 @@ function sseFrame(payload: unknown): string {
 }
 
 /**
- * 个人对话端点：
- * - 非流式: POST /api/chat { message, userId } → { reply }
- * - 流式:   同上，Accept: text/event-stream → SSE 逐块推送 delta
+ * Personal chat endpoint:
+ * - Non-streaming: POST /api/chat { message, userId } → { reply }
+ * - Streaming: same, Accept: text/event-stream → SSE pushes delta chunks
  */
 export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptions): void {
   app.post("/api/chat", async (request, reply) => {
     const body = (request.body ?? {}) as ChatRequestBody;
 
     if (invalidField(body.userId)) {
-      return reply.code(400).send({ error: "userId 为必填字符串" });
+      return reply.code(400).send({ error: "userId is required" });
     }
     if (invalidField(body.message)) {
-      return reply.code(400).send({ error: "message 为必填字符串" });
+      return reply.code(400).send({ error: "message is required" });
     }
 
     const userId = body.userId as string;

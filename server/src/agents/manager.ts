@@ -39,8 +39,8 @@ async function defaultAgentFactory(userId: string, options: AgentManagerOptions)
 }
 
 /**
- * 多员工会话管理：每个员工一个独立、可复用的 AgentSession。
- * Map<userId, Promise<Agent>> 保证同一员工并发/重复请求只创建一次。
+ * Multi-employee session management: each employee gets an independent, reusable AgentSession.
+ * Map<userId, Promise<Agent>> ensures concurrent/duplicate requests for the same employee create only once.
  */
 export class AgentManager {
   private readonly agents = new Map<string, Promise<Agent>>();
@@ -52,7 +52,7 @@ export class AgentManager {
     this.factory = factory;
   }
 
-  /** 获取或创建该用户的 AgentSession。同员工并发/重复请求复用同一实例。 */
+  /** Get or create the AgentSession for a user. Concurrent/duplicate requests for the same employee reuse one instance. */
   getAgent(userId: string): Promise<Agent> {
     const existing = this.agents.get(userId);
     if (existing) {
@@ -68,7 +68,7 @@ export class AgentManager {
     return creating;
   }
 
-  /** 销毁该用户的 AgentSession。若仍在创建中则等待完成后销毁。 */
+  /** Dispose the AgentSession for a user. If still creating, wait for completion before disposing. */
   async removeAgent(userId: string): Promise<void> {
     const pending = this.agents.get(userId);
     if (!pending) {
@@ -78,7 +78,7 @@ export class AgentManager {
     try {
       (await pending).dispose();
     } catch {
-      // 创建失败则无需销毁
+      // No need to dispose if creation failed
     }
   }
 
@@ -87,8 +87,8 @@ export class AgentManager {
   }
 
   /**
-   * 读取该员工当前会话的对话历史（测试/审计用）。
-   * 会话尚未创建或创建失败时返回空数组。
+   * Read the conversation history of the current session for an employee (for tests/audit).
+   * Returns an empty array when the session has not been created or creation failed.
    */
   async getSessionMessages(
     userId: string,
@@ -112,7 +112,7 @@ export class AgentManager {
     }
   }
 
-  /** 销毁全部会话。 */
+  /** Dispose all sessions. */
   async dispose(): Promise<void> {
     const pending = [...this.agents.values()];
     this.agents.clear();
@@ -121,7 +121,7 @@ export class AgentManager {
         try {
           (await agentPromise).dispose();
         } catch {
-          // 创建失败则无需销毁
+          // No need to dispose if creation failed
         }
       }),
     );

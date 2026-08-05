@@ -1,8 +1,8 @@
 import type { Agent } from "./agent.js";
 
 /**
- * 以事件流方式产出一次对话的回答文本块。
- * 在 prompt 前订阅 text_delta 事件，随产出随 yield，避免全部缓冲到结束。
+ * Produce a conversation's answer text chunks as an event stream.
+ * Subscribe to text_delta before prompting, yield as it is produced, avoiding buffering until the end.
  */
 export async function* streamAgentText(agent: Agent, message: string): AsyncGenerator<string> {
   const queue: string[] = [];

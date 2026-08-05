@@ -9,7 +9,7 @@ try {
   const reply = await agent.prompt("hi");
   console.log(reply);
   console.log("---");
-  console.log("Pi SDK 内嵌验证成功");
+  console.log("Pi SDK embedding verified successfully");
 } finally {
   agent.dispose();
   process.exit(0);

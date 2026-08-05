@@ -55,7 +55,7 @@ export async function createAgent(options: CreateAgentOptions = {}): Promise<Age
   const model = modelRuntime.getModel(providerId, modelId);
   if (!model) {
     throw new Error(
-      `Model ${providerId}/${modelId} 未找到。检查 ~/.pi/agent/auth.json 与 models.json。`,
+      `Model ${providerId}/${modelId} not found. Check ~/.pi/agent/auth.json and models.json.`,
     );
   }
 
