@@ -40,7 +40,10 @@ backlog → in_progress → done → in_review → approved
 ```
 
 **Claiming a ticket**: change status to `in_progress`, assignee to `opencode`,
-then `git add + commit + push` (git push atomicity guarantees mutual exclusion, preventing conflicts).
+and record the **session id** (e.g. `session_id: ses_xxxxxxxx`) that is handling it
+(OpenCode serve supports multiple parallel sessions — the session id identifies which
+worker is responsible, avoiding confusion when S1/S2 specs run concurrently).
+Then `git add + commit + push` (git push atomicity guarantees mutual exclusion, preventing conflicts).
 
 **Only claim tickets with status=backlog. Rejected tickets cannot be directly claimed.**
 
@@ -63,7 +66,7 @@ it can follow call chains, dynamic dispatch, and find connections that grep miss
 
 A ticket's full lifecycle:
 1. Read ticket + corresponding Spec.md + Goal.md
-2. Claim (change status + push)
+2. Claim (change status + assignee + session_id, then push)
 3. `codegraph_explore` to understand existing code
 4. Develop per **tdd** (tests first, then implementation)
 5. Implementation complete, change status=done, write Log

@@ -71,6 +71,7 @@ Any Worker claiming a ticket:
   3. Modify T1.md frontmatter:
      status: in_progress
      assignee: pi-a
+     session_id: ses_xxxxxxxx   # OpenCode serve session handling this ticket (parallel workers)
      started_at: <timestamp>
   4. git commit -m "claim G1.S1.T1 (in_progress)" + push
   5. Push succeeds → locked, begin development
