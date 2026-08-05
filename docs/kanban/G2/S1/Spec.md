@@ -25,7 +25,11 @@ Deploy LightRAG knowledge service (vector + knowledge graph) on 6900XT.
 ## Key Dependencies
 
 - Python 3.12 (already on 6900XT)
-- DeepSeek API key (available in ~/.pi/agent/auth.json)
+- **OpenRouter API** (CALEO-provided) — unified model access:
+  - Main LLM: `deepseek/deepseek-v4-flash` (conversation/reasoning)
+  - Embedding: `qwen/qwen3-embedding-8b`
+  - Image recognition: `qwen/qwen3.7-flash` (optional)
+  - Image generation: `qwen/qwen-image-3` (M5)
 - Postgres + pgvector (already installed, weknora/qm database)
 - NetworkX graph (default)
 
@@ -33,8 +37,10 @@ Deploy LightRAG knowledge service (vector + knowledge graph) on 6900XT.
 
 1. **Install**: pip install lightrag (LightRAG core, includes Server mode)
    - Optional: `pip install lightrag[api]` for server with UI
-2. **Configure**:
-   - LLM: DeepSeek (deepseek-v4-flash or deepseek-chat) + embedding
+2. **Configure** (via OpenRouter, base_url `https://openrouter.ai/api/v1`):
+   - LLM binding: `openai` → DeepSeek (`deepseek/deepseek-v4-flash`) via OpenRouter base_url
+   - Embedding binding: `openai` → `qwen/qwen3-embedding-8b` via OpenRouter
+   - API key: OpenRouter key (CALEO-provided) — store in LightRAG config/env
    - vector_storage: pgvector (use existing Postgres)
    - kv_storage + doc_status: Postgres
    - graph_storage: NetworkX (POC, file storage)
