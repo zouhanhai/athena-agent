@@ -48,7 +48,7 @@ const sidebarTopOffset = "24px";
           <span class="brand-name">Athena Agent</span>
           <img
             class="brand-caleo-logo"
-            src="/caleo-logo-clean.png"
+            src="/caleo-logo-word.png"
             alt="CALEO"
           />
         </div>
