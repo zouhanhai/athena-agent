@@ -30,9 +30,24 @@ Raw files stored only once; each system produces its own processing artifacts in
 ### 1. Each knowledge source declares its own capability surface
 
 ```
-llm_wiki  → ["wiki", "keyword"]   (has wiki pages + keyword/BM25 index)
-LightRAG  → ["vector", "graph"]   (has vector index + knowledge graph)
+llm_wiki  → ["wiki", "keyword", "graph"]  (wiki pages + keyword/BM25 + built-in wikilinks graph)
+LightRAG  → ["vector", "graph"]           (vector index + entity-relation knowledge graph)
 ```
+
+**Two independent graphs — not unified at the data layer.**
+
+| | LightRAG graph | llm_wiki graph |
+|--|---------------|----------------|
+| Type | Entity-relation graph (NetworkX) | Built-in 4-signal knowledge graph (wikilinks) |
+| Nodes | Entities extracted from documents | Wiki pages |
+| Edges | Entity relationships | Page links ([[wikilinks]]) |
+| Storage | NetworkX (POC, file) | llm_wiki internal |
+| Vector | Postgres/pgvector | LanceDB |
+
+**Rationale**: unifying both graphs into one is impractical (different node granularity:
+entities vs pages; different storage engines). "Unification" happens at the **retrieval
+orchestration layer (Pi routing)** — each graph serves its own query type, and Pi fuses
+multi-source results when a complex query spans both.
 
 **Capabilities are deterministic declarations at the "knowledge source level"** (not probing). Pi sees them and knows what's possible.
 
@@ -47,6 +62,8 @@ const tools = [
   // Wiki tools: must have wiki
   { name: 'wiki_search',       requireCapability: { allOf: ['wiki'] } },
   { name: 'wiki_read_page',    requireCapability: { allOf: ['wiki'] } },
+  // llm_wiki wikilinks graph traversal (optional, distinguishes from LightRAG entity graph)
+  { name: 'wiki_graph',        requireCapability: { allOf: ['wiki', 'graph'] } },
 ]
 ```
 
@@ -60,13 +77,18 @@ const tools = [
 user query → Pi (ReAct agent):
   1. Inspect each knowledge source's capability declaration + tool descriptions
   2. Judge user intent:
-     ├─ "What does the process doc say"  → wiki_search (llm_wiki)
-     ├─ "Which entities relate to X"     → query_graph (LightRAG)
-     ├─ "Materials about Y"              → knowledge_search (LightRAG)
-     ├─ "Compare A and B implementations" → query multiple (wiki + RAG)
-     └─ Simple question / chit-chat      → don't query, answer directly
+     ├─ "What does the process doc say"     → wiki_search (llm_wiki)
+     ├─ "Which entities relate to X"        → query_graph (LightRAG entity graph)
+     ├─ "Which wiki pages link to Y"        → wiki_graph (llm_wiki wikilinks graph)
+     ├─ "Materials about Z"                 → knowledge_search (LightRAG)
+     ├─ "Compare A and B implementations"   → query multiple (wiki + RAG) then fuse
+     └─ Simple question / chit-chat        → don't query, answer directly
   3. Collect results → summarize → answer
 ```
+
+**Multi-graph fusion**: when a query spans both graphs (e.g. "how does concept A relate
+to topic B"), Pi queries the relevant graph(s) and **fuses the answers** into one coherent
+response — unification happens here at the orchestration layer, not at the storage layer.
 
 **Decision factors** (Pi considers holistically):
 | Factor                | Impact                                           |
@@ -82,8 +104,9 @@ user query → Pi (ReAct agent):
 |--------------------------------------|-------------------|------------------|
 | Process / standards / concept definitions | wiki_search    | llm_wiki         |
 | Specific facts / fuzzy semantics / materials | knowledge_search | LightRAG      |
-| Entity relationships / dependencies | query_graph       | LightRAG         |
-| Comprehensive comparison / complex reasoning | multi-source hybrid | Query all     |
+| Entity relationships / dependencies | query_graph       | LightRAG (entity graph) |
+| Page / topic links exploration       | wiki_graph        | llm_wiki (wikilinks graph) |
+| Comprehensive comparison / complex reasoning | multi-source hybrid | Query all, Pi fuses |
 | Simple / chit-chat                   | No retrieval      | -                |
 
 ## 5. Tool Descriptions (Helping Pi Decide)
@@ -92,6 +115,7 @@ user query → Pi (ReAct agent):
 wiki_search: "Search accumulated wiki pages (suitable for: processes, standards, concept definitions)"
 knowledge_search: "Semantic search over raw document chunks (suitable for: specific facts, fuzzy semantics, material lookup)"
 query_graph: "Query entity relationship graph (suitable for: who relates to whom, dependency relationships)"
+wiki_graph: "Traverse wiki page wikilinks graph (suitable for: which pages link to a topic, knowledge exploration)"
 ```
 
 ## 6. Differences vs WeKnora
@@ -102,7 +126,7 @@ query_graph: "Query entity relationship graph (suitable for: who relates to whom
 | Routing basis         | Inspect KB.Capabilities()      | Inspect knowledge source capabilities declaration |
 | Tools                 | Built-in agent calls multiple  | Pi calls multiple MCP tools        |
 | Wiki storage          | DB rows (Postgres)             | md files (llm_wiki, Karpathy pattern) |
-| Graph                 | Built-in                       | LightRAG NetworkX                  |
+| Graph                 | Built-in                       | Two independent: LightRAG entity graph (NetworkX) + llm_wiki wikilinks graph |
 
 **Different paths, same destination**: shared raw files + layered processing artifacts + capability-declaration routing.
 
