@@ -72,17 +72,19 @@
 
 ## 三、已装 vs 待评估
 
-### 已装（8 个）
+### 已装（10 个）
 pi-mcp-adapter, pi-intercom, @mjasnikovs/pi-task, pi-goal-list-loop-audit,
 @quintinshaw/pi-dynamic-workflows, @juicesharp/rpiv-ask-user-question,
-pi-hermes-memory, pi-web-access
+pi-hermes-memory, pi-web-access, pi-crew, @juicesharp/rpiv-todo
 
 ### 建议装（核心协作）
-pi-crew（团队编排）, @juicesharp/rpiv-todo（进度追踪）
+无（核心协作已装齐）
 
-### 考虑（按需）
-@narumitw/pi-plan-mode, @plannotator/pi-extension, gentle-pi, pi-fabric,
-pi-subagents, pi-landstrip
+### 考虑（按需评估，避免重复）
+- 计划/审查: @narumitw/pi-plan-mode, @plannotator/pi-extension, gentle-pi（三选一评估）
+- 编排进阶: pi-fabric（与 pi-crew/pi-task 有重叠，需评估）
+- 子 agent: pi-subagents（与 pi-dynamic-workflows 有重叠）
+- 沙箱: pi-landstrip（需要时再看）
 
 ## 四、athena 功能 → 实现方式（关键结论）
 
