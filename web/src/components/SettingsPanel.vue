@@ -69,7 +69,7 @@ function open() {
 .settings-trigger {
   width: 100%;
   justify-content: flex-start;
-  color: var(--caleo-sidebar-text) !important;
+  color: var(--caleo-sidebar-sub) !important;
   background: transparent !important;
 }
 .settings-trigger:hover {
