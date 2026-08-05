@@ -59,18 +59,30 @@ describe("portal sidebar navigation", () => {
     wrapper.unmount();
   });
 
-  it("shows the enlarged CALEO logo image below the brand name", async () => {
+  it("shows the Athena owl logo before the brand name with a CALEO Portal subtitle", async () => {
     const wrapper = await mountApp();
     const header = wrapper.find(".app-header");
-    const brandName = header.find(".brand-name");
     const logo = header.find(".brand-logo");
+    const brandName = header.find(".brand-name");
+    const subtitle = header.find(".brand-subtitle");
+
     expect(logo.exists()).toBe(true);
-    expect(logo.attributes("src")).toBe("/caleo-logo-clean.png");
-    expect(header.find(".brand-mark").exists()).toBe(false);
-    expect(brandName.element.compareDocumentPosition(logo.element)).toBe(
+    const src = logo.attributes("src")!;
+    expect(src === "/athena-logo.svg" || src.startsWith("data:image/svg+xml")).toBe(
+      true,
+    );
+    if (src.startsWith("data:")) {
+      expect(decodeURIComponent(src.replace(/^data:image\/svg\+xml,/, ""))).toContain(
+        "#ff6633",
+      );
+    }
+    expect(header.find('img[src="/caleo-logo-clean.png"]').exists()).toBe(false);
+    expect(logo.element.compareDocumentPosition(brandName.element)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(logo.classes()).toContain("brand-logo");
+    expect(brandName.text()).toBe("Athena Agent");
+    expect(subtitle.exists()).toBe(true);
+    expect(subtitle.text()).toBe("CALEO Portal");
     wrapper.unmount();
   });
 
@@ -112,6 +124,24 @@ describe("portal sidebar navigation", () => {
     expect(menu.exists()).toBe(true);
     expect(menu.attributes("style")).toContain("width: 100%");
     expect(menu.element.parentElement).toBe(wrapper.find(".app-aside").element);
+    wrapper.unmount();
+  });
+
+  it("offsets the sidebar content from the top of the viewport", async () => {
+    const wrapper = await mountApp();
+    const aside = wrapper.find(".app-aside").element as HTMLElement;
+    const paddingTop = parseInt(getComputedStyle(aside).paddingTop, 10);
+    expect(paddingTop).toBeGreaterThan(0);
+    wrapper.unmount();
+  });
+
+  it("pins the Settings button to the very bottom of the sidebar", async () => {
+    const wrapper = await mountApp();
+    const aside = wrapper.find(".app-aside");
+    const children = Array.from(aside.element.children);
+    const last = children[children.length - 1];
+    expect(last.classList.contains("app-footer")).toBe(true);
+    expect(wrapper.find(".app-footer .settings-trigger").exists()).toBe(true);
     wrapper.unmount();
   });
 });

@@ -45,7 +45,7 @@ describe("theme css variables", () => {
 
     expect(dark["--caleo-body-bg"]).not.toBe(light["--caleo-body-bg"]);
     expect(dark["--caleo-text"]).not.toBe(light["--caleo-text"]);
-    expect(light["--caleo-sidebar-bg"]).toBe("#f5f6f7");
+    expect(light["--caleo-sidebar-bg"]).toBe("#f0f1f3");
     expect(dark["--caleo-sidebar-bg"]).toBe("#2d3142");
   });
 
@@ -53,7 +53,7 @@ describe("theme css variables", () => {
     const light = caleoThemeVars("light");
     expect(light["--caleo-body-bg"]).toBe("#f0f1f3");
     expect(light["--caleo-surface"]).toBe("#ffffff");
-    expect(light["--caleo-bubble-ai"]).toBe("#f0f1f3");
+    expect(light["--caleo-bubble-ai"]).toBe("#e5e7eb");
   });
 
   it("overrides TDesign component variables per theme", () => {

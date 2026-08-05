@@ -31,18 +31,23 @@ const navItems: NavItem[] = [
   { label: "Kanban", path: "/kanban", icon: ViewGanttIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
 ];
+
+const sidebarTopOffset = "24px";
 </script>
 
 <template>
-  <t-aside class="app-aside">
+  <t-aside class="app-aside" :style="{ paddingTop: sidebarTopOffset }">
     <header class="app-header">
       <div class="brand">
-        <span class="brand-name">Athena Agent</span>
         <img
           class="brand-logo"
-          src="/caleo-logo-clean.png"
-          alt="CALEO logo"
+          src="/athena-logo.svg"
+          alt="Athena Agent logo"
         />
+        <div class="brand-text">
+          <span class="brand-name">Athena Agent</span>
+          <span class="brand-subtitle">CALEO Portal</span>
+        </div>
       </div>
     </header>
     <t-menu
@@ -80,25 +85,30 @@ const navItems: NavItem[] = [
 }
 
 .app-header {
-  padding: 20px 16px;
+  padding: 16px 16px 20px;
   border-bottom: 1px solid var(--caleo-sidebar-border);
   background: var(--caleo-sidebar-bg);
 }
 
 .brand {
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 12px;
-  text-align: center;
+  text-align: left;
 }
 
 .brand-logo {
-  width: 88px;
-  height: 88px;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   flex-shrink: 0;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .brand-name {
@@ -106,6 +116,14 @@ const navItems: NavItem[] = [
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.brand-subtitle {
+  color: var(--caleo-sidebar-sub);
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
 .side-menu {
