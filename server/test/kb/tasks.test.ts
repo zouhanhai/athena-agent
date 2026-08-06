@@ -106,7 +106,8 @@ test("task fails overall when both systems fail", async () => {
   assert.equal(task.status, "failed");
   assert.equal(task.stages.ingesting_lightrag.status, "failed");
   assert.equal(task.stages.ingesting_llmwiki.status, "failed");
-  assert.match(task.error ?? "", /Both knowledge systems failed/);
+  // Top-level error surfaces the first failed stage's reason (not a generic message).
+  assert.match(task.error ?? "", /LightRAG down/);
 });
 
 test("task fails at parsing stage when docling errors", async () => {
