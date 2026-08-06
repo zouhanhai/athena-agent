@@ -205,14 +205,6 @@ const configs = computed<UserConfigs>(() => ({
       radius: (node) => (node.size as number) ?? 14,
       color: (node) => typeColors.value[node.type ?? ""] ?? colors.value.primary,
     },
-    // Keep the node size stable on hover. v-network-graph's default hover bumps the
-    // radius by +2 and repositions the label below the (now bigger) dot, which causes
-    // the dot to flicker and pushes the text down when the mouse crosses the
-    // dot/label edge. Same radius here → no flicker, no text jump.
-    hover: {
-      radius: (node) => (node.size as number) ?? 14,
-      color: (node) => typeColors.value[node.type ?? ""] ?? colors.value.primary,
-    },
     selected: { color: colors.value.sky },
     focusring: { color: colors.value.primary, width: 2, padding: 3 },
     label: { visible: true, color: colors.value.text, fontSize: 12, fontFamily: "inherit" },
