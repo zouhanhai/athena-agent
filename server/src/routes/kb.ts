@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,6 +51,13 @@ function safeFilename(filename: string): string {
   const base = filename.split("/").pop() ?? filename;
   const sanitized = base.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return sanitized || `upload-${Date.now()}`;
+}
+
+/** Validate a wiki page path like "wiki/concepts/foo.md" (no traversal). */
+function isSafeWikiPath(value: string): boolean {
+  if (!value.startsWith("wiki/") || !value.endsWith(".md")) return false;
+  if (value.includes("..") || value.includes("\\")) return false;
+  return true;
 }
 
 /**
@@ -164,6 +171,22 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
+
+  /** Delete a wiki page from BOTH llm_wiki + LightRAG (G2.S5.T12). */
+  const deleteDocHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = (request.body ?? {}) as { path?: unknown };
+    if (typeof body.path !== "string" || !isSafeWikiPath(body.path.trim())) {
+      return reply.code(400).send({ error: "a valid wiki page path (wiki/**/*.md) is required" });
+    }
+    try {
+      const result = await options.ingest.deleteDocument(body.path.trim());
+      return reply.code(result.ok ? 200 : 500).send(result);
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.delete("/api/kb/doc", deleteDocHandler);
+  app.post("/api/kb/doc/delete", deleteDocHandler);
 
   if (!options.retrieval) return;
 

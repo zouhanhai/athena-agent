@@ -152,3 +152,40 @@ test("LightRagClient strips trailing slash from baseUrl", async () => {
   await client.getHealth();
   assert.equal(calls[0].url, "http://kb:9621/health");
 });
+
+test("LightRagClient.listDocuments flattens all statuses into doc records", async () => {
+  const { fetchImpl } = makeFetchMock(() => ({
+    status: 200,
+    body: {
+      statuses: {
+        processed: [
+          { id: "doc-1", file_path: "foo.md", status: "processed" },
+          { id: "doc-2", file_path: "bar.md", status: "processed" },
+        ],
+        pending: [{ id: "doc-3", file_path: "baz.md", status: "pending" }],
+        failed: [{ id: "doc-4", status: "failed" }],
+      },
+    },
+  }));
+  const client = new LightRagClient({ baseUrl: "http://kb:9621", fetchImpl });
+  const docs = await client.listDocuments();
+  assert.deepEqual(docs, [
+    { id: "doc-1", file_path: "foo.md", status: "processed" },
+    { id: "doc-2", file_path: "bar.md", status: "processed" },
+    { id: "doc-3", file_path: "baz.md", status: "pending" },
+    { id: "doc-4", status: "failed" },
+  ]);
+});
+
+test("LightRagClient.deleteDocument DELETEs delete_document with doc_ids + llm cache purge", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: { status: "deletion_started" },
+  }));
+  const client = new LightRagClient({ baseUrl: "http://kb:9621", fetchImpl });
+  const result = await client.deleteDocument("doc-1");
+  assert.equal(result.status, "deletion_started");
+  assert.equal(calls[0].method, "DELETE");
+  assert.equal(calls[0].url, "http://kb:9621/documents/delete_document");
+  assert.deepEqual(calls[0].body, { doc_ids: ["doc-1"], delete_file: false, delete_llm_cache: true });
+});

@@ -4,6 +4,8 @@
  * Encapsulates the endpoints used by the athena knowledge access layer:
  * file tree, page content, hybrid search, wikilinks graph, and source rescan.
  */
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
 
 export interface LlmWikiOptions {
@@ -256,6 +258,26 @@ export class LlmWikiClient {
     return this.request(`/projects/${encodeURIComponent(projectId)}/sources/rescan`, {
       method: "POST",
     });
+  }
+
+  /**
+   * Delete a wiki page file from disk and rescan so Source Watch drops it from
+   * the keyword/vector index (llm_wiki exposes no HTTP delete endpoint).
+   * `path` is project-relative, e.g. "wiki/concepts/foo.md".
+   * Callers should rebuild wiki/index.md afterwards.
+   */
+  async deleteFile(projectId: string, path: string): Promise<void> {
+    const { projects, currentProject } = await this.listProjects();
+    const project =
+      currentProject ??
+      projects.find((p) => p.id === projectId) ??
+      projects[0];
+    if (!project?.path) {
+      throw new Error("llm_wiki project path could not be resolved");
+    }
+    const file = join(project.path, path);
+    await rm(file, { force: true });
+    await this.rescan(projectId);
   }
 
   /**

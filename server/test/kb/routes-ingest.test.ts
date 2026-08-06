@@ -258,3 +258,80 @@ test("POST /api/kb/ingest/retry rejects a missing taskId", async () => {
     await app.close();
   }
 });
+
+function makeDeleteIngest(opts: { fail?: boolean } = {}) {
+  return {
+    async deleteDocument(path: string) {
+      if (opts.fail) {
+        return { ok: false, lightrag: { deleted: [] }, llmwiki: { path, error: "delete failed" } };
+      }
+      return { ok: true, lightrag: { deleted: ["doc-1"] }, llmwiki: { path } };
+    },
+  } as never;
+}
+
+test("DELETE /api/kb/doc deletes the page from both systems", async () => {
+  const app = buildApp({ ingest: makeDeleteIngest(), taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/api/kb/doc",
+      payload: { path: "wiki/concepts/foo.md" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as { ok: boolean; lightrag: { deleted: string[] } };
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.lightrag.deleted, ["doc-1"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/kb/doc/delete is an alias for the delete endpoint", async () => {
+  const app = buildApp({ ingest: makeDeleteIngest(), taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/doc/delete",
+      payload: { path: "wiki/sommerseminar/s1.md" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal((res.json() as { ok: boolean }).ok, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test("DELETE /api/kb/doc rejects missing, invalid and unsafe paths", async () => {
+  const app = buildApp({ ingest: makeDeleteIngest(), taskQueue: makeTaskQueue() });
+  try {
+    const badPaths = ["", "foo.md", "wiki/../evil.md", "/etc/passwd", "wiki/concepts/foo.txt"];
+    for (const path of badPaths) {
+      const res = await app.inject({
+        method: "DELETE",
+        url: "/api/kb/doc",
+        payload: { path },
+      });
+      assert.equal(res.statusCode, 400, `path=${path}`);
+    }
+    const missing = await app.inject({ method: "DELETE", url: "/api/kb/doc", payload: {} });
+    assert.equal(missing.statusCode, 400);
+  } finally {
+    await app.close();
+  }
+});
+
+test("DELETE /api/kb/doc returns 500 when deletion fails", async () => {
+  const app = buildApp({ ingest: makeDeleteIngest({ fail: true }), taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/api/kb/doc",
+      payload: { path: "wiki/concepts/foo.md" },
+    });
+    assert.equal(res.statusCode, 500);
+    assert.equal((res.json() as { ok: boolean }).ok, false);
+  } finally {
+    await app.close();
+  }
+});

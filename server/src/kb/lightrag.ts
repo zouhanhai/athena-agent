@@ -73,6 +73,17 @@ export interface LightRagGraphOptions {
   maxNodes?: number;
 }
 
+export interface LightRagDocument {
+  id: string;
+  file_path?: string;
+  status?: string;
+}
+
+export interface LightRagDeleteResult {
+  status?: string;
+  message?: string;
+}
+
 export class LightRagClient {
   private readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -114,9 +125,50 @@ export class LightRagClient {
     return this.request(`/graphs?${params.toString()}`);
   }
 
+  /** GET /documents - list all documents across statuses (flattened). */
+  async listDocuments(): Promise<LightRagDocument[]> {
+    const json = await this.request("/documents");
+    const statuses = (json.statuses ?? {}) as Record<string, unknown[]>;
+    const docs: LightRagDocument[] = [];
+    for (const list of Object.values(statuses)) {
+      if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      const obj = item as Record<string, unknown>;
+      const id = typeof obj.id === "string" ? obj.id : "";
+      if (!id) continue;
+      docs.push({
+        id,
+        ...(typeof obj.file_path === "string" && obj.file_path ? { file_path: obj.file_path } : {}),
+        ...(typeof obj.status === "string" && obj.status ? { status: obj.status } : {}),
+      });
+    }
+    }
+    return docs;
+  }
+
+  /**
+   * DELETE /documents/delete_document - remove a doc and all its associated
+   * data (status, chunks, vector embeddings, graph). Runs in the background;
+   * also purges cached LLM extraction results by default so a re-upload of the
+   * same file does not hit the "already contains" conflict.
+   */
+  async deleteDocument(
+    docId: string,
+    options: { deleteFile?: boolean; deleteLlmCache?: boolean } = {},
+  ): Promise<LightRagDeleteResult> {
+    return this.request("/documents/delete_document", {
+      method: "DELETE",
+      body: {
+        doc_ids: [docId],
+        delete_file: options.deleteFile ?? false,
+        delete_llm_cache: options.deleteLlmCache ?? true,
+      },
+    });
+  }
+
   private async request(
     path: string,
-    options: { method?: "GET" | "POST"; body?: unknown; auth?: boolean } = {},
+    options: { method?: "GET" | "POST" | "DELETE"; body?: unknown; auth?: boolean } = {},
   ): Promise<any> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (options.auth !== false && this.token?.trim()) {

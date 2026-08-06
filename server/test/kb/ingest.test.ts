@@ -154,6 +154,105 @@ test("ingest passes existing wiki topics to the agent classifier so it reuses th
   assert.equal(write?.args[0], "/data/wiki/sommerseminar/sommerseminar-4.md");
 });
 
+test("deleteDocument removes the page from LightRAG and llm_wiki and rebuilds the index", async () => {
+  const calls: { kind: string; args: unknown[] }[] = [];
+  const lightrag = {
+    async listDocuments() {
+      calls.push({ kind: "lightrag.listDocuments", args: [] });
+      return [
+        { id: "doc-1", file_path: "foo.md" },
+        { id: "doc-2", file_path: "bar.md" },
+      ];
+    },
+    async deleteDocument(docId: string) {
+      calls.push({ kind: "lightrag.deleteDocument", args: [docId] });
+      return { status: "deletion_started" };
+    },
+  };
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile(projectId: string, path: string) {
+      calls.push({ kind: "llmwiki.deleteFile", args: [projectId, path] });
+    },
+  };
+  const rebuildIndex = async (wikiDir: string) => {
+    calls.push({ kind: "rebuildIndex", args: [wikiDir] });
+  };
+  const service = new KnowledgeIngestService({
+    lightrag: lightrag as never,
+    llmwiki: llmwiki as never,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex,
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/foo.md");
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.lightrag?.deleted, ["doc-1"]);
+  assert.ok(
+    calls.some((c) => c.kind === "lightrag.deleteDocument" && c.args[0] === "doc-1"),
+    "only the doc whose file_path matches is deleted",
+  );
+  assert.ok(calls.some((c) => c.kind === "llmwiki.deleteFile" && c.args[1] === "wiki/concepts/foo.md"));
+  assert.ok(calls.some((c) => c.kind === "rebuildIndex" && c.args[0] === "/data/wiki"));
+});
+
+test("deleteDocument reports ok when llm_wiki succeeds but LightRAG fails", async () => {
+  const lightrag = {
+    async listDocuments() {
+      throw new Error("lightrag down");
+    },
+  };
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile() {},
+  };
+  const service = new KnowledgeIngestService({
+    lightrag: lightrag as never,
+    llmwiki: llmwiki as never,
+    projectId: "athena-wiki",
+    rebuildIndex: async () => {},
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/foo.md");
+  assert.equal(result.ok, true);
+  assert.match(result.lightrag?.error ?? "", /lightrag down/);
+});
+
+test("deleteDocument reports failure when the wiki file cannot be deleted", async () => {
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile() {
+      throw new Error("cannot delete");
+    },
+  };
+  const service = new KnowledgeIngestService({
+    lightrag: { listDocuments: async () => [], deleteDocument: async () => ({}) } as never,
+    llmwiki: llmwiki as never,
+    projectId: "athena-wiki",
+    rebuildIndex: async () => {},
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/foo.md");
+  assert.equal(result.ok, false);
+  assert.match(result.llmwiki?.error ?? "", /cannot delete/);
+});
+
 test("ingestMarkdown resolves wiki dir from project path when not configured", async () => {
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({

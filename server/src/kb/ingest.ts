@@ -7,7 +7,7 @@
  *   - llm_wiki: write the Markdown directly into the project's wiki dir, then
  *     rescan so Source Watch picks it up as a searchable wiki page.
  */
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LightRagClient } from "./lightrag.js";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
@@ -27,6 +27,15 @@ export interface SystemIngestStatus {
   ok: boolean;
   error?: string;
   trackId?: string;
+}
+
+export interface DeleteDocumentResult {
+  /** True when the wiki page was removed (the tree can refresh). */
+  ok: boolean;
+  /** LightRAG delete outcome: doc ids removed (and/or an error). */
+  lightrag?: { deleted: string[]; error?: string };
+  /** llm_wiki delete outcome for the page path (and/or an error). */
+  llmwiki?: { path?: string; error?: string };
 }
 
 export interface IngestResult {
@@ -360,6 +369,46 @@ export class KnowledgeIngestService {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /**
+   * Delete a wiki page from BOTH knowledge systems (G2.S5.T12). `path` is the
+   * project-relative wiki page, e.g. "wiki/concepts/foo.md".
+   *
+   * - LightRAG: list docs, match by file_source basename, delete matched ids
+   *   (chunks + vectors + graph + LLM cache, so a re-upload of the same name works).
+   * - llm_wiki: delete the page file on disk + rescan (Source Watch drops it from
+   *   the index) + rebuild wiki/index.md.
+   */
+  async deleteDocument(path: string): Promise<DeleteDocumentResult> {
+    const fileSource = path.split("/").pop() ?? path;
+    const lightragOutcome: { deleted: string[]; error?: string } = { deleted: [] };
+    try {
+      const docs = await this.lightrag.listDocuments();
+      const matches = docs.filter((d) => d.file_path === fileSource);
+      for (const doc of matches) {
+        await this.lightrag.deleteDocument(doc.id);
+        lightragOutcome.deleted.push(doc.id);
+      }
+    } catch (err) {
+      lightragOutcome.error = err instanceof Error ? err.message : String(err);
+    }
+
+    const llmwikiOutcome: { path?: string; error?: string } = { path };
+    try {
+      const { id } = await this.resolveProject();
+      await this.llmwiki.deleteFile(id, path);
+      const { wikiDir } = await this.resolveProject();
+      await this.rebuildIndex(wikiDir);
+    } catch (err) {
+      llmwikiOutcome.error = err instanceof Error ? err.message : String(err);
+    }
+
+    return {
+      ok: !llmwikiOutcome.error,
+      lightrag: lightragOutcome,
+      llmwiki: llmwikiOutcome,
+    };
   }
 
   /** Classify via the llm_wiki agent, falling back to a local heuristic. */

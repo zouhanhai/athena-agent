@@ -1,3 +1,6 @@
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LlmWikiClient, isValidTopic, normalizeTopic, parseClassification } from "../../src/kb/llmwiki.js";
@@ -256,6 +259,38 @@ test("parseClassification keeps a hierarchical topic path", () => {
     parseClassification('{"category":"concept","topic":"sap/fiori","pagePath":"wiki/concepts/sap-fiori.md"}'),
     { category: "concept", pagePath: "wiki/concepts/sap-fiori.md", topic: "sap/fiori" },
   );
+});
+
+test("LlmWikiClient.deleteFile removes the page file on disk and rescans", async () => {
+  const base = await mkdtemp(join(tmpdir(), "llmwiki-del-"));
+  const projectPath = join(base, "proj");
+  const target = join(projectPath, "wiki", "concepts", "foo.md");
+  await mkdir(join(projectPath, "wiki", "concepts"), { recursive: true });
+  await writeFile(target, "# Foo");
+  try {
+    const { fetchImpl, calls } = makeFetchMock((url) => {
+      if (url.includes("/projects") && !url.includes("rescan")) {
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            currentProject: null,
+            projects: [{ id: "athena-wiki", name: "athena-wiki", path: projectPath, current: false }],
+          },
+        };
+      }
+      return { status: 200, body: { ok: true, tasks: [] } };
+    });
+    const client = new LlmWikiClient({ baseUrl: "http://wiki:19828", fetchImpl });
+    await client.deleteFile("athena-wiki", "wiki/concepts/foo.md");
+    await assert.rejects(() => access(target), /ENOENT/);
+    assert.ok(
+      calls.some((c) => c.url.endsWith("/projects/athena-wiki/sources/rescan")),
+      "rescan is triggered after the file is removed",
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
 
 test("LlmWikiClient.classify tells the agent to reuse existing topics", async () => {
