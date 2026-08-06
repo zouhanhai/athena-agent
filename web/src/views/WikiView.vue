@@ -142,7 +142,7 @@ watch(
         <t-radio-group
           v-model="view"
           class="wiki-view-switcher"
-          variant="default-filled"
+          variant="primary-filled"
           size="small"
         >
           <t-radio-button value="topic">Topic</t-radio-button>
