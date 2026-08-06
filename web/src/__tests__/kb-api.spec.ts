@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 
 import {
   getGraph,
+  getGraphTopics,
   getWikiTree,
   readWikiPage,
   searchKnowledge,
@@ -48,9 +49,39 @@ describe("getGraph", () => {
     expect(url).toBe("/api/kb/graph?label=finance");
   });
 
+  it("appends the topic query param when provided", async () => {
+    stubFetch(jsonResponse({ nodes: [], edges: [] }));
+    await getGraph(undefined, "sommerseminar");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/graph?topic=sommerseminar");
+  });
+
+  it("appends both label and topic params together", async () => {
+    stubFetch(jsonResponse({ nodes: [], edges: [] }));
+    await getGraph("all", "sommerseminar");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/graph?label=all&topic=sommerseminar");
+  });
+
   it("throws with the status when the response is not ok", async () => {
     stubFetch(jsonResponse({ error: "boom" }, 500));
     await expect(getGraph()).rejects.toThrow("500");
+  });
+});
+
+describe("getGraphTopics", () => {
+  it("GETs /api/kb/graph/topics and returns the topic list", async () => {
+    stubFetch(jsonResponse({ topics: ["ops", "sommerseminar"] }));
+    const topics = await getGraphTopics();
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit | undefined];
+    expect(url).toBe("/api/kb/graph/topics");
+    expect(topics).toEqual(["ops", "sommerseminar"]);
   });
 });
 

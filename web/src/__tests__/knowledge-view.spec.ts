@@ -7,7 +7,7 @@ import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
 import KnowledgeView from "@/views/KnowledgeView.vue";
-import { getGraph, searchKnowledge } from "@/api/kb";
+import { getGraph, getGraphTopics, searchKnowledge } from "@/api/kb";
 import {
   buildTypeColors,
   mapKnowledgeGraph,
@@ -17,6 +17,7 @@ import type { KnowledgeGraph } from "@/api/kb";
 
 vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
+  getGraphTopics: vi.fn(),
   getWikiTree: vi.fn(),
   readWikiPage: vi.fn(),
   searchKnowledge: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/api/kb", () => ({
 }));
 
 const getGraphMock = getGraph as unknown as ReturnType<typeof vi.fn>;
+const getGraphTopicsMock = getGraphTopics as unknown as ReturnType<typeof vi.fn>;
 const searchKnowledgeMock = searchKnowledge as unknown as ReturnType<typeof vi.fn>;
 
 const GraphStub = defineComponent({
@@ -88,6 +90,7 @@ const sampleGraph: KnowledgeGraph = {
 
 afterEach(() => {
   getGraphMock.mockReset();
+  getGraphTopicsMock.mockReset();
   searchKnowledgeMock.mockReset();
 });
 
@@ -174,9 +177,58 @@ describe("KnowledgeView", () => {
   });
 });
 
+describe("KnowledgeView topic filter", () => {
+  it("loads the topic list on mount and renders it in the select", async () => {
+    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
+    getGraphTopicsMock.mockResolvedValue(["ops", "sommerseminar"]);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    expect(getGraphTopicsMock).toHaveBeenCalledTimes(1);
+    const select = wrapper.findComponent({ name: "TSelect" });
+    expect(select.exists()).toBe(true);
+    expect(select.props("options")).toEqual([
+      { label: "ops", value: "ops" },
+      { label: "sommerseminar", value: "sommerseminar" },
+    ]);
+    wrapper.unmount();
+  });
+
+  it("re-fetches the graph with the selected topic and shows the filtered note", async () => {
+    getGraphMock
+      .mockResolvedValueOnce({ nodes: sampleGraph.nodes, edges: sampleGraph.edges })
+      .mockResolvedValueOnce({
+        nodes: [sampleGraph.nodes[0]!],
+        edges: [],
+      });
+    getGraphTopicsMock.mockResolvedValue(["sommerseminar"]);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    const select = wrapper.findComponent({ name: "TSelect" });
+    await select.vm.$emit("update:modelValue", "sommerseminar");
+    await select.vm.$emit("change", "sommerseminar");
+    await flushPromises();
+
+    expect(getGraphMock).toHaveBeenLastCalledWith(undefined, "sommerseminar");
+    expect(wrapper.text()).toContain("Showing 1 of 3 entities");
+    wrapper.unmount();
+  });
+
+  it("shows the full-graph meta when no topic is selected", async () => {
+    getGraphMock.mockResolvedValue(sampleGraph);
+    getGraphTopicsMock.mockResolvedValue([]);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("3 entities · 2 links");
+    wrapper.unmount();
+  });
+});
+
 describe("KnowledgeView search", () => {
   async function search(wrapper: ViewMount["wrapper"], query: string) {
-    const input = wrapper.find("input");
+    const input = wrapper.find('.knowledge-search-input input');
     await input.setValue(query);
     const buttons = wrapper.findAll("button");
     const searchBtn = buttons.find((b) => b.text().includes("Search"));

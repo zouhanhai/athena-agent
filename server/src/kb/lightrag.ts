@@ -41,6 +41,12 @@ export interface LightRagGraphNode {
   id?: string;
   label?: string;
   type?: string;
+  /** Source file the node was extracted from (may be top-level or nested). */
+  file_path?: string;
+  properties?: {
+    file_path?: string;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 

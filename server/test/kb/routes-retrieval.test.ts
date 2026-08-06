@@ -61,6 +61,43 @@ test("GET /api/kb/graph forwards the label query param", async () => {
   }
 });
 
+test("GET /api/kb/graph forwards the topic query param", async () => {
+  let seenTopic: string | undefined;
+  const app = await appWith(
+    stubRetrieval({
+      getGraph: async (_label?: string, topic?: string) => {
+        seenTopic = topic;
+        return { nodes: [], edges: [] };
+      },
+    }),
+  );
+  try {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/kb/graph?topic=sommerseminar",
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(seenTopic, "sommerseminar");
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/graph/topics returns the topic list", async () => {
+  const app = await appWith(
+    stubRetrieval({
+      getGraphTopics: async () => ["ops", "sommerseminar"],
+    }),
+  );
+  try {
+    const res = await app.inject({ method: "GET", url: "/api/kb/graph/topics" });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { topics: ["ops", "sommerseminar"] });
+  } finally {
+    await app.close();
+  }
+});
+
 test("GET /api/kb/wiki returns the wiki page tree", async () => {
   const app = await appWith(stubRetrieval());
   try {

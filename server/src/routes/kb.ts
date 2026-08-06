@@ -192,11 +192,23 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
 
   app.get("/api/kb/graph", async (request, reply) => {
     try {
-      const { label } = request.query as { label?: string };
+      const { label, topic } = request.query as { label?: string; topic?: string };
       const graph = await options.retrieval!.getGraph(
         typeof label === "string" && label.trim() ? label : undefined,
+        typeof topic === "string" && topic.trim() ? topic : undefined,
       );
       return graph;
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/kb/graph/topics", async (request, reply) => {
+    try {
+      const topics = await options.retrieval!.getGraphTopics();
+      return { topics };
     } catch (err) {
       return reply
         .code(500)

@@ -62,6 +62,87 @@ test("getGraph normalizes LightRAG nodes/edges and uses default label when omitt
   assert.equal(graph.edges[0]!.weight, 2);
 });
 
+test("normalizeGraph preserves file_path from nested properties (LightRAG shape)", async () => {
+  const lightrag = stubLightrag({
+    getGraph: async () => ({
+      nodes: [
+        {
+          id: "n1",
+          label: "Alpha",
+          properties: { file_path: "Sommerseminar-L-sen.md", entity_type: "event" },
+        },
+        { id: "n2", label: "Beta", file_path: "runbook.md" },
+      ],
+      edges: [],
+    }),
+  });
+  const service = makeService({ lightrag });
+
+  const graph = await service.getGraph();
+  assert.equal(graph.nodes[0]!.filePath, "Sommerseminar-L-sen.md");
+  assert.equal(graph.nodes[1]!.filePath, "runbook.md");
+});
+
+test("getGraph with a topic filters nodes by file_path→topic and keeps internal edges", async () => {
+  const nodes = [
+    { id: "n1", label: "A", properties: { file_path: "Sommerseminar-L-sen.md" } },
+    { id: "n2", label: "B", properties: { file_path: "diag2.md" } },
+    { id: "n3", label: "C", properties: { file_path: "runbook.md" } },
+  ];
+  const edges = [
+    { source: "n1", target: "n2", weight: 1 },
+    { source: "n2", target: "n3", weight: 2 },
+    { source: "n1", target: "n3", weight: 3 },
+  ];
+  const lightrag = stubLightrag({
+    getGraph: async () => ({ nodes, edges }),
+  });
+  const llmwiki = stubLlmwiki({
+    listWikiPages: async () => [
+      { path: "wiki/sommerseminar/Sommerseminar-L-sen.md", type: "concept", topic: "sommerseminar" },
+      { path: "wiki/sommerseminar/diag2.md", type: "concept", topic: "sommerseminar" },
+      { path: "wiki/runbook.md", type: "concept", topic: "ops" },
+    ],
+  });
+  const service = makeService({ lightrag, llmwiki });
+
+  const graph = await service.getGraph("*", "sommerseminar");
+  const ids = graph.nodes.map((n) => n.id).sort();
+  assert.deepEqual(ids, ["n1", "n2"]);
+  assert.equal(graph.edges.length, 1);
+  assert.equal(graph.edges[0]!.source, "n1");
+  assert.equal(graph.edges[0]!.target, "n2");
+});
+
+test("getGraph without a topic returns the full graph", async () => {
+  const nodes = [
+    { id: "n1", label: "A", properties: { file_path: "Sommerseminar-L-sen.md" } },
+    { id: "n2", label: "B", properties: { file_path: "runbook.md" } },
+  ];
+  const lightrag = stubLightrag({
+    getGraph: async () => ({ nodes, edges: [] }),
+  });
+  const service = makeService({ lightrag });
+
+  const graph = await service.getGraph();
+  assert.equal(graph.nodes.length, 2);
+});
+
+test("getGraphTopics returns distinct sorted topics from wiki pages", async () => {
+  const llmwiki = stubLlmwiki({
+    listWikiPages: async () => [
+      { path: "a.md", topic: "sommerseminar" },
+      { path: "b.md", topic: "ops" },
+      { path: "c.md", topic: "sommerseminar" },
+      { path: "d.md" },
+    ],
+  });
+  const service = makeService({ llmwiki });
+
+  const topics = await service.getGraphTopics();
+  assert.deepEqual(topics, ["ops", "sommerseminar"]);
+});
+
 test("getGraph forwards the requested label to LightRAG", async () => {
   let calledWith: string | undefined;
   const lightrag = stubLightrag({

@@ -7,7 +7,7 @@ import { ForceLayout } from "v-network-graph/lib/force-layout";
 import type { UserConfigs } from "v-network-graph";
 import "v-network-graph/lib/style.css";
 
-import { getGraph, searchKnowledge } from "@/api/kb";
+import { getGraph, getGraphTopics, searchKnowledge } from "@/api/kb";
 import type { KnowledgeGraph, KnowledgeSearchResult, IngestTaskStage } from "@/api/kb";
 import { buildTypeColors, mapKnowledgeGraph, nodeRelations } from "@/kb/graph";
 import { useIngestTasks } from "@/kb/ingest";
@@ -23,6 +23,11 @@ const graph = ref<KnowledgeGraph>({ nodes: [], edges: [] });
 const loading = ref(true);
 const error = ref("");
 const selectedNodeId = ref<string | null>(null);
+
+const topics = ref<string[]>([]);
+const selectedTopic = ref("");
+const topicLoading = ref(false);
+const totalNodes = ref(0);
 
 const searchQuery = ref("");
 const searching = ref(false);
@@ -203,12 +208,32 @@ async function loadGraph() {
   loading.value = true;
   error.value = "";
   try {
-    graph.value = await getGraph();
+    const topic = selectedTopic.value || undefined;
+    const result = await getGraph(undefined, topic);
+    if (!topic) totalNodes.value = result.nodes.length;
+    graph.value = result;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;
   }
+}
+
+async function loadTopics() {
+  topicLoading.value = true;
+  try {
+    const result = await getGraphTopics();
+    topics.value = Array.isArray(result) ? result : [];
+  } catch {
+    topics.value = [];
+  } finally {
+    topicLoading.value = false;
+  }
+}
+
+async function onTopicChange() {
+  selectedNodeId.value = null;
+  await loadGraph();
 }
 
 function onNodeClick(nodeId: string) {
@@ -236,7 +261,10 @@ const eventHandlers = {
   "node:click": ({ node }: { node: string }) => onNodeClick(node),
 };
 
-onMounted(loadGraph);
+onMounted(() => {
+  void loadGraph();
+  void loadTopics();
+});
 </script>
 
 <template>
@@ -245,8 +273,29 @@ onMounted(loadGraph);
       <h2 class="knowledge-title">Knowledge Graph</h2>
       <div class="knowledge-controls">
         <span class="knowledge-meta">
-          {{ graph.nodes.length }} entities · {{ graph.edges.length }} links
+          <template v-if="selectedTopic">
+            Showing {{ graph.nodes.length }} of {{ totalNodes }} entities ·
+            {{ graph.edges.length }} links
+          </template>
+          <template v-else>
+            {{ graph.nodes.length }} entities · {{ graph.edges.length }} links
+          </template>
         </span>
+        <t-select
+          v-model="selectedTopic"
+          class="topic-filter"
+          size="small"
+          :loading="topicLoading"
+          placeholder="All topics"
+          clearable
+          :options="topics.map((topic) => ({ label: topic, value: topic }))"
+          @change="onTopicChange"
+          @clear="onTopicChange"
+        >
+          <template #prefix>
+            <span class="topic-filter-label">Topic</span>
+          </template>
+        </t-select>
         <t-input
           v-model="searchQuery"
           class="knowledge-search-input"
@@ -518,6 +567,16 @@ onMounted(loadGraph);
 
 .knowledge-search-input {
   width: 240px;
+}
+
+.topic-filter {
+  width: 180px;
+}
+
+.topic-filter-label {
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  padding-right: 4px;
 }
 
 .knowledge-search-input :deep(.t-input__inner) {

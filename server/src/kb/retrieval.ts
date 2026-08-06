@@ -23,6 +23,8 @@ export interface KnowledgeGraphNode {
   id: string;
   label: string;
   type?: string;
+  /** Source file the node was extracted from (LightRAG file_path). */
+  filePath?: string;
   [key: string]: unknown;
 }
 
@@ -35,6 +37,13 @@ export interface KnowledgeGraphEdge {
 export interface KnowledgeGraph {
   nodes: KnowledgeGraphNode[];
   edges: KnowledgeGraphEdge[];
+}
+
+/** A single file_path → topic mapping entry from llm_wiki pages. */
+export interface WikiTopicEntry {
+  /** Full wiki page path, e.g. wiki/sommerseminar/foo.md. */
+  path: string;
+  topic: string;
 }
 
 export interface WikiPage {
@@ -74,10 +83,26 @@ export class KnowledgeRetrievalService {
     this.lightragLabel = options.lightragLabel ?? "*";
   }
 
-  /** GET /api/kb/graph → LightRAG entity-relation graph, normalized for the frontend. */
-  async getGraph(label?: string): Promise<KnowledgeGraph> {
+  /** GET /api/kb/graph → LightRAG entity-relation graph, normalized for the
+   *  frontend. When `topic` is given, only nodes whose source file maps to that
+   *  topic (via wiki frontmatter) are kept, plus the edges between them. */
+  async getGraph(label?: string, topic?: string): Promise<KnowledgeGraph> {
     const raw = await this.lightrag.getGraph(label ?? this.lightragLabel);
-    return normalizeGraph(raw);
+    const graph = normalizeGraph(raw);
+    if (!topic) return graph;
+    const topics = await this.buildTopicMap();
+    return filterGraphByTopic(graph, topic, topics);
+  }
+
+  /** GET /api/kb/graph/topics → distinct topics seen in wiki pages, sorted. */
+  async getGraphTopics(): Promise<string[]> {
+    const { id } = await this.resolveProject();
+    const pages = await this.llmwiki.listWikiPages(id);
+    const topics = new Set<string>();
+    for (const page of pages) {
+      if (page.topic) topics.add(page.topic);
+    }
+    return Array.from(topics).sort();
   }
 
   /** GET /api/kb/wiki → llm_wiki wiki page tree (recursive) with per-page
@@ -137,6 +162,58 @@ export class KnowledgeRetrievalService {
     this.resolved = { id };
     return this.resolved;
   }
+
+  /** Build a map from wiki page basename → topic (frontmatter), so LightRAG
+   *  node file_path values (e.g. "Sommerseminar-L-sen.md") can be resolved to
+   *  a topic. Falls back to the full path for robustness. */
+  private async buildTopicMap(): Promise<Map<string, string>> {
+    const { id } = await this.resolveProject();
+    const pages = await this.llmwiki.listWikiPages(id);
+    const map = new Map<string, string>();
+    for (const page of pages) {
+      if (!page.topic) continue;
+      const base = basename(page.path);
+      map.set(base, page.topic);
+      map.set(page.path, page.topic);
+    }
+    return map;
+  }
+}
+
+function basename(path: string): string {
+  const cleaned = path.replace(/\\/g, "/");
+  const parts = cleaned.split("/");
+  return parts[parts.length - 1] ?? path;
+}
+
+/** Keep only nodes whose source file maps to `topic`, plus edges between them. */
+function filterGraphByTopic(
+  graph: KnowledgeGraph,
+  topic: string,
+  topicMap: Map<string, string>,
+): KnowledgeGraph {
+  const nodeTopic = (node: KnowledgeGraphNode): string | undefined => {
+    if (!node.filePath) return undefined;
+    return topicMap.get(node.filePath) ?? topicMap.get(basename(node.filePath));
+  };
+
+  const kept = new Set<string>();
+  const nodes: KnowledgeGraphNode[] = [];
+  for (const node of graph.nodes) {
+    if (nodeTopic(node) === topic) {
+      kept.add(node.id);
+      nodes.push(node);
+    }
+  }
+
+  const edges: KnowledgeGraphEdge[] = [];
+  for (const edge of graph.edges) {
+    if (kept.has(edge.source) && kept.has(edge.target)) {
+      edges.push(edge);
+    }
+  }
+
+  return { nodes, edges };
 }
 
 function normalizeGraph(raw: LightRagGraphResult): KnowledgeGraph {
@@ -148,6 +225,10 @@ function normalizeGraph(raw: LightRagGraphResult): KnowledgeGraph {
       id: String(id),
       label: node.label ?? String(id),
       ...(node.type ? { type: String(node.type) } : {}),
+      ...(node.file_path ? { filePath: String(node.file_path) } : {}),
+      ...(node.properties?.file_path
+        ? { filePath: String(node.properties.file_path) }
+        : {}),
     });
   }
 

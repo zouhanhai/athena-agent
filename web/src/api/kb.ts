@@ -9,6 +9,8 @@ export interface KnowledgeGraphNode {
   id?: string;
   label?: string;
   type?: string;
+  /** Source file the node was extracted from (LightRAG file_path). */
+  filePath?: string;
 }
 
 export interface KnowledgeGraphEdge {
@@ -75,12 +77,20 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** GET /api/kb/graph?label= → LightRAG entity-relation graph. */
-export async function getGraph(label?: string): Promise<KnowledgeGraph> {
+/** GET /api/kb/graph?label=&topic= → LightRAG entity-relation graph.
+ *  When `topic` is given the graph is filtered to nodes of that topic. */
+export async function getGraph(label?: string, topic?: string): Promise<KnowledgeGraph> {
   const params = new URLSearchParams();
   if (label) params.set("label", label);
+  if (topic) params.set("topic", topic);
   const query = params.toString();
   return request<KnowledgeGraph>(`${KB_BASE}/graph${query ? `?${query}` : ""}`);
+}
+
+/** GET /api/kb/graph/topics → distinct topics available for graph filtering. */
+export async function getGraphTopics(): Promise<string[]> {
+  const data = await request<{ topics: string[] }>(`${KB_BASE}/graph/topics`);
+  return data.topics;
 }
 
 /** GET /api/kb/wiki → llm_wiki wiki page tree (recursive). */

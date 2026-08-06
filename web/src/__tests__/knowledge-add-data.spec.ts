@@ -6,10 +6,11 @@ import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
 import KnowledgeView from "@/views/KnowledgeView.vue";
-import { getGraph, getTask, ingestFile, ingestUrl, retryTask } from "@/api/kb";
+import { getGraph, getGraphTopics, getTask, ingestFile, ingestUrl, retryTask } from "@/api/kb";
 
 vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
+  getGraphTopics: vi.fn(),
   getWikiTree: vi.fn(),
   readWikiPage: vi.fn(),
   searchKnowledge: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("@/api/kb", () => ({
 }));
 
 const getGraphMock = getGraph as unknown as ReturnType<typeof vi.fn>;
+const getGraphTopicsMock = getGraphTopics as unknown as ReturnType<typeof vi.fn>;
 const ingestFileMock = ingestFile as unknown as ReturnType<typeof vi.fn>;
 const ingestUrlMock = ingestUrl as unknown as ReturnType<typeof vi.fn>;
 const getTaskMock = getTask as unknown as ReturnType<typeof vi.fn>;
@@ -72,6 +74,7 @@ function makeTask(overrides: TaskPatch = {}) {
 
 afterEach(() => {
   getGraphMock.mockReset();
+  getGraphTopicsMock.mockReset();
   ingestFileMock.mockReset();
   ingestUrlMock.mockReset();
   getTaskMock.mockReset();
