@@ -211,11 +211,7 @@ const configs = computed<UserConfigs>(() => ({
     },
   },
   node: {
-    // Selection is driven manually via onNodeClick + the selectedNodes v-model
-    // binding (selectedNodeId). Turning off the built-in selectable keeps the
-    // selection from being cleared when the mouse moves to empty canvas / leaves,
-    // which was the reported bug ("selected node disappears after mouse-out").
-    selectable: false,
+    selectable: true,
     draggable: true,
     normal: {
       color: (node) => typeColors.value[node.type ?? ""] ?? colors.value.primary,
@@ -273,13 +269,19 @@ function onNodeClick(nodeId: string) {
 /**
  * Two-way binding for the graph's selected nodes. `selectable: true` lets
  * v-network-graph drive selection; syncing via v-model keeps the highlight
- * persistent (a one-way :selected-nodes binding loses the selection on re-render
- * / mouse-out because the library's internal state isn't reflected back).
+ * persistent. When v-network-graph clears the selection on its own (e.g. the
+ * user clicks empty canvas / mouse moves to the background — the reported
+ * "selected node disappears after mouse-out" bug), we IGNORE the empty value so
+ * the selection stays. Only an explicit Close (which writes selectedNodeId
+ * directly) actually clears it.
  */
 const selectedNodes = computed<string[]>({
   get: () => (selectedNodeId.value ? [selectedNodeId.value] : []),
   set: (value) => {
-    selectedNodeId.value = value[0] ?? null;
+    if (value && value.length > 0) {
+      selectedNodeId.value = value[0];
+    }
+    // empty value (canvas click / mouse-out) → keep current selection
   },
 });
 
