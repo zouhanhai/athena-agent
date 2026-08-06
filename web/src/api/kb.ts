@@ -6,14 +6,14 @@
 const KB_BASE = "/api/kb";
 
 export interface KnowledgeGraphNode {
-  id: string;
-  label: string;
+  id?: string;
+  label?: string;
   type?: string;
 }
 
 export interface KnowledgeGraphEdge {
-  source: string;
-  target: string;
+  source?: string;
+  target?: string;
   weight?: number;
 }
 

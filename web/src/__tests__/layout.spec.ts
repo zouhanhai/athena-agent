@@ -95,7 +95,7 @@ describe("portal sidebar navigation", () => {
     await knowledge!.trigger("click");
     await waitForRoute("/knowledge");
     await flushPromises();
-    expect(wrapper.text()).toContain("Knowledge graph");
+    expect(wrapper.text()).toContain("Knowledge Graph");
     wrapper.unmount();
   });
 
