@@ -75,6 +75,20 @@ test("getGraph forwards the requested label to LightRAG", async () => {
   assert.equal(calledWith, "finance");
 });
 
+test("getGraph defaults the LightRAG label to * (full graph), not all", async () => {
+  let calledWith: string | undefined;
+  const lightrag = stubLightrag({
+    getGraph: async (label) => {
+      calledWith = label;
+      return { nodes: [], edges: [] };
+    },
+  });
+  const service = makeService({ lightrag });
+
+  await service.getGraph();
+  assert.equal(calledWith, "*");
+});
+
 test("getWikiTree resolves project id and returns the wiki file tree", async () => {
   const llmwiki = stubLlmwiki({
     listProjects: async () => ({

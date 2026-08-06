@@ -15,7 +15,7 @@ export interface KnowledgeRetrievalOptions {
   llmwiki: LlmWikiClient;
   /** llm_wiki project id. When omitted, current/first project is used. */
   projectId?: string;
-  /** Default label for the LightRAG graph export. Default: "all". */
+  /** Default label for the LightRAG graph export. Default: "*" (full graph). */
   lightragLabel?: string;
 }
 
@@ -71,7 +71,7 @@ export class KnowledgeRetrievalService {
     this.lightrag = options.lightrag;
     this.llmwiki = options.llmwiki;
     this.projectId = options.projectId;
-    this.lightragLabel = options.lightragLabel ?? "all";
+    this.lightragLabel = options.lightragLabel ?? "*";
   }
 
   /** GET /api/kb/graph → LightRAG entity-relation graph, normalized for the frontend. */
