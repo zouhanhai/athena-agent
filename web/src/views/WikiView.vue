@@ -190,7 +190,10 @@ watch(
 }
 
 /* Segmented view switcher — themed for BOTH dark and light (G2.S5.T11).
-   Selected segment = CALEO brand orange; unselected = surface/text-secondary. */
+   Selected segment = CALEO brand orange; unselected = surface/text-secondary.
+   NOTE: the actual bg-block / checked-color overrides live in the GLOBAL style
+   block at the bottom of this file (TDesign renders those nodes deep inside the
+   tree, outside the scoped scope). */
 .wiki-view-switcher :deep(.t-radio-group--filled) {
   background-color: var(--caleo-surface-hover);
   border-color: var(--caleo-border);
@@ -202,14 +205,6 @@ watch(
 
 .wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button:hover) {
   color: var(--caleo-text);
-}
-
-.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-group__bg-block) {
-  background-color: var(--caleo-primary) !important;
-}
-
-.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button.t-is-checked) {
-  color: #ffffff !important;
 }
 
 .wiki-body {
@@ -374,5 +369,18 @@ watch(
   border: none;
   border-top: 1px solid var(--caleo-border);
   margin: 1.5em 0;
+}
+</style>
+
+<!-- G2.S5.T11: non-scoped overrides so the segmented view-switcher selected segment
+     shows brand orange in BOTH dark and light themes. Must be global (not scoped)
+     because TDesign renders the bg-block deep inside the component tree. -->
+<style>
+.wiki-view-switcher .t-radio-group--filled .t-radio-group__bg-block {
+  background-color: var(--caleo-primary) !important;
+}
+
+.wiki-view-switcher .t-radio-group--filled .t-radio-button.t-is-checked {
+  color: #ffffff !important;
 }
 </style>
