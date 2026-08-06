@@ -2,11 +2,12 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { defineComponent, h } from "vue";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
+import { createRouter, createMemoryHistory } from "vue-router";
 import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
 import KnowledgeView from "@/views/KnowledgeView.vue";
-import { getGraph } from "@/api/kb";
+import { getGraph, searchKnowledge } from "@/api/kb";
 import {
   buildTypeColors,
   mapKnowledgeGraph,
@@ -22,6 +23,7 @@ vi.mock("@/api/kb", () => ({
 }));
 
 const getGraphMock = getGraph as unknown as ReturnType<typeof vi.fn>;
+const searchKnowledgeMock = searchKnowledge as unknown as ReturnType<typeof vi.fn>;
 
 const GraphStub = defineComponent({
   name: "VNetworkGraph",
@@ -44,16 +46,28 @@ const GraphStub = defineComponent({
   },
 });
 
-function mountView() {
-  return mount(KnowledgeView, {
+async function mountView() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: "/knowledge", component: KnowledgeView },
+      { path: "/wiki", component: { template: "<div />" } },
+    ],
+  });
+  await router.push("/knowledge");
+  await router.isReady();
+  const wrapper = mount(KnowledgeView, {
     global: {
-      plugins: [createPinia(), TDesign],
+      plugins: [createPinia(), TDesign, router],
       stubs: { VNetworkGraph: GraphStub },
     },
   });
+  return { wrapper, router };
 }
 
-function graphStub(wrapper: ReturnType<typeof mountView>) {
+type ViewMount = ReturnType<typeof mountView>;
+
+function graphStub(wrapper: ViewMount["wrapper"]) {
   return wrapper.findComponent(GraphStub);
 }
 
@@ -71,6 +85,7 @@ const sampleGraph: KnowledgeGraph = {
 
 afterEach(() => {
   getGraphMock.mockReset();
+  searchKnowledgeMock.mockReset();
 });
 
 describe("graph mapping helpers", () => {
@@ -108,7 +123,7 @@ describe("graph mapping helpers", () => {
 describe("KnowledgeView", () => {
   it("fetches the graph on mount and passes mapped nodes/edges to the graph", async () => {
     getGraphMock.mockResolvedValue(sampleGraph);
-    const wrapper = mountView();
+    const { wrapper } = await mountView();
     await flushPromises();
 
     expect(getGraphMock).toHaveBeenCalledTimes(1);
@@ -122,7 +137,7 @@ describe("KnowledgeView", () => {
 
   it("shows a friendly empty state when there are no entities", async () => {
     getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
-    const wrapper = mountView();
+    const { wrapper } = await mountView();
     await flushPromises();
 
     expect(wrapper.text()).toContain("No knowledge graph yet");
@@ -132,7 +147,7 @@ describe("KnowledgeView", () => {
 
   it("shows the error message when fetching fails", async () => {
     getGraphMock.mockRejectedValue(new Error("lightrag down"));
-    const wrapper = mountView();
+    const { wrapper } = await mountView();
     await flushPromises();
 
     expect(wrapper.find(".knowledge-error").text()).toContain("lightrag down");
@@ -141,7 +156,7 @@ describe("KnowledgeView", () => {
 
   it("shows entity details when a node is clicked", async () => {
     getGraphMock.mockResolvedValue(sampleGraph);
-    const wrapper = mountView();
+    const { wrapper } = await mountView();
     await flushPromises();
 
     await graphStub(wrapper).trigger("click");
@@ -152,6 +167,97 @@ describe("KnowledgeView", () => {
     expect(detail.text()).toContain("Alpha");
     expect(detail.text()).toContain("concept");
     expect(detail.text()).toContain("Beta");
+    wrapper.unmount();
+  });
+});
+
+describe("KnowledgeView search", () => {
+  async function search(wrapper: ViewMount["wrapper"], query: string) {
+    const input = wrapper.find("input");
+    await input.setValue(query);
+    const buttons = wrapper.findAll("button");
+    const searchBtn = buttons.find((b) => b.text().includes("Search"));
+    await searchBtn!.trigger("click");
+    await flushPromises();
+  }
+
+  it("searches and renders results with source badges", async () => {
+    getGraphMock.mockResolvedValue(sampleGraph);
+    searchKnowledgeMock.mockResolvedValue([
+      { source: "lightrag", title: "RAG summary", snippet: "semantic answer" },
+      { source: "llmwiki", title: "Runbook", snippet: "Incident process", path: "docs/runbook.md", score: 0.9 },
+    ]);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await search(wrapper, "incidents");
+
+    expect(searchKnowledgeMock).toHaveBeenCalledWith("incidents");
+    expect(wrapper.find(".search-results").exists()).toBe(true);
+    expect(wrapper.text()).toContain('2 results for "incidents"');
+    expect(wrapper.text()).toContain("RAG summary");
+    expect(wrapper.text()).toContain("Runbook");
+    expect(wrapper.text()).toContain("semantic answer");
+    wrapper.unmount();
+  });
+
+  it("navigates to the wiki page when a wiki result is clicked", async () => {
+    getGraphMock.mockResolvedValue(sampleGraph);
+    searchKnowledgeMock.mockResolvedValue([
+      { source: "llmwiki", title: "Runbook", snippet: "Incident", path: "docs/runbook.md" },
+    ]);
+    const { wrapper, router } = await mountView();
+    await flushPromises();
+
+    await search(wrapper, "runbook");
+    await wrapper.find(".search-result-item").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.fullPath).toBe("/wiki?path=docs/runbook.md");
+    wrapper.unmount();
+  });
+
+  it("shows an empty message when no results are found", async () => {
+    getGraphMock.mockResolvedValue(sampleGraph);
+    searchKnowledgeMock.mockResolvedValue([]);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await search(wrapper, "zzz");
+
+    expect(wrapper.text()).toContain("No results found.");
+    wrapper.unmount();
+  });
+
+  it("shows the error when the search fails", async () => {
+    getGraphMock.mockResolvedValue(sampleGraph);
+    searchKnowledgeMock.mockRejectedValue(new Error("search down"));
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await search(wrapper, "boom");
+
+    expect(wrapper.find(".search-results").text()).toContain("search down");
+    wrapper.unmount();
+  });
+
+  it("returns to the graph view when cleared", async () => {
+    getGraphMock.mockResolvedValue(sampleGraph);
+    searchKnowledgeMock.mockResolvedValue([
+      { source: "llmwiki", title: "Runbook", snippet: "Incident", path: "a.md" },
+    ]);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await search(wrapper, "runbook");
+    const backBtn = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Back to graph"));
+    await backBtn!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".search-results").exists()).toBe(false);
+    expect(graphStub(wrapper).exists()).toBe(true);
     wrapper.unmount();
   });
 });
