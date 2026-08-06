@@ -20,6 +20,9 @@ vi.mock("@/api/kb", () => ({
   getWikiTree: vi.fn(),
   readWikiPage: vi.fn(),
   searchKnowledge: vi.fn(),
+  ingestFile: vi.fn(),
+  ingestUrl: vi.fn(),
+  getTask: vi.fn(),
 }));
 
 const getGraphMock = getGraph as unknown as ReturnType<typeof vi.fn>;
@@ -65,7 +68,7 @@ async function mountView() {
   return { wrapper, router };
 }
 
-type ViewMount = ReturnType<typeof mountView>;
+type ViewMount = Awaited<ReturnType<typeof mountView>>;
 
 function graphStub(wrapper: ViewMount["wrapper"]) {
   return wrapper.findComponent(GraphStub);
