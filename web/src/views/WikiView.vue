@@ -67,6 +67,9 @@ async function confirmDelete(): Promise<void> {
       content.value = "";
       contentError.value = "";
     }
+    // Close the dialog immediately on success (before any async refresh) so it
+    // never lingers with an empty selected file name.
+    deleteVisible.value = false;
     await loadTree();
   } catch (err) {
     deleteError.value = err instanceof Error ? err.message : String(err);
