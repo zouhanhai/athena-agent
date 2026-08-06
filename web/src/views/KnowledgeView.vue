@@ -205,7 +205,11 @@ const configs = computed<UserConfigs>(() => ({
       radius: (node) => (node.size as number) ?? 14,
       color: (node) => typeColors.value[node.type ?? ""] ?? colors.value.primary,
     },
-    selected: { color: colors.value.sky },
+    selected: {
+      type: "circle",
+      radius: (node) => (node.size as number) ?? 14,
+      color: colors.value.sky,
+    },
     focusring: { color: colors.value.primary, width: 2, padding: 3 },
     label: { visible: true, color: colors.value.text, fontSize: 12, fontFamily: "inherit" },
   },
