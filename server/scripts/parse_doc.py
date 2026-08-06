@@ -19,6 +19,7 @@ Exit codes: 0 = ok, 1 = parse/IO failure.
 from __future__ import annotations
 
 import argparse
+import base64
 import logging
 import os
 import re
@@ -71,17 +72,54 @@ OPENROUTER_BASE_URL = os.environ.get(
     "https://openrouter.ai/api/v1/chat/completions",
 )
 
+# Matches the unexecuted shell form the athena server may carry in its env:
+#   OPENROUTER_API_KEY=$(echo c2stb3It... | base64 -d)
+_BASE64_CMD_RE = re.compile(
+    r"\$\(\s*echo\s+([A-Za-z0-9+/=]+)\s*\|\s*base64\s*-d\s*\)"
+)
+
+
+def resolve_openrouter_key() -> str:
+    """Resolve OPENROUTER_API_KEY to a usable plaintext value (G2.S5.T9).
+
+    The athena server process may hold OPENROUTER_API_KEY as an *unexecuted*
+    base64 command string (e.g. ``$(echo c2st... | base64 -d)``) instead of the
+    decrypted key, which makes OpenRouter reject the auth header and silently
+    disables picture descriptions. Detect that form and decrypt it here so
+    parsing works regardless of how the server was launched. Plaintext keys
+    pass through unchanged.
+    """
+    raw = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not raw:
+        return ""
+    match = _BASE64_CMD_RE.fullmatch(raw)
+    if match:
+        try:
+            decoded = base64.b64decode(match.group(1)).decode("utf-8").strip()
+        except (ValueError, UnicodeDecodeError):
+            log.warning(
+                "OPENROUTER_API_KEY looks like an unexecuted base64 command "
+                "but failed to decode; picture descriptions disabled"
+            )
+            return ""
+        if not decoded:
+            return ""
+        log.info("OPENROUTER_API_KEY was an unexecuted base64 command; decrypted it")
+        return decoded
+    return raw
+
 
 def build_pipeline_options() -> PdfPipelineOptions:
     """docling PDF pipeline options (G2.S5.T6).
 
-    Enables picture descriptions via the OpenRouter VLM when
-    OPENROUTER_API_KEY is set, so image content is captured in the parsed
-    Markdown instead of a bare `image` placeholder. Without a key the pipeline
-    degrades gracefully (picture descriptions off) and parsing still works.
+    Enables picture descriptions via the OpenRouter VLM when a valid
+    OPENROUTER_API_KEY is available, so image content is captured in the parsed
+    Markdown instead of a bare `image` placeholder. Without a usable key the
+    pipeline degrades gracefully (picture descriptions off) and parsing still
+    works.
     """
     options = PdfPipelineOptions()
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    api_key = resolve_openrouter_key()
     if api_key:
         options.enable_remote_services = True
         options.do_picture_description = True
@@ -98,7 +136,7 @@ def build_pipeline_options() -> PdfPipelineOptions:
         )
     else:
         log.warning(
-            "OPENROUTER_API_KEY not set; picture descriptions disabled "
+            "OPENROUTER_API_KEY not usable; picture descriptions disabled "
             "(images will be parsed as bare placeholders)"
         )
     return options
