@@ -8,6 +8,7 @@ import {
   ingestFile,
   ingestUrl,
   getTask,
+  retryTask,
 } from "@/api/kb";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -159,5 +160,34 @@ describe("getTask", () => {
   it("throws with the status when the task is not found", async () => {
     stubFetch(jsonResponse({ error: "task not found" }, 404));
     await expect(getTask("missing")).rejects.toThrow("404");
+  });
+});
+
+describe("retryTask", () => {
+  it("POSTs { taskId } to /api/kb/ingest/retry and returns the updated task", async () => {
+    const task = {
+      id: "t-1",
+      source: "doc.md",
+      status: "ingesting",
+      progress: 85,
+      stages: {
+        parsing: { name: "parsing", status: "done" },
+        ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+        ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running" },
+      },
+    };
+    stubFetch(jsonResponse(task));
+    const got = await retryTask("t-1");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/ingest/retry",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ taskId: "t-1" }),
+      }),
+    );
+    expect(got).toEqual(task);
   });
 });

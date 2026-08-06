@@ -41,6 +41,7 @@ const {
   addFile,
   addUrl,
   removeTask,
+  retryTask,
 } = useIngestTasks();
 
 const ACCEPT_HINT = "application/pdf,.docx,.xlsx,.pptx,image/*,.html,.epub,.csv,.md,.txt";
@@ -77,6 +78,18 @@ async function submitUrl(): Promise<void> {
 
 function stageStatus(stage: IngestTaskStage): string {
   return stage.status;
+}
+
+function hasFailedStage(task: IngestTaskItem): boolean {
+  return (
+    task.stages.parsing.status === "failed" ||
+    task.stages.ingesting_lightrag.status === "failed" ||
+    task.stages.ingesting_llmwiki.status === "failed"
+  );
+}
+
+function onRetry(taskId: string): void {
+  void retryTask(taskId);
 }
 
 function taskProgressStatus(task: IngestTaskItem): "success" | "error" | "active" {
@@ -323,9 +336,20 @@ onMounted(loadGraph);
           <div class="task-head">
             <span class="task-source" :title="task.source">{{ task.source }}</span>
             <span class="task-badge" :class="task.status">{{ task.status }}</span>
-            <t-button size="small" variant="text" @click="removeTask(task.id)">
-              Remove
-            </t-button>
+            <div class="task-actions">
+              <t-button
+                v-if="hasFailedStage(task)"
+                size="small"
+                variant="outline"
+                theme="danger"
+                @click="onRetry(task.id)"
+              >
+                Retry
+              </t-button>
+              <t-button size="small" variant="text" @click="removeTask(task.id)">
+                Remove
+              </t-button>
+            </div>
           </div>
           <t-progress
             :percentage="task.progress"
@@ -702,6 +726,13 @@ onMounted(loadGraph);
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .task-source {

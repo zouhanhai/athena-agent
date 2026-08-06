@@ -4,7 +4,7 @@
  * /api/kb/task/:id until each task reaches a terminal state.
  */
 import { getCurrentInstance, onBeforeUnmount, ref } from "vue";
-import { getTask, ingestFile, ingestUrl } from "@/api/kb";
+import { getTask, ingestFile, ingestUrl, retryTask as retryTaskApi } from "@/api/kb";
 import type { IngestTask, TaskStatus } from "@/api/kb";
 
 export interface IngestTaskItem {
@@ -127,6 +127,23 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
     if (index !== -1) tasks.value.splice(index, 1);
   }
 
+  /**
+   * Re-run a failed task's failed stages only. Successful stages are left
+   * untouched by the backend; this restarts polling so the UI shows retry
+   * progress and the updated final status.
+   */
+  async function retryTask(taskId: string): Promise<void> {
+    submitError.value = "";
+    try {
+      const updated = await retryTaskApi(taskId);
+      replaceTask(updated);
+      startPolling(taskId);
+      await poll(taskId);
+    } catch (err) {
+      submitError.value = err instanceof Error ? err.message : String(err);
+    }
+  }
+
   if (getCurrentInstance()) {
     onBeforeUnmount(() => {
       for (const timer of timers.values()) clearInterval(timer);
@@ -134,5 +151,5 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
     });
   }
 
-  return { tasks, submitting, submitError, addFile, addUrl, removeTask };
+  return { tasks, submitting, submitError, addFile, addUrl, removeTask, retryTask };
 }

@@ -128,3 +128,12 @@ export async function ingestUrl(url: string): Promise<string> {
 export async function getTask(taskId: string): Promise<IngestTask> {
   return request<IngestTask>(`${KB_BASE}/task/${encodeURIComponent(taskId)}`);
 }
+
+/** POST /api/kb/ingest/retry { taskId } → re-run failed stages, returns updated task. */
+export async function retryTask(taskId: string): Promise<IngestTask> {
+  return request<IngestTask>(`${KB_BASE}/ingest/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ taskId }),
+  });
+}

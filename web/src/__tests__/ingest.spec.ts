@@ -2,17 +2,19 @@ import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { nextTick } from "vue";
 
 import { useIngestTasks } from "@/kb/ingest";
-import { ingestFile, ingestUrl, getTask } from "@/api/kb";
+import { ingestFile, ingestUrl, getTask, retryTask } from "@/api/kb";
 
 vi.mock("@/api/kb", () => ({
   ingestFile: vi.fn(),
   ingestUrl: vi.fn(),
   getTask: vi.fn(),
+  retryTask: vi.fn(),
 }));
 
 const ingestFileMock = ingestFile as unknown as ReturnType<typeof vi.fn>;
 const ingestUrlMock = ingestUrl as unknown as ReturnType<typeof vi.fn>;
 const getTaskMock = getTask as unknown as ReturnType<typeof vi.fn>;
+const retryTaskMock = retryTask as unknown as ReturnType<typeof vi.fn>;
 
 function task(id: string, patch: Record<string, unknown> = {}) {
   return {
@@ -39,6 +41,7 @@ afterEach(() => {
   ingestFileMock.mockReset();
   ingestUrlMock.mockReset();
   getTaskMock.mockReset();
+  retryTaskMock.mockReset();
 });
 
 describe("useIngestTasks", () => {
@@ -114,5 +117,61 @@ describe("useIngestTasks", () => {
 
     removeTask("t-4");
     expect(tasks.value).toHaveLength(0);
+  });
+
+  it("retries a failed task via the retry API and resumes polling to completion", async () => {
+    ingestFileMock.mockResolvedValue("t-5");
+    getTaskMock.mockResolvedValue(
+      task("t-5", {
+        status: "done",
+        progress: 100,
+        stages: {
+          parsing: { name: "parsing", status: "done" },
+          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "failed", error: "wiki down" },
+        },
+      }),
+    );
+
+    const { tasks, addFile, retryTask } = useIngestTasks();
+    await addFile(new File(["x"], "e.pdf"));
+    expect(tasks.value[0]!.stages.ingesting_llmwiki.status).toBe("failed");
+
+    retryTaskMock.mockResolvedValue(
+      task("t-5", {
+        status: "ingesting",
+        progress: 85,
+        stages: {
+          parsing: { name: "parsing", status: "done" },
+          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running" },
+        },
+      }),
+    );
+    getTaskMock.mockResolvedValueOnce(
+      task("t-5", {
+        status: "done",
+        progress: 100,
+        stages: {
+          parsing: { name: "parsing", status: "done" },
+          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
+        },
+      }),
+    );
+
+    await retryTask("t-5");
+    expect(retryTaskMock).toHaveBeenCalledWith("t-5");
+    expect(tasks.value[0]!.stages.ingesting_llmwiki.status).toBe("done");
+    expect(tasks.value[0]!.status).toBe("done");
+  });
+
+  it("records the error when the retry request fails", async () => {
+    retryTaskMock.mockRejectedValue(new Error("retry rejected"));
+
+    const { submitError, retryTask } = useIngestTasks();
+    await retryTask("t-6");
+
+    expect(submitError.value).toContain("retry rejected");
   });
 });

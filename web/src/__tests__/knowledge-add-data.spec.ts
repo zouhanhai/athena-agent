@@ -6,7 +6,7 @@ import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
 import KnowledgeView from "@/views/KnowledgeView.vue";
-import { getGraph, getTask, ingestFile, ingestUrl } from "@/api/kb";
+import { getGraph, getTask, ingestFile, ingestUrl, retryTask } from "@/api/kb";
 
 vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
@@ -16,12 +16,14 @@ vi.mock("@/api/kb", () => ({
   ingestFile: vi.fn(),
   ingestUrl: vi.fn(),
   getTask: vi.fn(),
+  retryTask: vi.fn(),
 }));
 
 const getGraphMock = getGraph as unknown as ReturnType<typeof vi.fn>;
 const ingestFileMock = ingestFile as unknown as ReturnType<typeof vi.fn>;
 const ingestUrlMock = ingestUrl as unknown as ReturnType<typeof vi.fn>;
 const getTaskMock = getTask as unknown as ReturnType<typeof vi.fn>;
+const retryTaskMock = retryTask as unknown as ReturnType<typeof vi.fn>;
 
 async function mountView() {
   const router = createRouter({
@@ -73,6 +75,7 @@ afterEach(() => {
   ingestFileMock.mockReset();
   ingestUrlMock.mockReset();
   getTaskMock.mockReset();
+  retryTaskMock.mockReset();
 });
 
 describe("KnowledgeView Add Data", () => {
@@ -155,6 +158,78 @@ describe("KnowledgeView Add Data", () => {
 
     expect(wrapper.find(".add-data-panel").exists()).toBe(false);
     expect(wrapper.text()).toContain("Add Data");
+    wrapper.unmount();
+  });
+
+  it("shows a Retry button next to Remove when a stage failed and re-runs it", async () => {
+    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
+    const failed = makeTask({
+      status: "done",
+      progress: 100,
+      stages: {
+        parsing: { name: "parsing", status: "done" },
+        ingesting_lightrag: { name: "ingesting_lightrag", status: "failed", error: "timeout" },
+        ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
+      },
+    });
+    const running = makeTask({
+      status: "ingesting",
+      progress: 50,
+      stages: {
+        parsing: { name: "parsing", status: "done" },
+        ingesting_lightrag: { name: "ingesting_lightrag", status: "running" },
+        ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
+      },
+    });
+    getTaskMock
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValue(running);
+    ingestFileMock.mockResolvedValue("t-1");
+    retryTaskMock.mockResolvedValue(running);
+    const { wrapper } = await mountView();
+
+    const file = new File(["# doc"], "doc.pdf", { type: "application/pdf" });
+    const input = wrapper.find('input[type="file"]');
+    Object.defineProperty(input.element, "files", {
+      value: [file],
+      configurable: true,
+    });
+    await input.trigger("change");
+    await flushPromises();
+    await flushPromises();
+
+    const buttons = wrapper.findAll("button");
+    const retryBtn = buttons.find((b) => b.text().includes("Retry"));
+    expect(retryBtn).toBeDefined();
+    expect(wrapper.text()).toContain("LightRAG: failed");
+
+    await retryBtn!.trigger("click");
+    await flushPromises();
+    await flushPromises();
+
+    expect(retryTaskMock).toHaveBeenCalledWith("t-1");
+    expect(wrapper.text()).toContain("LightRAG: running");
+    wrapper.unmount();
+  });
+
+  it("does not show a Retry button when all stages are done", async () => {
+    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
+    getTaskMock.mockResolvedValue(makeTask({ status: "done", progress: 100 }));
+    ingestFileMock.mockResolvedValue("t-1");
+    const { wrapper } = await mountView();
+
+    const file = new File(["# doc"], "doc.pdf", { type: "application/pdf" });
+    const input = wrapper.find('input[type="file"]');
+    Object.defineProperty(input.element, "files", {
+      value: [file],
+      configurable: true,
+    });
+    await input.trigger("change");
+    await flushPromises();
+    await flushPromises();
+
+    const buttons = wrapper.findAll("button");
+    expect(buttons.find((b) => b.text().includes("Retry"))).toBeUndefined();
     wrapper.unmount();
   });
 });
