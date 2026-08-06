@@ -80,11 +80,17 @@ export class KnowledgeRetrievalService {
     return normalizeGraph(raw);
   }
 
-  /** GET /api/kb/wiki → llm_wiki wiki page tree (recursive). */
+  /** GET /api/kb/wiki → llm_wiki wiki page tree (recursive) with per-page
+   *  frontmatter metadata (type + topic) so the frontend can group pages
+   *  dynamically by view (Topic/Type/All) without duplicating files (G2.S5.T11). */
   async getWikiTree(): Promise<LlmWikiFileNode[]> {
     const { id } = await this.resolveProject();
-    const tree = await this.llmwiki.getFileTree(id, { root: "wiki", recursive: true });
-    return tree.files;
+    const [tree, pages] = await Promise.all([
+      this.llmwiki.getFileTree(id, { root: "wiki", recursive: true }),
+      this.llmwiki.listWikiPages(id),
+    ]);
+    const meta = new Map(pages.map((p) => [p.path, p]));
+    return attachWikiMetadata(tree.files, meta);
   }
 
   /** GET /api/kb/wiki/page?path= → markdown content of a wiki page. */
@@ -166,4 +172,23 @@ function mapWikiHit(hit: LlmWikiSearchResult): KnowledgeSearchResult {
     path: hit.path,
     score: hit.score,
   };
+}
+
+/** Attach frontmatter type/topic metadata to each file node in the tree. */
+function attachWikiMetadata(
+  nodes: LlmWikiFileNode[],
+  meta: Map<string, { type?: string; topic?: string }>,
+): LlmWikiFileNode[] {
+  return nodes.map((node) => {
+    if (node.isDir) {
+      return { ...node, children: attachWikiMetadata(node.children ?? [], meta) };
+    }
+    const page = meta.get(node.path);
+    if (!page) return node;
+    return {
+      ...node,
+      ...(page.type ? { type: page.type } : {}),
+      ...(page.topic ? { topic: page.topic } : {}),
+    };
+  });
 }

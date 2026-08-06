@@ -114,6 +114,46 @@ test("ingest uses the llm_wiki agent classification when available", async () =>
   assert.match(write?.args[1] as string, /^---\ntype: entity\n/);
 });
 
+test("ingest passes existing wiki topics to the agent classifier so it reuses them", async () => {
+  const calls: { existingTopics?: string[] }[] = [];
+  const llmwiki = {
+    async rescan(projectId: string) {
+      return { ok: true, tasks: [] };
+    },
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async listWikiPages() {
+      return [
+        { path: "wiki/sommerseminar/s1.md", type: "concept", topic: "sommerseminar" },
+        { path: "wiki/sap/fiori/f1.md", type: "concept", topic: "sap/fiori" },
+        { path: "wiki/concepts/example.md", type: "concept" },
+      ];
+    },
+    async classify(_id: string, _input: unknown, existingTopics: string[]) {
+      calls.push({ existingTopics });
+      return { category: "concept", pagePath: "wiki/concepts/foo.md", topic: "sommerseminar" };
+    },
+  };
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    lightrag: fakes.lightrag,
+    llmwiki: llmwiki as never,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  await service.ingestMarkdown({ title: "Sommerseminar 4", content: "# Sommerseminar 4\n\nagenda" });
+  assert.deepEqual(calls[0]?.existingTopics, ["sap/fiori", "sommerseminar"]);
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  assert.equal(write?.args[0], "/data/wiki/sommerseminar/sommerseminar-4.md");
+});
+
 test("ingestMarkdown resolves wiki dir from project path when not configured", async () => {
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({

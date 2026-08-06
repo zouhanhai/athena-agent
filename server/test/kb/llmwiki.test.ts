@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LlmWikiClient, parseClassification } from "../../src/kb/llmwiki.js";
+import { LlmWikiClient, isValidTopic, normalizeTopic, parseClassification } from "../../src/kb/llmwiki.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -229,5 +229,52 @@ test("parseClassification parses an optional topic key", () => {
   const traversed = parseClassification('{"category":"concept","topic":"../evil","pagePath":"wiki/x.md"}');
   assert.ok(traversed);
   assert.equal(traversed!.topic, "evil");
+});
+
+test("isValidTopic accepts hierarchical slash paths and blocks traversal", () => {
+  assert.equal(isValidTopic("sommerseminar"), true);
+  assert.equal(isValidTopic("sap/fiori"), true);
+  assert.equal(isValidTopic("sap/s4hana/abap"), true);
+  assert.equal(isValidTopic("Sap/Fiori"), false);
+  assert.equal(isValidTopic("sap//fiori"), false);
+  assert.equal(isValidTopic("/sap"), false);
+  assert.equal(isValidTopic("sap/"), false);
+  assert.equal(isValidTopic("../evil"), false);
+  assert.equal(isValidTopic("sap/../evil"), false);
+});
+
+test("normalizeTopic sanitizes a raw topic into a safe slash-path key", () => {
+  assert.equal(normalizeTopic("  SAP / Fiori  "), "sap/fiori");
+  assert.equal(normalizeTopic("Sommerseminar 2026"), "sommerseminar-2026");
+  assert.equal(normalizeTopic("../evil"), "evil");
+  assert.equal(normalizeTopic("sap/-fiori/"), "sap/fiori");
+  assert.equal(normalizeTopic("!!!"), undefined);
+});
+
+test("parseClassification keeps a hierarchical topic path", () => {
+  assert.deepEqual(
+    parseClassification('{"category":"concept","topic":"sap/fiori","pagePath":"wiki/concepts/sap-fiori.md"}'),
+    { category: "concept", pagePath: "wiki/concepts/sap-fiori.md", topic: "sap/fiori" },
+  );
+});
+
+test("LlmWikiClient.classify tells the agent to reuse existing topics", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: {
+      ok: true,
+      message: { role: "assistant", content: '{"category":"concept","topic":"sommerseminar","pagePath":"wiki/sommerseminar/sommerseminar-4.md"}' },
+    },
+  }));
+  const client = new LlmWikiClient({ baseUrl: "http://wiki:19828", fetchImpl });
+  const result = await client.classify(
+    "athena-wiki",
+    { title: "Sommerseminar 4", content: "another seminar" },
+    ["sommerseminar", "sap/fiori"],
+  );
+  assert.ok(calls[0].body.message.includes("Existing topics already in this wiki"));
+  assert.ok(calls[0].body.message.includes("sommerseminar, sap/fiori"));
+  assert.ok(calls[0].body.message.includes("REUSE that exact topic path"));
+  assert.deepEqual(result, { category: "concept", topic: "sommerseminar", pagePath: "wiki/sommerseminar/sommerseminar-4.md" });
 });
 

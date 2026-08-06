@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { LightRagClient } from "./lightrag.js";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
 import { WIKI_CATEGORIES, isValidTopic } from "./llmwiki.js";
+import { parseFrontmatter } from "./frontmatter.js";
 
 export interface IngestInput {
   /** Human-readable document title (also used to derive a safe filename). */
@@ -246,17 +247,7 @@ export async function rebuildWikiIndex(wikiDir: string, fs: WikiIndexFs): Promis
 }
 
 function frontmatterValue(content: string, key: string): string | undefined {
-  const normalized = content.replace(/\r\n/g, "\n");
-  const body = normalized.startsWith("---\n") ? normalized.split("\n---")[0] : undefined;
-  if (!body) return undefined;
-  for (const line of body.split("\n")) {
-    const idx = line.indexOf(":");
-    if (idx === -1) continue;
-    if (line.slice(0, idx).trim() === key) {
-      return line.slice(idx + 1).trim().replace(/^["']|["']$/g, "") || undefined;
-    }
-  }
-  return undefined;
+  return parseFrontmatter(content)[key] || undefined;
 }
 
 interface ResolvedProject {
@@ -380,10 +371,15 @@ export class KnowledgeIngestService {
     try {
       const { id } = await this.resolveProject();
       const classifier = (this.llmwiki as {
-        classify?: (pid: string, i: { title: string; content: string }) => Promise<WikiClassification>;
+        classify?: (
+          pid: string,
+          i: { title: string; content: string },
+          existingTopics?: readonly string[],
+        ) => Promise<WikiClassification>;
       }).classify;
       if (typeof classifier !== "function") return fallback;
-      const result = await classifier(id, input);
+      const existingTopics = await this.existingTopics(id);
+      const result = await classifier(id, input, existingTopics);
       if (!result || !isValidCategory(result.category)) return fallback;
       const topic = result.topic && isValidTopic(result.topic) ? result.topic : fallback.topic;
       return {
@@ -393,6 +389,24 @@ export class KnowledgeIngestService {
       };
     } catch {
       return fallback;
+    }
+  }
+
+  /**
+   * Collect the distinct topic keys already present in the wiki so the
+   * classifier can reuse them instead of minting near-duplicate topics
+   * (G2.S5.T11). Best-effort: any failure returns an empty list.
+   */
+  private async existingTopics(projectId: string): Promise<string[]> {
+    try {
+      const pages = await this.llmwiki.listWikiPages(projectId);
+      const topics = new Set<string>();
+      for (const page of pages) {
+        if (page.topic) topics.add(page.topic);
+      }
+      return [...topics].sort();
+    } catch {
+      return [];
     }
   }
 

@@ -19,6 +19,7 @@ function stubLlmwiki(overrides: Partial<LlmWikiClient> = {}): LlmWikiClient {
       currentProject: null,
     }),
     getFileTree: async () => ({ files: [] }),
+    listWikiPages: async () => [],
     readFile: async () => ({ path: "", content: "" }),
     search: async () => ({ results: [] }),
     ...overrides,
@@ -121,6 +122,34 @@ test("getWikiTree uses the configured projectId", async () => {
 
   await service.getWikiTree();
   assert.equal(requestedProject, "custom");
+});
+
+test("getWikiTree attaches frontmatter type + topic metadata to file nodes", async () => {
+  const tree = [
+    { name: "sommerseminar", path: "wiki/sommerseminar", isDir: true, children: [
+      { name: "sommerseminar-l-sen.md", path: "wiki/sommerseminar/sommerseminar-l-sen.md", isDir: false },
+    ] },
+    { name: "concepts", path: "wiki/concepts", isDir: true, children: [
+      { name: "example.md", path: "wiki/concepts/example.md", isDir: false },
+    ] },
+  ];
+  const pages = [
+    { path: "wiki/sommerseminar/sommerseminar-l-sen.md", type: "concept", topic: "sommerseminar" },
+    { path: "wiki/concepts/example.md", type: "entity" },
+  ];
+  const llmwiki = stubLlmwiki({
+    getFileTree: async () => ({ files: tree }),
+    listWikiPages: async () => pages,
+  });
+  const service = makeService({ llmwiki });
+
+  const result = await service.getWikiTree();
+  const seminar = result[0]!.children![0]!;
+  assert.equal(seminar.type, "concept");
+  assert.equal(seminar.topic, "sommerseminar");
+  const example = result[1]!.children![0]!;
+  assert.equal(example.type, "entity");
+  assert.equal(example.topic, undefined);
 });
 
 test("readWikiPage returns the markdown content for a path", async () => {

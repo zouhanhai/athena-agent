@@ -4,6 +4,7 @@
  * Encapsulates the endpoints used by the athena knowledge access layer:
  * file tree, page content, hybrid search, wikilinks graph, and source rescan.
  */
+import { parseFrontmatter } from "./frontmatter.js";
 
 export interface LlmWikiOptions {
   /** Base URL of the llm_wiki API. Default: http://127.0.0.1:19828 */
@@ -35,6 +36,10 @@ export interface LlmWikiFileNode {
   path: string;
   isDir: boolean;
   size?: number;
+  /** Frontmatter `type` of a wiki page (entity/concept/...). */
+  type?: string;
+  /** Frontmatter `topic` of a wiki page (may be a slash path, e.g. "sap/fiori"). */
+  topic?: string;
   children?: LlmWikiFileNode[];
 }
 
@@ -116,9 +121,25 @@ export interface WikiClassifyInput {
   content: string;
 }
 
-/** Validate a topic key: lowercase slug, no path separators or traversal. */
+/** Validate a topic key (G2.S5.T11). Accepts single slugs or hierarchical
+ * slash paths ("sommerseminar", "sap/fiori", "sap/s4hana/abap"); blocks any
+ * path traversal (no dots, no empty/leading/trailing segments). */
 export function isValidTopic(topic: string): topic is string {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(topic);
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/.test(topic);
+}
+
+/** Normalize a raw topic into a safe slash-path key, or undefined. */
+export function normalizeTopic(raw: string): string | undefined {
+  const collapsed = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9/]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/\/+/g, "/")
+    .replace(/(^[-/]+)|([-/]+$)/g, "")
+    .replace(/-(?=\/)|(?<=\/)-/g, "");
+  if (!collapsed || !isValidTopic(collapsed)) return undefined;
+  return collapsed;
 }
 
 /** Validate + parse the LLM agent's JSON classification reply. */
@@ -133,8 +154,8 @@ export function parseClassification(value: unknown): WikiClassification | null {
     if (!(WIKI_CATEGORIES as readonly string[]).includes(category)) return null;
     const result: WikiClassification = { category: category as WikiCategory, pagePath: obj.pagePath };
     if (typeof obj.topic === "string") {
-      const topic = obj.topic.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-      if (isValidTopic(topic)) result.topic = topic;
+      const topic = normalizeTopic(obj.topic);
+      if (topic) result.topic = topic;
     }
     return result;
   } catch {
@@ -238,13 +259,51 @@ export class LlmWikiClient {
   }
 
   /**
+   * Flatten all wiki pages of a project into their frontmatter metadata
+   * (path, type, topic). Used to attach metadata to the tree for the frontend
+   * view switcher and to collect existing topics for stable ingest grouping.
+   */
+  async listWikiPages(projectId: string): Promise<{ path: string; type?: string; topic?: string }[]> {
+    const { files } = await this.getFileTree(projectId, { root: "wiki", recursive: true });
+    const pages: { path: string; type?: string; topic?: string }[] = [];
+    const walk = async (nodes: LlmWikiFileNode[]): Promise<void> => {
+      for (const node of nodes) {
+        if (node.isDir) {
+          await walk(node.children ?? []);
+        } else if (node.path.endsWith(".md")) {
+          const { content } = await this.readFile(projectId, node.path);
+          const fm = parseFrontmatter(content);
+          pages.push({ path: node.path, type: fm.type || undefined, topic: fm.topic || undefined });
+        }
+      }
+    };
+    await walk(files);
+    return pages;
+  }
+
+  /**
    * POST /projects/{id}/chat - ask the llm_wiki LLM agent to classify a
    * document into a wiki category (entity/concept/source/query/comparison/
-   * synthesis) plus a stable topic key (G2.S5.T10), so ingestion can place it
-   * in the right wiki/<category>/ or wiki/<topic>/ dir.
+   * synthesis) plus a stable topic key (G2.S5.T10/T11), so ingestion can place
+   * it in the right wiki/<category>/ or wiki/<topic>/ dir. When `existingTopics`
+   * is provided the agent is instructed to REUSE an existing topic/path when the
+   * document belongs to it (only creating a new one when none fits), keeping
+   * related docs grouped (e.g. a 4th Sommerseminar doc → `sommerseminar`).
    */
-  async classify(projectId: string, input: WikiClassifyInput): Promise<WikiClassification> {
+  async classify(
+    projectId: string,
+    input: WikiClassifyInput,
+    existingTopics: readonly string[] = [],
+  ): Promise<WikiClassification> {
     const excerpt = input.content.slice(0, 2000);
+    const topicHint =
+      existingTopics.length > 0
+        ? `Existing topics already in this wiki: ${existingTopics.join(", ")}.\n` +
+          "If the document belongs to one of these existing topics or to a sub-level of one " +
+          "(e.g. existing 'sap' and the doc is about Fiori → 'sap/fiori'), REUSE that exact " +
+          "topic path. Only create a brand-new topic when none of the existing ones fit.\n\n"
+        : "There are no existing topics yet; create a fresh stable topic key if the document " +
+          "has a clear subject (single slug or slash path such as 'sap/fiori').\n\n";
     const prompt =
       "You are a wiki librarian. Classify the following document into exactly one wiki category:\n" +
       "- entity: named things (models, companies, people, datasets)\n" +
@@ -254,12 +313,14 @@ export class LlmWikiClient {
       "- comparison: side-by-side analysis of related entities\n" +
       "- synthesis: cross-cutting summaries and conclusions\n\n" +
       "Also derive a short STABLE TOPIC key that groups this document with related ones " +
-      "on the same subject (e.g. 'sommerseminar', 'runbook', 'chain-of-thought'). " +
-      "Use the same topic for documents about the same subject. Omit or use an empty string " +
+      "on the same subject (e.g. 'sommerseminar', 'sap/fiori', 'runbook'). " +
+      "A topic may be a slash path for a broad subject with a finer sub-dimension. " +
+      "Use the same topic for documents about the same subject; omit it (empty string) " +
       "if the document is standalone.\n\n" +
+      topicHint +
       `Document title: ${input.title}\n\n` +
       `Document content:\n${excerpt}\n\n` +
-      'Reply with ONLY a single JSON object like {"category":"concept","topic":"chain-of-thought","pagePath":"wiki/concepts/chain-of-thought.md"} and nothing else. pagePath must start with "wiki/" and end with ".md"; topic must be lowercase kebab-case or an empty string.';
+      'Reply with ONLY a single JSON object like {"category":"concept","topic":"chain-of-thought","pagePath":"wiki/concepts/chain-of-thought.md"} and nothing else. pagePath must start with "wiki/" and end with ".md"; topic must be a lowercase kebab-case key, optionally a slash path like "sap/fiori", or an empty string.';
     const body: Record<string, unknown> = {
       message: prompt,
       mode: "fast",
