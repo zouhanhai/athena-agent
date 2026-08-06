@@ -8,8 +8,10 @@ import type { UserConfigs } from "v-network-graph";
 import "v-network-graph/lib/style.css";
 
 import { getGraph, searchKnowledge } from "@/api/kb";
-import type { KnowledgeGraph, KnowledgeSearchResult } from "@/api/kb";
+import type { KnowledgeGraph, KnowledgeSearchResult, IngestTaskStage } from "@/api/kb";
 import { buildTypeColors, mapKnowledgeGraph, nodeRelations } from "@/kb/graph";
+import { useIngestTasks } from "@/kb/ingest";
+import type { IngestTaskItem } from "@/kb/ingest";
 import { caleoPalette } from "@/theme";
 import { useThemeStore } from "@/stores/theme";
 
@@ -27,6 +29,62 @@ const searching = ref(false);
 const searchResults = ref<KnowledgeSearchResult[]>([]);
 const searchError = ref("");
 const searchActive = ref(false);
+
+const showAddData = ref(true);
+const fileInput = ref<HTMLInputElement | null>(null);
+const dragging = ref(false);
+const urlInput = ref("");
+const {
+  tasks,
+  submitting,
+  submitError,
+  addFile,
+  addUrl,
+  removeTask,
+} = useIngestTasks();
+
+const ACCEPT_HINT = "application/pdf,.docx,.xlsx,.pptx,image/*,.html,.epub,.csv,.md,.txt";
+
+function pickFiles(): void {
+  fileInput.value?.click();
+}
+
+function onFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = "";
+  void ingestFiles(files);
+}
+
+function onDrop(event: DragEvent): void {
+  dragging.value = false;
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  void ingestFiles(files);
+}
+
+async function ingestFiles(files: File[]): Promise<void> {
+  for (const file of files) {
+    await addFile(file);
+  }
+}
+
+async function submitUrl(): Promise<void> {
+  const url = urlInput.value.trim();
+  if (!url) return;
+  await addUrl(url);
+  urlInput.value = "";
+}
+
+function stageStatus(stage: IngestTaskStage): string {
+  return stage.status;
+}
+
+function taskProgressStatus(task: IngestTaskItem): "success" | "error" | "active" {
+  if (task.status === "failed") return "error";
+  if (task.status === "done") return "success";
+  if (task.progress > 0) return "active";
+  return "active";
+}
 
 async function runSearch() {
   const query = searchQuery.value.trim();
@@ -197,11 +255,100 @@ onMounted(loadGraph);
             </t-button>
           </template>
         </t-input>
+        <t-button
+          size="small"
+          variant="outline"
+          :theme="showAddData ? 'primary' : 'default'"
+          @click="showAddData = !showAddData"
+        >
+          {{ showAddData ? "Hide Data Input" : "Add Data" }}
+        </t-button>
         <t-button size="small" variant="outline" :loading="loading" @click="loadGraph">
           Refresh
         </t-button>
       </div>
     </header>
+
+    <div v-if="showAddData" class="add-data-panel">
+      <div class="add-data-head">
+        <h3 class="add-data-title">Add Data</h3>
+        <span class="add-data-hint">
+          PDF · DOCX · XLSX · PPTX · images · HTML · EPUB · CSV · Markdown · URL
+        </span>
+      </div>
+
+      <div
+        class="drop-zone"
+        :class="{ dragging }"
+        @click="pickFiles"
+        @dragover.prevent="dragging = true"
+        @dragleave.prevent="dragging = false"
+        @drop.prevent="onDrop"
+      >
+        <input
+          ref="fileInput"
+          type="file"
+          multiple
+          :accept="ACCEPT_HINT"
+          hidden
+          @change="onFileChange"
+        />
+        <span class="drop-zone-main">Drop files here or click to upload</span>
+        <span class="drop-zone-sub">Every file is parsed by docling → LightRAG + llm_wiki</span>
+      </div>
+
+      <div class="url-row">
+        <t-input
+          v-model="urlInput"
+          size="small"
+          clearable
+          placeholder="https://example.com/page — paste a URL to ingest"
+          @enter="submitUrl"
+        />
+        <t-button
+          size="small"
+          variant="outline"
+          :loading="submitting"
+          :disabled="!urlInput.trim()"
+          @click="submitUrl"
+        >
+          Ingest URL
+        </t-button>
+      </div>
+
+      <p v-if="submitError" class="add-data-error">{{ submitError }}</p>
+
+      <div v-if="tasks.length" class="task-list">
+        <div v-for="task in tasks" :key="task.id" class="task-item">
+          <div class="task-head">
+            <span class="task-source" :title="task.source">{{ task.source }}</span>
+            <span class="task-badge" :class="task.status">{{ task.status }}</span>
+            <t-button size="small" variant="text" @click="removeTask(task.id)">
+              Remove
+            </t-button>
+          </div>
+          <t-progress
+            :percentage="task.progress"
+            :status="taskProgressStatus(task)"
+          />
+          <div class="task-stages">
+            <span
+              v-for="stage in [
+                { key: 'parsing' as const, label: 'Parse' },
+                { key: 'ingesting_lightrag' as const, label: 'LightRAG' },
+                { key: 'ingesting_llmwiki' as const, label: 'llm_wiki' },
+              ]"
+              :key="stage.key"
+              class="task-stage"
+              :class="stageStatus(task.stages[stage.key])"
+            >
+              {{ stage.label }}: {{ task.stages[stage.key].status }}
+            </span>
+          </div>
+          <p v-if="task.error" class="task-stage-error">{{ task.error }}</p>
+        </div>
+      </div>
+    </div>
 
     <div class="knowledge-body">
       <template v-if="searchActive">
@@ -456,6 +603,181 @@ onMounted(loadGraph);
   font-size: 12px;
   color: var(--caleo-sky);
   word-break: break-all;
+}
+
+.add-data-panel {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  box-shadow: var(--caleo-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.add-data-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.add-data-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--caleo-text);
+}
+
+.add-data-hint {
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  border: 1px dashed var(--caleo-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.drop-zone:hover,
+.drop-zone.dragging {
+  border-color: var(--caleo-primary);
+  background: var(--caleo-surface-hover);
+}
+
+.drop-zone-main {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.drop-zone-sub {
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.url-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.url-row :deep(.t-input) {
+  flex: 1;
+}
+
+.add-data-error {
+  margin: 0;
+  color: #d54941;
+  font-size: 13px;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--caleo-border);
+  padding-top: 12px;
+}
+
+.task-item {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--caleo-surface-hover);
+  border: 1px solid var(--caleo-border);
+}
+
+.task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.task-source {
+  font-size: 13px;
+  color: var(--caleo-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.task-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.task-badge.pending {
+  color: var(--caleo-text-secondary);
+  background: var(--caleo-surface-hover);
+}
+
+.task-badge.parsing,
+.task-badge.ingesting {
+  color: var(--caleo-primary);
+  background: var(--caleo-sidebar-active);
+}
+
+.task-badge.done {
+  color: #2f9e63;
+  background: rgba(47, 158, 99, 0.14);
+}
+
+.task-badge.failed {
+  color: #d54941;
+  background: rgba(213, 73, 65, 0.14);
+}
+
+.task-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.task-stage {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--caleo-border);
+  color: var(--caleo-text-secondary);
+}
+
+.task-stage.running {
+  color: var(--caleo-primary);
+  border-color: var(--caleo-primary);
+}
+
+.task-stage.done {
+  color: #2f9e63;
+  border-color: rgba(47, 158, 99, 0.5);
+}
+
+.task-stage.failed {
+  color: #d54941;
+  border-color: rgba(213, 73, 65, 0.5);
+}
+
+.task-stage-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #d54941;
 }
 
 .knowledge-body {

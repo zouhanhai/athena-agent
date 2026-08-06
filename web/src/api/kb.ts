@@ -37,6 +37,32 @@ export interface KnowledgeSearchResult {
   score?: number;
 }
 
+export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwiki";
+export type StageStatus = "pending" | "running" | "done" | "failed";
+export type TaskStatus = "pending" | "parsing" | "ingesting" | "done" | "failed";
+
+export interface IngestTaskStage {
+  name: TaskStageName;
+  status: StageStatus;
+  error?: string;
+}
+
+export interface IngestTask {
+  id: string;
+  source: string;
+  status: TaskStatus;
+  progress: number;
+  stages: {
+    parsing: IngestTaskStage;
+    ingesting_lightrag: IngestTaskStage;
+    ingesting_llmwiki: IngestTaskStage;
+  };
+  documentId?: string;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -75,4 +101,30 @@ export async function searchKnowledge(query: string): Promise<KnowledgeSearchRes
     body: JSON.stringify({ query }),
   });
   return data.results;
+}
+
+/** POST /api/kb/ingest (multipart file) → 202 { taskId }. */
+export async function ingestFile(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const data = await request<{ taskId: string }>(`${KB_BASE}/ingest`, {
+    method: "POST",
+    body: form,
+  });
+  return data.taskId;
+}
+
+/** POST /api/kb/ingest-url { url } → 202 { taskId }. */
+export async function ingestUrl(url: string): Promise<string> {
+  const data = await request<{ taskId: string }>(`${KB_BASE}/ingest-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  return data.taskId;
+}
+
+/** GET /api/kb/task/:id → poll an ingestion task's status. */
+export async function getTask(taskId: string): Promise<IngestTask> {
+  return request<IngestTask>(`${KB_BASE}/task/${encodeURIComponent(taskId)}`);
 }

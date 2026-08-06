@@ -1,6 +1,14 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
-import { getGraph, getWikiTree, readWikiPage, searchKnowledge } from "@/api/kb";
+import {
+  getGraph,
+  getWikiTree,
+  readWikiPage,
+  searchKnowledge,
+  ingestFile,
+  ingestUrl,
+  getTask,
+} from "@/api/kb";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
@@ -93,5 +101,63 @@ describe("searchKnowledge", () => {
   it("throws with the status on failure", async () => {
     stubFetch(jsonResponse({ error: "bad" }, 400));
     await expect(searchKnowledge("x")).rejects.toThrow("400");
+  });
+});
+
+describe("ingestFile", () => {
+  it("POSTs a multipart form with the file and returns the task id", async () => {
+    stubFetch(jsonResponse({ taskId: "t-1" }, 202));
+    const file = new File(["hello"], "doc.md", { type: "text/markdown" });
+    const taskId = await ingestFile(file);
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/ingest");
+    expect(init!.method).toBe("POST");
+    expect(init!.body).toBeInstanceOf(FormData);
+    const form = init!.body as FormData;
+    expect(form.get("file")).toBe(file);
+    expect(taskId).toBe("t-1");
+  });
+});
+
+describe("ingestUrl", () => {
+  it("POSTs { url } to /api/kb/ingest-url and returns the task id", async () => {
+    stubFetch(jsonResponse({ taskId: "t-2" }, 202));
+    const taskId = await ingestUrl("https://example.com/page");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/ingest-url");
+    expect(JSON.parse(String(init!.body))).toEqual({ url: "https://example.com/page" });
+    expect(taskId).toBe("t-2");
+  });
+});
+
+describe("getTask", () => {
+  it("GETs /api/kb/task/:id and returns the task status", async () => {
+    const task = {
+      id: "t-1",
+      source: "doc.md",
+      status: "ingesting",
+      progress: 72,
+      stages: {
+        parsing: { name: "parsing", status: "done" },
+        ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+        ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running" },
+      },
+    };
+    stubFetch(jsonResponse(task));
+    const got = await getTask("t-1");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/task/t-1");
+    expect(got).toEqual(task);
+  });
+
+  it("throws with the status when the task is not found", async () => {
+    stubFetch(jsonResponse({ error: "task not found" }, 404));
+    await expect(getTask("missing")).rejects.toThrow("404");
   });
 });
