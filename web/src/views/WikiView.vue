@@ -205,11 +205,11 @@ watch(
 }
 
 .wiki-view-switcher :deep(.t-radio-group--filled .t-radio-group__bg-block) {
-  background-color: var(--caleo-primary);
+  background-color: var(--caleo-primary) !important;
 }
 
 .wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button.t-is-checked) {
-  color: #ffffff;
+  color: #ffffff !important;
 }
 
 .wiki-body {
