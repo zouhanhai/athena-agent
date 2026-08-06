@@ -1085,15 +1085,15 @@ onMounted(() => {
 }
 </style>
 
-<!-- G2.S5.T13: non-scoped override so a SELECTED graph node gets a clear brand-orange
+<!-- G2.S5.T13: non-scoped override so a SELECTED graph node gets a brand-orange
      border. v-network-graph's focusring isn't rendered for programmatic selection
-     (selectable:false + selectedNodes), so we add the orange ring via CSS stroke. The
-     fill stays sky-blue (the built-in selected color); the orange border makes the
-     selection obvious on both dark and light backgrounds. -->
+     (selectable:false + selectedNodes), so we add the orange ring via CSS stroke.
+     fill stays sky-blue; a thin 1.5px ring marks selection (hover already scales the
+     node, so no heavy border needed). -->
 <style>
 .v-network-graph g.v-ng-node.selected rect.v-ng-shape-rect,
 .v-network-graph g.v-ng-node.selected circle {
   stroke: var(--caleo-primary) !important;
-  stroke-width: 2.5 !important;
+  stroke-width: 1.5 !important;
 }
 </style>
