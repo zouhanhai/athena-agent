@@ -43,7 +43,7 @@ function makeFakeSession(chunks: string[]): FakeSession {
 function makeStubAgent(session: FakeSession): Agent {
   return {
     session,
-    model: "openrouter/deepseek/deepseek-v4-flash",
+    model: "openrouter/~deepseek/deepseek-v4-flash-latest",
     packages: [],
     extensionErrors: [],
     prompt: async () => "mock reply",
