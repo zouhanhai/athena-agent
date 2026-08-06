@@ -25,6 +25,73 @@ Upload one document to shared input-dir:
 Raw files stored only once; each system produces its own processing artifacts independently.
 ```
 
+### 2.1 Precise Ingest Flow (implemented, G2.S5)
+
+The actual dual-pipeline ingest (server/src/kb/tasks.ts run()) executes in order:
+
+```
+Upload file / URL
+  → POST /api/kb/ingest (multipart) or /api/kb/ingest-url → task queue (taskId)
+  → run(): stages tracked per-system
+    ① parsing (docling):
+       parsed = parser.parse(input)     # docling → Markdown string
+       markdown = parsed.markdown        # in-memory string
+       (also written to shared input-dir ~/athena-data/input as artifact)
+    ② LightRAG ingesting:
+       ingestLightRag(markdown, fileName)
+         → lightrag.ingestText(content)  # LightRAG native /documents/text
+           # chunking → embedding (qwen3-embedding-8b) → vector (pgvector) + entity graph (NetworkX)
+    ③ llm_wiki ingesting:
+       ingestLlmWiki(fileName, markdown)
+         → classify({title, content})    # llm_wiki built-in agent classifies doc
+           # prompt: "classify into entity/concept/source/query/comparison/synthesis"
+           # → { category, pagePath: "wiki/{category}/{file}.md" }
+         → write wiki/{category}/{file}.md
+         → rebuild wiki/index.md (pages grouped by type)
+    ④ any system ok → task status=done, progress 100
+```
+
+**Key points:**
+- **Docling produces an in-memory Markdown string** that is dispatched to both pipelines;
+  the input-dir file is a stored artifact, not the ingest source.
+- **LightRAG pipeline is native/unmodified**: `ingestText` (chunking → embedding → pgvector
+  vector + NetworkX entity graph). It has NO agent — it uses the LLM only for embedding + entity extraction.
+- **llm_wiki pipeline uses its own built-in agent** (NOT Pi) to classify the doc into a category
+  dir; both systems run on **OpenRouter** (`~deepseek/deepseek-v4-flash-latest` main).
+- **Independent pipelines**: changing llm_wiki ingest (e.g. classification) does NOT affect
+  LightRAG ingest (`ingestLightRag` is separate from `ingestLlmWiki`).
+
+### 2.2 Wiki auto-hierarchy (llm_wiki built-in agent)
+
+llm_wiki's built-in agent classifies each ingested doc into one category dir:
+
+```
+wiki/entities/       Named things (models, companies, people, datasets)
+wiki/concepts/       Ideas, techniques, phenomena
+wiki/sources/        Papers, articles, talks, blog posts
+wiki/queries/        Open questions under investigation
+wiki/comparisons/    Side-by-side analysis of related entities
+wiki/synthesis/      Cross-cutting summaries and conclusions
+wiki/index.md        All pages grouped by type
+wiki/log.md          Research activity log
+```
+
+- Classification prompt uses the **llm_wiki built-in agent** (its own LLM, OpenRouter `deepseek-v4-flash`).
+- Fallback: a local heuristic `localClassify` if the agent fails.
+- Note: single-category per doc at ingest; cross-page wikilinks ([[]]) relationships are built by
+  llm_wiki's graph index later (not in this ingest step).
+
+### 2.3 Model unification (all systems on OpenRouter, auto-follow latest)
+
+| System | Main model | Provider |
+|--------|-----------|----------|
+| llm_wiki built-in agent | `~deepseek/deepseek-v4-flash-latest` | OpenRouter |
+| LightRAG | `~deepseek/deepseek-v4-flash-latest` (LLM) + `qwen/qwen3-embedding-8b` (embedding) | OpenRouter |
+| Pi / athena server | `~deepseek/deepseek-v4-flash-latest` | OpenRouter |
+| Local Hermes | `~deepseek/deepseek-v4-flash-latest` | OpenRouter |
+
+Using `~...-latest` so all systems auto-follow the newest DeepSeek V4 Flash without manual updates.
+
 ## 3. Capabilities Pattern (Core Routing Mechanism, Referencing WeKnora)
 
 ### 1. Each knowledge source declares its own capability surface
