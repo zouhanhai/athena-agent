@@ -7,6 +7,11 @@ import { pipeline } from "node:stream/promises";
 import type { KnowledgeIngestService } from "../kb/ingest.js";
 import type { KnowledgeRetrievalService } from "../kb/retrieval.js";
 import type { IngestTaskQueue } from "../kb/tasks.js";
+import {
+  NothingToRetryError,
+  TaskBusyError,
+  TaskNotFoundError,
+} from "../kb/tasks.js";
 
 export interface KbRequestBody {
   title?: unknown;
@@ -134,6 +139,30 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       return reply.code(404).send({ error: "task not found" });
     }
     return task;
+  });
+
+  app.post("/api/kb/ingest/retry", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const body = (request.body ?? {}) as { taskId?: unknown };
+    if (typeof body.taskId !== "string" || body.taskId.trim().length === 0) {
+      return reply.code(400).send({ error: "taskId is required" });
+    }
+    try {
+      return options.taskQueue.retry(body.taskId.trim());
+    } catch (err) {
+      if (err instanceof TaskNotFoundError) {
+        return reply.code(404).send({ error: err.message });
+      }
+      if (err instanceof TaskBusyError) {
+        return reply.code(409).send({ error: err.message });
+      }
+      if (err instanceof NothingToRetryError) {
+        return reply.code(400).send({ error: err.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   if (!options.retrieval) return;

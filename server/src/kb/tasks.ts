@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
-import { documentIdFrom, slugify } from "./ingest.js";
+import { documentIdFrom } from "./ingest.js";
 
 export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwiki";
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -25,6 +25,12 @@ export interface IngestTask {
   id: string;
   /** Original filename or URL being ingested. */
   source: string;
+  /** Parse input (file path or URL) retained so retry can re-run docling. */
+  input?: string;
+  /** Parsed markdown retained so retry can re-run ingest stages without re-parsing. */
+  markdown?: string;
+  /** Derived ingest filename (`<documentId>.md`) retained for retry. */
+  fileName?: string;
   status: TaskStatus;
   /** Overall progress 0-100. */
   progress: number;
@@ -38,6 +44,13 @@ export interface IngestTask {
   createdAt: number;
   updatedAt: number;
 }
+
+/** Thrown when retry() is asked to re-run an unknown task. */
+export class TaskNotFoundError extends Error {}
+/** Thrown when retry() is asked to re-run a task that is still running. */
+export class TaskBusyError extends Error {}
+/** Thrown when retry() finds no failed stage worth re-running. */
+export class NothingToRetryError extends Error {}
 
 export interface IngestTaskQueueOptions {
   parser: DoclingParser;
@@ -111,64 +124,120 @@ export class IngestTaskQueue {
   }
 
   private async run(id: string, input: string, source: string): Promise<void> {
+    const task = this.tasks.get(id);
+    if (!task) return;
+    task.input = input;
+
+    let markdown = task.markdown;
+    let fileName = task.fileName;
+
     // --- parsing (docling) ---
-    this.patch(id, (t) => {
-      t.status = "parsing";
-      t.progress = 15;
-      t.stages.parsing.status = "running";
-    });
-    let markdown: string;
-    let documentId: string;
-    try {
-      const parsed = await this.parser.parse(input);
-      markdown = parsed.markdown;
-      documentId = parsed.stem || documentIdFrom(source, source);
-    } catch (err) {
-      return this.fail(id, err, "parsing");
+    if (task.stages.parsing.status !== "done") {
+      this.patch(id, (t) => {
+        t.status = "parsing";
+        t.progress = 15;
+        t.stages.parsing = { name: "parsing", status: "running" };
+      });
+      try {
+        const parsed = await this.parser.parse(input);
+        markdown = parsed.markdown;
+        fileName = `${parsed.stem || documentIdFrom(source, source)}.md`;
+        this.patch(id, (t) => {
+          t.stages.parsing = { name: "parsing", status: "done" };
+          t.documentId = parsed.stem || documentIdFrom(source, source);
+          t.markdown = markdown;
+          t.fileName = fileName;
+          t.progress = 35;
+        });
+      } catch (err) {
+        return this.fail(id, err, "parsing");
+      }
     }
-    this.patch(id, (t) => {
-      t.stages.parsing.status = "done";
-      t.documentId = documentId;
-      t.progress = 35;
-    });
+
+    if (!markdown || !fileName) {
+      return this.fail(id, new Error("missing parsed markdown content"), "parsing");
+    }
 
     // --- LightRAG ingesting ---
-    this.patch(id, (t) => {
-      t.status = "ingesting";
-      t.stages.ingesting_lightrag.status = "running";
-      t.progress = 50;
-    });
-    const fileName = `${documentId || slugify(source)}.md`;
-    const lightrag = await this.safeIngest(() => this.ingest.ingestLightRag(markdown, fileName));
-    this.patch(id, (t) => {
-      t.stages.ingesting_lightrag = {
-        name: "ingesting_lightrag",
-        status: lightrag.ok ? "done" : "failed",
-        ...(lightrag.ok ? {} : { error: lightrag.error }),
-      };
-      t.progress = 72;
-    });
+    if (task.stages.ingesting_lightrag.status !== "done") {
+      this.patch(id, (t) => {
+        t.status = "ingesting";
+        t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running" };
+        t.progress = 50;
+      });
+      const lightrag = await this.safeIngest(() => this.ingest.ingestLightRag(markdown!, fileName!));
+      this.patch(id, (t) => {
+        t.stages.ingesting_lightrag = {
+          name: "ingesting_lightrag",
+          status: lightrag.ok ? "done" : "failed",
+          ...(lightrag.ok ? {} : { error: lightrag.error }),
+        };
+        t.progress = 72;
+      });
+    }
 
     // --- llm_wiki ingesting ---
+    if (task.stages.ingesting_llmwiki.status !== "done") {
+      this.patch(id, (t) => {
+        t.status = "ingesting";
+        t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running" };
+        t.progress = 85;
+      });
+      const llmwiki = await this.safeIngest(() => this.ingest.ingestLlmWiki(fileName!, markdown!));
+      this.patch(id, (t) => {
+        t.stages.ingesting_llmwiki = {
+          name: "ingesting_llmwiki",
+          status: llmwiki.ok ? "done" : "failed",
+          ...(llmwiki.ok ? {} : { error: llmwiki.error }),
+        };
+        t.progress = 100;
+      });
+    }
+
+    // --- finalize ---
     this.patch(id, (t) => {
-      t.stages.ingesting_llmwiki.status = "running";
-      t.progress = 85;
-    });
-    const llmwiki = await this.safeIngest(() => this.ingest.ingestLlmWiki(fileName, markdown));
-    this.patch(id, (t) => {
-      t.stages.ingesting_llmwiki = {
-        name: "ingesting_llmwiki",
-        status: llmwiki.ok ? "done" : "failed",
-        ...(llmwiki.ok ? {} : { error: llmwiki.error }),
-      };
-      t.progress = 100;
-      if (lightrag.ok || llmwiki.ok) {
+      const lightragOk = t.stages.ingesting_lightrag.status === "done";
+      const llmwikiOk = t.stages.ingesting_llmwiki.status === "done";
+      if (lightragOk || llmwikiOk) {
         t.status = "done";
       } else {
         t.status = "failed";
         t.error = "Both knowledge systems failed";
       }
     });
+  }
+
+  /**
+   * Re-run only the failed stages of a finished task. Successful stages are
+   * left untouched. Starts the retry asynchronously and returns the task,
+   * which already reflects the running state (progress/stages) by the time
+   * this returns; callers poll GET /api/kb/task/:id for the final result.
+   *
+   * @throws TaskNotFoundError when no such task exists
+   * @throws TaskBusyError when the task is still running
+   * @throws NothingToRetryError when no stage is failed (or input is missing)
+   */
+  retry(taskId: string): IngestTask {
+    const task = this.tasks.get(taskId);
+    if (!task) throw new TaskNotFoundError(`task not found: ${taskId}`);
+    if (task.status === "pending" || task.status === "parsing" || task.status === "ingesting") {
+      throw new TaskBusyError(`task is still running: ${taskId}`);
+    }
+    if (!task.input) throw new NothingToRetryError(`task has no parse input to retry: ${taskId}`);
+    const failedStages = (["parsing", "ingesting_lightrag", "ingesting_llmwiki"] as const).filter(
+      (name) => task.stages[name].status === "failed",
+    );
+    if (failedStages.length === 0) {
+      throw new NothingToRetryError(`task has no failed stages to retry: ${taskId}`);
+    }
+    this.patch(taskId, (t) => {
+      t.error = undefined;
+      for (const name of failedStages) {
+        t.stages[name] = { name, status: "pending" };
+      }
+    });
+    void this.run(taskId, task.input!, task.source);
+    return task;
   }
 
   private async safeIngest(fn: () => Promise<SystemIngestStatus>): Promise<SystemIngestStatus> {

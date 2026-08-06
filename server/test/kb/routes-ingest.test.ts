@@ -9,7 +9,12 @@ import type { FastifyInstance } from "fastify";
 
 const BOUNDARY = "test-boundary-123";
 
-function makeTaskQueue(opts: { failParse?: boolean } = {}) {
+function makeTaskQueue(opts: {
+  failParse?: boolean;
+  llmwikiFailures?: number;
+  lightragFailures?: number;
+} = {}) {
+  const counts = { lightrag: 0, llmwiki: 0 };
   const parser = {
     async parse(input: string) {
       if (opts.failParse) throw new Error("docling failed");
@@ -18,9 +23,17 @@ function makeTaskQueue(opts: { failParse?: boolean } = {}) {
   };
   const ingest = {
     async ingestLightRag() {
+      counts.lightrag += 1;
+      if (opts.lightragFailures !== undefined && counts.lightrag <= opts.lightragFailures) {
+        return { ok: false, error: "LightRAG down" };
+      }
       return { ok: true, trackId: "insert_1" };
     },
     async ingestLlmWiki() {
+      counts.llmwiki += 1;
+      if (opts.llmwikiFailures !== undefined && counts.llmwiki <= opts.llmwikiFailures) {
+        return { ok: false, error: "wiki down" };
+      }
       return { ok: true };
     },
   };
@@ -170,6 +183,77 @@ test("failed docling parse surfaces a failed task via the task endpoint", async 
       ((task as { stages: { parsing: { status: string } } }).stages).parsing.status,
       "failed",
     );
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/kb/ingest/retry re-runs only the failed stage and returns the updated task", async () => {
+  const app = buildApp({ taskQueue: makeTaskQueue({ llmwikiFailures: 1 }) });
+  try {
+    const ingest = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest-url",
+      payload: { url: "https://example.com/retry" },
+    });
+    const { taskId } = ingest.json() as { taskId: string };
+
+    const failed = await pollTask(app, taskId);
+    assert.equal(failed.status, "done");
+    assert.equal(
+      ((failed as { stages: { ingesting_llmwiki: { status: string } } }).stages)
+        .ingesting_llmwiki.status,
+      "failed",
+    );
+    assert.equal(
+      ((failed as { stages: { ingesting_lightrag: { status: string } } }).stages)
+        .ingesting_lightrag.status,
+      "done",
+    );
+
+    const retry = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest/retry",
+      payload: { taskId },
+    });
+    assert.equal(retry.statusCode, 200);
+    assert.equal((retry.json() as { id: string }).id, taskId);
+
+    const recovered = await pollTask(app, taskId);
+    assert.equal(recovered.status, "done");
+    assert.equal(
+      ((recovered as { stages: { ingesting_llmwiki: { status: string } } }).stages)
+        .ingesting_llmwiki.status,
+      "done",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/kb/ingest/retry returns 404 for an unknown task id", async () => {
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest/retry",
+      payload: { taskId: "does-not-exist" },
+    });
+    assert.equal(res.statusCode, 404);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/kb/ingest/retry rejects a missing taskId", async () => {
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest/retry",
+      payload: {},
+    });
+    assert.equal(res.statusCode, 400);
   } finally {
     await app.close();
   }

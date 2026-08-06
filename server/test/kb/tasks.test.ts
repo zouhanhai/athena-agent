@@ -1,40 +1,49 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IngestTaskQueue } from "../../src/kb/tasks.js";
+import {
+  IngestTaskQueue,
+  NothingToRetryError,
+  TaskBusyError,
+  TaskNotFoundError,
+} from "../../src/kb/tasks.js";
+import type { IngestTask } from "../../src/kb/tasks.js";
 
 function makeFakes(opts: {
   markdown?: string;
   lightragOk?: boolean;
   llmwikiOk?: boolean;
   parseError?: Error;
-}) {
+} = {}) {
+  const flags = {
+    lightragOk: opts.lightragOk !== false,
+    llmwikiOk: opts.llmwikiOk !== false,
+    parseError: opts.parseError,
+  };
   const calls: { kind: string; args: unknown[] }[] = [];
   const parser = {
     async parse(input: string) {
       calls.push({ kind: "parser.parse", args: [input] });
-      if (opts.parseError) throw opts.parseError;
+      if (flags.parseError) throw flags.parseError;
       return { markdown: opts.markdown ?? "# Doc", outputPath: "/shared/input/doc.md", stem: "doc" };
     },
   };
   const ingest = {
     async ingestLightRag(markdown: string, fileName: string) {
       calls.push({ kind: "ingest.lightrag", args: [markdown, fileName] });
-      return opts.lightragOk === false
-        ? { ok: false, error: "LightRAG down" }
-        : { ok: true, trackId: "insert_1" };
+      return flags.lightragOk
+        ? { ok: true, trackId: "insert_1" }
+        : { ok: false, error: "LightRAG down" };
     },
     async ingestLlmWiki(fileName: string, markdown: string) {
       calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown] });
-      return opts.llmwikiOk === false
-        ? { ok: false, error: "wiki down" }
-        : { ok: true };
+      return flags.llmwikiOk ? { ok: true } : { ok: false, error: "wiki down" };
     },
   };
   const queue = new IngestTaskQueue({
     parser: parser as never,
     ingest: ingest as never,
   });
-  return { queue, calls };
+  return { queue, calls, flags };
 }
 
 async function untilDone(queue: IngestTaskQueue, id: string): Promise<void> {
@@ -113,4 +122,76 @@ test("task fails at parsing stage when docling errors", async () => {
 test("getTask returns undefined for an unknown id", () => {
   const { queue } = makeFakes({});
   assert.equal(queue.getTask("nope"), undefined);
+});
+
+test("retry re-runs only the failed llm_wiki stage and keeps the done LightRAG stage", async () => {
+  const { queue, calls, flags } = makeFakes({ llmwikiOk: false });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+  let task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_lightrag.status, "done");
+  assert.equal(task.stages.ingesting_llmwiki.status, "failed");
+  assert.equal(calls.filter((c) => c.kind === "ingest.lightrag").length, 1);
+
+  flags.llmwikiOk = true;
+  const retried = queue.retry(taskId);
+  assert.equal(retried.id, taskId);
+
+  await untilDone(queue, taskId);
+  task = queue.getTask(taskId)!;
+  assert.equal(task.stages.ingesting_llmwiki.status, "done");
+  assert.equal(task.status, "done");
+  assert.equal(calls.filter((c) => c.kind === "parser.parse").length, 1, "parse is not re-run");
+  assert.equal(
+    calls.filter((c) => c.kind === "ingest.lightrag").length,
+    1,
+    "successful LightRAG stage is not re-run",
+  );
+  assert.equal(
+    calls.filter((c) => c.kind === "ingest.llmwiki").length,
+    2,
+    "failed llm_wiki stage is re-run once",
+  );
+});
+
+test("retry re-runs parsing when parsing failed", async () => {
+  const { queue, calls, flags } = makeFakes({ parseError: new Error("parse exploded") });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+  assert.equal(queue.getTask(taskId)!.status, "failed");
+  assert.equal(calls.filter((c) => c.kind === "parser.parse").length, 1);
+
+  flags.parseError = undefined;
+  queue.retry(taskId);
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.parsing.status, "done");
+  assert.equal(task.stages.ingesting_lightrag.status, "done");
+  assert.equal(task.stages.ingesting_llmwiki.status, "done");
+  assert.equal(calls.filter((c) => c.kind === "parser.parse").length, 2);
+  assert.equal(calls.filter((c) => c.kind === "ingest.lightrag").length, 1);
+  assert.equal(calls.filter((c) => c.kind === "ingest.llmwiki").length, 1);
+});
+
+test("retry rejects a task that is still running", async () => {
+  const { queue } = makeFakes({});
+  const task = queue.createTask("x.pdf");
+  (task as IngestTask).status = "ingesting";
+  assert.throws(() => queue.retry(task.id), TaskBusyError);
+});
+
+test("retry rejects a task with no failed stages", async () => {
+  const { queue } = makeFakes({});
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+  assert.equal(queue.getTask(taskId)!.status, "done");
+  assert.throws(() => queue.retry(taskId), NothingToRetryError);
+});
+
+test("retry throws TaskNotFoundError for an unknown task id", async () => {
+  const { queue } = makeFakes({});
+  assert.throws(() => queue.retry("nope"), TaskNotFoundError);
 });
