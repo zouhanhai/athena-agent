@@ -220,3 +220,14 @@ test("parseClassification validates category and pagePath", () => {
   assert.equal(parseClassification("no json here"), null);
 });
 
+test("parseClassification parses an optional topic key", () => {
+  assert.deepEqual(
+    parseClassification('{"category":"concept","topic":"sommerseminar","pagePath":"wiki/concepts/sommerseminar.md"}'),
+    { category: "concept", pagePath: "wiki/concepts/sommerseminar.md", topic: "sommerseminar" },
+  );
+  // path traversal is neutralized into a safe slug (never a valid key)
+  const traversed = parseClassification('{"category":"concept","topic":"../evil","pagePath":"wiki/x.md"}');
+  assert.ok(traversed);
+  assert.equal(traversed!.topic, "evil");
+});
+

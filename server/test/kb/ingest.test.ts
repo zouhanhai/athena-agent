@@ -4,6 +4,7 @@ import {
   KnowledgeIngestService,
   buildWikiIndex,
   localClassify,
+  localTopic,
   rebuildWikiIndex,
   withFrontmatter,
 } from "../../src/kb/ingest.js";
@@ -242,6 +243,48 @@ test("ingestMarkdown records track_id from LightRAG", async () => {
 test("withFrontmatter emits the llm_wiki schema frontmatter", () => {
   const out = withFrontmatter("concept", "Chain of Thought", "# Chain of Thought\n\nbody");
   assert.match(out, /^---\ntype: concept\ntitle: Chain of Thought\ncreated: \d{4}-\d{2}-\d{2}\nupdated: \d{4}-\d{2}-\d{2}\n---\n\n# Chain of Thought\n\nbody$/);
+});
+
+test("withFrontmatter includes the topic field when provided", () => {
+  const out = withFrontmatter("concept", "Sommerseminar", "# S\n\nbody", "sommerseminar");
+  assert.match(out, /^---\ntype: concept\ntitle: Sommerseminar\ntopic: sommerseminar\ncreated: \d{4}-\d{2}-\d{2}\n/);
+});
+
+test("localTopic groups related Sommerseminar documents under one topic", () => {
+  assert.equal(localTopic("Sommerseminar Lüsen/Südtirol 2026", "C-Day für die CALEOs"), "sommerseminar");
+  assert.equal(localTopic("Infos Sommerseminar 2026", "Sommerseminar vom 12. - 14. Juni 2026"), "sommerseminar");
+  assert.equal(localTopic("Sommerseminar Mallorca 2023", "CALEO Sommerseminar vom 15.06.2023"), "sommerseminar");
+  assert.equal(localTopic("Chain of Thought", "some reasoning text"), undefined);
+});
+
+test("localClassify derives a topic for Sommerseminar docs while keeping the type", () => {
+  const result = localClassify("Sommerseminar Lüsen/Südtirol 2026", "C-Day für die CALEOs");
+  assert.equal(result.category, "concept");
+  assert.equal(result.topic, "sommerseminar");
+  assert.match(result.pagePath, /^wiki\/concepts\/sommerseminar-/);
+});
+
+test("ingest writes under wiki/<topic>/ when the classifier returns a topic", async () => {
+  const classify: (input: { title: string; content: string }) => Promise<WikiClassification> = async () => ({
+    category: "concept",
+    pagePath: "wiki/concepts/sommerseminar-lusen-sudtirol-2026.md",
+    topic: "sommerseminar",
+  });
+  const fakes = makeFakes({ classify });
+  const service = new KnowledgeIngestService({
+    lightrag: fakes.lightrag,
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    classify,
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  await service.ingestMarkdown({ title: "Sommerseminar", content: "# Sommerseminar\n\nC-Day" });
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  assert.equal(write?.args[0], "/data/wiki/sommerseminar/sommerseminar.md");
+  assert.match(write?.args[1] as string, /^---\ntype: concept\ntitle: Sommerseminar\ntopic: sommerseminar\n/);
 });
 
 test("localClassify maps keyword-heavy docs to the right category", () => {

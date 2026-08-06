@@ -103,11 +103,22 @@ export interface WikiClassification {
   category: WikiCategory;
   /** Project-relative page path, e.g. "wiki/concepts/chain-of-thought.md". */
   pagePath: string;
+  /**
+   * Optional stable topic key for grouping related pages by subject
+   * (e.g. "sommerseminar"). When present the page is written under
+   * `wiki/<topic>/` instead of `wiki/<category>/`.
+   */
+  topic?: string;
 }
 
 export interface WikiClassifyInput {
   title: string;
   content: string;
+}
+
+/** Validate a topic key: lowercase slug, no path separators or traversal. */
+export function isValidTopic(topic: string): topic is string {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(topic);
 }
 
 /** Validate + parse the LLM agent's JSON classification reply. */
@@ -116,11 +127,16 @@ export function parseClassification(value: unknown): WikiClassification | null {
   const match = value.match(/\{[^{}]*\}/);
   if (!match) return null;
   try {
-    const obj = JSON.parse(match[0]) as { category?: unknown; pagePath?: unknown };
+    const obj = JSON.parse(match[0]) as { category?: unknown; pagePath?: unknown; topic?: unknown };
     if (typeof obj.pagePath !== "string" || !obj.pagePath.endsWith(".md")) return null;
     const category = String(obj.category ?? "").toLowerCase();
     if (!(WIKI_CATEGORIES as readonly string[]).includes(category)) return null;
-    return { category: category as WikiCategory, pagePath: obj.pagePath };
+    const result: WikiClassification = { category: category as WikiCategory, pagePath: obj.pagePath };
+    if (typeof obj.topic === "string") {
+      const topic = obj.topic.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      if (isValidTopic(topic)) result.topic = topic;
+    }
+    return result;
   } catch {
     return null;
   }
@@ -224,7 +240,8 @@ export class LlmWikiClient {
   /**
    * POST /projects/{id}/chat - ask the llm_wiki LLM agent to classify a
    * document into a wiki category (entity/concept/source/query/comparison/
-   * synthesis) so ingestion can place it in the right wiki/<category>/ dir.
+   * synthesis) plus a stable topic key (G2.S5.T10), so ingestion can place it
+   * in the right wiki/<category>/ or wiki/<topic>/ dir.
    */
   async classify(projectId: string, input: WikiClassifyInput): Promise<WikiClassification> {
     const excerpt = input.content.slice(0, 2000);
@@ -236,9 +253,13 @@ export class LlmWikiClient {
       "- query: open questions under investigation\n" +
       "- comparison: side-by-side analysis of related entities\n" +
       "- synthesis: cross-cutting summaries and conclusions\n\n" +
+      "Also derive a short STABLE TOPIC key that groups this document with related ones " +
+      "on the same subject (e.g. 'sommerseminar', 'runbook', 'chain-of-thought'). " +
+      "Use the same topic for documents about the same subject. Omit or use an empty string " +
+      "if the document is standalone.\n\n" +
       `Document title: ${input.title}\n\n` +
       `Document content:\n${excerpt}\n\n` +
-      'Reply with ONLY a single JSON object like {"category":"concept","pagePath":"wiki/concepts/chain-of-thought.md"} and nothing else. pagePath must start with "wiki/" and end with ".md".';
+      'Reply with ONLY a single JSON object like {"category":"concept","topic":"chain-of-thought","pagePath":"wiki/concepts/chain-of-thought.md"} and nothing else. pagePath must start with "wiki/" and end with ".md"; topic must be lowercase kebab-case or an empty string.';
     const body: Record<string, unknown> = {
       message: prompt,
       mode: "fast",

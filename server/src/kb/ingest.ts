@@ -11,7 +11,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LightRagClient } from "./lightrag.js";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
-import { WIKI_CATEGORIES } from "./llmwiki.js";
+import { WIKI_CATEGORIES, isValidTopic } from "./llmwiki.js";
 
 export interface IngestInput {
   /** Human-readable document title (also used to derive a safe filename). */
@@ -94,26 +94,56 @@ export function stemTitle(fileName: string): string {
   return words || stem;
 }
 
+/**
+ * Deterministic local topic detection (G2.S5.T10). Recognizes a stable
+ * subject key so related documents (e.g. 3 Sommerseminar PDFs) group under a
+ * shared topic folder even when the llm_wiki agent is unavailable. Returns
+ * undefined when no recognizable subject is found (falls back to type dir).
+ */
+export function localTopic(title: string, content: string): string | undefined {
+  const haystack = `${title}\n${content}`.toLowerCase();
+  const patterns: [RegExp, string][] = [
+    [/\bsommerseminar\b/, "sommerseminar"],
+    [/\bsummer\s*school\b/, "summer-school"],
+    [/\bconference\b/, "conference"],
+    [/\bworkshop\b/, "workshop"],
+    [/\bretreat\b/, "retreat"],
+    [/\bmeetup\b/, "meetup"],
+  ];
+  for (const [re, topic] of patterns) {
+    if (re.test(haystack)) return topic;
+  }
+  return undefined;
+}
+
 /** Deterministic heuristic classifier used when the llm_wiki agent is unavailable. */
 export function localClassify(title: string, content: string): WikiClassification {
   const stem = slugify(title);
   const haystack = `${title}\n${content}`.toLowerCase();
-  if (/\b(vs\.?|comparison|compare|differences?|alternatives?)\b/.test(haystack)) {
-    return { category: "comparison", pagePath: `wiki/comparisons/${stem}.md` };
-  }
-  if (/(open question|research question|investigat|\?\s*$)/.test(haystack)) {
-    return { category: "query", pagePath: `wiki/queries/${stem}.md` };
-  }
-  if (/\b(paper|arxiv|doi|blog|article|talk|conference|publication)\b/.test(haystack)) {
-    return { category: "source", pagePath: `wiki/sources/${stem}.md` };
-  }
-  if (/\b(summary|overview|conclusion|synthesis|takeaways?|cross-cutting)\b/.test(haystack)) {
-    return { category: "synthesis", pagePath: `wiki/synthesis/${stem}.md` };
-  }
-  if (/\b(company|corporation|inc\.?|dataset|model)\b/.test(haystack)) {
-    return { category: "entity", pagePath: `wiki/entities/${stem}.md` };
-  }
-  return { category: "concept", pagePath: `wiki/concepts/${stem}.md` };
+  const category: WikiCategory = (() => {
+    if (/\b(vs\.?|comparison|compare|differences?|alternatives?)\b/.test(haystack)) {
+      return "comparison";
+    }
+    if (/(open question|research question|investigat|\?\s*$)/.test(haystack)) {
+      return "query";
+    }
+    if (/\b(paper|arxiv|doi|blog|article|talk|conference|publication)\b/.test(haystack)) {
+      return "source";
+    }
+    if (/\b(summary|overview|conclusion|synthesis|takeaways?|cross-cutting)\b/.test(haystack)) {
+      return "synthesis";
+    }
+    if (/\b(company|corporation|inc\.?|dataset|model)\b/.test(haystack)) {
+      return "entity";
+    }
+    return "concept";
+  })();
+  const topic = localTopic(title, content);
+  return {
+    category,
+    pagePath: `wiki/${categoryDir(category)}/${stem}.md`,
+    ...(topic ? { topic } : {}),
+  };
 }
 
 function isValidCategory(category: string): category is WikiCategory {
@@ -134,10 +164,16 @@ export function categoryDir(category: WikiCategory): string {
   return CATEGORY_DIRS[category];
 }
 
-/** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title). */
-export function withFrontmatter(category: WikiCategory, title: string, content: string): string {
+/** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title + topic). */
+export function withFrontmatter(
+  category: WikiCategory,
+  title: string,
+  content: string,
+  topic?: string,
+): string {
   const today = new Date().toISOString().slice(0, 10);
-  return `---\ntype: ${category}\ntitle: ${title}\ncreated: ${today}\nupdated: ${today}\n---\n\n${content}`;
+  const topicLine = topic && isValidTopic(topic) ? `topic: ${topic}\n` : "";
+  return `---\ntype: ${category}\ntitle: ${title}\n${topicLine}created: ${today}\nupdated: ${today}\n---\n\n${content}`;
 }
 
 export interface WikiIndexPage {
@@ -311,6 +347,8 @@ export class KnowledgeIngestService {
    *
    * G2.S5.T5: the page is classified by the llm_wiki agent and written under
    * wiki/<category>/ (not flat root), then wiki/index.md is rebuilt.
+   * G2.S5.T10: when the classifier also derives a topic, the page is written
+   * under wiki/<topic>/ instead so related documents group together.
    */
   async ingestLlmWiki(fileName: string, content: string): Promise<SystemIngestStatus> {
     try {
@@ -318,9 +356,13 @@ export class KnowledgeIngestService {
       const title = extractPageTitle(content) ?? stemTitle(fileName);
       const classification = await this.classify({ title, content });
       const category = classification.category;
-      const targetDir = join(wikiDir, categoryDir(category));
+      const topic = classification.topic && isValidTopic(classification.topic)
+        ? classification.topic
+        : undefined;
+      const subDir = topic ?? categoryDir(category);
+      const targetDir = join(wikiDir, subDir);
       await this.mkdir(targetDir);
-      await this.writeFile(join(targetDir, fileName), withFrontmatter(category, title, content));
+      await this.writeFile(join(targetDir, fileName), withFrontmatter(category, title, content, topic));
       await this.rebuildIndex(wikiDir);
       await this.llmwiki.rescan(id);
       return { ok: true };
@@ -343,7 +385,12 @@ export class KnowledgeIngestService {
       if (typeof classifier !== "function") return fallback;
       const result = await classifier(id, input);
       if (!result || !isValidCategory(result.category)) return fallback;
-      return { category: result.category, pagePath: result.pagePath };
+      const topic = result.topic && isValidTopic(result.topic) ? result.topic : fallback.topic;
+      return {
+        category: result.category,
+        pagePath: result.pagePath,
+        ...(topic ? { topic } : {}),
+      };
     } catch {
       return fallback;
     }
