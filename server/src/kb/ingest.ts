@@ -372,6 +372,28 @@ export class KnowledgeIngestService {
   }
 
   /**
+   * List the raw markdown content of every existing wiki page (G2.S5.T14).
+   * Used to seed the content-dedup store so previously-ingested documents are
+   * recognized even after a server restart. Best-effort: unreadable pages are
+   * skipped.
+   */
+  async existingWikiContent(): Promise<{ path: string; content: string }[]> {
+    const { id } = await this.resolveProject();
+    const pages = await this.llmwiki.listWikiPages(id);
+    const out: { path: string; content: string }[] = [];
+    for (const page of pages) {
+      if (!page.path.endsWith(".md")) continue;
+      try {
+        const { content } = await this.llmwiki.readFile(id, page.path);
+        out.push({ path: page.path, content });
+      } catch {
+        // skip unreadable page — dedup seeding is best-effort
+      }
+    }
+    return out;
+  }
+
+  /**
    * Delete a wiki page from BOTH knowledge systems (G2.S5.T12). `path` is the
    * project-relative wiki page, e.g. "wiki/concepts/foo.md".
    *

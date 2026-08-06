@@ -53,6 +53,11 @@ type TaskPatch = {
   status?: string;
   progress?: number;
   error?: string;
+  dedup?: {
+    duplicate: boolean;
+    method?: "hash" | "chunks";
+    existingSource?: string;
+  };
   stages?: Record<string, unknown>;
 };
 
@@ -150,6 +155,40 @@ describe("KnowledgeView Add Data", () => {
     expect(wrapper.find(".add-data-panel").exists()).toBe(true);
     expect(wrapper.text()).toContain("PDF · DOCX · XLSX");
     expect(wrapper.find(".drop-zone").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows a friendly dedup notice when the task was skipped as duplicate content", async () => {
+    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        id: "t-dup",
+        status: "done",
+        progress: 100,
+        dedup: {
+          duplicate: true,
+          method: "hash",
+          existingSource: "wiki/sommerseminar/a.md",
+        },
+      }),
+    );
+    ingestFileMock.mockResolvedValue("t-dup");
+    const { wrapper } = await mountView();
+
+    const file = new File(["# doc"], "same.pdf", { type: "application/pdf" });
+    const input = wrapper.find('input[type="file"]');
+    Object.defineProperty(input.element, "files", {
+      value: [file],
+      configurable: true,
+    });
+    await input.trigger("change");
+    await flushPromises();
+    await flushPromises();
+
+    const notice = wrapper.find(".task-dedup");
+    expect(notice.exists()).toBe(true);
+    expect(notice.text()).toContain("Duplicate content");
+    expect(notice.text()).toContain("wiki/sommerseminar/a.md");
     wrapper.unmount();
   });
 

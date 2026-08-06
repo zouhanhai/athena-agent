@@ -106,6 +106,13 @@ function friendlyError(task: IngestTaskItem): string {
   return raw || "This document could not be fully ingested.";
 }
 
+/** Friendly notice for content-dedup skips (G2.S5.T14). */
+function dedupNotice(task: IngestTaskItem): string {
+  const existing = task.dedup?.existingSource;
+  const name = existing ? `"${existing}"` : "an existing document";
+  return `Duplicate content — skipped. This content already exists as ${name}.`;
+}
+
 function onRetry(taskId: string): void {
   void retryTask(taskId);
 }
@@ -444,6 +451,7 @@ onMounted(() => {
               {{ stage.label }}: {{ task.stages[stage.key].status }}
             </span>
           </div>
+          <p v-if="task.dedup?.duplicate" class="task-dedup">{{ dedupNotice(task) }}</p>
           <p v-if="hasFailedStage(task)" class="task-stage-error">{{ friendlyError(task) }}</p>
         </div>
       </div>
@@ -894,6 +902,15 @@ onMounted(() => {
   margin: 8px 0 0;
   font-size: 12px;
   color: #d54941;
+}
+
+.task-dedup {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--caleo-sky);
+  background: var(--caleo-sidebar-active);
+  padding: 8px 10px;
+  border-radius: 6px;
 }
 
 .knowledge-body {

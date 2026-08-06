@@ -194,7 +194,11 @@ def derive_stem(source: str) -> str:
             raw += f"-{parsed.query[:32]}"
         return sanitize_stem(raw)
     name = Path(source).name or "document"
-    return sanitize_stem(Path(name).stem)
+    # Keep the original extension in the output stem so same-name files of
+    # DIFFERENT formats (e.g. sommerseminar-l-sen.pdf vs .docx) get different
+    # file_sources downstream → no LightRAG 409. Dedup is purely content-based;
+    # the name is just an identifier, never a rejection reason (G2.S5.T14).
+    return sanitize_stem(Path(name).name)
 
 
 def parse_document(source: str, output_dir: Path, image_export_dir: Path | None) -> str:

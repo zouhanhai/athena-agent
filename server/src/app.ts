@@ -7,6 +7,7 @@ import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
+import { ContentDedupStore } from "./kb/dedup.js";
 import { LightRagClient } from "./kb/lightrag.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
 
@@ -37,9 +38,13 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
 }
 
 export function defaultTaskQueue(): IngestTaskQueue {
+  const ingest = defaultIngestService();
   return new IngestTaskQueue({
     parser: new DoclingParser(),
-    ingest: defaultIngestService(),
+    ingest,
+    dedup: new ContentDedupStore({
+      loadExisting: async () => ingest.existingWikiContent(),
+    }),
   });
 }
 

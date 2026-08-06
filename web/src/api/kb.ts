@@ -65,6 +65,12 @@ export interface IngestTask {
   };
   documentId?: string;
   error?: string;
+  /** Content dedup outcome (G2.S5.T14): set when the doc was skipped as a duplicate. */
+  dedup?: {
+    duplicate: boolean;
+    method?: "hash" | "chunks";
+    existingSource?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }

@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import { documentIdFrom } from "./ingest.js";
+import type { ContentDedupStore } from "./dedup.js";
 
 export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwiki";
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -41,6 +42,13 @@ export interface IngestTask {
   };
   documentId?: string;
   error?: string;
+  /** Content dedup outcome (G2.S5.T14). Present when the doc was skipped as a
+   *  duplicate: exact normalized-hash match or long-doc chunk-sequence match. */
+  dedup?: {
+    duplicate: boolean;
+    method?: "hash" | "chunks";
+    existingSource?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -55,6 +63,9 @@ export class NothingToRetryError extends Error {}
 export interface IngestTaskQueueOptions {
   parser: DoclingParser;
   ingest: KnowledgeIngestService;
+  /** Optional content-dedup store (G2.S5.T14). When set, identical content is
+   *  skipped before the pipelines run; newly stored content is recorded. */
+  dedup?: ContentDedupStore;
 }
 
 export interface IngestSubmitResult {
@@ -72,11 +83,13 @@ function initialStages(): IngestTask["stages"] {
 export class IngestTaskQueue {
   private readonly parser: DoclingParser;
   private readonly ingest: KnowledgeIngestService;
+  private readonly dedup?: ContentDedupStore;
   private readonly tasks = new Map<string, IngestTask>();
 
   constructor(options: IngestTaskQueueOptions) {
     this.parser = options.parser;
     this.ingest = options.ingest;
+    this.dedup = options.dedup;
   }
 
   /** Create + return a task without starting it. */
@@ -158,6 +171,14 @@ export class IngestTaskQueue {
       return this.fail(id, new Error("missing parsed markdown content"), "parsing");
     }
 
+    // --- content dedup (G2.S5.T14): skip both pipelines on exact/chunk duplicate ---
+    if (this.dedup) {
+      const dup = await this.dedup.check(markdown);
+      if (dup.duplicate) {
+        return this.markDedup(id, dup.method, dup.existingSource);
+      }
+    }
+
     // --- LightRAG ingesting ---
     if (task.stages.ingesting_lightrag.status !== "done") {
       this.patch(id, (t) => {
@@ -215,6 +236,30 @@ export class IngestTaskQueue {
         t.status = "failed";
         t.error = failedStage?.error ?? "Both knowledge systems failed";
       }
+    });
+
+    // Record the newly stored content so future uploads of it are detected.
+    if (this.dedup) {
+      const task = this.tasks.get(id);
+      if (task && (task.stages.ingesting_lightrag.status === "done" || task.stages.ingesting_llmwiki.status === "done")) {
+        try {
+          await this.dedup.record(markdown, fileName);
+        } catch {
+          // dedup recording is best-effort; never fail a successful ingest
+        }
+      }
+    }
+  }
+
+  /** Mark a task as done because its content is a duplicate of an existing doc. */
+  private markDedup(id: string, method: "hash" | "chunks" | undefined, existingSource: string | undefined): void {
+    this.patch(id, (t) => {
+      t.status = "done";
+      t.progress = 100;
+      t.dedup = { duplicate: true, ...(method ? { method } : {}), ...(existingSource ? { existingSource } : {}) };
+      t.error = undefined;
+      // Parsing succeeded; the two ingest stages were skipped (not failed).
+      t.stages.parsing = { name: "parsing", status: "done" };
     });
   }
 

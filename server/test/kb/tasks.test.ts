@@ -13,6 +13,11 @@ function makeFakes(opts: {
   lightragOk?: boolean;
   llmwikiOk?: boolean;
   parseError?: Error;
+  dedup?: {
+    duplicate?: boolean;
+    method?: "hash" | "chunks";
+    existingSource?: string;
+  };
 } = {}) {
   const flags = {
     lightragOk: opts.lightragOk !== false,
@@ -39,9 +44,22 @@ function makeFakes(opts: {
       return flags.llmwikiOk ? { ok: true } : { ok: false, error: "wiki down" };
     },
   };
+  const dedup = opts.dedup
+    ? {
+        async check() {
+          return {
+            duplicate: opts.dedup!.duplicate !== false,
+            ...(opts.dedup!.method ? { method: opts.dedup!.method } : {}),
+            ...(opts.dedup!.existingSource ? { existingSource: opts.dedup!.existingSource } : {}),
+          };
+        },
+        async record() {},
+      }
+    : undefined;
   const queue = new IngestTaskQueue({
     parser: parser as never,
     ingest: ingest as never,
+    dedup: dedup as never,
   });
   return { queue, calls, flags };
 }
@@ -195,4 +213,46 @@ test("retry rejects a task with no failed stages", async () => {
 test("retry throws TaskNotFoundError for an unknown task id", async () => {
   const { queue } = makeFakes({});
   assert.throws(() => queue.retry("nope"), TaskNotFoundError);
+});
+
+test("content duplicate skips both pipelines and marks the task done with a dedup notice", async () => {
+  const { queue, calls } = makeFakes({
+    dedup: { duplicate: true, method: "hash", existingSource: "wiki/a.md" },
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.progress, 100);
+  assert.deepEqual(task.dedup, {
+    duplicate: true,
+    method: "hash",
+    existingSource: "wiki/a.md",
+  });
+  assert.equal(task.error, undefined);
+  // parsing ran; neither ingest system was contacted
+  assert.equal(task.stages.parsing.status, "done");
+  assert.equal(
+    calls.filter((c) => c.kind === "ingest.lightrag").length,
+    0,
+  );
+  assert.equal(
+    calls.filter((c) => c.kind === "ingest.llmwiki").length,
+    0,
+  );
+});
+
+test("non-duplicate content proceeds through the full pipeline", async () => {
+  const { queue, calls } = makeFakes({
+    dedup: { duplicate: false },
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  assert.equal(queue.getTask(taskId)!.status, "done");
+  assert.deepEqual(
+    calls.map((c) => c.kind),
+    ["parser.parse", "ingest.lightrag", "ingest.llmwiki"],
+  );
 });
