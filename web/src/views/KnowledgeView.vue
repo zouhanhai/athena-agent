@@ -201,8 +201,9 @@ const configs = computed<UserConfigs>(() => ({
     selectable: true,
     draggable: true,
     normal: {
+      type: "circle",
+      radius: (node) => (node.size as number) ?? 14,
       color: (node) => typeColors.value[node.type ?? ""] ?? colors.value.primary,
-      radius: 14,
     },
     selected: { color: colors.value.sky },
     focusring: { color: colors.value.primary, width: 2, padding: 3 },

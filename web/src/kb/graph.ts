@@ -3,6 +3,10 @@ import type { KnowledgeGraph } from "@/api/kb";
 export interface ViewGraphNode {
   name: string;
   type?: string;
+  /** Node size in px. v-network-graph renders the node circle with this size;
+   *  without it the shape gets zero/null dimensions and the dot is invisible in
+   *  the default (non-hover) state (only the label shows). */
+  size?: number;
 }
 
 export interface ViewGraphEdge {
@@ -32,6 +36,7 @@ export function mapKnowledgeGraph(graph: KnowledgeGraph): ViewGraph {
     if (!node.id) continue;
     nodes[node.id] = {
       name: node.label || node.id,
+      size: 14,
       ...(node.type ? { type: node.type } : {}),
     };
   }
