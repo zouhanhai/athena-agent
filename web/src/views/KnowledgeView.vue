@@ -253,6 +253,19 @@ function onNodeClick(nodeId: string) {
   selectedNodeId.value = nodeId;
 }
 
+/**
+ * Two-way binding for the graph's selected nodes. `selectable: true` lets
+ * v-network-graph drive selection; syncing via v-model keeps the highlight
+ * persistent (a one-way :selected-nodes binding loses the selection on re-render
+ * / mouse-out because the library's internal state isn't reflected back).
+ */
+const selectedNodes = computed<string[]>({
+  get: () => (selectedNodeId.value ? [selectedNodeId.value] : []),
+  set: (value) => {
+    selectedNodeId.value = value[0] ?? null;
+  },
+});
+
 const selectedNode = computed(() => {
   const id = selectedNodeId.value;
   if (!id) return null;
@@ -495,7 +508,7 @@ onMounted(() => {
               :nodes="viewGraph.nodes"
               :edges="viewGraph.edges"
               :configs="configs"
-              :selected-nodes="selectedNodeId ? [selectedNodeId] : []"
+              v-model:selected-nodes="selectedNodes"
               :event-handlers="eventHandlers"
             />
           </div>
