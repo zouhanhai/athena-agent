@@ -13,7 +13,7 @@ import { LlmWikiClient } from "../kb/llmwiki.js";
 export interface CreateAgentOptions {
   /** Provider id. Default: "openrouter" */
   providerId?: string;
-  /** Model id within the provider. Default: "deepseek/deepseek-v4-flash-0731" */
+  /** Model id within the provider. Default: "~deepseek/deepseek-v4-flash-latest" */
   modelId?: string;
   /** Global Pi config dir. Default: ~/.pi/agent */
   agentDir?: string;
@@ -45,7 +45,7 @@ export interface Agent {
 }
 
 const DEFAULT_PROVIDER = "openrouter";
-const DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731";
+const DEFAULT_MODEL = "~deepseek/deepseek-v4-flash-latest";
 
 /**
  * Create an AgentSession wrapping the Pi SDK (ModelRuntime + OpenRouter).
