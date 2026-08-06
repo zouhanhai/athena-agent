@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   KnowledgeIngestService,
   buildWikiIndex,
+  distinctiveProbe,
   localClassify,
   localTopic,
   rebuildWikiIndex,
@@ -477,4 +478,64 @@ test("rebuildWikiIndex scans the wiki dir and writes index.md", async () => {
   assert.equal(written[0], "/data/wiki/index.md");
   assert.ok((files.get("/data/wiki/index.md") ?? "").includes("- [[concepts/chain-of-thought|CoT]]"));
   assert.ok((files.get("/data/wiki/index.md") ?? "").includes("- [[entities/acme|Acme]]"));
+});
+
+test("distinctiveProbe prefers the first paragraph and caps length", () => {
+  const probe = distinctiveProbe("---\ntype: concept\n---\n\n# Title\n\nThis is the first paragraph that matters.\n\nSecond paragraph.");
+  assert.equal(probe, "This is the first paragraph that matters.");
+  const long = "w".repeat(600);
+  assert.equal(distinctiveProbe(`# T\n\n${long}`)!.length, 400);
+  assert.equal(distinctiveProbe("   \n\n  "), undefined);
+});
+
+test("findNearDuplicate returns a different file referenced by LightRAG", async () => {
+  const lightrag = {
+    async query(_q: string, _o?: unknown) {
+      return {
+        response: "something similar",
+        references: [
+          { reference_id: "r1", file_path: "sommerseminar-l-sen.pdf.md" },
+        ],
+      };
+    },
+  };
+  const service = new KnowledgeIngestService({
+    lightrag: lightrag as never,
+    llmwiki: {} as never,
+  });
+  const near = await service.findNearDuplicate("# Title\n\nProbe body text.", "fresh.md");
+  assert.equal(near, "sommerseminar-l-sen.pdf.md");
+});
+
+test("findNearDuplicate ignores the self file and returns undefined for no other hits", async () => {
+  const lightrag = {
+    async query() {
+      return {
+        response: "ok",
+        references: [
+          { reference_id: "r1", file_path: "self.md" },
+        ],
+      };
+    },
+  };
+  const service = new KnowledgeIngestService({
+    lightrag: lightrag as never,
+    llmwiki: {} as never,
+  });
+  const near = await service.findNearDuplicate("# Title\n\nBody.", "self.md");
+  assert.equal(near, undefined);
+});
+
+test("findNearDuplicate swallows LightRAG errors", async () => {
+  const lightrag = {
+    async query() {
+      throw new Error("lightrag down");
+    },
+  };
+  const service = new KnowledgeIngestService({
+    lightrag: lightrag as never,
+    llmwiki: {} as never,
+  });
+  const near = await service.findNearDuplicate("# Title\n\nBody.", "self.md");
+  assert.equal(near, undefined);
 });

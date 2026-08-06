@@ -71,6 +71,8 @@ export interface IngestTask {
     method?: "hash" | "chunks";
     existingSource?: string;
   };
+  /** Layer-2 semantic near-duplicate notice: path of an existing similar doc. */
+  nearDuplicate?: string;
   createdAt: number;
   updatedAt: number;
 }

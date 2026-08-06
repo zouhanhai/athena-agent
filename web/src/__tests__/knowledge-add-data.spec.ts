@@ -58,6 +58,7 @@ type TaskPatch = {
     method?: "hash" | "chunks";
     existingSource?: string;
   };
+  nearDuplicate?: string;
   stages?: Record<string, unknown>;
 };
 
@@ -189,6 +190,36 @@ describe("KnowledgeView Add Data", () => {
     expect(notice.exists()).toBe(true);
     expect(notice.text()).toContain("Duplicate content");
     expect(notice.text()).toContain("wiki/sommerseminar/a.md");
+    wrapper.unmount();
+  });
+
+  it("shows a semantic near-duplicate notice when LightRAG flags a similar doc", async () => {
+    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        id: "t-near",
+        status: "done",
+        progress: 100,
+        nearDuplicate: "wiki/sommerseminar/sommerseminar-l-sen.md",
+      }),
+    );
+    ingestFileMock.mockResolvedValue("t-near");
+    const { wrapper } = await mountView();
+
+    const file = new File(["# doc"], "near.pdf", { type: "application/pdf" });
+    const input = wrapper.find('input[type="file"]');
+    Object.defineProperty(input.element, "files", {
+      value: [file],
+      configurable: true,
+    });
+    await input.trigger("change");
+    await flushPromises();
+    await flushPromises();
+
+    const notice = wrapper.find(".task-near-dup");
+    expect(notice.exists()).toBe(true);
+    expect(notice.text()).toContain("may be similar to");
+    expect(notice.text()).toContain("sommerseminar-l-sen.md");
     wrapper.unmount();
   });
 

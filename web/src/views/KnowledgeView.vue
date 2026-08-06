@@ -113,6 +113,12 @@ function dedupNotice(task: IngestTaskItem): string {
   return `Duplicate content — skipped. This content already exists as ${name}.`;
 }
 
+/** Friendly notice for Layer-2 semantic near-duplicate flags (G2.S5.T14). */
+function nearDuplicateNotice(task: IngestTaskItem): string {
+  const existing = task.nearDuplicate ? `"${task.nearDuplicate}"` : "another document";
+  return `This content may be similar to ${existing} — stored but worth reviewing.`;
+}
+
 function onRetry(taskId: string): void {
   void retryTask(taskId);
 }
@@ -452,6 +458,7 @@ onMounted(() => {
             </span>
           </div>
           <p v-if="task.dedup?.duplicate" class="task-dedup">{{ dedupNotice(task) }}</p>
+          <p v-if="task.nearDuplicate" class="task-near-dup">{{ nearDuplicateNotice(task) }}</p>
           <p v-if="hasFailedStage(task)" class="task-stage-error">{{ friendlyError(task) }}</p>
         </div>
       </div>
@@ -909,6 +916,15 @@ onMounted(() => {
   font-size: 12px;
   color: var(--caleo-sky);
   background: var(--caleo-sidebar-active);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.task-near-dup {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  background: var(--caleo-surface-hover);
   padding: 8px 10px;
   border-radius: 6px;
 }

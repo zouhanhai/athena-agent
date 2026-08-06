@@ -97,6 +97,25 @@ export function extractPageTitle(content: string): string | undefined {
   return match?.[1]?.trim();
 }
 
+/**
+ * Extract a short distinctive probe from a document for LightRAG semantic
+ * near-duplicate queries (G2.S5.T14). Prefers the first non-heading paragraph,
+ * else the first non-empty line; capped to ~400 chars.
+ */
+export function distinctiveProbe(content: string): string | undefined {
+  const withoutFrontmatter = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  const lines = withoutFrontmatter
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const paragraphs = withoutFrontmatter
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p && !/^#{1,6}\s/.test(p));
+  const probe = (paragraphs[0] ?? lines[0] ?? "").slice(0, 400).trim();
+  return probe || undefined;
+}
+
 /** Human-readable title fallback derived from a file stem (kebab-case → words). */
 export function stemTitle(fileName: string): string {
   const stem = fileName.replace(/\.md$/i, "");
@@ -369,6 +388,29 @@ export class KnowledgeIngestService {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /**
+   * Layer-2 semantic near-duplicate check (G2.S5.T14), running inside LightRAG
+   * (which has embeddings) — NOT llm_wiki (keyword/vector only). After a doc is
+   * stored, query LightRAG with a distinctive probe from the doc; if the top
+   * reference belongs to a DIFFERENT existing file, return that file's path so
+   * the UI can surface a "possibly similar to X" notice. Best-effort: returns
+   * undefined when nothing strong matches or LightRAG is unreachable.
+   */
+  async findNearDuplicate(content: string, selfFileName: string): Promise<string | undefined> {
+    const probe = distinctiveProbe(content);
+    if (!probe) return undefined;
+    try {
+      const result = await this.lightrag.query(probe, { mode: "hybrid", topK: 5 });
+      for (const ref of result.references ?? []) {
+        if (!ref.file_path || ref.file_path === selfFileName) continue;
+        return ref.file_path;
+      }
+    } catch {
+      // semantic check is best-effort; a LightRAG outage must never fail ingest
+    }
+    return undefined;
   }
 
   /**

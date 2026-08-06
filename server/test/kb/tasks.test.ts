@@ -18,6 +18,7 @@ function makeFakes(opts: {
     method?: "hash" | "chunks";
     existingSource?: string;
   };
+  nearDuplicate?: string;
 } = {}) {
   const flags = {
     lightragOk: opts.lightragOk !== false,
@@ -42,6 +43,9 @@ function makeFakes(opts: {
     async ingestLlmWiki(fileName: string, markdown: string) {
       calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown] });
       return flags.llmwikiOk ? { ok: true } : { ok: false, error: "wiki down" };
+    },
+    async findNearDuplicate(_content: string, _fileName: string) {
+      return opts.nearDuplicate ?? undefined;
     },
   };
   const dedup = opts.dedup
@@ -255,4 +259,18 @@ test("non-duplicate content proceeds through the full pipeline", async () => {
     calls.map((c) => c.kind),
     ["parser.parse", "ingest.lightrag", "ingest.llmwiki"],
   );
+});
+
+test("task records a LightRAG semantic near-duplicate notice when found", async () => {
+  const { queue } = makeFakes({
+    dedup: { duplicate: false },
+    nearDuplicate: "sommerseminar-l-sen.pdf.md",
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.nearDuplicate, "sommerseminar-l-sen.pdf.md");
+  assert.equal(task.dedup, undefined);
 });

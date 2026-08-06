@@ -49,6 +49,9 @@ export interface IngestTask {
     method?: "hash" | "chunks";
     existingSource?: string;
   };
+  /** Layer-2 semantic near-duplicate notice (G2.S5.T14): file path of an
+   *  existing doc that LightRAG found highly similar. Best-effort. */
+  nearDuplicate?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -247,6 +250,22 @@ export class IngestTaskQueue {
         } catch {
           // dedup recording is best-effort; never fail a successful ingest
         }
+      }
+    }
+
+    // Layer 2: semantic near-duplicate notice via LightRAG (best-effort).
+    const finished = this.tasks.get(id);
+    const findNear = (this.ingest as { findNearDuplicate?: (c: string, f: string) => Promise<string | undefined> }).findNearDuplicate;
+    if (finished && finished.status === "done" && !finished.dedup?.duplicate && finished.stages.ingesting_lightrag.status === "done" && findNear) {
+      try {
+        const near = await findNear(markdown, fileName);
+        if (near) {
+          this.patch(id, (t) => {
+            t.nearDuplicate = near;
+          });
+        }
+      } catch {
+        // semantic check is best-effort; never fail a successful ingest
       }
     }
   }

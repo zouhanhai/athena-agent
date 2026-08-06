@@ -15,6 +15,7 @@ export interface IngestTaskItem {
   progress: number;
   error?: string;
   dedup?: IngestTask["dedup"];
+  nearDuplicate?: string;
   stages: IngestTask["stages"];
 }
 
@@ -94,6 +95,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
       progress: updated.progress,
       error: updated.error,
       dedup: updated.dedup,
+      nearDuplicate: updated.nearDuplicate,
       stages: updated.stages,
     };
     const index = tasks.value.indexOf(existing);
