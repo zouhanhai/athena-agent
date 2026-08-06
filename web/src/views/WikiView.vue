@@ -4,7 +4,7 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import type { TreeNodeModel } from "tdesign-vue-next/es/tree/type";
 
-import { getWikiTree, readWikiPage } from "@/api/kb";
+import { deleteWikiDoc, getWikiTree, readWikiPage } from "@/api/kb";
 import type { WikiTreeNode } from "@/api/kb";
 import { renderMarkdown } from "@/kb/markdown";
 import { buildViewTree, flattenPages } from "@/kb/wiki-tree";
@@ -26,6 +26,9 @@ const activePath = ref("");
 const content = ref("");
 const contentLoading = ref(false);
 const contentError = ref("");
+const deleteVisible = ref(false);
+const deleting = ref(false);
+const deleteError = ref("");
 
 const treeKeys = { value: "path", label: "name", children: "children" };
 
@@ -36,6 +39,42 @@ const displayTree = computed(() => {
   if (view.value === "all") return tree.value;
   return buildViewTree(flattenPages(tree.value), view.value);
 });
+
+/** The selected wiki page path (only for file nodes). */
+const selectedFile = computed(() =>
+  activePath.value.endsWith(".md") ? activePath.value : null,
+);
+
+function requestDelete(): void {
+  deleteError.value = "";
+  deleteVisible.value = true;
+}
+
+async function confirmDelete(): Promise<void> {
+  const path = selectedFile.value;
+  if (!path) return;
+  deleting.value = true;
+  deleteError.value = "";
+  try {
+    const result = await deleteWikiDoc(path);
+    if (!result.ok || result.llmwiki?.error) {
+      deleteError.value = result.llmwiki?.error ?? "The document could not be deleted.";
+      deleteVisible.value = true;
+      return;
+    }
+    if (activePath.value === path) {
+      activePath.value = "";
+      content.value = "";
+      contentError.value = "";
+    }
+    await loadTree();
+  } catch (err) {
+    deleteError.value = err instanceof Error ? err.message : String(err);
+    deleteVisible.value = true;
+  } finally {
+    deleting.value = false;
+  }
+}
 
 async function loadTree() {
   treeLoading.value = true;
@@ -100,18 +139,44 @@ watch(
         <t-radio-group
           v-model="view"
           class="wiki-view-switcher"
-          variant="primary-filled"
+          variant="default-filled"
           size="small"
         >
           <t-radio-button value="topic">Topic</t-radio-button>
           <t-radio-button value="type">Type</t-radio-button>
           <t-radio-button value="all">All</t-radio-button>
         </t-radio-group>
+        <t-button
+          v-if="selectedFile"
+          size="small"
+          variant="outline"
+          theme="danger"
+          @click="requestDelete"
+        >
+          Delete
+        </t-button>
         <t-button size="small" variant="outline" :loading="treeLoading" @click="loadTree">
           Refresh
         </t-button>
       </div>
     </header>
+
+    <t-dialog
+      v-model:visible="deleteVisible"
+      header="Delete document"
+      :confirm-btn="{ content: 'Delete', theme: 'danger' }"
+      :cancel-btn="{ content: 'Cancel' }"
+      :confirm-loading="deleting"
+      @confirm="confirmDelete"
+    >
+      <template #body>
+        <p class="wiki-delete-hint">
+          Delete "<code>{{ selectedFile }}</code>" from both Wiki and Knowledge
+          Graph? This cannot be undone.
+        </p>
+        <p v-if="deleteError" class="wiki-delete-error">{{ deleteError }}</p>
+      </template>
+    </t-dialog>
 
     <div class="wiki-body">
       <aside class="wiki-tree-pane">
@@ -187,6 +252,27 @@ watch(
 .wiki-meta {
   font-size: 13px;
   color: var(--caleo-text-secondary);
+}
+
+.wiki-delete-hint {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--caleo-text);
+}
+
+.wiki-delete-hint code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 13px;
+  background: var(--caleo-surface-hover);
+  color: var(--caleo-primary);
+}
+
+.wiki-delete-error {
+  margin: 0;
+  color: #d54941;
+  font-size: 13px;
 }
 
 /* Segmented view switcher — themed for BOTH dark and light (G2.S5.T11).

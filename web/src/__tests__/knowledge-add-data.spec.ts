@@ -78,6 +78,10 @@ afterEach(() => {
   retryTaskMock.mockReset();
 });
 
+beforeEach(() => {
+  localStorage.clear();
+});
+
 describe("KnowledgeView Add Data", () => {
   it("submits a selected file and shows a task entry with progress", async () => {
     getGraphMock.mockResolvedValue({ nodes: [], edges: [] });

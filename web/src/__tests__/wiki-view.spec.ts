@@ -4,20 +4,22 @@ import { createPinia } from "pinia";
 import { createRouter, createMemoryHistory } from "vue-router";
 import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
-
 import WikiView from "@/views/WikiView.vue";
-import { getWikiTree, readWikiPage } from "@/api/kb";
+import { deleteWikiDoc, getWikiTree, readWikiPage } from "@/api/kb";
 import { renderMarkdown } from "@/kb/markdown";
 import type { WikiTreeNode } from "@/api/kb";
+
 vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
   getWikiTree: vi.fn(),
   readWikiPage: vi.fn(),
   searchKnowledge: vi.fn(),
+  deleteWikiDoc: vi.fn(),
 }));
 
 const getWikiTreeMock = getWikiTree as unknown as ReturnType<typeof vi.fn>;
 const readWikiPageMock = readWikiPage as unknown as ReturnType<typeof vi.fn>;
+const deleteWikiDocMock = deleteWikiDoc as unknown as ReturnType<typeof vi.fn>;
 
 const sampleTree: WikiTreeNode[] = [
   {
@@ -90,6 +92,7 @@ async function expandFolder(wrapper: ReturnType<typeof mount>, name: string) {
 afterEach(() => {
   getWikiTreeMock.mockReset();
   readWikiPageMock.mockReset();
+  deleteWikiDocMock.mockReset();
 });
 
 describe("renderMarkdown", () => {
@@ -247,6 +250,72 @@ describe("WikiView", () => {
     expect(wrapper.text()).toContain("sommerseminar");
     expect(wrapper.text()).toContain("concepts");
     expect(wrapper.text()).not.toContain("Untagged");
+    wrapper.unmount();
+  });
+
+  it("shows a Delete button only when a file is selected", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("body");
+    const { wrapper } = await mountView();
+    await flushPromises();
+    await clickView(wrapper, "All");
+    await flushPromises();
+
+    const headerControls = wrapper.find(".wiki-controls");
+    expect(
+      headerControls.findAll("button").some((b) => b.text().includes("Delete")),
+    ).toBe(false);
+
+    const fileItem = wrapper
+      .findAll(".t-tree__item")
+      .find((i) => i.text().includes("release-notes.md"));
+    await fileItem!.trigger("click");
+    await flushPromises();
+
+    const deleteBtn = headerControls
+      .findAll("button")
+      .find((b) => b.text().includes("Delete"));
+    expect(deleteBtn).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("deletes the selected file after confirmation and refreshes the tree", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("body");
+    deleteWikiDocMock.mockResolvedValue({
+      ok: true,
+      lightrag: { deleted: ["doc-1"] },
+      llmwiki: { path: "release-notes.md" },
+    });
+    const { wrapper } = await mountView();
+    await flushPromises();
+    await clickView(wrapper, "All");
+    await flushPromises();
+
+    const fileItem = wrapper
+      .findAll(".t-tree__item")
+      .find((i) => i.text().includes("release-notes.md"));
+    await fileItem!.trigger("click");
+    await flushPromises();
+
+    await wrapper
+      .find(".wiki-controls")
+      .findAll("button")
+      .find((b) => b.text().includes("Delete"))!.trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Delete document");
+
+    const confirmBtn = wrapper
+      .find(".t-dialog__footer")
+      .findAll("button")
+      .find((b) => b.text().includes("Delete"));
+    expect(confirmBtn).toBeDefined();
+    await confirmBtn!.trigger("click");
+    await flushPromises();
+    await flushPromises();
+
+    expect(deleteWikiDocMock).toHaveBeenCalledWith("release-notes.md");
+    expect(getWikiTreeMock).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 });

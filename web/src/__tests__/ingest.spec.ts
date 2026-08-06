@@ -33,6 +33,7 @@ function task(id: string, patch: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  localStorage.clear();
 });
 
 afterEach(() => {

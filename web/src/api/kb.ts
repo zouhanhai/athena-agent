@@ -97,6 +97,19 @@ export async function readWikiPage(path: string): Promise<string> {
   return data.content;
 }
 
+/** POST /api/kb/doc/delete { path } → delete a wiki page from both systems. */
+export async function deleteWikiDoc(path: string): Promise<{
+  ok: boolean;
+  lightrag?: { deleted: string[]; error?: string };
+  llmwiki?: { path?: string; error?: string };
+}> {
+  return request(`${KB_BASE}/doc/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+}
+
 /** POST /api/kb/search { query } → fused LightRAG + llm_wiki results. */
 export async function searchKnowledge(query: string): Promise<KnowledgeSearchResult[]> {
   const data = await request<{ results: KnowledgeSearchResult[] }>(`${KB_BASE}/search`, {
