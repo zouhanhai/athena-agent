@@ -106,19 +106,6 @@ function friendlyError(task: IngestTaskItem): string {
   return raw || "This document could not be fully ingested.";
 }
 
-/** Friendly notice for content-dedup skips (G2.S5.T14). */
-function dedupNotice(task: IngestTaskItem): string {
-  const existing = task.dedup?.existingSource;
-  const name = existing ? `"${existing}"` : "an existing document";
-  return `Duplicate content — skipped. This content already exists as ${name}.`;
-}
-
-/** Friendly notice for Layer-2 semantic near-duplicate flags (G2.S5.T14). */
-function nearDuplicateNotice(task: IngestTaskItem): string {
-  const existing = task.nearDuplicate ? `"${task.nearDuplicate}"` : "another document";
-  return `This content may be similar to ${existing} — stored but worth reviewing.`;
-}
-
 function onRetry(taskId: string): void {
   void retryTask(taskId);
 }
@@ -265,25 +252,6 @@ async function onTopicChange() {
 function onNodeClick(nodeId: string) {
   selectedNodeId.value = nodeId;
 }
-
-/**
- * Two-way binding for the graph's selected nodes. `selectable: true` lets
- * v-network-graph drive selection; syncing via v-model keeps the highlight
- * persistent. When v-network-graph clears the selection on its own (e.g. the
- * user clicks empty canvas / mouse moves to the background — the reported
- * "selected node disappears after mouse-out" bug), we IGNORE the empty value so
- * the selection stays. Only an explicit Close (which writes selectedNodeId
- * directly) actually clears it.
- */
-const selectedNodes = computed<string[]>({
-  get: () => (selectedNodeId.value ? [selectedNodeId.value] : []),
-  set: (value) => {
-    if (value && value.length > 0) {
-      selectedNodeId.value = value[0];
-    }
-    // empty value (canvas click / mouse-out) → keep current selection
-  },
-});
 
 const selectedNode = computed(() => {
   const id = selectedNodeId.value;
@@ -463,8 +431,6 @@ onMounted(() => {
               {{ stage.label }}: {{ task.stages[stage.key].status }}
             </span>
           </div>
-          <p v-if="task.dedup?.duplicate" class="task-dedup">{{ dedupNotice(task) }}</p>
-          <p v-if="task.nearDuplicate" class="task-near-dup">{{ nearDuplicateNotice(task) }}</p>
           <p v-if="hasFailedStage(task)" class="task-stage-error">{{ friendlyError(task) }}</p>
         </div>
       </div>
@@ -529,7 +495,7 @@ onMounted(() => {
               :nodes="viewGraph.nodes"
               :edges="viewGraph.edges"
               :configs="configs"
-              v-model:selected-nodes="selectedNodes"
+              :selected-nodes="selectedNodeId ? [selectedNodeId] : []"
               :event-handlers="eventHandlers"
             />
           </div>
@@ -917,24 +883,6 @@ onMounted(() => {
   color: #d54941;
 }
 
-.task-dedup {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--caleo-sky);
-  background: var(--caleo-sidebar-active);
-  padding: 8px 10px;
-  border-radius: 6px;
-}
-
-.task-near-dup {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--caleo-text-secondary);
-  background: var(--caleo-surface-hover);
-  padding: 8px 10px;
-  border-radius: 6px;
-}
-
 .knowledge-body {
   flex: 1;
   display: flex;
@@ -1084,18 +1032,5 @@ onMounted(() => {
   margin: 0;
   font-size: 13px;
   color: var(--caleo-text-secondary);
-}
-</style>
-
-<!-- G2.S5.T13: non-scoped override so a SELECTED graph node gets a brand-orange
-     border. v-network-graph's focusring isn't rendered for programmatic selection
-     (selectable:false + selectedNodes), so we add the orange ring via CSS stroke.
-     fill stays sky-blue; a thin 1.5px ring marks selection (hover already scales the
-     node, so no heavy border needed). -->
-<style>
-.v-network-graph g.v-ng-node.selected rect.v-ng-shape-rect,
-.v-network-graph g.v-ng-node.selected circle {
-  stroke: var(--caleo-primary) !important;
-  stroke-width: 1.5 !important;
 }
 </style>
