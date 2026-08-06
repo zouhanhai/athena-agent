@@ -59,7 +59,7 @@ const themePalettes: Record<ThemeMode, Record<string, string>> = {
     "--td-gray-color-13": caleoPalette.dark,
   },
   light: {
-    "--caleo-body-bg": "#f0f1f3",
+    "--caleo-body-bg": "#e7e9ec",
     "--caleo-surface": "#ffffff",
     "--caleo-surface-hover": "#f5f6f7",
     "--caleo-border": "#e3e5e7",
@@ -77,7 +77,7 @@ const themePalettes: Record<ThemeMode, Record<string, string>> = {
     "--caleo-bubble-user": caleoPalette.sky,
     "--caleo-bubble-user-text": "#ffffff",
 
-    "--td-bg-color-page": "#f0f1f3",
+    "--td-bg-color-page": "#e7e9ec",
     "--td-bg-color-container": "#ffffff",
     "--td-bg-color-container-hover": "#fafbfc",
     "--td-bg-color-container-active": "#f5f6f7",

@@ -51,7 +51,7 @@ describe("theme css variables", () => {
 
   it("uses light-gray layered light theme (gray page + white cards)", () => {
     const light = caleoThemeVars("light");
-    expect(light["--caleo-body-bg"]).toBe("#f0f1f3");
+    expect(light["--caleo-body-bg"]).toBe("#e7e9ec");
     expect(light["--caleo-surface"]).toBe("#ffffff");
     expect(light["--caleo-bubble-ai"]).toBe("#e5e7eb");
   });
@@ -63,7 +63,7 @@ describe("theme css variables", () => {
     expect(dark["--td-bg-color-page"]).toBe("#1f2128");
     expect(dark["--td-bg-color-container"]).toBe("#262a33");
     expect(dark["--td-text-color-primary"]).toBe("#e8e9ec");
-    expect(light["--td-bg-color-page"]).toBe("#f0f1f3");
+    expect(light["--td-bg-color-page"]).toBe("#e7e9ec");
     expect(light["--td-bg-color-container"]).toBe("#ffffff");
     expect(light["--td-text-color-primary"]).toBe("#1f2329");
   });
@@ -81,7 +81,7 @@ describe("theme css variables", () => {
   it("applyTheme writes theme variables onto the document root", () => {
     applyTheme("light");
     const root = document.documentElement;
-    expect(root.style.getPropertyValue("--caleo-body-bg")).toBe("#f0f1f3");
+    expect(root.style.getPropertyValue("--caleo-body-bg")).toBe("#e7e9ec");
     expect(root.style.getPropertyValue("--caleo-text")).toBe("#1f2329");
 
     applyTheme("dark");

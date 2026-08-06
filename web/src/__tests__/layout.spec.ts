@@ -159,7 +159,7 @@ describe("CALEO theme", () => {
     useThemeStore().setMode("light");
     await flushPromises();
 
-    expect(root.style.getPropertyValue("--td-bg-color-page")).toBe("#f0f1f3");
+    expect(root.style.getPropertyValue("--td-bg-color-page")).toBe("#e7e9ec");
     expect(root.style.getPropertyValue("--td-bg-color-container")).toBe("#ffffff");
   });
 });
@@ -202,7 +202,7 @@ describe("theme settings panel", () => {
     expect(useThemeStore().mode).toBe("light");
     expect(
       document.documentElement.style.getPropertyValue("--caleo-body-bg"),
-    ).toBe("#f0f1f3");
+    ).toBe("#e7e9ec");
     expect(localStorage.getItem("caleo-theme")).toBe("light");
     wrapper.unmount();
   });
