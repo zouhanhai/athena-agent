@@ -93,6 +93,19 @@ function hasFailedStage(task: IngestTaskItem): boolean {
   );
 }
 
+/**
+ * Map a raw task/stage error to a human-friendly message. Duplicate-name uploads
+ * hit a LightRAG 409 ("already contains ..."). Surface that clearly so the user
+ * knows to delete the existing document first.
+ */
+function friendlyError(task: IngestTaskItem): string {
+  const raw = task.error ?? "";
+  if (/409|already contains|duplicate/i.test(raw)) {
+    return "This file already exists in the knowledge base. Delete it in the Wiki panel, then upload again.";
+  }
+  return raw || "This document could not be fully ingested.";
+}
+
 function onRetry(taskId: string): void {
   void retryTask(taskId);
 }
@@ -418,7 +431,7 @@ onMounted(() => {
               {{ stage.label }}: {{ task.stages[stage.key].status }}
             </span>
           </div>
-          <p v-if="task.error" class="task-stage-error">{{ task.error }}</p>
+          <p v-if="hasFailedStage(task)" class="task-stage-error">{{ friendlyError(task) }}</p>
         </div>
       </div>
     </div>

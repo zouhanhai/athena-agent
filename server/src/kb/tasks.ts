@@ -198,11 +198,22 @@ export class IngestTaskQueue {
     this.patch(id, (t) => {
       const lightragOk = t.stages.ingesting_lightrag.status === "done";
       const llmwikiOk = t.stages.ingesting_llmwiki.status === "done";
+      // Surface the first failed stage's reason on the top-level task.error so the
+      // UI shows WHY a stage failed (e.g. LightRAG 409 duplicate-name) instead of
+      // a silent green "done" / generic message. Keep done even if one system failed.
+      const failedStage = t.stages.parsing.status === "failed"
+        ? t.stages.parsing
+        : t.stages.ingesting_lightrag.status === "failed"
+          ? t.stages.ingesting_lightrag
+          : t.stages.ingesting_llmwiki.status === "failed"
+            ? t.stages.ingesting_llmwiki
+            : undefined;
       if (lightragOk || llmwikiOk) {
         t.status = "done";
+        if (failedStage?.error) t.error = failedStage.error;
       } else {
         t.status = "failed";
-        t.error = "Both knowledge systems failed";
+        t.error = failedStage?.error ?? "Both knowledge systems failed";
       }
     });
   }
