@@ -26,6 +26,10 @@ export interface WikiTreeNode {
   name: string;
   path: string;
   isDir: boolean;
+  /** Frontmatter `type` of a wiki page (entity/concept/...). */
+  type?: string;
+  /** Frontmatter `topic` of a wiki page (may be a slash path, e.g. "sap/fiori"). */
+  topic?: string;
   children?: WikiTreeNode[];
 }
 

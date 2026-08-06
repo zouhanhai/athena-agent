@@ -7,6 +7,8 @@ import type { TreeNodeModel } from "tdesign-vue-next/es/tree/type";
 import { getWikiTree, readWikiPage } from "@/api/kb";
 import type { WikiTreeNode } from "@/api/kb";
 import { renderMarkdown } from "@/kb/markdown";
+import { buildViewTree, flattenPages } from "@/kb/wiki-tree";
+import type { WikiView } from "@/kb/wiki-tree";
 import { useThemeStore } from "@/stores/theme";
 
 const theme = useThemeStore();
@@ -17,6 +19,7 @@ const route = useRoute();
 const router = useRouter();
 
 const tree = ref<WikiTreeNode[]>([]);
+const view = ref<WikiView>("topic");
 const treeLoading = ref(true);
 const treeError = ref("");
 const activePath = ref("");
@@ -27,6 +30,12 @@ const contentError = ref("");
 const treeKeys = { value: "path", label: "name", children: "children" };
 
 const renderedContent = computed(() => renderMarkdown(content.value));
+
+/** Tree shown in the sidebar for the active view (no file duplication). */
+const displayTree = computed(() => {
+  if (view.value === "all") return tree.value;
+  return buildViewTree(flattenPages(tree.value), view.value);
+});
 
 async function loadTree() {
   treeLoading.value = true;
@@ -88,6 +97,16 @@ watch(
       <h2 class="wiki-title">Wiki</h2>
       <div class="wiki-controls">
         <span v-if="tree.length" class="wiki-meta">{{ tree.length }} top-level folders</span>
+        <t-radio-group
+          v-model="view"
+          class="wiki-view-switcher"
+          variant="default-filled"
+          size="small"
+        >
+          <t-radio-button value="topic">Topic</t-radio-button>
+          <t-radio-button value="type">Type</t-radio-button>
+          <t-radio-button value="all">All</t-radio-button>
+        </t-radio-group>
         <t-button size="small" variant="outline" :loading="treeLoading" @click="loadTree">
           Refresh
         </t-button>
@@ -103,7 +122,7 @@ watch(
         </p>
         <t-tree
           v-else
-          :data="tree"
+          :data="displayTree"
           :keys="treeKeys"
           :activable="true"
           :actived="activePath ? [activePath] : []"
@@ -168,6 +187,29 @@ watch(
 .wiki-meta {
   font-size: 13px;
   color: var(--caleo-text-secondary);
+}
+
+/* Segmented view switcher — themed for BOTH dark and light (G2.S5.T11).
+   Selected segment = CALEO brand orange; unselected = surface/text-secondary. */
+.wiki-view-switcher :deep(.t-radio-group--filled) {
+  background-color: var(--caleo-surface-hover);
+  border-color: var(--caleo-border);
+}
+
+.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button) {
+  color: var(--caleo-text-secondary);
+}
+
+.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button:hover) {
+  color: var(--caleo-text);
+}
+
+.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-group__bg-block) {
+  background-color: var(--caleo-primary);
+}
+
+.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button.t-is-checked) {
+  color: #ffffff;
 }
 
 .wiki-body {

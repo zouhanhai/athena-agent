@@ -9,7 +9,6 @@ import WikiView from "@/views/WikiView.vue";
 import { getWikiTree, readWikiPage } from "@/api/kb";
 import { renderMarkdown } from "@/kb/markdown";
 import type { WikiTreeNode } from "@/api/kb";
-
 vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
   getWikiTree: vi.fn(),
@@ -33,6 +32,34 @@ const sampleTree: WikiTreeNode[] = [
   { name: "release-notes.md", path: "release-notes.md", isDir: false },
 ];
 
+/** Tree with frontmatter type/topic metadata for view-switcher tests. */
+const metaTree: WikiTreeNode[] = [
+  {
+    name: "sommerseminar",
+    path: "sommerseminar",
+    isDir: true,
+    children: [
+      { name: "s1.md", path: "sommerseminar/s1.md", isDir: false, type: "concept", topic: "sommerseminar" },
+    ],
+  },
+  {
+    name: "sap",
+    path: "sap",
+    isDir: true,
+    children: [
+      { name: "f1.md", path: "sap/f1.md", isDir: false, type: "concept", topic: "sap/fiori" },
+    ],
+  },
+  {
+    name: "concepts",
+    path: "concepts",
+    isDir: true,
+    children: [
+      { name: "e1.md", path: "concepts/e1.md", isDir: false, type: "entity" },
+    ],
+  },
+];
+
 async function mountView(query: Record<string, string> = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -46,6 +73,18 @@ async function mountView(query: Record<string, string> = {}) {
     },
   });
   return { wrapper, router };
+}
+
+async function clickView(wrapper: ReturnType<typeof mount>, label: string) {
+  const btn = wrapper.findAll(".t-radio-button").find((b) => b.text().includes(label));
+  await btn!.trigger("click");
+  await flushPromises();
+}
+
+async function expandFolder(wrapper: ReturnType<typeof mount>, name: string) {
+  const item = wrapper.findAll(".t-tree__item").find((i) => i.text().includes(name));
+  await item!.trigger("click");
+  await flushPromises();
 }
 
 afterEach(() => {
@@ -62,21 +101,20 @@ describe("renderMarkdown", () => {
 });
 
 describe("WikiView", () => {
-  it("loads the wiki tree on mount and renders folder/file names", async () => {
+  it("loads the wiki tree on mount and renders folder/file names in All view", async () => {
     getWikiTreeMock.mockResolvedValue(sampleTree);
     const { wrapper } = await mountView();
     await flushPromises();
 
     expect(getWikiTreeMock).toHaveBeenCalledTimes(1);
     expect(wrapper.find(".wiki-title").text()).toBe("Wiki");
+    await clickView(wrapper, "All");
+    await flushPromises();
+
     expect(wrapper.text()).toContain("docs");
     expect(wrapper.text()).toContain("release-notes.md");
 
-    const docsItem = wrapper
-      .findAll(".t-tree__item")
-      .find((item) => item.text().includes("docs"));
-    expect(docsItem).toBeDefined();
-    await docsItem!.trigger("click");
+    await expandFolder(wrapper, "docs");
     await flushPromises();
 
     expect(wrapper.text()).toContain("runbook.md");
@@ -120,6 +158,8 @@ describe("WikiView", () => {
     readWikiPageMock.mockResolvedValue("Root page body.");
     const { wrapper } = await mountView();
     await flushPromises();
+    await clickView(wrapper, "All");
+    await flushPromises();
 
     const fileItem = wrapper
       .findAll(".t-tree__item")
@@ -140,6 +180,8 @@ describe("WikiView", () => {
     readWikiPageMock.mockRejectedValue(new Error("page not found"));
     const { wrapper } = await mountView();
     await flushPromises();
+    await clickView(wrapper, "All");
+    await flushPromises();
 
     const fileItem = wrapper
       .findAll(".t-tree__item")
@@ -148,6 +190,63 @@ describe("WikiView", () => {
     await flushPromises();
 
     expect(wrapper.find(".wiki-error").text()).toContain("page not found");
+    wrapper.unmount();
+  });
+
+  it("shows a segmented control with Topic / Type / All views", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    const buttons = wrapper.findAll(".t-radio-button");
+    const labels = buttons.map((b) => b.text().trim());
+    expect(labels).toContain("Topic");
+    expect(labels).toContain("Type");
+    expect(labels).toContain("All");
+    wrapper.unmount();
+  });
+
+  it("defaults to the Topic view and groups pages by topic", async () => {
+    getWikiTreeMock.mockResolvedValue(metaTree);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("sommerseminar");
+    expect(wrapper.text()).toContain("Untagged");
+    await expandFolder(wrapper, "sommerseminar");
+    await flushPromises();
+    expect(wrapper.text()).toContain("s1.md");
+    wrapper.unmount();
+  });
+
+  it("switches to the Type view and groups pages by frontmatter type", async () => {
+    getWikiTreeMock.mockResolvedValue(metaTree);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await clickView(wrapper, "Type");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("concept");
+    expect(wrapper.text()).toContain("entity");
+    await expandFolder(wrapper, "concept");
+    await flushPromises();
+    expect(wrapper.text()).toContain("s1.md");
+    wrapper.unmount();
+  });
+
+  it("switches to the All view and shows the raw physical tree", async () => {
+    getWikiTreeMock.mockResolvedValue(metaTree);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await clickView(wrapper, "All");
+    await flushPromises();
+
+    // physical folders, not metadata groups
+    expect(wrapper.text()).toContain("sommerseminar");
+    expect(wrapper.text()).toContain("concepts");
+    expect(wrapper.text()).not.toContain("Untagged");
     wrapper.unmount();
   });
 });
