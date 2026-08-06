@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LlmWikiClient } from "../../src/kb/llmwiki.js";
+import { LlmWikiClient, parseClassification } from "../../src/kb/llmwiki.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -177,3 +177,46 @@ test("LlmWikiClient throws with status + message on error json", async () => {
     /404.*project not found/,
   );
 });
+
+test("LlmWikiClient.classify asks the agent and parses its JSON reply", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: {
+      ok: true,
+      message: { role: "assistant", content: '{"category":"concept","pagePath":"wiki/concepts/chain-of-thought.md"}' },
+    },
+  }));
+  const client = new LlmWikiClient({ baseUrl: "http://wiki:19828", fetchImpl });
+  const result = await client.classify("athena-wiki", {
+    title: "Chain of Thought",
+    content: "# Chain of Thought\n\nSome text about reasoning.",
+  });
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].url, "http://wiki:19828/api/v1/projects/athena-wiki/chat");
+  assert.equal(calls[0].body.message.includes("wiki librarian"), true);
+  assert.equal(calls[0].body.mode, "fast");
+  assert.deepEqual(result, { category: "concept", pagePath: "wiki/concepts/chain-of-thought.md" });
+});
+
+test("LlmWikiClient.classify rejects an invalid/unparseable agent reply", async () => {
+  const { fetchImpl } = makeFetchMock(() => ({
+    status: 200,
+    body: { ok: true, message: { role: "assistant", content: "I would put it somewhere." } },
+  }));
+  const client = new LlmWikiClient({ baseUrl: "http://wiki:19828", fetchImpl });
+  await assert.rejects(
+    () => client.classify("athena-wiki", { title: "x", content: "y" }),
+    /no valid classification/,
+  );
+});
+
+test("parseClassification validates category and pagePath", () => {
+  assert.deepEqual(
+    parseClassification('{"category":"entity","pagePath":"wiki/entities/acme.md"}'),
+    { category: "entity", pagePath: "wiki/entities/acme.md" },
+  );
+  assert.equal(parseClassification('{"category":"bogus","pagePath":"wiki/x.md"}'), null);
+  assert.equal(parseClassification('{"category":"concept","pagePath":"/etc/passwd"}'), null);
+  assert.equal(parseClassification("no json here"), null);
+});
+

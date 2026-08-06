@@ -86,6 +86,46 @@ export interface LlmWikiSearchOptions {
   includeContent?: boolean;
 }
 
+/** llm_wiki wiki page categories (from the project schema / project.rs). */
+export const WIKI_CATEGORIES = [
+  "entity",
+  "concept",
+  "source",
+  "query",
+  "comparison",
+  "synthesis",
+] as const;
+
+export type WikiCategory = (typeof WIKI_CATEGORIES)[number];
+
+export interface WikiClassification {
+  /** Which category directory the page belongs under (wiki/<category>/). */
+  category: WikiCategory;
+  /** Project-relative page path, e.g. "wiki/concepts/chain-of-thought.md". */
+  pagePath: string;
+}
+
+export interface WikiClassifyInput {
+  title: string;
+  content: string;
+}
+
+/** Validate + parse the LLM agent's JSON classification reply. */
+export function parseClassification(value: unknown): WikiClassification | null {
+  if (typeof value !== "string") return null;
+  const match = value.match(/\{[^{}]*\}/);
+  if (!match) return null;
+  try {
+    const obj = JSON.parse(match[0]) as { category?: unknown; pagePath?: unknown };
+    if (typeof obj.pagePath !== "string" || !obj.pagePath.endsWith(".md")) return null;
+    const category = String(obj.category ?? "").toLowerCase();
+    if (!(WIKI_CATEGORIES as readonly string[]).includes(category)) return null;
+    return { category: category as WikiCategory, pagePath: obj.pagePath };
+  } catch {
+    return null;
+  }
+}
+
 export interface LlmWikiGraphOptions {
   q?: string;
   nodeType?: string;
@@ -181,9 +221,48 @@ export class LlmWikiClient {
     });
   }
 
+  /**
+   * POST /projects/{id}/chat - ask the llm_wiki LLM agent to classify a
+   * document into a wiki category (entity/concept/source/query/comparison/
+   * synthesis) so ingestion can place it in the right wiki/<category>/ dir.
+   */
+  async classify(projectId: string, input: WikiClassifyInput): Promise<WikiClassification> {
+    const excerpt = input.content.slice(0, 2000);
+    const prompt =
+      "You are a wiki librarian. Classify the following document into exactly one wiki category:\n" +
+      "- entity: named things (models, companies, people, datasets)\n" +
+      "- concept: ideas, techniques, phenomena\n" +
+      "- source: papers, articles, talks, blog posts\n" +
+      "- query: open questions under investigation\n" +
+      "- comparison: side-by-side analysis of related entities\n" +
+      "- synthesis: cross-cutting summaries and conclusions\n\n" +
+      `Document title: ${input.title}\n\n` +
+      `Document content:\n${excerpt}\n\n` +
+      'Reply with ONLY a single JSON object like {"category":"concept","pagePath":"wiki/concepts/chain-of-thought.md"} and nothing else. pagePath must start with "wiki/" and end with ".md".';
+    const body: Record<string, unknown> = {
+      message: prompt,
+      mode: "fast",
+      history: [],
+      history_explicit: true,
+      persist_session: false,
+    };
+    const json = await this.request(`/projects/${encodeURIComponent(projectId)}/chat`, {
+      method: "POST",
+      body,
+      timeoutMs: 60_000,
+    });
+    const raw =
+      typeof json.message === "object" && json.message !== null
+        ? (json.message as { content?: unknown }).content
+        : undefined;
+    const parsed = parseClassification(raw);
+    if (!parsed) throw new Error("llm_wiki agent returned no valid classification");
+    return parsed;
+  }
+
   private async request(
     path: string,
-    options: { method?: "GET" | "POST"; body?: unknown; auth?: boolean } = {},
+    options: { method?: "GET" | "POST"; body?: unknown; auth?: boolean; timeoutMs?: number } = {},
   ): Promise<Record<string, unknown>> {
     const url = `${this.baseUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
     const headers: Record<string, string> = { Accept: "application/json" };
@@ -196,6 +275,7 @@ export class LlmWikiClient {
       method: options.method ?? (options.body === undefined ? "GET" : "POST"),
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      ...(options.timeoutMs !== undefined ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
     });
 
     const text = await response.text();
