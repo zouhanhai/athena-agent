@@ -100,7 +100,7 @@ watch(
         <t-radio-group
           v-model="view"
           class="wiki-view-switcher"
-          variant="default-filled"
+          variant="primary-filled"
           size="small"
         >
           <t-radio-button value="topic">Topic</t-radio-button>
@@ -194,16 +194,16 @@ watch(
    NOTE: the actual bg-block / checked-color overrides live in the GLOBAL style
    block at the bottom of this file (TDesign renders those nodes deep inside the
    tree, outside the scoped scope). */
-.wiki-view-switcher :deep(.t-radio-group--filled) {
+.wiki-view-switcher :deep(.t-radio-group--primary-filled) {
   background-color: var(--caleo-surface-hover);
   border-color: var(--caleo-border);
 }
 
-.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button) {
+.wiki-view-switcher :deep(.t-radio-group--primary-filled .t-radio-button) {
   color: var(--caleo-text-secondary);
 }
 
-.wiki-view-switcher :deep(.t-radio-group--filled .t-radio-button:hover) {
+.wiki-view-switcher :deep(.t-radio-group--primary-filled .t-radio-button:hover) {
   color: var(--caleo-text);
 }
 
@@ -376,11 +376,11 @@ watch(
      shows brand orange in BOTH dark and light themes. Must be global (not scoped)
      because TDesign renders the bg-block deep inside the component tree. -->
 <style>
-.wiki-view-switcher .t-radio-group--filled .t-radio-group__bg-block {
+.wiki-view-switcher .t-radio-group--primary-filled .t-radio-group__bg-block {
   background-color: var(--caleo-primary) !important;
 }
 
-.wiki-view-switcher .t-radio-group--filled .t-radio-button.t-is-checked {
+.wiki-view-switcher .t-radio-group--primary-filled .t-radio-button.t-is-checked {
   color: #ffffff !important;
 }
 </style>
