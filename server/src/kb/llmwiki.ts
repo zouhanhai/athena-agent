@@ -4,8 +4,8 @@
  * Encapsulates the endpoints used by the athena knowledge access layer:
  * file tree, page content, hybrid search, wikilinks graph, and source rescan.
  */
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
 
 export interface LlmWikiOptions {
@@ -277,7 +277,28 @@ export class LlmWikiClient {
     }
     const file = join(project.path, path);
     await rm(file, { force: true });
+    // Remove now-empty parent dirs (e.g. an emptied wiki/<topic>/ folder) so the
+    // tree doesn't accumulate empty topic folders after deleting their last page.
+    await this.removeEmptyParents(project.path, dirname(file));
     await this.rescan(projectId);
+  }
+
+  /**
+   * Walk up from `dir` toward the project root, removing any directory that has
+   * become empty. Stops at the project root (never deletes it).
+   */
+  private async removeEmptyParents(projectRoot: string, dir: string): Promise<void> {
+    let current = dir;
+    while (current.startsWith(projectRoot) && current !== projectRoot) {
+      try {
+        const entries = await readdir(current);
+        if (entries.length > 0) break;
+        await rm(current, { force: true, recursive: true });
+        current = dirname(current);
+      } catch {
+        break;
+      }
+    }
   }
 
   /**
