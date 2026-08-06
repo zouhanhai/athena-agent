@@ -1080,3 +1080,20 @@ onMounted(() => {
   color: var(--caleo-text-secondary);
 }
 </style>
+
+<!-- G2.S5.T13: non-scoped overrides so the selected graph node is clearly
+     highlighted (v-network-graph renders its SVG nodes outside the scoped style,
+     and its built-in selected fill (#3355bb) is too dark to read on the dark bg). -->
+<style>
+.v-network-graph g.v-ng-node.selected > g > rect,
+.v-network-graph g.v-ng-node.selected > g > circle,
+.v-network-graph g.v-ng-node.selected rect,
+.v-network-graph g.v-ng-node.selected circle {
+  fill: var(--caleo-primary) !important;
+}
+.v-network-graph g.v-ng-node.selected > g > rect,
+.v-network-graph g.v-ng-node.selected rect {
+  stroke: var(--caleo-primary) !important;
+  stroke-width: 2.5 !important;
+}
+</style>
