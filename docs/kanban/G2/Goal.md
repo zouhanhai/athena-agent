@@ -3,7 +3,7 @@ id: g2
 title: "G2: Knowledge Base (LightRAG + llm_wiki + docling Ingestion)"
 layer: G
 owner: hermes
-status: active
+status: done
 created_at: 2026-08-05
 milestone: M2
 acceptance_criteria:
