@@ -1,6 +1,12 @@
 import type { FastifyInstance } from "fastify";
+import { createWriteStream } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import type { KnowledgeIngestService } from "../kb/ingest.js";
 import type { KnowledgeRetrievalService } from "../kb/retrieval.js";
+import type { IngestTaskQueue } from "../kb/tasks.js";
 
 export interface KbRequestBody {
   title?: unknown;
@@ -12,18 +18,42 @@ export interface KbSearchBody {
   query?: unknown;
 }
 
+export interface KbUrlBody {
+  url?: unknown;
+}
+
 export interface KbRouteOptions {
   ingest: KnowledgeIngestService;
   retrieval?: KnowledgeRetrievalService;
+  taskQueue?: IngestTaskQueue;
+  /** Directory to stage uploaded files before docling parsing. Default: os.tmpdir(). */
+  uploadDir?: string;
+  /** Max multipart upload size. Default: 50 MiB. */
+  maxFileSize?: number;
 }
 
 function invalidField(value: unknown): boolean {
   return typeof value !== "string" || value.trim().length === 0;
 }
 
+function isUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  const trimmed = value.trim();
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+}
+
+function safeFilename(filename: string): string {
+  const base = filename.split("/").pop() ?? filename;
+  const sanitized = base.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return sanitized || `upload-${Date.now()}`;
+}
+
 /**
- * Knowledge ingestion endpoint:
- * - POST /api/kb/ingest { title, content, source? } → dual-pipeline ingest result.
+ * Knowledge ingestion endpoints:
+ * - POST /api/kb/ingest (JSON { title, content, source? }) → dual-pipeline ingest
+ *   result (legacy, synchronous). With multipart upload (file field) → task queue.
+ * - POST /api/kb/ingest-url { url } → docling fetch → dual pipeline (async, task).
+ * - GET /api/kb/task/:id → poll task status { id, source, status, progress, stages }.
  *
  * Retrieval endpoints (registered when a KnowledgeRetrievalService is provided):
  * - GET /api/kb/graph?label= → LightRAG entity-relation graph {nodes, edges}
@@ -33,6 +63,31 @@ function invalidField(value: unknown): boolean {
  */
 export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions): void {
   app.post("/api/kb/ingest", async (request, reply) => {
+    const uploadDir = options.uploadDir ?? tmpdir();
+    const maxFileSize = options.maxFileSize ?? 50 * 1024 * 1024;
+
+    if (request.isMultipart()) {
+      if (!options.taskQueue) {
+        return reply.code(500).send({ error: "ingestion task queue not configured" });
+      }
+      await mkdir(uploadDir, { recursive: true });
+      const data = await request.file({ limits: { fileSize: maxFileSize } });
+      if (!data) {
+        return reply.code(400).send({ error: "file is required" });
+      }
+      const target = join(uploadDir, safeFilename(data.filename));
+      const stream = createWriteStream(target);
+      try {
+        await pipeline(data.file, stream);
+      } catch (err) {
+        return reply.code(413).send({
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      const { taskId } = options.taskQueue.submitFile(target, data.filename);
+      return reply.code(202).send({ taskId });
+    }
+
     const body = (request.body ?? {}) as KbRequestBody;
 
     if (invalidField(body.title)) {
@@ -55,6 +110,30 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
         .code(500)
         .send({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  app.post("/api/kb/ingest-url", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const body = (request.body ?? {}) as KbUrlBody;
+    if (!isUrl(body.url)) {
+      return reply.code(400).send({ error: "a valid http(s) url is required" });
+    }
+    const { taskId } = options.taskQueue.submitUrl(body.url.trim());
+    return reply.code(202).send({ taskId });
+  });
+
+  app.get("/api/kb/task/:id", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const { id } = request.params as { id?: string };
+    const task = id ? options.taskQueue.getTask(id) : undefined;
+    if (!task) {
+      return reply.code(404).send({ error: "task not found" });
+    }
+    return task;
   });
 
   if (!options.retrieval) return;

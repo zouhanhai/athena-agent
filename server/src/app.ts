@@ -1,9 +1,12 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import multipart from "@fastify/multipart";
 import { AgentManager } from "./agents/manager.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerKbRoutes } from "./routes/kb.js";
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
+import { DoclingParser } from "./kb/docling.js";
+import { IngestTaskQueue } from "./kb/tasks.js";
 import { LightRagClient } from "./kb/lightrag.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
 
@@ -11,6 +14,9 @@ export interface BuildAppOptions {
   manager?: AgentManager;
   ingest?: KnowledgeIngestService;
   retrieval?: KnowledgeRetrievalService;
+  taskQueue?: IngestTaskQueue;
+  /** Max multipart upload size (bytes). Default: 50 MiB. */
+  maxFileSize?: number;
 }
 
 export function defaultIngestService(): KnowledgeIngestService {
@@ -30,9 +36,20 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
   });
 }
 
+export function defaultTaskQueue(): IngestTaskQueue {
+  return new IngestTaskQueue({
+    parser: new DoclingParser(),
+    ingest: defaultIngestService(),
+  });
+}
+
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   const manager = options.manager ?? new AgentManager();
+
+  app.register(multipart, {
+    limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
+  });
 
   app.get("/health", async () => {
     return { status: "ok" };
@@ -42,6 +59,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
     retrieval: options.retrieval ?? defaultRetrievalService(),
+    taskQueue: options.taskQueue ?? defaultTaskQueue(),
+    maxFileSize: options.maxFileSize,
   });
 
   return app;

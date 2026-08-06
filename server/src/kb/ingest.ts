@@ -135,7 +135,11 @@ export class KnowledgeIngestService {
     };
   }
 
-  private async ingestLightRag(content: string, fileName: string): Promise<SystemIngestStatus> {
+  /**
+   * Ingest into LightRAG only. Public so the G2.S5 task queue can track
+   * per-system progress independently of llm_wiki.
+   */
+  async ingestLightRag(content: string, fileName: string): Promise<SystemIngestStatus> {
     try {
       const result = await this.lightrag.ingestText(content, { fileSource: fileName });
       return { ok: true, trackId: result.track_id };
@@ -144,7 +148,11 @@ export class KnowledgeIngestService {
     }
   }
 
-  private async ingestLlmWiki(fileName: string, content: string): Promise<SystemIngestStatus> {
+  /**
+   * Ingest into llm_wiki only (write wiki page + rescan). Public so the G2.S5
+   * task queue can track per-system progress independently of LightRAG.
+   */
+  async ingestLlmWiki(fileName: string, content: string): Promise<SystemIngestStatus> {
     try {
       const { id, wikiDir } = await this.resolveProject();
       await this.mkdir(wikiDir);

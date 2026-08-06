@@ -162,6 +162,7 @@ def main(argv: list[str]) -> int:
     out_path = output_dir / f"{stem}.md"
     out_path.write_text(markdown, encoding="utf-8")
     log.info("wrote %s (%d chars)", out_path, len(markdown))
+    print(out_path)
     return 0
 
 
