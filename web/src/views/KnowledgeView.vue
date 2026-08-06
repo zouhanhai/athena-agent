@@ -211,13 +211,17 @@ const configs = computed<UserConfigs>(() => ({
     },
   },
   node: {
-    selectable: true,
+    // Selection is driven manually via onNodeClick + the selectedNodes v-model
+    // binding (selectedNodeId). Turning off the built-in selectable keeps the
+    // selection from being cleared when the mouse moves to empty canvas / leaves,
+    // which was the reported bug ("selected node disappears after mouse-out").
+    selectable: false,
     draggable: true,
     normal: {
       color: (node) => typeColors.value[node.type ?? ""] ?? colors.value.primary,
       radius: 14,
     },
-    selected: { color: colors.value.primary },
+    selected: { color: colors.value.sky },
     focusring: { color: colors.value.primary, width: 2, padding: 3 },
     label: { visible: true, color: colors.value.text, fontSize: 12, fontFamily: "inherit" },
   },
@@ -1078,22 +1082,5 @@ onMounted(() => {
   margin: 0;
   font-size: 13px;
   color: var(--caleo-text-secondary);
-}
-</style>
-
-<!-- G2.S5.T13: non-scoped overrides so the selected graph node is clearly
-     highlighted (v-network-graph renders its SVG nodes outside the scoped style,
-     and its built-in selected fill (#3355bb) is too dark to read on the dark bg). -->
-<style>
-.v-network-graph g.v-ng-node.selected > g > rect,
-.v-network-graph g.v-ng-node.selected > g > circle,
-.v-network-graph g.v-ng-node.selected rect,
-.v-network-graph g.v-ng-node.selected circle {
-  fill: var(--caleo-primary) !important;
-}
-.v-network-graph g.v-ng-node.selected > g > rect,
-.v-network-graph g.v-ng-node.selected rect {
-  stroke: var(--caleo-primary) !important;
-  stroke-width: 2.5 !important;
 }
 </style>
