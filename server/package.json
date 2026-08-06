@@ -11,7 +11,8 @@
     "verify": "tsx src/agents/verify-agent.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-force-exit \"test/**/*.test.ts\""
+    "test": "node --import tsx --test --test-force-exit \"test/**/*.test.ts\"",
+    "test:docling": "~/docling-venv/bin/python test/parse_doc_test.py"
   },
   "engines": {
     "node": ">=24"

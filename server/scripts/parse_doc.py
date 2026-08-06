@@ -49,13 +49,70 @@ def _ensure_writable_hf_cache() -> None:
 
 _ensure_writable_hf_cache()
 
-from docling.document_converter import DocumentConverter
+from docling.document_converter import DocumentConverter, ImageFormatOption, PdfFormatOption
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import (
+    PdfPipelineOptions,
+    PictureDescriptionApiOptions,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 log = logging.getLogger("parse_doc")
+
+# G2.S5.T6: picture-description VLM on OpenRouter (image content -> Markdown).
+PICTURE_DESCRIPTION_MODEL = os.environ.get(
+    "PICTURE_DESCRIPTION_MODEL", "qwen/qwen3.7-flash"
+)
+OPENROUTER_BASE_URL = os.environ.get(
+    "PICTURE_DESCRIPTION_API_URL",
+    "https://openrouter.ai/api/v1/chat/completions",
+)
+
+
+def build_pipeline_options() -> PdfPipelineOptions:
+    """docling PDF pipeline options (G2.S5.T6).
+
+    Enables picture descriptions via the OpenRouter VLM when
+    OPENROUTER_API_KEY is set, so image content is captured in the parsed
+    Markdown instead of a bare `image` placeholder. Without a key the pipeline
+    degrades gracefully (picture descriptions off) and parsing still works.
+    """
+    options = PdfPipelineOptions()
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if api_key:
+        options.enable_remote_services = True
+        options.do_picture_description = True
+        options.picture_description_options = PictureDescriptionApiOptions(
+            url=OPENROUTER_BASE_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            params={"model": PICTURE_DESCRIPTION_MODEL},
+            timeout=60,
+            concurrency=4,
+        )
+        log.info(
+            "picture descriptions enabled via OpenRouter VLM (%s)",
+            PICTURE_DESCRIPTION_MODEL,
+        )
+    else:
+        log.warning(
+            "OPENROUTER_API_KEY not set; picture descriptions disabled "
+            "(images will be parsed as bare placeholders)"
+        )
+    return options
+
+
+def build_converter() -> DocumentConverter:
+    """DocumentConverter with picture-description pipeline options (PDF + image)."""
+    pipeline_options = build_pipeline_options()
+    return DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+            InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options),
+        }
+    )
 
 SUPPORTED_EXTENSIONS = {
     ".pdf",
@@ -104,7 +161,7 @@ def derive_stem(source: str) -> str:
 
 def parse_document(source: str, output_dir: Path, image_export_dir: Path | None) -> str:
     """Run docling conversion and return the markdown content."""
-    converter = DocumentConverter()
+    converter = build_converter()
     log.info("converting %s", source)
     result = converter.convert(source)
     markdown = result.document.export_to_markdown(
