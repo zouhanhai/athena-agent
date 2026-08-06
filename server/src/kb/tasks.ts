@@ -232,6 +232,11 @@ export class IngestTaskQueue {
     }
     this.patch(taskId, (t) => {
       t.error = undefined;
+      // Reset the top-level status to a running state NOW (synchronously) so
+      // callers polling right after retry() see the task as in-progress, not
+      // the old terminal state. run() will refine it to parsing/ingesting.
+      const reRunParsing = failedStages.includes("parsing");
+      t.status = reRunParsing ? "parsing" : "ingesting";
       for (const name of failedStages) {
         t.stages[name] = { name, status: "pending" };
       }

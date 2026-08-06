@@ -22,12 +22,59 @@ export interface UseIngestTasksOptions {
   pollIntervalMs?: number;
 }
 
+/** localStorage key for persisting active task ids so the task list survives
+ *  page reloads (F5). Only task ids + source labels are persisted; the live
+ *  status is re-fetched from GET /api/kb/task/:id on load. */
+const STORAGE_KEY = "athena:kb-tasks";
+
+interface StoredTaskMeta {
+  id: string;
+  source: string;
+  kind: "file" | "url";
+}
+
+function loadStoredTasks(): StoredTaskMeta[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredTaskMeta[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistStoredTasks(metas: StoredTaskMeta[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(metas));
+  } catch {
+    /* storage unavailable — task list is session-only */
+  }
+}
+
 export function useIngestTasks(options: UseIngestTasksOptions = {}) {
   const pollIntervalMs = options.pollIntervalMs ?? 1500;
   const tasks = ref<IngestTaskItem[]>([]);
   const submitting = ref(false);
   const submitError = ref("");
   const timers = new Map<string, ReturnType<typeof setInterval>>();
+  /** Metadata of persisted tasks, mirroring `tasks` for localStorage recovery. */
+  const storedMetas = ref<StoredTaskMeta[]>(loadStoredTasks());
+
+  function persist(): void {
+    persistStoredTasks(storedMetas.value);
+  }
+
+  function rememberTask(meta: StoredTaskMeta): void {
+    if (storedMetas.value.some((m) => m.id === meta.id)) return;
+    storedMetas.value.push(meta);
+    persist();
+  }
+
+  function forgetTask(taskId: string): void {
+    storedMetas.value = storedMetas.value.filter((m) => m.id !== taskId);
+    persist();
+  }
 
   function stopPolling(taskId: string): void {
     const timer = timers.get(taskId);
@@ -74,6 +121,8 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
     submitError.value = "";
     try {
       const taskId = await ingestFile(file);
+      const meta: StoredTaskMeta = { id: taskId, source: file.name, kind: "file" };
+      rememberTask(meta);
       tasks.value.push({
         id: taskId,
         source: file.name,
@@ -100,6 +149,8 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
     submitError.value = "";
     try {
       const taskId = await ingestUrl(url);
+      const meta: StoredTaskMeta = { id: taskId, source: url, kind: "url" };
+      rememberTask(meta);
       tasks.value.push({
         id: taskId,
         source: url,
@@ -123,6 +174,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
 
   function removeTask(taskId: string): void {
     stopPolling(taskId);
+    forgetTask(taskId);
     const index = tasks.value.findIndex((task) => task.id === taskId);
     if (index !== -1) tasks.value.splice(index, 1);
   }
@@ -143,6 +195,33 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
       submitError.value = err instanceof Error ? err.message : String(err);
     }
   }
+
+  /**
+   * Restore persisted tasks from localStorage on (re)mount so progress bars
+   * survive a page reload (F5). Re-creates a minimal task entry for each stored
+   * id and starts polling; the first poll replaces it with the live backend state.
+   */
+  function restorePersisted(): void {
+    for (const meta of storedMetas.value) {
+      if (tasks.value.some((t) => t.id === meta.id)) continue;
+      tasks.value.push({
+        id: meta.id,
+        source: meta.source,
+        kind: meta.kind,
+        status: "pending",
+        progress: 0,
+        stages: {
+          parsing: { name: "parsing", status: "pending" },
+          ingesting_lightrag: { name: "ingesting_lightrag", status: "pending" },
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
+        },
+      });
+      startPolling(meta.id);
+      void poll(meta.id);
+    }
+  }
+
+  restorePersisted();
 
   if (getCurrentInstance()) {
     onBeforeUnmount(() => {
