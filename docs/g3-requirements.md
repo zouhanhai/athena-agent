@@ -121,6 +121,26 @@ code-capable agent. It defines a **protocol** in three layers:
    - How a code agent **reports completion** (state → done/in_review, PR number, log).
    - How it **talks to the planning agent** (handoff / interface).
 
+4. **Full 6-role lifecycle + state machine** (S6 covers the whole git-driven flow,
+   not just claim/report):
+   - Roles (each has a **soul**):
+     | Role | Duty | Stage |
+     |------|------|-------|
+     | Consultant | grill requirements | pre-plan |
+     | PM | to-spec (Goal → Spec) | planning |
+     | Eng Director | to-ticket (Spec → tickets); re-decompose on reject | planning + rework |
+     | Worker (any code agent) | implement, claim, report | execution |
+     | Reviewer | review done tickets → approve/reject | review |
+     | Writer | docs / PR description / deliverables | wrap-up |
+   - Full state machine:
+     ```
+     backlog → in_progress → done → in_review → approved (merged)
+                           ↘ rejected → Eng Director re-decomposes
+                                        → new ticket (T1.1, parent_id) → backlog
+     ```
+   - Reject flow: Reviewer rejects → Eng Director re-decomposes → new ticket
+     (original preserved, `parent_id` + `qa_feedback` + `reopen_reason`).
+
 **Key principle:** worker abstraction — any code-capable agent can join; the
 platform only standardizes the md files + git coordination, not the agent runtime.
 
