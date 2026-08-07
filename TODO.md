@@ -19,14 +19,16 @@
 - [x] All docs/comments/errors translated to English
 - [x] Repo synced to `CALEO-Consulting/caleo.int.athena-agent` (private)
 
-## In Progress
-
 ### M2 — Knowledge Base (G2) — 5 specs
 - [x] G2.S1 LightRAG service deployment (OpenRouter deepseek-v4-flash + qwen3-embedding-8b + Postgres/pgvector)
 - [x] G2.S2 llm_wiki service deployment (Rust compile + headless :19828)
 - [x] G2.S3 Knowledge access layer + Pi retrieval routing (dual pipeline + 5 knowledge tools + capability routing, Pi→OpenRouter)
-- [ ] G2.S4 Frontend knowledge panels (2D graph + Wiki tree, 4 tickets)
-- [ ] G2.S5 Data/document input interface (docling + Add Data in Knowledge panel, 4 tickets)
+- [x] G2.S4 Frontend knowledge panels (2D graph + Wiki tree, 4 tickets)
+- [x] G2.S5 Data/document input interface (docling + Add Data in Knowledge panel, 14 tickets)
+
+## In Progress
+
+_No milestone currently in progress._
 
 ## Planned
 
@@ -86,3 +88,4 @@ li.na::OpenCode                 # employee li.na's local OpenCode
 - 2026-08-05: Full project i18n (docs + comments + tests), logo cleanup
 - 2026-08-05: G2.S1/S2/S3 done (knowledge services + access layer + Pi→OpenRouter), S4/S5 tickets split
 - 2026-08-05: Multi-Agent Federation design recorded; M6 added (local agent + remote SAP + naming convention)
+- 2026-08-07: M2 (G2) complete — all 5 specs / 26 tickets done; graph node selection + circle-shape fix; G1+G2 Goals and all Specs marked done
