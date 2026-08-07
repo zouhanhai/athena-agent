@@ -21,24 +21,31 @@ acceptance_criteria:
 
 Build the agent registration system — every agent connecting to Athena declares its identity and capabilities, stored in Postgres. This is the foundation for all other G3 specs (conversations, agent cards, workbench).
 
+**Registration model (agent-era, self-declaration):** when an agent connects to the platform, it **auto-fills its capabilities** by submitting a declaration payload against our schema (`POST /api/agents/self-declare`). However **alias and logo are chosen by the owning employee**, not the agent — so there is a small **Agent registration UI** where an employee reviews the agent's self-declared capabilities, then assigns alias + logo + confirms.
+
 ## Key Dependencies
 
 - Postgres (existing) — agent table
 - Image-generation model (OpenRouter) — logo generation
+- Employee identity (G3.S2) — agent must be owned by an employee
 
 ## Architecture
 
 ```
 Agent (any: local Athena / employee agent / remote WTS)
-  → register: POST /api/agents  { alias, owner, logo, capabilities, runtime }
-  → stored in PG: agents table
+  → self-declare: POST /api/agents/self-declare
+      { capabilities: {system, mcp[], tools[], skills[], specialty}, runtime }
+      (agent fills its own capability info automatically)
+  → Employee reviews in Agent registration UI: pick alias + logo + confirm
+  → stored in PG: agents table (alias, owner, logo, capabilities, runtime)
   → query: GET /api/agents (list, by employee, by alias)
-  → capabilities: { system, mcp: [sap/...], tools: [...] }
+  → capabilities: { system, mcp: [sap/...], tools: [...], skills: [...], specialty }
 ```
 
 ## UI Placement (Decided)
 
-- Agent Registry is backend-first; agent cards appear in S4 (chat). No dedicated admin page in G3 (can be added later).
+- **Agent registration UI** (one per employee): shows the employee's connected agents with their **self-declared capabilities**, lets the employee pick alias + logo + confirm. (Small dedicated page.)
+- Agent cards appear in S4 (chat).
 
 ## Implementation
 
@@ -55,7 +62,9 @@ Agent (any: local Athena / employee agent / remote WTS)
 - Image-gen model generates a consistent-style set of animal logos (use owl as reference image, different animals + colors)
 - Store generated logos as assets; agents can also self-upload logo
 
-### 4. Agent CRUD API (server/src/routes/agents.ts)
+### 4. Agent registration (self-declaration + employee confirms)
+- `POST /api/agents/self-declare` — agent submits its own capabilities (auto-fill), no alias/logo yet
+- **Agent registration UI** — employee reviews self-declared capabilities, picks alias + logo, confirms → creates the agent
 - `POST /api/agents` (register), `PUT /api/agents/:alias` (update capabilities/logo), `GET /api/agents` (list), `GET /api/agents/:alias`
 - Agent identity consumed by S2 (archive under employee), S3 (conversation participants), S4 (cards)
 

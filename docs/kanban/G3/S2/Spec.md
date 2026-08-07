@@ -18,19 +18,21 @@ acceptance_criteria:
 
 ## Task
 
-Build employee identity — email login, pick a logo, RBAC, and per-user GitHub credential (SSH/token) stored securely. Agents are archived under employees. GitHub visibility is driven by each user's own credential.
+Build employee identity — **invitation-based registration**: the platform sends an invitation email (Resend); the employee clicks through, links their own email, fills in profile + GitHub credential. Plus RBAC, and agents archived under employees.
 
 ## Key Dependencies
 
 - G3.S1 (agent registry — agents belong to employees)
 - Postgres — employee + credential storage
-- Email (Resend) — login flow
+- Email (Resend) — invitation + magic-link login
 
 ## Architecture
 
 ```
-Employee (email login)
-  → register: POST /api/auth/register { email, name, logo, github_token/ssh }
+Employee registration (invitation flow)
+  → Platform sends invitation email (Resend) to employee's address
+  → Employee clicks link → associates their own email (magic-link verify)
+  → Employee fills profile (display name, logo) + GitHub key/token (encrypted)
   → stored in PG: employees table + encrypted github credential
   → RBAC: role per employee (e.g. admin/member)
   → agents: grouped under employee (owner_employee_id from S1)
@@ -39,6 +41,7 @@ GitHub: credential scoped to user → GET /api/github/repos shows ONLY what this
 
 ## UI Placement (Decided)
 
+- **Invitation email** (Resend) → magic-link → employee **registration page** (link email, fill profile + GitHub key)
 - Login flow (email magic-link via Resend) — existing M4 auth pattern can be reused/extended
 - Logo picker during registration (from S1 generated set or self-upload)
 
@@ -48,12 +51,14 @@ GitHub: credential scoped to user → GET /api/github/repos shows ONLY what this
 - `employees` table: id, email, display_name, logo_url, role, created_at
 - Role-based access (RBAC): simple role column + permission checks in routes
 
-### 2. Login
-- Email magic-link (Resend) — reuse existing auth scaffolding
+### 2. Registration (invitation flow)
+- **Invite**: admin/owner sends invitation email (Resend) → magic-link with invite token
+- **Registration page**: employee clicks link, associates their email (verify), fills profile (display name, logo) + GitHub key/token
+- Login: email magic-link (Resend) — reuse existing auth scaffolding
 - On login, resolve employee + their agents (from S1)
 
 ### 3. GitHub credential
-- Employee provides SSH key or token at registration
+- Employee provides SSH key or token during invitation registration
 - Stored **encrypted** in PG (never plaintext)
 - Used by S6 GitHub ops, scoped to this user
 

@@ -191,6 +191,19 @@ Registry (G3.S1):
   plugin manifest) so any agent can register in a uniform way.
 
 
+## 4.4 Registration model (agent-era, self-declaration + invite) — 2026-08-07
+
+**Agent registration (G3.S1):** when an agent connects, it **auto-fills its
+capabilities** by self-declaring against our schema (`POST /api/agents/self-declare`).
+But **alias + logo are chosen by the owning employee** (not the agent), so there is a
+small **Agent registration UI** where the employee reviews the agent's self-declared
+capabilities and assigns alias + logo + confirms. No manual capability entry.
+
+**Employee registration (G3.S2):** **invitation-based** — the platform sends an
+invitation email (Resend); the employee clicks through, **associates their own email**
+(magic-link verify), fills profile + GitHub key/token (encrypted). Employees are people,
+so they get a registration page; agents self-declare.
+
 ## 5. StaffDeck reference notes (OpenBMB)
 
 - Digital employees with **positions, employee IDs, capability profiles, work records**
