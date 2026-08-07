@@ -73,7 +73,8 @@ athena-agent/
 │   ├── pi-capabilities.md        # Pi capabilities & Package mapping
 │   └── kanban/                   # Goals → Specs → Tickets (git-driven board)
 │       ├── G1/ (S1, S2)          # M1: skeleton + personal conversation (DONE)
-│       └── G2/ (S1..S5)          # M2: knowledge base (DONE)
+│       ├── G2/ (S1..S5)          # M2: knowledge base (DONE)
+│       └── G3/ (S1..S6)          # M3: multi-agent federation + team workbench (IN PROGRESS)
 ├── server/           # Node/TS Fastify backend
 │   ├── src/
 │   │   ├── agents/   # AgentSession management
@@ -98,9 +99,9 @@ Each Milestone has explicit acceptance criteria (Definition of Done); all corres
    - Acceptance: LightRAG starts (OpenRouter); llm_wiki runs headless :19828; Pi retrieves from both via MCP; graph panel 2D renders; docling unified ingestion + progress bar
    - Corresponds to: G2 (LightRAG + llm_wiki) — G2.S1/S2/S3/S4/S5 complete (5 specs, 26 tickets)
 
-3. **M3**: Pi-driven Kanban + Team Conversation + GitHub Integration
-   - Acceptance: git-driven kanban works (Goal create / claim lock / PR / Reject); 3 employees can claim tickets in parallel; team conversation shares Pi; pi-intercom coordinates; **GitHub integration: portal can browse repos / PRs / Issues / files via GitHub REST API**
-   - Corresponds to: G3 (Pi Kanban + Team Conversation + GitHub)
+3. **M3** 🔄 IN PROGRESS: Multi-Agent Federation & Team Workbench
+   - Acceptance: **Global right-side Chat panel** on every page (single shared context, agent cards + add agent/employee); **Agent Registry** in PG (agents declare alias/owner/logo/capabilities/MCP); **Employee identity** (email login, logo, RBAC, per-user GitHub credential); **Workbench** page (GitHub-style Code / Issues / Kanban tabs); **Uploads** page (detailed per-system ingest stages + chunk progress); **Git-driven development** (worker-agnostic protocol + full 6-role lifecycle + GitHub full ops)
+   - Corresponds to: G3 (Multi-Agent Federation + Team Workbench) — G3.S1..S6, 22 tickets (single employee)
 
 4. **M4**: CodeGraph + Multi-Employee Isolation + Deploy to 6900XT
    - Acceptance: CodeGraph deployed and indexing code; 3 employees have independent git identities + independent AgentSessions; portal deployed on 6900XT accessible via Tailscale; auth (Resend) functional

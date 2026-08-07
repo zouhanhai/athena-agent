@@ -28,7 +28,13 @@
 
 ## In Progress
 
-_No milestone currently in progress._
+### M3 — Multi-Agent Federation & Team Workbench (G3) — 6 specs, 22 tickets
+- [ ] G3.S1 Agent Registry (agents declare alias/owner/logo/capabilities/MCP, PG)
+- [ ] G3.S2 Employee Identity + RBAC + GitHub credentials (email login, logo, per-user credential encrypted)
+- [ ] G3.S3 Global Chat panel (right-side fixed, single shared context, agent cards + add agent/employee)
+- [ ] G3.S4 Workbench (GitHub-style Code / Issues / Kanban tabs, per-user credential)
+- [ ] G3.S5 Uploads page (detailed per-system ingest stages + chunk progress, real LightRAG status)
+- [ ] G3.S6 Git-Driven Development (worker-agnostic protocol + 6-role lifecycle + GitHub full ops)
 
 ## Planned
 
