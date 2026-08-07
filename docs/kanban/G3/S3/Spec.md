@@ -60,6 +60,16 @@ Build the global Chat panel — a fixed right-side panel present on every page, 
 - Switching tab changes only the center content; chat context persists
 - Deepseek LLM cache makes long single context practical
 
+### 2b. Page-aware context injection (Vercel-inspired, g3-requirements §4.3)
+- The Chat panel **dynamically injects the current page's relevant agent capabilities**
+  into the conversation context, rather than always injecting everything:
+  - Uploads page → ingest capabilities (docling/LightRAG/llm_wiki tools)
+  - Workbench page → GitHub capabilities (repo/PR/issue tools)
+  - Wiki / Knowledge pages → knowledge tools (llm_wiki/LightRAG retrieval)
+- This lets agents (e.g. Athena) respond with context-appropriate tooling per page.
+- **Hooks / lifecycle** (optional): session-start / agent-joined / agent-left hooks
+  so the platform can react (e.g. refresh an agent's context when knowledge changes).
+
 ### 3. Agent cards above chat
 - From S1: logo, alias, capabilities, speak-toggle (on = agent responds, off = reads context only)
 - StaffDeck-style card display
