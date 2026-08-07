@@ -3,6 +3,13 @@ import multipart from "@fastify/multipart";
 import { AgentManager } from "./agents/manager.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerKbRoutes } from "./routes/kb.js";
+import { registerAgentRoutes } from "./routes/agents.js";
+import {
+  MemoryAgentRegistry,
+  PostgresAgentRegistry,
+  DEFAULT_ATHENA,
+  type AgentRegistry,
+} from "./agents/registry.js";
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { DoclingParser } from "./kb/docling.js";
@@ -16,6 +23,7 @@ export interface BuildAppOptions {
   ingest?: KnowledgeIngestService;
   retrieval?: KnowledgeRetrievalService;
   taskQueue?: IngestTaskQueue;
+  registry?: AgentRegistry;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
   maxFileSize?: number;
 }
@@ -48,9 +56,18 @@ export function defaultTaskQueue(): IngestTaskQueue {
   });
 }
 
+export function defaultAgentRegistry(): AgentRegistry {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new PostgresAgentRegistry({ connectionString });
+  }
+  return new MemoryAgentRegistry([DEFAULT_ATHENA]);
+}
+
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
   const manager = options.manager ?? new AgentManager();
+  const registry = options.registry ?? defaultAgentRegistry();
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -60,6 +77,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return { status: "ok" };
   });
 
+  app.addHook("onClose", async () => {
+    await registry.close();
+  });
+
+  registerAgentRoutes(app, { registry });
   registerChatRoutes(app, { manager });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
