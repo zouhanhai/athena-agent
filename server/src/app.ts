@@ -49,7 +49,7 @@ export function defaultTaskQueue(): IngestTaskQueue {
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: true });
   const manager = options.manager ?? new AgentManager();
 
   app.register(multipart, {

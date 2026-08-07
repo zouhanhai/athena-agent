@@ -155,9 +155,11 @@ export class IngestTaskQueue {
         t.stages.parsing = { name: "parsing", status: "running" };
       });
       try {
+        console.log(`[tasks:${id}] parsing start: ${input}`);
         const parsed = await this.parser.parse(input);
         markdown = parsed.markdown;
         fileName = `${parsed.stem || documentIdFrom(source, source)}.md`;
+        console.log(`[tasks:${id}] parsing done (${markdown?.length ?? 0} chars)`);
         this.patch(id, (t) => {
           t.stages.parsing = { name: "parsing", status: "done" };
           t.documentId = parsed.stem || documentIdFrom(source, source);
@@ -166,6 +168,7 @@ export class IngestTaskQueue {
           t.progress = 35;
         });
       } catch (err) {
+        console.error(`[tasks:${id}] parsing FAILED:`, err);
         return this.fail(id, err, "parsing");
       }
     }
@@ -190,6 +193,7 @@ export class IngestTaskQueue {
         t.progress = 50;
       });
       const lightrag = await this.safeIngest(() => this.ingest.ingestLightRag(markdown!, fileName!));
+      console.log(`[tasks:${id}] lightrag ingest: ${lightrag.ok ? "ok" : "FAILED " + (lightrag.error ?? "")}`);
       this.patch(id, (t) => {
         t.stages.ingesting_lightrag = {
           name: "ingesting_lightrag",
@@ -208,6 +212,7 @@ export class IngestTaskQueue {
         t.progress = 85;
       });
       const llmwiki = await this.safeIngest(() => this.ingest.ingestLlmWiki(fileName!, markdown!));
+      console.log(`[tasks:${id}] llm_wiki ingest: ${llmwiki.ok ? "ok" : "FAILED " + (llmwiki.error ?? "")}`);
       this.patch(id, (t) => {
         t.stages.ingesting_llmwiki = {
           name: "ingesting_llmwiki",
@@ -252,6 +257,8 @@ export class IngestTaskQueue {
         }
       }
     }
+    const finalTask = this.tasks.get(id);
+    console.log(`[tasks:${id}] FINAL status=${finalTask?.status} progress=${finalTask?.progress} parsing=${finalTask?.stages.parsing.status} lightrag=${finalTask?.stages.ingesting_lightrag.status} llmwiki=${finalTask?.stages.ingesting_llmwiki.status}`);
 
     // Layer 2: semantic near-duplicate notice via LightRAG (best-effort).
     const finished = this.tasks.get(id);
