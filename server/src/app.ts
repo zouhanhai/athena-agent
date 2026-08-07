@@ -1,15 +1,24 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import multipart from "@fastify/multipart";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { AgentManager } from "./agents/manager.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerKbRoutes } from "./routes/kb.js";
 import { registerAgentRoutes } from "./routes/agents.js";
+import { registerLogoRoutes } from "./routes/logos.js";
 import {
   MemoryAgentRegistry,
   PostgresAgentRegistry,
   DEFAULT_ATHENA,
   type AgentRegistry,
 } from "./agents/registry.js";
+import {
+  FileLogoStore,
+  OpenRouterLogoClient,
+  type LogoStore,
+} from "./agents/logos.js";
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { DoclingParser } from "./kb/docling.js";
@@ -24,6 +33,7 @@ export interface BuildAppOptions {
   retrieval?: KnowledgeRetrievalService;
   taskQueue?: IngestTaskQueue;
   registry?: AgentRegistry;
+  logos?: LogoStore;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
   maxFileSize?: number;
 }
@@ -64,10 +74,21 @@ export function defaultAgentRegistry(): AgentRegistry {
   return new MemoryAgentRegistry([DEFAULT_ATHENA]);
 }
 
+/** Default file-backed logo store rooted at web/public/logos with the owl as style reference. */
+export function defaultLogoStore(): LogoStore {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  return new FileLogoStore({
+    dir: path.join(repoRoot, "web", "public", "logos"),
+    client: new OpenRouterLogoClient(),
+    referenceImage: readFileSync(path.join(repoRoot, "web", "public", "athena-logo-ai.png")),
+  });
+}
+
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
   const manager = options.manager ?? new AgentManager();
   const registry = options.registry ?? defaultAgentRegistry();
+  const logos = options.logos ?? defaultLogoStore();
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -85,9 +106,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.addHook("onClose", async () => {
     await registry.close();
+    await logos.close();
   });
 
   registerAgentRoutes(app, { registry });
+  registerLogoRoutes(app, { logoStore: logos, registry });
   registerChatRoutes(app, { manager });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),

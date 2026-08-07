@@ -9,6 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "verify": "tsx src/agents/verify-agent.ts",
+    "logos:generate": "tsx scripts/generate-logos.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test --test-force-exit \"test/**/*.test.ts\"",

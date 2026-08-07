@@ -1,0 +1,64 @@
+{
+  "logos": [
+    {
+      "id": "fox",
+      "name": "fox",
+      "animal": "fox",
+      "color": "teal",
+      "url": "/logos/fox.jpg",
+      "filename": "fox.jpg",
+      "source": "generated",
+      "created_at": "2026-08-07T22:38:19.529Z"
+    },
+    {
+      "id": "eagle",
+      "name": "eagle",
+      "animal": "eagle",
+      "color": "amber",
+      "url": "/logos/eagle.jpg",
+      "filename": "eagle.jpg",
+      "source": "generated",
+      "created_at": "2026-08-07T22:38:25.545Z"
+    },
+    {
+      "id": "lion",
+      "name": "lion",
+      "animal": "lion",
+      "color": "crimson",
+      "url": "/logos/lion.jpg",
+      "filename": "lion.jpg",
+      "source": "generated",
+      "created_at": "2026-08-07T22:38:32.009Z"
+    },
+    {
+      "id": "wolf",
+      "name": "wolf",
+      "animal": "wolf",
+      "color": "indigo",
+      "url": "/logos/wolf.jpg",
+      "filename": "wolf.jpg",
+      "source": "generated",
+      "created_at": "2026-08-07T22:38:37.961Z"
+    },
+    {
+      "id": "dolphin",
+      "name": "dolphin",
+      "animal": "dolphin",
+      "color": "blue",
+      "url": "/logos/dolphin.jpg",
+      "filename": "dolphin.jpg",
+      "source": "generated",
+      "created_at": "2026-08-07T22:38:44.594Z"
+    },
+    {
+      "id": "raven",
+      "name": "raven",
+      "animal": "raven",
+      "color": "violet",
+      "url": "/logos/raven.jpg",
+      "filename": "raven.jpg",
+      "source": "generated",
+      "created_at": "2026-08-07T22:38:52.810Z"
+    }
+  ]
+}
