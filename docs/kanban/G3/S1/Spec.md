@@ -46,7 +46,7 @@ Agent (any: local Athena / employee agent / remote WTS)
 - Capabilities shape: `{ system: string, mcp: string[], tools: string[], description: string }`
 
 ### 2. Local Athena default declaration
-- Seed a default agent on server start: alias=`Athena`, owner=`system`, logo=owl, capabilities={ system: "athena", mcp: ["lightrag","llm_wiki"], tools: ["file_upload","knowledge_graph_qa"] }
+- Seed a default agent on server start: alias=`Athena`, owner=`system`, logo=`/athena-logo-ai.png` (from `web/public/athena-logo-ai.png`, existing owl logo), capabilities={ system: "athena", mcp: ["lightrag","llm_wiki"], tools: ["file_upload","knowledge_graph_qa"] }
 
 ### 3. Logo system
 - Image-gen model generates a consistent-style set of animal logos (use owl as reference image, different animals + colors)
