@@ -7,6 +7,7 @@ import "tdesign-vue-next/es/style/index.css";
 import App from "@/App.vue";
 import router from "@/router";
 import { useThemeStore } from "@/stores/theme";
+import { useChatStore } from "@/stores/chat";
 
 beforeEach(() => {
   localStorage.clear();
@@ -185,6 +186,27 @@ describe("global chat panel", () => {
     await waitForRoute("/kanban");
     await flushPromises();
     expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("tracks the active page so the chat injects page-aware context on tab switch", async () => {
+    const wrapper = await mountApp();
+    const chat = useChatStore();
+
+    await router.push("/knowledge");
+    await waitForRoute("/knowledge");
+    await flushPromises();
+    expect(chat.page).toBe("/knowledge");
+
+    await router.push("/wiki");
+    await waitForRoute("/wiki");
+    await flushPromises();
+    expect(chat.page).toBe("/wiki");
+
+    await router.push("/kanban");
+    await waitForRoute("/kanban");
+    await flushPromises();
+    expect(chat.page).toBe("/kanban");
     wrapper.unmount();
   });
 });

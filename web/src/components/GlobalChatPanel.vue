@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
 
 const chat = useChatStore();
-const { messages, loading, error, userId } = storeToRefs(chat);
+const { messages, loading, error, userId, page } = storeToRefs(chat);
 
 const input = ref("");
+
+// Pages whose capabilities are injected into the chat context (server-side).
+const PAGE_LABELS: Record<string, string> = {
+  "/knowledge": "Knowledge",
+  "/wiki": "Wiki",
+  "/workbench": "Workbench",
+  "/uploads": "Uploads",
+};
+
+const pageLabel = computed(() => PAGE_LABELS[page.value] ?? "");
 
 function sendMessage() {
   const text = input.value.trim();
@@ -28,14 +38,17 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   <aside class="global-chat-panel">
     <header class="chat-header">
       <h2 class="chat-title">Personal Chat</h2>
-      <div class="user-id-field">
-        <span class="user-id-label">User ID</span>
-        <t-input
-          v-model="userId"
-          class="user-id-input"
-          size="small"
-          placeholder="User ID"
-        />
+      <div class="chat-header-right">
+        <span v-if="pageLabel" class="page-context">Context: {{ pageLabel }}</span>
+        <div class="user-id-field">
+          <span class="user-id-label">User ID</span>
+          <t-input
+            v-model="userId"
+            class="user-id-input"
+            size="small"
+            placeholder="User ID"
+          />
+        </div>
       </div>
     </header>
 
@@ -104,6 +117,22 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   margin: 0;
   font-size: 16px;
   color: var(--caleo-text);
+}
+
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-context {
+  font-size: 12px;
+  color: var(--caleo-primary);
+  background: color-mix(in srgb, var(--caleo-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--caleo-primary) 40%, transparent);
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
 }
 
 .user-id-field {

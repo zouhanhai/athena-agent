@@ -111,6 +111,7 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       "hermes",
       "Hello there",
       expect.objectContaining({ onDelta: expect.any(Function) }),
+      "",
     );
 
     const rows = wrapper.findAll(".message-row");
@@ -152,6 +153,7 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       "alice",
       "hi",
       expect.any(Object),
+      "",
     );
     wrapper.unmount();
   });
@@ -208,6 +210,7 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       "hermes",
       "Hello there",
       expect.any(Object),
+      "",
     );
     expect((composerTextarea(wrapper).element as HTMLTextAreaElement).value).toBe("");
     wrapper.unmount();
@@ -233,6 +236,27 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
 
     expect(wrapper.find(".chat-error").text()).toContain("network down");
     expect(sendButton(wrapper).disabled).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows the page-context badge for a known page", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.setPage("/workbench");
+    await flushPromises();
+
+    expect(wrapper.find(".page-context").exists()).toBe(true);
+    expect(wrapper.find(".page-context").text()).toContain("Workbench");
+    wrapper.unmount();
+  });
+
+  it("hides the page-context badge on unknown pages", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.setPage("/kanban");
+    await flushPromises();
+
+    expect(wrapper.find(".page-context").exists()).toBe(false);
     wrapper.unmount();
   });
 });

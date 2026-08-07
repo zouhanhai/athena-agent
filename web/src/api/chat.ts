@@ -13,11 +13,17 @@ export interface ChatStreamHandlers {
 }
 
 /**
- * Non-streaming chat: POST /api/chat { userId, message } → { reply }.
- * Throws an Error on failure (includes HTTP status code or network error).
+ * Non-streaming chat: POST /api/chat { userId, message, page? } → { reply }.
+ * The optional `page` is the current route path; the server injects that page's
+ * relevant agent capabilities into the conversation context. Throws an Error on
+ * failure (includes HTTP status code or network error).
  */
-export async function sendChat(userId: string, message: string): Promise<string> {
-  const res = await postChat(userId, message);
+export async function sendChat(
+  userId: string,
+  message: string,
+  page?: string,
+): Promise<string> {
+  const res = await postChat(userId, message, {}, page);
   const data = (await res.json()) as ChatReply;
   return data.reply;
 }
@@ -30,8 +36,9 @@ export async function streamChat(
   userId: string,
   message: string,
   handlers: ChatStreamHandlers,
+  page?: string,
 ): Promise<void> {
-  const res = await postChat(userId, message, { Accept: "text/event-stream" });
+  const res = await postChat(userId, message, { Accept: "text/event-stream" }, page);
   await consumeSSEStream(res, handlers);
 }
 
@@ -39,14 +46,19 @@ async function postChat(
   userId: string,
   message: string,
   extraHeaders: Record<string, string> = {},
+  page?: string,
 ): Promise<Response> {
+  const body: Record<string, string> = { userId, message };
+  if (page) {
+    body.page = page;
+  }
   const res = await fetch(CHAT_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...extraHeaders,
     },
-    body: JSON.stringify({ userId, message }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     throw new Error(`Request failed with status ${res.status}`);

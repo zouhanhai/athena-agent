@@ -1,10 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import type { AgentManager } from "../agents/manager.js";
 import { streamAgentText } from "../agents/stream.js";
+import { injectPageContext } from "../agents/page-context.js";
 
 export interface ChatRequestBody {
   message?: unknown;
   userId?: unknown;
+  /** Current page route path — drives page-aware capability injection. Optional. */
+  page?: unknown;
 }
 
 export interface ChatRouteOptions {
@@ -37,7 +40,12 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
 
     const userId = body.userId as string;
     const message = body.message as string;
+    const page = typeof body.page === "string" ? body.page : "";
     const agent = await options.manager.getAgent(userId);
+    // Page-aware context injection: prepend the current page's relevant agent
+    // capabilities so the agent answers with context-appropriate tooling. The
+    // conversation context (shared session) is never altered — only the prompt.
+    const prompt = injectPageContext(page, message);
 
     const wantsStream =
       typeof request.headers.accept === "string" &&
@@ -52,7 +60,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         Connection: "keep-alive",
       });
       try {
-        for await (const delta of streamAgentText(agent, message)) {
+        for await (const delta of streamAgentText(agent, prompt)) {
           raw.write(sseFrame({ delta }));
         }
         raw.write(sseFrame({ done: true }));
@@ -65,7 +73,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     }
 
     try {
-      const replyText = await agent.prompt(message);
+      const replyText = await agent.prompt(prompt);
       return { reply: replyText };
     } catch (err) {
       return reply

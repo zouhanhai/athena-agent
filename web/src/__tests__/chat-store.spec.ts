@@ -44,12 +44,13 @@ beforeEach(() => {
 });
 
 describe("chat store", () => {
-  it("starts with empty messages, no loading/error, and default userId", () => {
+  it("starts with empty messages, no loading/error, default userId and no page", () => {
     const store = useChatStore();
     expect(store.messages).toEqual([]);
     expect(store.loading).toBe(false);
     expect(store.error).toBe("");
     expect(store.userId).toBe("hermes");
+    expect(store.page).toBe("");
   });
 
   it("send pushes a user message and streams deltas into an assistant bubble", async () => {
@@ -65,6 +66,7 @@ describe("chat store", () => {
       "hermes",
       "hello there",
       expect.objectContaining({ onDelta: expect.any(Function) }),
+      "",
     );
 
     stream.push("Hel");
@@ -74,6 +76,50 @@ describe("chat store", () => {
 
     expect(store.messages[1]!.content).toBe("Hello");
     expect(store.loading).toBe(false);
+  });
+
+  it("sends the current page so the server can inject page-aware capabilities", async () => {
+    resolveStream();
+    const store = useChatStore();
+    store.setPage("/workbench");
+
+    await store.send("list my repos");
+
+    expect(streamChatMock).toHaveBeenCalledWith(
+      "hermes",
+      "list my repos",
+      expect.objectContaining({ onDelta: expect.any(Function) }),
+      "/workbench",
+    );
+  });
+
+  it("setPage updates the tracked page", () => {
+    const store = useChatStore();
+    store.setPage("/wiki");
+    expect(store.page).toBe("/wiki");
+    store.setPage("/knowledge");
+    expect(store.page).toBe("/knowledge");
+  });
+
+  it("keeps the conversation context when switching pages (tab switch does not reset)", async () => {
+    resolveStream();
+    const store = useChatStore();
+    store.setPage("/knowledge");
+
+    await store.send("first on knowledge");
+    expect(store.messages).toHaveLength(2);
+
+    store.setPage("/workbench");
+    expect(store.page).toBe("/workbench");
+    expect(store.messages).toHaveLength(2);
+
+    await store.send("second on workbench");
+    expect(store.messages).toHaveLength(4);
+    expect(store.messages[0]).toEqual({ role: "user", content: "first on knowledge" });
+    expect(store.messages[2]).toEqual({ role: "user", content: "second on workbench" });
+
+    const pages = streamChatMock.mock.calls.map((call) => call[3]);
+    expect(pages).toEqual(["/knowledge", "/workbench"]);
   });
 
   it("does not send an empty or whitespace message", async () => {

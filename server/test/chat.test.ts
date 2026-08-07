@@ -9,21 +9,24 @@ type EventListener = (event: unknown) => void;
 
 interface FakeSession {
   chunks: string[];
+  prompts: string[];
   subscribe(listener: EventListener): () => void;
   prompt(text: string): Promise<void>;
 }
 
 function makeFakeSession(chunks: string[]): FakeSession {
   const listeners = new Set<EventListener>();
-  return {
+  const session: FakeSession = {
     chunks,
+    prompts: [],
     subscribe(listener: EventListener): () => void {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
       };
     },
-    async prompt(): Promise<void> {
+    async prompt(text: string): Promise<void> {
+      session.prompts.push(text);
       for (const delta of chunks) {
         for (const l of listeners) {
           l({
@@ -38,6 +41,7 @@ function makeFakeSession(chunks: string[]): FakeSession {
       }
     },
   };
+  return session;
 }
 
 function makeStubAgent(session: FakeSession): Agent {
@@ -118,6 +122,96 @@ test("POST /api/chat different userId creates independent sessions", async () =>
       payload: { userId: "bob", message: "hi" },
     });
     assert.ok(res.body.includes("data: {\"delta\":\"bob-dedicated\"}\n\n"), "bob should hit bob's session");
+  } finally {
+    await chatApp.close();
+  }
+});
+
+test("POST /api/chat injects page-specific capabilities into the prompt (Workbench → GitHub)", async () => {
+  const session = makeFakeSession(["w1", "-chunk"]);
+  const manager = new AgentManager({}, async () => makeStubAgent(session));
+  const chatApp = buildApp({ manager });
+  try {
+    const res = await chatApp.inject({
+      method: "POST",
+      url: "/api/chat",
+      headers: { accept: "text/event-stream" },
+      payload: { userId: "alice", message: "list my repos", page: "/workbench" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.ok(session.prompts.length === 1, "session should have received one prompt");
+    const prompt = session.prompts[0]!;
+    assert.ok(prompt.includes("Workbench"), "should name the current page");
+    assert.ok(prompt.includes("GitHub"), "should inject GitHub capabilities");
+    assert.ok(prompt.endsWith("list my repos"), "user message should be preserved at the end");
+  } finally {
+    await chatApp.close();
+  }
+});
+
+test("POST /api/chat injects knowledge tools for Knowledge / Wiki pages", async () => {
+  for (const page of ["/knowledge", "/wiki"]) {
+    const session = makeFakeSession(["k"]);
+    const manager = new AgentManager({}, async () => makeStubAgent(session));
+    const chatApp = buildApp({ manager });
+    try {
+      await chatApp.inject({
+        method: "POST",
+        url: "/api/chat",
+        headers: { accept: "text/event-stream" },
+        payload: { userId: "alice", message: "explain RAG", page },
+      });
+      assert.ok(session.prompts[0]!.includes("knowledge_search"), `${page} should inject knowledge_search`);
+      assert.ok(session.prompts[0]!.includes("wiki_search"), `${page} should inject wiki_search`);
+    } finally {
+      await chatApp.close();
+    }
+  }
+});
+
+test("POST /api/chat with no page leaves the prompt unchanged (no injection)", async () => {
+  const session = makeFakeSession(["n"]);
+  const manager = new AgentManager({}, async () => makeStubAgent(session));
+  const chatApp = buildApp({ manager });
+  try {
+    const res = await chatApp.inject({
+      method: "POST",
+      url: "/api/chat",
+      headers: { accept: "text/event-stream" },
+      payload: { userId: "alice", message: "plain question" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(session.prompts, ["plain question"]);
+  } finally {
+    await chatApp.close();
+  }
+});
+
+test("POST /api/chat same userId across pages keeps ONE shared session (context persists)", async () => {
+  let factoryCalls = 0;
+  const session = makeFakeSession(["c"]);
+  const manager = new AgentManager({}, async () => {
+    factoryCalls++;
+    return makeStubAgent(session);
+  });
+  const chatApp = buildApp({ manager });
+  try {
+    await chatApp.inject({
+      method: "POST",
+      url: "/api/chat",
+      headers: { accept: "text/event-stream" },
+      payload: { userId: "alice", message: "first", page: "/knowledge" },
+    });
+    await chatApp.inject({
+      method: "POST",
+      url: "/api/chat",
+      headers: { accept: "text/event-stream" },
+      payload: { userId: "alice", message: "second", page: "/workbench" },
+    });
+    assert.equal(factoryCalls, 1, "switching pages must not create a new session");
+    assert.equal(session.prompts.length, 2, "both turns should go to the same session");
+    assert.ok(session.prompts[0]!.includes("knowledge"), "first turn carries knowledge injection");
+    assert.ok(session.prompts[1]!.includes("GitHub"), "second turn carries workbench injection");
   } finally {
     await chatApp.close();
   }

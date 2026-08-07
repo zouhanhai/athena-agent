@@ -47,6 +47,32 @@ describe("sendChat (non-streaming)", () => {
     await expect(sendChat("hermes", "hi")).rejects.toThrow("500");
   });
 
+  it("includes the current page in the request body when provided", async () => {
+    stubFetch(jsonResponse({ reply: "ok" }));
+    await sendChat("hermes", "hi", "/workbench");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat",
+      expect.objectContaining({
+        body: JSON.stringify({ userId: "hermes", message: "hi", page: "/workbench" }),
+      }),
+    );
+  });
+
+  it("omits the page field when no page is provided", async () => {
+    stubFetch(jsonResponse({ reply: "ok" }));
+    await sendChat("hermes", "hi");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat",
+      expect.objectContaining({
+        body: JSON.stringify({ userId: "hermes", message: "hi" }),
+      }),
+    );
+  });
+
   it("rejects when the request fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
     await expect(sendChat("hermes", "hi")).rejects.toThrow("network down");
@@ -94,5 +120,18 @@ describe("streamChat (streaming)", () => {
     await expect(
       streamChat("hermes", "hi", { onDelta: () => {} }),
     ).rejects.toThrow("400");
+  });
+
+  it("streams with the current page included in the request body", async () => {
+    stubFetch(sseResponse(['data: {"done":true}\n\n']));
+    await streamChat("hermes", "hi", { onDelta: () => {} }, "/knowledge");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat",
+      expect.objectContaining({
+        body: JSON.stringify({ userId: "hermes", message: "hi", page: "/knowledge" }),
+      }),
+    );
   });
 });
