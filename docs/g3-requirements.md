@@ -66,6 +66,27 @@ B. **Workbench 3-panel page**: Chat | Repo tree | Kanban. Kanban is NOT a separa
      multi-user / Workbench. Click any → opens its message stream. A **Workbench**
      conversation additionally renders the 3-panel layout (Chat | Repo tree | Kanban).
      Modern niceties: dynamic create/delete, unread markers, search.
+
+   → **SUPERSEDED (2026-08-07) — Global single-context Chat panel.** The whole
+     layout was redesigned. Key decisions:
+   - **Sidebar = pure navigation only** (Knowledge / Wiki / Workbench / Upload /
+     Output[future]). Chat is NOT a sidebar item / page.
+   - **Chat is a GLOBAL fixed panel on the RIGHT** (content area center, close to
+     the sidebar on the left). Switching tabs changes only the center content;
+     the chat context NEVER changes — one shared context across all pages.
+     Rationale: deepseek LLM cache hit-rate is high and cheap, so a single long
+     context is practical and efficient.
+   - **Agent cards above the chat** (Athena + other agents/employees can be added).
+     Any agent/employee can join the shared conversation.
+   - **Uploads is its own tab** (knowledge-base platform: ingest is core). Detail
+     of per-system processing stages (docling / LightRAG / llm_wiki) + chunk
+     progress, with an Athena-chat integration.
+   - **Workbench content area = 3 GitHub-style tabs**, per-user credential:
+     [Code] (GitHub-style file tree + code view w/ line numbers + syntax
+     highlighting + branch selector) | [Issues] (GitHub-style list) | [Kanban].
+   - The global Chat panel also appears on Wiki / Knowledge / Uploads pages, so
+     users can ask Athena (server-side knowledge agent) about anything while
+     working.
 C. **Employee login + RBAC in G3** (since it shares the agent registry), but as a
    **separate Spec**.
 D. **soul roles (Consultant/PM/EngD/Reviewer/Writer)** belong to **git-driven
