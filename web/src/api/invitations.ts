@@ -102,3 +102,15 @@ export async function fetchMe(sessionToken: string): Promise<EmployeeRecord | nu
   }
   return (await res.json()) as EmployeeRecord;
 }
+
+/** GET /api/employees (Bearer) → the registered employees, for the add-employee entry. */
+export async function listEmployees(sessionToken: string): Promise<EmployeeRecord[]> {
+  const res = await fetch("/api/employees", {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Request failed with status ${res.status}`);
+  }
+  const data = (await res.json()) as { employees?: EmployeeRecord[] };
+  return data.employees ?? [];
+}

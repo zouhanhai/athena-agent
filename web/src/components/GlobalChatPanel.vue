@@ -1,22 +1,42 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useChatStore } from "@/stores/chat";
+import { useChatStore, PAGE_LABELS } from "@/stores/chat";
+import { useAuthStore } from "@/stores/auth";
+import { listAgents } from "@/api/agents";
+import { listEmployees } from "@/api/invitations";
+import AgentCard from "@/components/AgentCard.vue";
+import type { AgentRecord } from "@/api/agents";
+import type { EmployeeRecord } from "@/api/invitations";
 
 const chat = useChatStore();
+const auth = useAuthStore();
 const { messages, loading, error, userId, page } = storeToRefs(chat);
 
 const input = ref("");
-
-// Pages whose capabilities are injected into the chat context (server-side).
-const PAGE_LABELS: Record<string, string> = {
-  "/knowledge": "Knowledge",
-  "/wiki": "Wiki",
-  "/workbench": "Workbench",
-  "/uploads": "Uploads",
-};
+const agentPickerOpen = ref(false);
+const employeePickerOpen = ref(false);
+const availableAgents = ref<AgentRecord[]>([]);
+const availableEmployees = ref<EmployeeRecord[]>([]);
+const pickerError = ref("");
 
 const pageLabel = computed(() => PAGE_LABELS[page.value] ?? "");
+
+// The signed-in employee is the human behind the user bubbles (G3.S2 identity).
+watch(
+  () => auth.employee,
+  (employee) => {
+    if (employee) {
+      chat.setUserSpeaker({
+        id: employee.id,
+        kind: "employee",
+        name: employee.display_name || employee.email,
+        logoUrl: employee.logo_url,
+      });
+    }
+  },
+  { immediate: true },
+);
 
 function sendMessage() {
   const text = input.value.trim();
@@ -32,12 +52,77 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
     sendMessage();
   }
 }
+
+/** Open/close the add-agent picker, loading the agent registry on first open. */
+async function toggleAgentPicker() {
+  agentPickerOpen.value = !agentPickerOpen.value;
+  employeePickerOpen.value = false;
+  pickerError.value = "";
+  if (agentPickerOpen.value && availableAgents.value.length === 0) {
+    try {
+      availableAgents.value = await listAgents();
+    } catch (err) {
+      pickerError.value = err instanceof Error ? err.message : String(err);
+    }
+  }
+}
+
+/** Open/close the add-employee picker, loading employees on first open. */
+async function toggleEmployeePicker() {
+  employeePickerOpen.value = !employeePickerOpen.value;
+  agentPickerOpen.value = false;
+  pickerError.value = "";
+  if (employeePickerOpen.value && availableEmployees.value.length === 0) {
+    try {
+      availableEmployees.value = await listEmployees(auth.sessionToken ?? "");
+    } catch (err) {
+      pickerError.value = err instanceof Error ? err.message : String(err);
+    }
+  }
+}
+
+function pickableAgents() {
+  const joined = new Set(chat.participants.map((p) => p.id));
+  return availableAgents.value.filter((agent) => !joined.has(agent.alias));
+}
+
+function pickableEmployees() {
+  const joined = new Set(chat.participants.map((p) => p.id));
+  return availableEmployees.value.filter((emp) => !joined.has(emp.id));
+}
+
+function addAgent(agent: AgentRecord) {
+  chat.onAgentJoined({
+    id: agent.alias,
+    kind: "agent",
+    name: agent.alias,
+    logoUrl: agent.logo_url,
+    capabilities: [
+      agent.capabilities.specialty,
+      ...agent.capabilities.mcp,
+      ...agent.capabilities.tools,
+      ...agent.capabilities.skills,
+    ].filter(Boolean),
+  });
+  agentPickerOpen.value = false;
+}
+
+function addEmployee(emp: EmployeeRecord) {
+  chat.onAgentJoined({
+    id: emp.id,
+    kind: "employee",
+    name: emp.display_name || emp.email,
+    logoUrl: emp.logo_url,
+    capabilities: [emp.role],
+  });
+  employeePickerOpen.value = false;
+}
 </script>
 
 <template>
   <aside class="global-chat-panel">
     <header class="chat-header">
-      <h2 class="chat-title">Personal Chat</h2>
+      <h2 class="chat-title">Shared Chat</h2>
       <div class="chat-header-right">
         <span v-if="pageLabel" class="page-context">Context: {{ pageLabel }}</span>
         <div class="user-id-field">
@@ -52,9 +137,64 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
       </div>
     </header>
 
+    <section class="participants">
+      <h3 class="participants-title">In conversation</h3>
+      <div class="agent-cards">
+        <AgentCard
+          v-for="participant in chat.participants"
+          :key="participant.id"
+          :participant="participant"
+          @speak-change="(speak) => chat.onSpeakToggleChanged(participant.id, speak)"
+          @left="chat.onAgentLeft(participant.id)"
+        />
+      </div>
+      <div class="add-entries">
+        <t-button size="small" variant="outline" class="add-agent-entry" @click="toggleAgentPicker">
+          + Add agent
+        </t-button>
+        <t-button size="small" variant="outline" class="add-employee-entry" @click="toggleEmployeePicker">
+          + Add employee
+        </t-button>
+      </div>
+
+      <div v-if="agentPickerOpen" class="picker add-agent-picker">
+        <p v-if="pickerError" class="picker-error">{{ pickerError }}</p>
+        <button
+          v-for="agent in pickableAgents()"
+          :key="agent.alias"
+          type="button"
+          class="picker-option"
+          @click="addAgent(agent)"
+        >
+          <img class="picker-logo" :src="agent.logo_url" alt="" />
+          <span>{{ agent.alias }}</span>
+        </button>
+        <p v-if="!pickerError && pickableAgents().length === 0" class="picker-empty">
+          No agents available to add.
+        </p>
+      </div>
+
+      <div v-if="employeePickerOpen" class="picker add-employee-picker">
+        <p v-if="pickerError" class="picker-error">{{ pickerError }}</p>
+        <button
+          v-for="emp in pickableEmployees()"
+          :key="emp.id"
+          type="button"
+          class="picker-option"
+          @click="addEmployee(emp)"
+        >
+          <img class="picker-logo" :src="emp.logo_url" alt="" />
+          <span>{{ emp.display_name || emp.email }}</span>
+        </button>
+        <p v-if="!pickerError && pickableEmployees().length === 0" class="picker-empty">
+          No employees available to add.
+        </p>
+      </div>
+    </section>
+
     <div class="message-list">
       <p v-if="messages.length === 0" class="empty-hint">
-        Start a conversation with your personal Pi assistant.
+        Start a conversation with your team.
       </p>
       <div
         v-for="(msg, index) in messages"
@@ -62,9 +202,22 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
         class="message-row"
         :class="msg.role"
       >
-        <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
-          {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
+        <div v-if="msg.role === 'system'" class="system-notice">
+          {{ msg.content }}
         </div>
+        <template v-else>
+          <span v-if="msg.speaker" class="speaker-logo">
+            <img
+              v-if="msg.speaker.logoUrl"
+              :src="msg.speaker.logoUrl"
+              :alt="msg.speaker.name"
+            />
+            <span v-else class="speaker-fallback">{{ msg.speaker.name.charAt(0).toUpperCase() }}</span>
+          </span>
+          <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
+            {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
+          </div>
+        </template>
       </div>
     </div>
 
@@ -150,6 +303,77 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   width: 140px;
 }
 
+.participants {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  box-shadow: var(--caleo-shadow);
+}
+
+.participants-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--caleo-text-secondary);
+}
+
+.agent-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.add-entries {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.picker {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--caleo-text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.picker-option:hover {
+  background: var(--caleo-hover, rgba(255, 102, 51, 0.08));
+}
+
+.picker-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: contain;
+}
+
+.picker-error {
+  color: #d54941;
+  font-size: 12px;
+}
+
+.picker-empty {
+  color: var(--caleo-text-secondary);
+  font-size: 12px;
+}
+
 .message-list {
   flex: 1;
   overflow-y: auto;
@@ -171,14 +395,52 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
 
 .message-row {
   display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .message-row.user {
   justify-content: flex-end;
+  flex-direction: row-reverse;
 }
 
 .message-row.assistant {
   justify-content: flex-start;
+}
+
+.system-notice {
+  margin: 0 auto;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  background: color-mix(in srgb, var(--caleo-text-secondary) 10%, transparent);
+  border-radius: 999px;
+  padding: 3px 12px;
+  text-align: center;
+}
+
+.speaker-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: var(--caleo-card-bg, #fff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.speaker-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.speaker-fallback {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-primary);
 }
 
 .bubble {

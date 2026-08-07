@@ -8,13 +8,43 @@ import "tdesign-vue-next/es/style/index.css";
 import GlobalChatPanel from "@/components/GlobalChatPanel.vue";
 import { useChatStore } from "@/stores/chat";
 import { streamChat } from "@/api/chat";
+import { listAgents } from "@/api/agents";
+import { listEmployees } from "@/api/invitations";
 
 vi.mock("@/api/chat", () => ({
   streamChat: vi.fn(),
   sendChat: vi.fn(),
 }));
 
+vi.mock("@/api/agents", () => ({
+  listAgents: vi.fn(),
+}));
+
+vi.mock("@/api/invitations", () => ({
+  listEmployees: vi.fn(),
+}));
+
 const streamChatMock = streamChat as unknown as ReturnType<typeof vi.fn>;
+const listAgentsMock = listAgents as unknown as ReturnType<typeof vi.fn>;
+const listEmployeesMock = listEmployees as unknown as ReturnType<typeof vi.fn>;
+
+const HERMES_AGENT = {
+  id: "a2",
+  alias: "Hermes",
+  owner_employee_id: "e1",
+  logo_url: "/logos/fox.png",
+  runtime: "local",
+  created_at: "",
+  updated_at: "",
+  capabilities: {
+    system: "opencode",
+    mcp: ["github"],
+    tools: [],
+    skills: [],
+    specialty: "software-engineering",
+    description: "",
+  },
+};
 
 type ChatWrapper = VueWrapper<unknown>;
 
@@ -85,6 +115,8 @@ function sendButton(wrapper: ChatWrapper) {
 
 afterEach(() => {
   streamChatMock.mockReset();
+  listAgentsMock.mockReset();
+  listEmployeesMock.mockReset();
 });
 
 describe("GlobalChatPanel personal chat panel (store-backed)", () => {
@@ -92,7 +124,7 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
     const wrapper = mountChat();
     const store = useChatStore();
 
-    expect(wrapper.text()).toContain("Personal Chat");
+    expect(wrapper.text()).toContain("Shared Chat");
     expect((wrapper.find(".user-id-input input").element as HTMLInputElement).value).toBe(
       store.userId,
     );
@@ -117,9 +149,9 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
     const rows = wrapper.findAll(".message-row");
     expect(rows).toHaveLength(2);
     expect(rows[0]!.classes()).toContain("user");
-    expect(rows[0]!.text()).toBe("Hello there");
+    expect(rows[0]!.find(".bubble").text()).toBe("Hello there");
     expect(rows[1]!.classes()).toContain("assistant");
-    expect(rows[1]!.text()).toBe("Hello, human.");
+    expect(rows[1]!.find(".bubble").text()).toBe("Hello, human.");
     wrapper.unmount();
   });
 
@@ -257,6 +289,168 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
     await flushPromises();
 
     expect(wrapper.find(".page-context").exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe("GlobalChatPanel agent cards", () => {
+  it("renders the default Athena agent card above the chat", () => {
+    const wrapper = mountChat();
+    const card = wrapper.find(".agent-card");
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain("Athena");
+    expect(card.find(".agent-card-logo").attributes("src")).toBe("/athena-logo-ai.png");
+    wrapper.unmount();
+  });
+
+  it("renders a speak-toggle and an X remove button on each agent card", () => {
+    const wrapper = mountChat();
+    const card = wrapper.find(".agent-card");
+    expect(card.find(".speak-toggle").exists()).toBe(true);
+    expect(card.find(".card-remove").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows a joined agent's capabilities on its card", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: ["github"],
+    });
+    await wrapper.vm.$nextTick();
+
+    const hermesCard = wrapper
+      .findAll(".agent-card")
+      .find((c) => c.text().includes("Hermes"));
+    expect(hermesCard).toBeDefined();
+    expect(hermesCard!.findAll(".cap-chip")).toHaveLength(1);
+    expect(hermesCard!.text()).toContain("github");
+    wrapper.unmount();
+  });
+
+  it("renders add-agent and add-employee entries above the chat", () => {
+    const wrapper = mountChat();
+    expect(wrapper.find(".add-agent-entry").exists()).toBe(true);
+    expect(wrapper.find(".add-employee-entry").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("adds an agent via the add-agent entry and fires onAgentJoined (card + notice)", async () => {
+    listAgentsMock.mockResolvedValue([HERMES_AGENT]);
+    const wrapper = mountChat();
+    const store = useChatStore();
+
+    await wrapper.find(".add-agent-entry").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".add-agent-picker").exists()).toBe(true);
+
+    const picker = wrapper.find(".add-agent-picker .picker-option");
+    expect(picker.exists()).toBe(true);
+    expect(picker.text()).toContain("Hermes");
+    await picker.trigger("click");
+    await flushPromises();
+
+    expect(store.participants.some((p) => p.name === "Hermes")).toBe(true);
+    expect(store.messages.some((m) => m.role === "system" && m.content.includes("Hermes"))).toBe(true);
+    const hermesCard = wrapper
+      .findAll(".agent-card")
+      .find((c) => c.text().includes("Hermes"));
+    expect(hermesCard).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("removes an agent via the X button and fires onAgentLeft (cleanup + notice)", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: [],
+    });
+    await wrapper.vm.$nextTick();
+
+    const hermesCard = wrapper
+      .findAll(".agent-card")
+      .find((c) => c.text().includes("Hermes"))!;
+    await hermesCard.find(".card-remove").trigger("click");
+
+    expect(store.participants.some((p) => p.name === "Hermes")).toBe(false);
+    expect(store.messages.some((m) => m.role === "system" && m.content.includes("left"))).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("adds an employee via the add-employee entry and fires onAgentJoined", async () => {
+    listEmployeesMock.mockResolvedValue([
+      {
+        id: "e2",
+        email: "carol@caleo.com",
+        display_name: "Carol",
+        logo_url: "/logos/raven.png",
+        role: "member",
+        created_at: "",
+        updated_at: "",
+      },
+    ]);
+    const wrapper = mountChat();
+    const store = useChatStore();
+
+    await wrapper.find(".add-employee-entry").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".add-employee-picker").exists()).toBe(true);
+
+    const picker = wrapper.find(".add-employee-picker .picker-option");
+    expect(picker.exists()).toBe(true);
+    expect(picker.text()).toContain("Carol");
+    await picker.trigger("click");
+    await flushPromises();
+
+    expect(store.participants.some((p) => p.name === "Carol")).toBe(true);
+    expect(store.participants.some((p) => p.kind === "employee")).toBe(true);
+    const carolCard = wrapper
+      .findAll(".agent-card")
+      .find((c) => c.text().includes("Carol"));
+    expect(carolCard).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("flipping the speak-toggle fires onSpeakToggleChanged and updates speak permission", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: [],
+    });
+    await wrapper.vm.$nextTick();
+
+    const hermesCard = wrapper
+      .findAll(".agent-card")
+      .find((c) => c.text().includes("Hermes"))!;
+    await hermesCard.find(".speak-toggle").setValue(false);
+    await wrapper.vm.$nextTick();
+
+    expect(store.participants.find((p) => p.name === "Hermes")!.speak).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows a speaker logo on each message bubble", async () => {
+    stubStream();
+    const wrapper = mountChat();
+    await send(wrapper, "Hello there");
+
+    const rows = wrapper.findAll(".message-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.find(".speaker-logo").exists()).toBe(true);
+    expect(rows[1]!.find(".speaker-logo").exists()).toBe(true);
+    expect(rows[1]!.find(".speaker-logo img").attributes("src")).toBe("/athena-logo-ai.png");
     wrapper.unmount();
   });
 });

@@ -51,6 +51,8 @@ describe("chat store", () => {
     expect(store.error).toBe("");
     expect(store.userId).toBe("hermes");
     expect(store.page).toBe("");
+    expect(store.participants).toHaveLength(1);
+    expect(store.participants[0]).toMatchObject({ id: "athena", kind: "agent", name: "Athena", speak: true });
   });
 
   it("send pushes a user message and streams deltas into an assistant bubble", async () => {
@@ -59,8 +61,16 @@ describe("chat store", () => {
     const store = useChatStore();
 
     const promise = store.send("hello there");
-    expect(store.messages[0]).toEqual({ role: "user", content: "hello there" });
-    expect(store.messages[1]).toEqual({ role: "assistant", content: "" });
+    expect(store.messages[0]).toMatchObject({
+      role: "user",
+      content: "hello there",
+      speaker: { id: "hermes", kind: "employee", name: "Hermes" },
+    });
+    expect(store.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "",
+      speaker: { id: "athena", kind: "agent", name: "Athena", logoUrl: "/athena-logo-ai.png" },
+    });
     expect(store.loading).toBe(true);
     expect(streamChatMock).toHaveBeenCalledWith(
       "hermes",
@@ -115,8 +125,8 @@ describe("chat store", () => {
 
     await store.send("second on workbench");
     expect(store.messages).toHaveLength(4);
-    expect(store.messages[0]).toEqual({ role: "user", content: "first on knowledge" });
-    expect(store.messages[2]).toEqual({ role: "user", content: "second on workbench" });
+    expect(store.messages[0]).toMatchObject({ role: "user", content: "first on knowledge" });
+    expect(store.messages[2]).toMatchObject({ role: "user", content: "second on workbench" });
 
     const pages = streamChatMock.mock.calls.map((call) => call[3]);
     expect(pages).toEqual(["/knowledge", "/workbench"]);
@@ -143,7 +153,9 @@ describe("chat store", () => {
     await promise;
 
     expect(store.error).toBe("agent exploded");
-    expect(store.messages).toEqual([{ role: "user", content: "ping" }]);
+    expect(store.messages).toEqual([
+      { role: "user", content: "ping", speaker: { id: "hermes", kind: "employee", name: "Hermes", logoUrl: "" } },
+    ]);
     expect(store.loading).toBe(false);
   });
 
@@ -168,5 +180,163 @@ describe("chat store", () => {
     expect(store.messages).toEqual([]);
     expect(store.loading).toBe(false);
     expect(store.error).toBe("");
+  });
+});
+
+describe("chat store participant hooks", () => {
+  it("onAgentJoined adds a participant card with speak on", () => {
+    const store = useChatStore();
+    const participant = store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: ["github"],
+    });
+
+    expect(store.participants).toHaveLength(2);
+    expect(store.participants[1]).toMatchObject({
+      id: "hermes::Hermes",
+      name: "Hermes",
+      speak: true,
+    });
+    expect(participant.speak).toBe(true);
+  });
+
+  it("onAgentJoined injects the current page context into the joined agent and notifies", () => {
+    const store = useChatStore();
+    store.setPage("/workbench");
+
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: ["github"],
+    });
+
+    expect(store.participants[1]!.joinedPage).toBe("Workbench");
+    const notice = store.messages[store.messages.length - 1]!;
+    expect(notice.role).toBe("system");
+    expect(notice.content).toContain("Hermes");
+    expect(notice.content).toContain("joined");
+  });
+
+  it("onAgentJoined does not add the same participant twice", () => {
+    const store = useChatStore();
+    const input = {
+      id: "hermes::Hermes",
+      kind: "agent" as const,
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: ["github"],
+    };
+    store.onAgentJoined(input);
+    store.onAgentJoined(input);
+
+    expect(store.participants).toHaveLength(2);
+  });
+
+  it("onSpeakToggleChanged updates the participant's speak permission", () => {
+    const store = useChatStore();
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: [],
+    });
+
+    store.onSpeakToggleChanged("hermes::Hermes", false);
+    expect(store.participants[1]!.speak).toBe(false);
+
+    store.onSpeakToggleChanged("hermes::Hermes", true);
+    expect(store.participants[1]!.speak).toBe(true);
+  });
+
+  it("onAgentLeft removes the agent card, cleans up its context and notifies", () => {
+    const store = useChatStore();
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: [],
+    });
+
+    store.onAgentLeft("hermes::Hermes");
+
+    expect(store.participants).toHaveLength(1);
+    expect(store.participants[0]!.id).toBe("athena");
+    const notice = store.messages[store.messages.length - 1]!;
+    expect(notice.role).toBe("system");
+    expect(notice.content).toContain("Hermes");
+    expect(notice.content).toContain("left");
+  });
+
+  it("onAgentLeft is a no-op for an unknown id", () => {
+    const store = useChatStore();
+    store.onAgentLeft("missing");
+    expect(store.participants).toHaveLength(1);
+    expect(store.messages).toEqual([]);
+  });
+});
+
+describe("chat store message speakers", () => {
+  it("attributes the assistant bubble to the default Athena agent", async () => {
+    resolveStream();
+    const store = useChatStore();
+
+    await store.send("hi");
+
+    expect(store.messages[1]!.speaker).toMatchObject({
+      id: "athena",
+      kind: "agent",
+      name: "Athena",
+      logoUrl: "/athena-logo-ai.png",
+    });
+  });
+
+  it("attributes the assistant bubble to a joined agent whose speak is on", async () => {
+    resolveStream();
+    const store = useChatStore();
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "/logos/fox.png",
+      capabilities: [],
+    });
+
+    await store.send("hi");
+
+    expect(store.messages[1]!.speaker).toMatchObject({ name: "Hermes" });
+  });
+
+  it("keeps the user bubble attributed to the default user speaker", async () => {
+    resolveStream();
+    const store = useChatStore();
+
+    await store.send("hi");
+
+    expect(store.messages[0]!.speaker).toMatchObject({
+      id: "hermes",
+      kind: "employee",
+      name: "Hermes",
+    });
+  });
+
+  it("setUserSpeaker attributes user bubbles to the signed-in employee", async () => {
+    resolveStream();
+    const store = useChatStore();
+    store.setUserSpeaker({ id: "e1", kind: "employee", name: "Carol", logoUrl: "/logos/raven.png" });
+
+    await store.send("hi");
+
+    expect(store.messages[0]!.speaker).toMatchObject({
+      id: "e1",
+      name: "Carol",
+      logoUrl: "/logos/raven.png",
+    });
   });
 });

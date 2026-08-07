@@ -5,6 +5,8 @@ import {
   sendInvite,
   requestMagicLink,
   verifyMagicLink,
+  listEmployees,
+  fetchMe,
 } from "@/api/invitations";
 
 const fetchMock = vi.fn();
@@ -90,5 +92,25 @@ describe("invitations API", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/auth/verify");
     expect(JSON.parse(init.body)).toEqual({ token: "login-token" });
+  });
+
+  it("listEmployees GETs employees with the Bearer session token", async () => {
+    const employees = [
+      { id: "e1", email: "carol@caleo.com", display_name: "Carol", logo_url: "/logos/fox.png", role: "member" },
+    ];
+    fetchMock.mockResolvedValue(ok({ employees }));
+    const result = await listEmployees("ses123");
+    expect(result).toEqual(employees);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/employees");
+    expect(init.headers).toEqual({ Authorization: "Bearer ses123" });
+  });
+
+  it("fetchMe returns null on 401 and the employee on 200", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }));
+    expect(await fetchMe("bad")).toBeNull();
+
+    fetchMock.mockResolvedValue(ok({ id: "e1", email: "a@b.com" }));
+    expect(await fetchMe("good")).toMatchObject({ id: "e1" });
   });
 });
