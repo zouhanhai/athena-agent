@@ -7,10 +7,11 @@ owner: pm
 status: active
 milestone: M3
 acceptance_criteria:
-  - "Agent registry stored in Postgres: alias, owner employee, logo, capabilities (system/MCP/tools), runtime"
+  - "Agent registry stored in Postgres: alias, owner employee, logo, capabilities (system/MCP/tools/skills/specialty), runtime"
   - "Local Athena default declaration: knowledge assistant (llm_wiki + LightRAG, file upload, knowledge-graph Q&A), owl logo"
   - "Logo system: image-gen model generates a consistent-style set of animal logos (owl as reference) + agent self-upload"
   - "CRUD API for agent registration (register/update/query)"
+  - "Capabilities shape follows Vercel-inspired standardization: {system, mcp[], tools[], skills[], specialty, description}"
   - "Agent identity usable by other G3 specs (S2/S3/S4/S5)"
 ---
 
@@ -43,7 +44,9 @@ Agent (any: local Athena / employee agent / remote WTS)
 
 ### 1. Agent data model (Postgres)
 - `agents` table: id, alias, owner_employee_id, logo_url, capabilities (jsonb), runtime, created_at, updated_at
-- Capabilities shape: `{ system: string, mcp: string[], tools: string[], description: string }`
+- **Capabilities shape (Vercel-inspired, §4.3):** `{ system: string, mcp: string[], tools: string[], skills: string[], specialty: string, description: string }`
+  - `skills[]`: deep-dive guides/capabilities the agent can run (Vercel 28-skills model)
+  - `specialty`: agent's expertise area (Vercel specialist-agent model, e.g. deployment/performance/ai-arch)
 
 ### 2. Local Athena default declaration
 - Seed a default agent on server start: alias=`Athena`, owner=`system`, logo=`/athena-logo-ai.png` (from `web/public/athena-logo-ai.png`, existing owl logo), capabilities={ system: "athena", mcp: ["lightrag","llm_wiki"], tools: ["file_upload","knowledge_graph_qa"] }

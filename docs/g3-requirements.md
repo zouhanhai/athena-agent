@@ -165,6 +165,31 @@ code-capable agent. It defines a **protocol** in three layers:
 **Key principle:** worker abstraction — any code-capable agent can join; the
 platform only standardizes the md files + git coordination, not the agent runtime.
 
+## 4.3 Vercel Plugin reference (2026-08-07) — agent capability standardization
+
+Vercel's AI-coding-agent plugin (`npx plugins add vercel/vercel-plugin`) is the
+industry direction for standardizing agent capabilities across tools (Claude
+Code / Codex / Grok / Cursor / Copilot / Kimi). Concepts adopted into our Agent
+Registry (G3.S1):
+
+- **Capability declaration standardization**: each agent declares a set of
+  **skills** (deep-dive guides it can run) + a **specialty** (like Vercel's
+  3 specialist agents: deployment-expert / performance-optimizer / ai-architect).
+  Our `capabilities` field extends from `{system, mcp[], tools[]}` to also carry
+  `skills[]` + `specialty`.
+- **Session-start context injection**: Vercel only injects context when relevant
+  (empty dir / detected project). Our global Chat (G3.S3) should **dynamically
+  inject the current page's relevant agent capabilities** (Uploads page → ingest
+  capabilities; Workbench page → GitHub capabilities; Wiki → knowledge tools)
+  rather than always injecting everything.
+- **Hooks / lifecycle**: session-start / agent-joined / agent-left hooks so the
+  platform can react (e.g. a `knowledge-update` hook refreshes an agent's context
+  when knowledge changes).
+- **Ecosystem graph**: Vercel's relational knowledge graph maps to our **LightRAG
+  knowledge graph** — agents query it for domain context.
+- **Standardized registry schema**: a shared agent-registration schema (like a
+  plugin manifest) so any agent can register in a uniform way.
+
 
 ## 5. StaffDeck reference notes (OpenBMB)
 
