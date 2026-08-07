@@ -30,6 +30,23 @@ mkdir -p "$LOG_DIR"
 log()  { echo "[$(date '+%H:%M:%S')] $*"; }
 port_in_use() { ss -tlnp 2>/dev/null | grep -q ":$1 " ; }
 
+# --- 0. Load OPENROUTER_API_KEY (needed by athena-back for docling picture
+#        descriptions via parse_doc.py's OpenRouter VLM). The key lives in
+#        ~/.bashrc as a base64 command; export the decoded plaintext here so the
+#        detached server process inherits it.
+load_openrouter_key() {
+  if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    return  # already set
+  fi
+  local b64
+  b64=$(sed -n 's/.*echo \([A-Za-z0-9+/=]\{16,\}\).*base64.*/\1/p' "$HOME/.bashrc" 2>/dev/null | head -1)
+  if [ -n "$b64" ]; then
+    export OPENROUTER_API_KEY="$(echo "$b64" | base64 -d 2>/dev/null)"
+    [ -n "${OPENROUTER_API_KEY:-}" ] && log "Loaded OPENROUTER_API_KEY from ~/.bashrc (decoded)"
+  fi
+}
+load_openrouter_key
+
 # --- 1. LightRAG -----------------------------------------------------------
 if port_in_use 9621; then
   log "LightRAG :9621 already running"
