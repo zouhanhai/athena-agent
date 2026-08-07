@@ -16,6 +16,8 @@ const validBody = {
     system: "hermes",
     mcp: ["sap"],
     tools: ["code", "search"],
+    skills: ["git_workflow", "code_review"],
+    specialty: "integration",
     description: "Integration agent",
   },
 };
@@ -87,6 +89,24 @@ test("POST /api/agents rejects capabilities without tools", async () => {
   assert.equal(res.statusCode, 400);
 });
 
+test("POST /api/agents rejects capabilities without skills", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/agents",
+    payload: { ...validBody, capabilities: { system: "hermes", mcp: [], tools: [], specialty: "integration" } },
+  });
+  assert.equal(res.statusCode, 400);
+});
+
+test("POST /api/agents rejects capabilities without specialty", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/agents",
+    payload: { ...validBody, capabilities: { system: "hermes", mcp: [], tools: [], skills: ["git"] } },
+  });
+  assert.equal(res.statusCode, 400);
+});
+
 test("POST /api/agents conflicts (409) when the alias is already registered", async () => {
   const first = await app.inject({ method: "POST", url: "/api/agents", payload: validBody });
   assert.equal(first.statusCode, 201);
@@ -145,13 +165,21 @@ test("PUT /api/agents/:alias updates logo_url and capabilities", async () => {
     url: "/api/agents/Hermes",
     payload: {
       logo_url: "/hermes-v2.png",
-      capabilities: { system: "hermes", mcp: ["sap", "github"], tools: ["code"] },
+      capabilities: {
+        system: "hermes",
+        mcp: ["sap", "github"],
+        tools: ["code"],
+        skills: ["git_workflow"],
+        specialty: "deployment-expert",
+      },
     },
   });
   assert.equal(res.statusCode, 200);
   const body = res.json();
   assert.equal(body.logo_url, "/hermes-v2.png");
   assert.deepEqual(body.capabilities.mcp, ["sap", "github"]);
+  assert.deepEqual(body.capabilities.skills, ["git_workflow"]);
+  assert.equal(body.capabilities.specialty, "deployment-expert");
   assert.ok(body.updated_at >= body.created_at, "updated_at should be refreshed");
 });
 

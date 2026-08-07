@@ -5,6 +5,8 @@ export interface AgentCapabilities {
   system: string;
   mcp: string[];
   tools: string[];
+  skills: string[];
+  specialty: string;
   description?: string;
 }
 
@@ -45,6 +47,8 @@ export const DEFAULT_ATHENA: AgentCreateInput = {
     system: "athena",
     mcp: ["lightrag", "llm_wiki"],
     tools: ["file_upload", "knowledge_graph_qa"],
+    skills: ["knowledge_graph_qa", "wiki_search", "document_ingest"],
+    specialty: "knowledge",
   },
 };
 

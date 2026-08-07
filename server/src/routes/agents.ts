@@ -28,7 +28,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-/** Validate + normalize capabilities shape { system, mcp: string[], tools: string[], description? }. */
+/** Validate + normalize capabilities shape { system, mcp[], tools[], skills[], specialty, description? }. */
 function parseCapabilities(value: unknown): AgentCapabilities | null {
   if (typeof value !== "object" || value === null) {
     return null;
@@ -37,11 +37,15 @@ function parseCapabilities(value: unknown): AgentCapabilities | null {
   if (invalidString(caps.system)) return null;
   if (!isStringArray(caps.mcp)) return null;
   if (!isStringArray(caps.tools)) return null;
+  if (!isStringArray(caps.skills)) return null;
+  if (invalidString(caps.specialty)) return null;
   if (caps.description !== undefined && typeof caps.description !== "string") return null;
   const capabilities: AgentCapabilities = {
     system: (caps.system as string).trim(),
     mcp: caps.mcp.map((item) => item.trim()),
     tools: caps.tools.map((item) => item.trim()),
+    skills: caps.skills.map((item) => item.trim()),
+    specialty: (caps.specialty as string).trim(),
   };
   if (typeof caps.description === "string" && caps.description.trim()) {
     capabilities.description = caps.description.trim();
@@ -86,7 +90,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     if (!capabilities) {
       return reply
         .code(400)
-        .send({ error: "capabilities must be { system, mcp: string[], tools: string[], description? }" });
+        .send({ error: "capabilities must be { system, mcp: string[], tools: string[], skills: string[], specialty, description? }" });
     }
 
     const input: AgentCreateInput = {
@@ -127,7 +131,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       if (!capabilities) {
         return reply
           .code(400)
-          .send({ error: "capabilities must be { system, mcp: string[], tools: string[], description? }" });
+          .send({ error: "capabilities must be { system, mcp: string[], tools: string[], skills: string[], specialty, description? }" });
       }
       patch.capabilities = capabilities;
     }
