@@ -6,6 +6,7 @@ import {
   BookIcon,
   ChatBubbleIcon,
   FolderOpenIcon,
+  UsergroupIcon,
   ViewGanttIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
@@ -30,6 +31,7 @@ const navItems: NavItem[] = [
   { label: "Knowledge", path: "/knowledge", icon: BookIcon },
   { label: "Kanban", path: "/kanban", icon: ViewGanttIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
+  { label: "Agents", path: "/agents", icon: UsergroupIcon },
 ];
 
 const sidebarTopOffset = "24px";

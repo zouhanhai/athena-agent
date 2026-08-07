@@ -22,6 +22,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/KanbanView.vue"),
   },
   {
+    path: "/agents",
+    name: "agents",
+    component: () => import("../views/AgentRegistrationView.vue"),
+  },
+  {
     path: "/wiki",
     name: "wiki",
     component: () => import("../views/WikiView.vue"),

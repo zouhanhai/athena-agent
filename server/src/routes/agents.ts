@@ -65,12 +65,85 @@ function mapRegistryError(err: unknown): { code: number; message: string } | nul
 
 /**
  * Agent registry endpoints:
+ * - POST /api/agents/self-declare { agent_id, capabilities, runtime? } → agent auto-fills capabilities (201)
+ * - GET /api/agents/declarations → pending self-declarations
+ * - POST /api/agents/register-declaration/:id { alias, owner_employee_id, logo_url? } → employee confirms (201)
  * - POST /api/agents { alias, owner_employee_id, logo_url?, capabilities, runtime? } → register (201)
  * - PUT /api/agents/:alias { logo_url?, capabilities? } → update (200)
  * - GET /api/agents?ownerEmployeeId= → list
  * - GET /api/agents/:alias → single agent
  */
 export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOptions): void {
+  app.post("/api/agents/self-declare", async (request, reply) => {
+    const body = (request.body ?? {}) as { agent_id?: unknown; capabilities?: unknown; runtime?: unknown };
+
+    if (invalidString(body.agent_id)) {
+      return reply.code(400).send({ error: "agent_id is required" });
+    }
+    if (body.runtime !== undefined && typeof body.runtime !== "string") {
+      return reply.code(400).send({ error: "runtime must be a string" });
+    }
+    const capabilities = parseCapabilities(body.capabilities);
+    if (!capabilities) {
+      return reply
+        .code(400)
+        .send({ error: "capabilities must be { system, mcp: string[], tools: string[], skills: string[], specialty, description? }" });
+    }
+
+    try {
+      const declaration = await options.registry.submitDeclaration({
+        agent_id: (body.agent_id as string).trim(),
+        capabilities,
+        runtime: typeof body.runtime === "string" ? body.runtime : "",
+      });
+      return reply.code(201).send({ declaration });
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/agents/declarations", async (_request, reply) => {
+    try {
+      const declarations = await options.registry.listDeclarations();
+      return { declarations };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/agents/register-declaration/:id", async (request, reply) => {
+    const { id } = request.params as { id?: string };
+    if (typeof id !== "string" || id.trim().length === 0) {
+      return reply.code(400).send({ error: "declaration id is required" });
+    }
+    const body = (request.body ?? {}) as { alias?: unknown; owner_employee_id?: unknown; logo_url?: unknown };
+
+    if (invalidString(body.alias)) {
+      return reply.code(400).send({ error: "alias is required" });
+    }
+    if (invalidString(body.owner_employee_id)) {
+      return reply.code(400).send({ error: "owner_employee_id is required" });
+    }
+    if (body.logo_url !== undefined && typeof body.logo_url !== "string") {
+      return reply.code(400).send({ error: "logo_url must be a string" });
+    }
+
+    try {
+      const record = await options.registry.registerDeclaration(id.trim(), {
+        alias: (body.alias as string).trim(),
+        owner_employee_id: (body.owner_employee_id as string).trim(),
+        logo_url: typeof body.logo_url === "string" ? body.logo_url : "",
+      });
+      return reply.code(201).send(record);
+    } catch (err) {
+      const mapped = mapRegistryError(err);
+      if (mapped) {
+        return reply.code(mapped.code).send({ error: mapped.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/api/agents", async (request, reply) => {
     const body = (request.body ?? {}) as AgentBody;
 

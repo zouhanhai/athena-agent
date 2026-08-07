@@ -34,6 +34,33 @@ export interface AgentUpdateInput {
   capabilities?: AgentCapabilities;
 }
 
+/**
+ * A self-declared but not yet registered agent (G3.S1.T4). The agent auto-fills
+ * its own capabilities + runtime; alias/logo/owner are chosen later by the
+ * employee during registration.
+ */
+export interface PendingAgentDeclaration {
+  id: string;
+  /** The agent's own identity (auto-filled, e.g. "opencode-ses_xyz"). */
+  agent_id: string;
+  capabilities: AgentCapabilities;
+  runtime: string;
+  declared_at: string;
+}
+
+export interface AgentDeclarationInput {
+  agent_id: string;
+  capabilities: AgentCapabilities;
+  runtime?: string;
+}
+
+/** Employee-provided fields that finalize a pending declaration into a registered agent. */
+export interface AgentConfirmInput {
+  alias: string;
+  owner_employee_id: string;
+  logo_url?: string;
+}
+
 export class AgentConflictError extends Error {}
 export class AgentNotFoundError extends Error {}
 
@@ -57,6 +84,11 @@ export interface AgentRegistry {
   getByAlias(alias: string): Promise<AgentRecord | null>;
   create(input: AgentCreateInput): Promise<AgentRecord>;
   updateByAlias(alias: string, patch: AgentUpdateInput): Promise<AgentRecord>;
+  /** An agent auto-fills its own capabilities; no alias/logo yet. */
+  submitDeclaration(input: AgentDeclarationInput): Promise<PendingAgentDeclaration>;
+  listDeclarations(): Promise<PendingAgentDeclaration[]>;
+  /** Finalize a pending declaration into a registered agent (alias/logo chosen by the employee) and consume it. */
+  registerDeclaration(id: string, input: AgentConfirmInput): Promise<AgentRecord>;
   /** Seed the default Athena agent (idempotent). Called on server start. */
   seed(): Promise<void>;
   close(): Promise<void>;
@@ -69,6 +101,7 @@ function now(): string {
 /** In-memory registry — used by tests and as a dev fallback when DATABASE_URL is unset. */
 export class MemoryAgentRegistry implements AgentRegistry {
   private readonly agents = new Map<string, AgentRecord>();
+  private readonly declarations = new Map<string, PendingAgentDeclaration>();
 
   constructor(initial: AgentCreateInput[] = []) {
     for (const input of initial) {
@@ -127,6 +160,38 @@ export class MemoryAgentRegistry implements AgentRegistry {
     return updated;
   }
 
+  async submitDeclaration(input: AgentDeclarationInput): Promise<PendingAgentDeclaration> {
+    const declaration: PendingAgentDeclaration = {
+      id: randomUUID(),
+      agent_id: input.agent_id,
+      capabilities: input.capabilities,
+      runtime: input.runtime ?? "",
+      declared_at: now(),
+    };
+    this.declarations.set(declaration.id, declaration);
+    return declaration;
+  }
+
+  async listDeclarations(): Promise<PendingAgentDeclaration[]> {
+    return [...this.declarations.values()];
+  }
+
+  async registerDeclaration(id: string, input: AgentConfirmInput): Promise<AgentRecord> {
+    const declaration = this.declarations.get(id);
+    if (!declaration) {
+      throw new AgentNotFoundError(`pending declaration "${id}" not found`);
+    }
+    const record = await this.create({
+      alias: input.alias,
+      owner_employee_id: input.owner_employee_id,
+      logo_url: input.logo_url,
+      capabilities: declaration.capabilities,
+      runtime: declaration.runtime,
+    });
+    this.declarations.delete(id);
+    return record;
+  }
+
   async seed(): Promise<void> {
     if (!this.agents.has(DEFAULT_ATHENA.alias)) {
       this.setRecord(DEFAULT_ATHENA);
@@ -135,6 +200,7 @@ export class MemoryAgentRegistry implements AgentRegistry {
 
   async close(): Promise<void> {
     this.agents.clear();
+    this.declarations.clear();
   }
 }
 
@@ -154,6 +220,14 @@ interface AgentRow {
   updated_at: Date | string;
 }
 
+interface AgentDeclarationRow {
+  id: string;
+  agent_id: string;
+  capabilities: AgentCapabilities;
+  runtime: string;
+  declared_at: Date | string;
+}
+
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : String(value);
 }
@@ -168,6 +242,16 @@ function rowToRecord(row: AgentRow): AgentRecord {
     runtime: row.runtime,
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
+  };
+}
+
+function rowToDeclaration(row: AgentDeclarationRow): PendingAgentDeclaration {
+  return {
+    id: row.id,
+    agent_id: row.agent_id,
+    capabilities: row.capabilities,
+    runtime: row.runtime,
+    declared_at: toIso(row.declared_at),
   };
 }
 
@@ -198,6 +282,15 @@ export class PostgresAgentRegistry implements AgentRegistry {
         runtime TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS agent_declarations (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        capabilities JSONB NOT NULL,
+        runtime TEXT NOT NULL DEFAULT '',
+        declared_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
     await this.pool.query(
@@ -280,6 +373,69 @@ export class PostgresAgentRegistry implements AgentRegistry {
       throw new AgentNotFoundError(`agent "${alias}" not found`);
     }
     return rowToRecord(result.rows[0]);
+  }
+
+  async submitDeclaration(input: AgentDeclarationInput): Promise<PendingAgentDeclaration> {
+    await this.ensureReady();
+    const result = await this.pool.query<AgentDeclarationRow>(
+      `INSERT INTO agent_declarations (id, agent_id, capabilities, runtime)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [randomUUID(), input.agent_id, JSON.stringify(input.capabilities), input.runtime ?? ""],
+    );
+    return rowToDeclaration(result.rows[0]);
+  }
+
+  async listDeclarations(): Promise<PendingAgentDeclaration[]> {
+    await this.ensureReady();
+    const result = await this.pool.query<AgentDeclarationRow>(
+      `SELECT * FROM agent_declarations ORDER BY declared_at`,
+    );
+    return result.rows.map(rowToDeclaration);
+  }
+
+  async registerDeclaration(id: string, input: AgentConfirmInput): Promise<AgentRecord> {
+    await this.ensureReady();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const decl = await client.query<AgentDeclarationRow>(
+        `SELECT * FROM agent_declarations WHERE id = $1`,
+        [id],
+      );
+      if (decl.rows.length === 0) {
+        await client.query("ROLLBACK");
+        throw new AgentNotFoundError(`pending declaration "${id}" not found`);
+      }
+      const declaration = decl.rows[0];
+      let result: pg.QueryResult<AgentRow>;
+      try {
+        result = await client.query<AgentRow>(
+          `INSERT INTO agents (id, alias, owner_employee_id, logo_url, capabilities, runtime)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [
+            randomUUID(),
+            input.alias,
+            input.owner_employee_id,
+            input.logo_url ?? "",
+            JSON.stringify(declaration.capabilities),
+            declaration.runtime,
+          ],
+        );
+      } catch (err) {
+        await client.query("ROLLBACK");
+        if (isUniqueViolation(err)) {
+          throw new AgentConflictError(`agent alias "${input.alias}" already registered`);
+        }
+        throw err;
+      }
+      await client.query(`DELETE FROM agent_declarations WHERE id = $1`, [id]);
+      await client.query("COMMIT");
+      return rowToRecord(result.rows[0]);
+    } finally {
+      client.release();
+    }
   }
 
   async close(): Promise<void> {
