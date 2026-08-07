@@ -9,6 +9,9 @@ import { registerKbRoutes } from "./routes/kb.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerLogoRoutes } from "./routes/logos.js";
 import { registerEmployeeRoutes } from "./routes/employees.js";
+import { registerGithubRoutes } from "./routes/github.js";
+import { createSecretCipher, type SecretCipher } from "./employees/crypto.js";
+import { GithubRestClient, type GitHubApi } from "./github/client.js";
 import {
   MemoryAgentRegistry,
   PostgresAgentRegistry,
@@ -50,6 +53,8 @@ export interface BuildAppOptions {
   logos?: LogoStore;
   employees?: EmployeeRegistry;
   auth?: AuthService;
+  github?: GitHubApi;
+  cipher?: SecretCipher;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
   maxFileSize?: number;
 }
@@ -91,12 +96,30 @@ export function defaultAgentRegistry(): AgentRegistry {
 }
 
 /** Default employee registry: Postgres when DATABASE_URL is set, else in-memory. */
-export function defaultEmployeeRegistry(): EmployeeRegistry {
+export function defaultEmployeeRegistry(cipher: SecretCipher): EmployeeRegistry {
   const connectionString = process.env.DATABASE_URL;
   if (connectionString) {
-    return new PostgresEmployeeRegistry({ connectionString });
+    return new PostgresEmployeeRegistry({ connectionString, cipher });
   }
-  return new MemoryEmployeeRegistry();
+  return new MemoryEmployeeRegistry([], { cipher });
+}
+
+/**
+ * Default SecretCipher: AES-256-GCM keyed by ENCRYPTION_KEY (64 hex chars).
+ * A dev-only fallback key keeps local runs working, mirroring the
+ * ConsoleMailer/memory-store fallbacks used elsewhere in the auth stack.
+ */
+export function defaultSecretCipher(): SecretCipher {
+  const key = process.env.ENCRYPTION_KEY ?? DEV_ONLY_ENCRYPTION_KEY;
+  return createSecretCipher(key);
+}
+
+const DEV_ONLY_ENCRYPTION_KEY =
+  "d3d1e5d0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6";
+
+/** Default GitHub client: REST API against api.github.com. */
+export function defaultGithubClient(): GitHubApi {
+  return new GithubRestClient();
 }
 
 /** Default auth: email magic link via Resend when RESEND_API_KEY is set, else console logs. */
@@ -129,8 +152,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const manager = options.manager ?? new AgentManager();
   const registry = options.registry ?? defaultAgentRegistry();
   const logos = options.logos ?? defaultLogoStore();
-  const employees = options.employees ?? defaultEmployeeRegistry();
+  const cipher = options.cipher ?? defaultSecretCipher();
+  const employees = options.employees ?? defaultEmployeeRegistry(cipher);
   const auth = options.auth ?? defaultAuthService(employees);
+  const github = options.github ?? defaultGithubClient();
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -160,6 +185,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLogoRoutes(app, { logoStore: logos, registry });
   registerChatRoutes(app, { manager });
   registerEmployeeRoutes(app, { employees, auth });
+  registerGithubRoutes(app, { employees, auth, github });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
     retrieval: options.retrieval ?? defaultRetrievalService(),

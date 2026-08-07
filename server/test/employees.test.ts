@@ -8,6 +8,10 @@ import {
   PostgresEmployeeRegistry,
   type EmployeeRecord,
 } from "../src/employees/employees.js";
+import { createSecretCipher } from "../src/employees/crypto.js";
+
+const TEST_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const TEST_CIPHER = createSecretCipher(TEST_KEY);
 
 function recordWith(partial: Partial<EmployeeRecord>): EmployeeRecord {
   return {
@@ -107,6 +111,7 @@ async function initPg(): Promise<PostgresEmployeeRegistry | null> {
         const registry = new PostgresEmployeeRegistry({
           connectionString:
             process.env.TEST_DATABASE_URL ?? "postgres://hh@/athena_test?host=/var/run/postgresql",
+          cipher: TEST_CIPHER,
         });
         await registry.seed();
         pgRegistry = registry;
@@ -162,6 +167,38 @@ test(
   },
 );
 
+test(
+  "Postgres stores the github credential encrypted at rest — never plaintext (integration)",
+  async (t) => {
+    const registry = await initPg();
+    if (!registry) {
+      return t.skip("postgres not available");
+    }
+    const email = `pg-cred-${Date.now()}@example.com`;
+    const secret = "ghp_plaintextmustneverappear";
+    await registry.create({ email, github_credential: { type: "token", value: secret } });
+    await registry.registerGithubCredential(email, { type: "token", value: secret });
+
+    const pool = new pg.Pool({
+      connectionString:
+        process.env.TEST_DATABASE_URL ?? "postgres://hh@/athena_test?host=/var/run/postgresql",
+    });
+    const stored = await pool.query<{ github_credential_enc: string }>(
+      `SELECT github_credential_enc FROM employees WHERE email = $1`,
+      [email],
+    );
+    await pool.end();
+    const enc = stored.rows[0]?.github_credential_enc;
+    assert.ok(enc, "credential should be persisted in the github_credential_enc column");
+    assert.ok(!enc.includes(secret), "the raw secret must never be stored as plaintext");
+
+    const decrypted = TEST_CIPHER.decrypt(enc);
+    assert.equal(decrypted, secret);
+
+    assert.deepEqual(await registry.getGithubCredential(email), { type: "token", value: secret });
+  },
+);
+
 after(async () => {
   if (pgRegistry) {
     await pgRegistry.close();
@@ -182,4 +219,50 @@ test("MemoryEmployeeRegistry seeds initial employees on construction", async () 
   const admin = await registry.getByEmail("admin@example.com");
   assert.equal(admin?.role, "admin");
   assert.equal(admin?.display_name, "Admin");
+});
+
+test("create stores a github credential that decrypts back to the original value", async () => {
+  const registry = new MemoryEmployeeRegistry([], { cipher: TEST_CIPHER });
+  const created = await registry.create({
+    email: "alice@example.com",
+    github_credential: { type: "token", value: "ghp_alicesecret" },
+  });
+  const credential = await registry.getGithubCredential(created.email);
+  assert.deepEqual(credential, { type: "token", value: "ghp_alicesecret" });
+});
+
+test("getGithubCredential returns null when no credential is registered", async () => {
+  const registry = new MemoryEmployeeRegistry([], { cipher: TEST_CIPHER });
+  const created = await registry.create({ email: "alice@example.com" });
+  assert.equal(await registry.getGithubCredential(created.email), null);
+});
+
+test("registerGithubCredential registers and updates the employee's credential", async () => {
+  const registry = new MemoryEmployeeRegistry([], { cipher: TEST_CIPHER });
+  await registry.create({ email: "alice@example.com" });
+
+  const first = await registry.registerGithubCredential("alice@example.com", {
+    type: "ssh",
+    value: "ssh-ed25519 AAAA first",
+  });
+  assert.deepEqual(first, { has_credential: true, type: "ssh" });
+
+  const second = await registry.registerGithubCredential("alice@example.com", {
+    type: "token",
+    value: "ghp_newtoken",
+  });
+  assert.deepEqual(second, { has_credential: true, type: "token" });
+
+  assert.deepEqual(await registry.getGithubCredential("alice@example.com"), {
+    type: "token",
+    value: "ghp_newtoken",
+  });
+});
+
+test("registerGithubCredential on an unknown email throws EmployeeNotFoundError", async () => {
+  const registry = new MemoryEmployeeRegistry([], { cipher: TEST_CIPHER });
+  await assert.rejects(
+    registry.registerGithubCredential("ghost@example.com", { type: "token", value: "x" }),
+    EmployeeNotFoundError,
+  );
 });

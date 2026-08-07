@@ -4,10 +4,13 @@ import {
   EMPLOYEE_ROLES,
   EmployeeConflictError,
   EmployeeNotFoundError,
+  isGithubCredentialType,
   type EmployeeRecord,
   type EmployeeRegistry,
+  type GithubCredential,
 } from "../employees/employees.js";
 import { roleHasPermission, type Permission } from "../employees/rbac.js";
+import { currentEmployee } from "./helpers.js";
 
 export interface EmployeeRouteOptions {
   employees: EmployeeRegistry;
@@ -24,24 +27,28 @@ function isRole(value: unknown): value is "admin" | "member" {
   return (EMPLOYEE_ROLES as readonly unknown[]).includes(value);
 }
 
-function bearerToken(request: FastifyRequest): string | null {
-  const header = request.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+/** Validate an optional github_credential body; returns the input or a 400 reply. */
+function githubCredentialFromBody(
+  value: unknown,
+  reply: { code: (code: number) => { send: (payload: unknown) => unknown } },
+): GithubCredential | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null) {
+    reply.code(400).send({ error: "github_credential must be an object" });
     return null;
   }
-  const token = header.slice("Bearer ".length).trim();
-  return token || null;
-}
-
-async function currentEmployee(
-  request: FastifyRequest,
-  auth: AuthService,
-): Promise<EmployeeRecord | null> {
-  const token = bearerToken(request);
-  if (!token) {
+  const cred = value as { type?: unknown; value?: unknown };
+  if (!isGithubCredentialType(cred.type)) {
+    reply.code(400).send({ error: "github_credential.type must be one of: ssh, token" });
     return null;
   }
-  return auth.getEmployeeForSession(token);
+  if (typeof cred.value !== "string" || cred.value.trim().length === 0) {
+    reply.code(400).send({ error: "github_credential.value is required" });
+    return null;
+  }
+  return { type: cred.type, value: cred.value.trim() };
 }
 
 function mapEmployeeError(err: unknown): { code: number; message: string } | null {
@@ -135,7 +142,13 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
   });
 
   app.post("/api/employees", async (request, reply) => {
-    const body = (request.body ?? {}) as { email?: unknown; display_name?: unknown; logo_url?: unknown; role?: unknown };
+    const body = (request.body ?? {}) as {
+      email?: unknown;
+      display_name?: unknown;
+      logo_url?: unknown;
+      role?: unknown;
+      github_credential?: unknown;
+    };
     if (invalidString(body.email) || !EMAIL_RE.test((body.email as string).trim())) {
       return reply.code(400).send({ error: "a valid email is required" });
     }
@@ -148,6 +161,10 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
     if (body.role !== undefined && !isRole(body.role)) {
       return reply.code(400).send({ error: `role must be one of: ${EMPLOYEE_ROLES.join(", ")}` });
     }
+    const githubCredential = githubCredentialFromBody(body.github_credential, reply);
+    if (githubCredential === null) {
+      return;
+    }
     try {
       const employee = await requireEmployee(request, reply, "employees.create");
       if (!employee) {
@@ -158,6 +175,7 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
         display_name: typeof body.display_name === "string" ? body.display_name : undefined,
         logo_url: typeof body.logo_url === "string" ? body.logo_url : undefined,
         role: isRole(body.role) ? body.role : undefined,
+        github_credential: githubCredential,
       });
       return reply.code(201).send(record);
     } catch (err) {
