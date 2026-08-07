@@ -51,6 +51,38 @@ Upload file / URL
     ④ any system ok → task status=done, progress 100
 ```
 
+### 2.1.1 docling Picture-Description Limitation (known, 2026-08-07)
+
+docling only runs picture-description (VLM image → text) for **PDF and IMAGE**
+inputs. Every other format is handled by `SimplePipeline`, which extracts text
+and document structure but has **no picture-description capability**:
+
+| Input | Pipeline | Picture description |
+|-------|----------|---------------------|
+| PDF   | StandardPdfPipeline | ✅ yes |
+| IMAGE (png/jpg) | StandardPdfPipeline | ✅ yes |
+| DOCX / DOC | SimplePipeline | ❌ no |
+| PPTX / PPT | SimplePipeline | ❌ no |
+| XLSX / XLS / ODS | SimplePipeline | ❌ no |
+| HTML / MD / CSV / ODT / ODP / EPUB / ASCIIDOC | SimplePipeline | ❌ no |
+
+Implications:
+- **PPTX is the biggest gap**: many slide decks carry their content inside
+  images (product shot decks, design mockups, scanned slides). docling extracts
+  only the slide *text* (titles, bullets, table cells) and drops the image
+  content as `<!-- image -->` placeholders → such decks yield little usable
+  knowledge. Same for DOCX/XLSX files whose meaningful content lives in images.
+- This is a **docling architecture constraint** (`WordFormatOption` /
+  `PowerpointFormatOption` / `ExcelFormatOption` → `SimplePipeline`), not a bug
+  in our ingestion.
+- Small images are skipped even in PDF/IMAGE (default `picture_area_threshold =
+  0.05`, fraction of page area), so logos/decoration become placeholders —
+  intended behavior to save VLM calls.
+- **Possible future work** (not scoped): to get picture descriptions for
+  DOCX/PPTX, convert to PDF first (e.g. LibreOffice headless) and re-run the
+  PDF pipeline; or extract embedded images and describe them separately.
+
+
 **Key points:**
 - **Docling produces an in-memory Markdown string** that is dispatched to both pipelines;
   the input-dir file is a stored artifact, not the ingest source.
