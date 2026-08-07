@@ -79,6 +79,12 @@ GitHub visibility is driven by **the signed-in user's own GitHub credential**
 PR / Issue views render only the repos **that user can see** (their permission
 scope). This keeps GitHub auth per-user rather than a shared service account.
 
+**Scope: FULL operation, not just read-only.** The platform can open PRs, edit
+files, and merge — the GitHub feature set is integrated (employee watches the
+process; it is not purely agent-driven). So the GitHub integration covers browse
+(repo tree / PR / Issue) AND mutate (create PR / edit file / merge), scoped to
+each user's credential.
+
 ## 4.2 Git-Driven Development — platform protocol view (worker-agnostic)
 
 The platform does **not** care whether a worker is a Pi, OpenCode, or any other

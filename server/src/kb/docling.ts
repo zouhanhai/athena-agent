@@ -71,7 +71,7 @@ export class DoclingParser {
     this.pythonBin = options.pythonBin ?? defaultDoclingPython();
     this.scriptPath = options.scriptPath ?? defaultDoclingScript();
     this.outputDir = options.outputDir ?? defaultSharedInputDir();
-    this.execFileImpl = options.execFileImpl ?? ((file, args) => execFileAsync(file, args, { timeout: 300_000 }));
+    this.execFileImpl = options.execFileImpl ?? ((file, args) => execFileAsync(file, args));
     this.readFileImpl = options.readFileImpl ?? ((path: string) => readFile(path, "utf8"));
     this.mkdirImpl = options.mkdirImpl ?? (async (path: string) => {
       await mkdir(path, { recursive: true });
