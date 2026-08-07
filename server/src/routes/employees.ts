@@ -9,12 +9,14 @@ import {
   type EmployeeRegistry,
   type GithubCredential,
 } from "../employees/employees.js";
+import type { AgentRegistry } from "../agents/registry.js";
 import { roleHasPermission, type Permission } from "../employees/rbac.js";
 import { currentEmployee } from "./helpers.js";
 
 export interface EmployeeRouteOptions {
   employees: EmployeeRegistry;
   auth: AuthService;
+  agents: AgentRegistry;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -67,9 +69,10 @@ function mapEmployeeError(err: unknown): { code: number; message: string } | nul
  * - POST /api/auth/verify { token } → { session_token, employee } (200 | 401)
  * - GET /api/me (Bearer) → current employee
  * - GET/POST /api/employees, GET/PUT /api/employees/:email (admin RBAC)
+ * - GET /api/employees/:id/agents → agents archived under an employee
  */
 export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRouteOptions): void {
-  const { employees, auth } = options;
+  const { employees, auth, agents } = options;
 
   app.post("/api/auth/login", async (request, reply) => {
     const body = (request.body ?? {}) as { email?: unknown };
@@ -244,6 +247,27 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
       if (mapped) {
         return reply.code(mapped.code).send({ error: mapped.message });
       }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/employees/:id/agents", async (request, reply) => {
+    const { id } = request.params as { id?: string };
+    if (typeof id !== "string" || id.trim().length === 0) {
+      return reply.code(400).send({ error: "employee id is required" });
+    }
+    try {
+      const employee = await requireEmployee(request, reply, "agent.list");
+      if (!employee) {
+        return;
+      }
+      const owner = await employees.getById(id.trim());
+      if (!owner) {
+        return reply.code(404).send({ error: `employee "${id.trim()}" not found` });
+      }
+      const agentRecords = await agents.list({ ownerEmployeeId: owner.id });
+      return { agents: agentRecords };
+    } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });

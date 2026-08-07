@@ -184,7 +184,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerAgentRoutes(app, { registry });
   registerLogoRoutes(app, { logoStore: logos, registry });
   registerChatRoutes(app, { manager });
-  registerEmployeeRoutes(app, { employees, auth });
+  registerEmployeeRoutes(app, { employees, auth, agents: registry });
   registerGithubRoutes(app, { employees, auth, github });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
