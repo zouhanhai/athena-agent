@@ -4,7 +4,7 @@ title: "G2.S1: LightRAG Knowledge Service Deployment"
 layer: S
 parent: G2
 owner: eng-director
-status: active
+status: done
 milestone: M2
 acceptance_criteria:
   - "LightRAG installed on 6900XT and can start"

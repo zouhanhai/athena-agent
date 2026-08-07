@@ -3,7 +3,7 @@ id: g1
 title: "G1: Project Skeleton + AgentSession Personal Chat"
 layer: G
 owner: hermes   # Initiator (currently played by Hermes, later employees/Pi each)
-status: active
+status: done
 created_at: 2026-08-04
 milestone: M1
 acceptance_criteria:

@@ -4,7 +4,7 @@ title: "G2.S3: Knowledge Access Layer + Pi Retrieval Routing"
 layer: S
 parent: G2
 owner: eng-director
-status: active
+status: done
 milestone: M2
 acceptance_criteria:
   - "athena backend has kb/ service layer encapsulation (LightRAG + llm_wiki clients)"

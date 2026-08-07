@@ -4,7 +4,7 @@ title: "G1.S1: Backend Service Skeleton (Fastify + AgentSession)"
 layer: S
 parent: G1
 owner: hermes
-status: active
+status: done
 milestone: M1
 acceptance_criteria:
   - "Node/TS Fastify backend can start"
