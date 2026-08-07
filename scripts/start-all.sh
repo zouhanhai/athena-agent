@@ -75,6 +75,17 @@ else
     < /dev/null > "$LOG_DIR/vite.log" 2>&1 & disown )
 fi
 
+# --- 6. OpenCode serve (Kanban worker) -------------------------------------
+OPENCODE_PORT="${OPENCODE_PORT:-4096}"
+if port_in_use "$OPENCODE_PORT"; then
+  log "OpenCode serve :$OPENCODE_PORT already running"
+else
+  log "Starting OpenCode serve :$OPENCODE_PORT"
+  setsid opencode serve --port "$OPENCODE_PORT" --hostname 0.0.0.0 \
+    < /dev/null > "$LOG_DIR/opencode-serve.log" 2>&1 & disown
+fi
+
 log "--- All services launched. Logs in $LOG_DIR ---"
 log "Check: LightRAG http://$(hostname -I | awk '{print $1}'):9621/health"
 log "Check: Vite     http://$(hostname -I | awk '{print $1}'):5173/"
+log "Check: OpenCode bash scripts/monitor-opencode.sh"
