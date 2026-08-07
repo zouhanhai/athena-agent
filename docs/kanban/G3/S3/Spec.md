@@ -67,8 +67,19 @@ Build the global Chat panel — a fixed right-side panel present on every page, 
   - Workbench page → GitHub capabilities (repo/PR/issue tools)
   - Wiki / Knowledge pages → knowledge tools (llm_wiki/LightRAG retrieval)
 - This lets agents (e.g. Athena) respond with context-appropriate tooling per page.
-- **Hooks / lifecycle** (optional): session-start / agent-joined / agent-left hooks
-  so the platform can react (e.g. refresh an agent's context when knowledge changes).
+- **Hooks / lifecycle** (Vercel-inspired, g3-requirements §4.3) — tie into the agent
+  card interactions (T3):
+  - **Lifecycle** = the agent/session state machine: registered → joined conversation →
+    active → left → unregistered.
+  - **Hooks** = actions fired at lifecycle points:
+    - `onAgentJoined`: when a user adds an agent card to the chat → inject current
+      page context into that agent + notify other participants + show the card.
+    - `onSpeakToggleChanged`: when the user flips a card's speak-toggle → update the
+      agent's speak permission.
+    - `onAgentLeft`: when a user removes an agent card → clean up the agent's context
+      + notify participants.
+    - `onSessionStart` / `onKnowledgeUpdated`: optional — refresh an agent's context
+      when the page changes or knowledge updates.
 
 ### 3. Agent cards above chat
 - From S1: logo, alias, capabilities, speak-toggle (on = agent responds, off = reads context only)
