@@ -12,6 +12,7 @@ test("admin role has every permission", () => {
     "employees.create",
     "employees.update",
     "employees.list",
+    "employees.invite",
     "agent.register",
     "agent.update",
     "agent.list",
@@ -28,6 +29,7 @@ test("member role can list agents and chat but cannot manage employees or agents
   assert.equal(roleHasPermission("member", "employees.create"), false);
   assert.equal(roleHasPermission("member", "employees.update"), false);
   assert.equal(roleHasPermission("member", "employees.list"), false);
+  assert.equal(roleHasPermission("member", "employees.invite"), false);
   assert.equal(roleHasPermission("member", "agent.register"), false);
   assert.equal(roleHasPermission("member", "agent.update"), false);
 });

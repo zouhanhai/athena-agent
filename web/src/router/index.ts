@@ -27,6 +27,21 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/AgentRegistrationView.vue"),
   },
   {
+    path: "/register",
+    name: "register",
+    component: () => import("../views/RegisterView.vue"),
+  },
+  {
+    path: "/login",
+    name: "login",
+    component: () => import("../views/LoginView.vue"),
+  },
+  {
+    path: "/auth/verify",
+    name: "verify",
+    component: () => import("../views/AuthVerifyView.vue"),
+  },
+  {
     path: "/wiki",
     name: "wiki",
     component: () => import("../views/WikiView.vue"),

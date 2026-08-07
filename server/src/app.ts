@@ -10,6 +10,7 @@ import { registerAgentRoutes } from "./routes/agents.js";
 import { registerLogoRoutes } from "./routes/logos.js";
 import { registerEmployeeRoutes } from "./routes/employees.js";
 import { registerGithubRoutes } from "./routes/github.js";
+import { registerInvitationRoutes } from "./routes/invitations.js";
 import { createSecretCipher, type SecretCipher } from "./employees/crypto.js";
 import { GithubRestClient, type GitHubApi } from "./github/client.js";
 import {
@@ -30,7 +31,16 @@ import {
   PostgresAuthTokenStore,
   ResendMailer,
   type AuthService,
+  type AuthTokenStore,
 } from "./employees/auth.js";
+import {
+  ConsoleInvitationMailer,
+  InvitationService,
+  MemoryInvitationStore,
+  PostgresInvitationStore,
+  ResendInvitationMailer,
+  type InvitationMailer,
+} from "./employees/invitations.js";
 import {
   MemoryEmployeeRegistry,
   PostgresEmployeeRegistry,
@@ -55,6 +65,7 @@ export interface BuildAppOptions {
   auth?: AuthService;
   github?: GitHubApi;
   cipher?: SecretCipher;
+  invitations?: InvitationService;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
   maxFileSize?: number;
 }
@@ -122,17 +133,54 @@ export function defaultGithubClient(): GitHubApi {
   return new GithubRestClient();
 }
 
-/** Default auth: email magic link via Resend when RESEND_API_KEY is set, else console logs. */
-export function defaultAuthService(employees: EmployeeRegistry): AuthService {
+/** Default auth token store: Postgres when DATABASE_URL is set, else in-memory. */
+export function defaultAuthTokenStore(): AuthTokenStore {
   const connectionString = process.env.DATABASE_URL;
-  const tokens = connectionString
+  return connectionString
     ? new PostgresAuthTokenStore({ connectionString })
     : new MemoryAuthTokenStore();
+}
+
+/**
+ * Default auth: email magic link via Resend when RESEND_API_KEY is set, else
+ * console logs. When a token store is shared (e.g. with the invitation
+ * service) pass it in so sessions resolve across services.
+ */
+export function defaultAuthService(
+  employees: EmployeeRegistry,
+  tokens: AuthTokenStore = defaultAuthTokenStore(),
+): AuthService {
   const mailer = process.env.RESEND_API_KEY ? new ResendMailer() : new ConsoleMailer();
   return new MagicLinkAuthService({
     registry: employees,
     tokens,
     mailer,
+    appBaseUrl: process.env.APP_BASE_URL,
+  });
+}
+
+/** Default invitation mailer: Resend when RESEND_API_KEY is set, else console logs. */
+export function defaultInvitationMailer(): InvitationMailer {
+  return process.env.RESEND_API_KEY ? new ResendInvitationMailer() : new ConsoleInvitationMailer();
+}
+
+/**
+ * Default invitation service: invitation tokens stored in Postgres when
+ * DATABASE_URL is set (else in-memory); sessions share the auth token store so
+ * the registration-time session resolves through the auth service.
+ */
+export function defaultInvitationService(
+  employees: EmployeeRegistry,
+  tokens: AuthTokenStore,
+): InvitationService {
+  const connectionString = process.env.DATABASE_URL;
+  return new InvitationService({
+    registry: employees,
+    tokens,
+    store: connectionString
+      ? new PostgresInvitationStore({ connectionString })
+      : new MemoryInvitationStore(),
+    mailer: defaultInvitationMailer(),
     appBaseUrl: process.env.APP_BASE_URL,
   });
 }
@@ -154,8 +202,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const logos = options.logos ?? defaultLogoStore();
   const cipher = options.cipher ?? defaultSecretCipher();
   const employees = options.employees ?? defaultEmployeeRegistry(cipher);
-  const auth = options.auth ?? defaultAuthService(employees);
+  const tokens = !options.auth || !options.invitations ? defaultAuthTokenStore() : undefined;
+  const auth = options.auth ?? defaultAuthService(employees, tokens);
   const github = options.github ?? defaultGithubClient();
+  const invitations = options.invitations ?? defaultInvitationService(employees, tokens!);
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -179,6 +229,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await logos.close();
     await employees.close();
     await auth.close();
+    await invitations.close();
+    if (options.auth && !options.invitations) {
+      // The default invitation service owns the token store auth didn't consume;
+      // close it so a Postgres-backed pool is not leaked on shutdown.
+      await tokens?.close();
+    }
   });
 
   registerAgentRoutes(app, { registry });
@@ -186,6 +242,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerChatRoutes(app, { manager });
   registerEmployeeRoutes(app, { employees, auth, agents: registry });
   registerGithubRoutes(app, { employees, auth, github });
+  registerInvitationRoutes(app, { invitations, auth });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
     retrieval: options.retrieval ?? defaultRetrievalService(),

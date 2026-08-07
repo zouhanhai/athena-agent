@@ -4,6 +4,7 @@ export const ALL_PERMISSIONS = [
   "employees.create",
   "employees.update",
   "employees.list",
+  "employees.invite",
   "agent.register",
   "agent.update",
   "agent.list",
