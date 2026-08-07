@@ -73,7 +73,7 @@ athena-agent/
 │   ├── pi-capabilities.md        # Pi capabilities & Package mapping
 │   └── kanban/                   # Goals → Specs → Tickets (git-driven board)
 │       ├── G1/ (S1, S2)          # M1: skeleton + personal conversation (DONE)
-│       └── G2/ (S1..S5)          # M2: knowledge base (S1/S2/S3 done, S4/S5 in progress)
+│       └── G2/ (S1..S5)          # M2: knowledge base (DONE)
 ├── server/           # Node/TS Fastify backend
 │   ├── src/
 │   │   ├── agents/   # AgentSession management
@@ -94,9 +94,9 @@ Each Milestone has explicit acceptance criteria (Definition of Done); all corres
    - Acceptance: Node/TS backend starts; AgentSession embeds Pi successfully; personal conversation end-to-end works (frontend → backend → Pi → answer); Vue frontend has sidebar skeleton
    - Corresponds to: G1 (Project skeleton + AgentSession) — G1/S1 + G1/S2 complete
 
-2. **M2** 🔄 IN PROGRESS: Knowledge Graph (LightRAG) + Wiki (llm_wiki)
+2. **M2** ✅ DONE: Knowledge Graph (LightRAG) + Wiki (llm_wiki)
    - Acceptance: LightRAG starts (OpenRouter); llm_wiki runs headless :19828; Pi retrieves from both via MCP; graph panel 2D renders; docling unified ingestion + progress bar
-   - Corresponds to: G2 (LightRAG + llm_wiki) — G2.S1/S2/S3 complete, S4/S5 in progress
+   - Corresponds to: G2 (LightRAG + llm_wiki) — G2.S1/S2/S3/S4/S5 complete (5 specs, 26 tickets)
 
 3. **M3**: Pi-driven Kanban + Team Conversation + GitHub Integration
    - Acceptance: git-driven kanban works (Goal create / claim lock / PR / Reject); 3 employees can claim tickets in parallel; team conversation shares Pi; pi-intercom coordinates; **GitHub integration: portal can browse repos / PRs / Issues / files via GitHub REST API**
