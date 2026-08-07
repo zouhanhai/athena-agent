@@ -5,7 +5,7 @@ import { createPinia } from "pinia";
 import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
-import ChatView from "@/views/ChatView.vue";
+import GlobalChatPanel from "@/components/GlobalChatPanel.vue";
 import { useChatStore } from "@/stores/chat";
 import { streamChat } from "@/api/chat";
 
@@ -25,7 +25,7 @@ interface StreamArgs {
 }
 
 function mountChat(): ChatWrapper {
-  return mount(ChatView, {
+  return mount(GlobalChatPanel, {
     global: { plugins: [createPinia(), TDesign] },
   });
 }
@@ -87,7 +87,7 @@ afterEach(() => {
   streamChatMock.mockReset();
 });
 
-describe("ChatView personal chat panel (store-backed)", () => {
+describe("GlobalChatPanel personal chat panel (store-backed)", () => {
   it("renders userId field, message list, composer and send button from the store", () => {
     const wrapper = mountChat();
     const store = useChatStore();

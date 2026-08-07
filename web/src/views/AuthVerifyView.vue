@@ -19,7 +19,7 @@ onMounted(async () => {
   try {
     const verification = await verifyMagicLink(token);
     auth.setSession(verification);
-    await router.replace("/chat");
+    await router.replace("/knowledge");
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   }

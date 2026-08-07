@@ -4,7 +4,6 @@ import { useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import {
   BookIcon,
-  ChatBubbleIcon,
   FolderOpenIcon,
   UsergroupIcon,
   ViewGanttIcon,
@@ -27,7 +26,6 @@ const { mode } = storeToRefs(theme);
 const menuTheme = computed(() => (mode.value === "dark" ? "dark" : "light"));
 
 const navItems: NavItem[] = [
-  { label: "Chat", path: "/chat", icon: ChatBubbleIcon },
   { label: "Knowledge", path: "/knowledge", icon: BookIcon },
   { label: "Kanban", path: "/kanban", icon: ViewGanttIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },

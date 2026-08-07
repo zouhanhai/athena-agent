@@ -43,12 +43,13 @@ function navItemByText(wrapper: AppWrapper, label: string) {
 }
 
 describe("portal sidebar navigation", () => {
-  it("renders the sidebar with Chat / Knowledge / Kanban / Wiki items", async () => {
+  it("renders the sidebar with Knowledge / Kanban / Wiki items and no Chat", async () => {
     const wrapper = await mountApp();
     const labels = navItems(wrapper).map((item) => item.text());
-    for (const label of ["Chat", "Knowledge", "Kanban", "Wiki"]) {
+    for (const label of ["Knowledge", "Kanban", "Wiki", "Agents"]) {
       expect(labels.some((text) => text.includes(label))).toBe(true);
     }
+    expect(labels.some((text) => text.includes("Chat"))).toBe(false);
     wrapper.unmount();
   });
 
@@ -79,12 +80,12 @@ describe("portal sidebar navigation", () => {
     wrapper.unmount();
   });
 
-  it("redirects / to /chat and shows the chat view", async () => {
+  it("redirects / to /knowledge and shows the knowledge view", async () => {
     const wrapper = await mountApp();
     await router.push("/");
-    await waitForRoute("/chat");
+    await waitForRoute("/knowledge");
     await flushPromises();
-    expect(wrapper.text()).toContain("Personal Chat");
+    expect(wrapper.text()).toContain("Knowledge Graph");
     wrapper.unmount();
   });
 
@@ -135,6 +136,55 @@ describe("portal sidebar navigation", () => {
     const last = children[children.length - 1];
     expect(last.classList.contains("app-footer")).toBe(true);
     expect(wrapper.find(".app-footer .settings-trigger").exists()).toBe(true);
+    wrapper.unmount();
+  });
+});
+
+describe("global chat panel", () => {
+  it("renders a fixed right-side chat panel in the app shell", async () => {
+    const wrapper = await mountApp();
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
+    expect(wrapper.find(".global-chat-panel .chat-composer").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("lays out the shell as [Sidebar | Content | GlobalChat] columns", async () => {
+    const wrapper = await mountApp();
+    const shell = wrapper.find(".app-shell");
+    const classLists = Array.from(shell.element.children).map((el) =>
+      el.classList.contains("app-aside")
+        ? "app-aside"
+        : el.classList.contains("app-content")
+          ? "app-content"
+          : el.classList.contains("global-chat-panel")
+            ? "global-chat-panel"
+            : el.className,
+    );
+    expect(classLists).toContain("app-aside");
+    expect(classLists).toContain("app-content");
+    expect(classLists).toContain("global-chat-panel");
+    wrapper.unmount();
+  });
+
+  it("keeps the chat panel mounted when navigating between pages", async () => {
+    const wrapper = await mountApp();
+    const panel = wrapper.find(".global-chat-panel");
+    expect(panel.exists()).toBe(true);
+
+    await router.push("/knowledge");
+    await waitForRoute("/knowledge");
+    await flushPromises();
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
+
+    await router.push("/wiki");
+    await waitForRoute("/wiki");
+    await flushPromises();
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
+
+    await router.push("/kanban");
+    await waitForRoute("/kanban");
+    await flushPromises();
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
     wrapper.unmount();
   });
 });

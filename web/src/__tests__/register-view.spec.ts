@@ -38,7 +38,7 @@ async function mountView(token = "invite-token") {
     history: createMemoryHistory(),
     routes: [
       { path: "/register", name: "register", component: { template: "<div />" } },
-      { path: "/chat", name: "chat", component: { template: "<div />" } },
+      { path: "/knowledge", name: "knowledge", component: { template: "<div />" } },
     ],
   });
   await router.push(`/register?token=${token}`);
@@ -100,7 +100,7 @@ describe("RegisterView", () => {
     });
     const auth = useAuthStore();
     expect(auth.isAuthenticated).toBe(true);
-    expect(router.currentRoute.value.path).toBe("/chat");
+    expect(router.currentRoute.value.path).toBe("/knowledge");
     wrapper.unmount();
   });
 

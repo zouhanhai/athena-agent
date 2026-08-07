@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, watch } from "vue";
 import SidebarNav from "@/components/SidebarNav.vue";
+import GlobalChatPanel from "@/components/GlobalChatPanel.vue";
 import { applyTheme } from "@/theme";
 import { useThemeStore } from "@/stores/theme";
 import { useAuthStore } from "@/stores/auth";
@@ -25,6 +26,7 @@ onMounted(() => {
     <t-content class="app-content">
       <router-view />
     </t-content>
+    <GlobalChatPanel />
   </t-layout>
 </template>
 
@@ -34,6 +36,8 @@ onMounted(() => {
 }
 
 .app-content {
+  flex: 1;
+  min-width: 0;
   background: var(--caleo-body-bg);
 }
 </style>

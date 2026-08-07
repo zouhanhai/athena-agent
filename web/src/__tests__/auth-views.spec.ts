@@ -22,7 +22,7 @@ async function makeRouter(initialPath: string) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: "/chat", name: "chat", component: { template: "<div />" } },
+      { path: "/knowledge", name: "knowledge", component: { template: "<div />" } },
       { path: "/login", name: "login", component: LoginView },
       { path: "/auth/verify", name: "verify", component: AuthVerifyView },
     ],
@@ -74,7 +74,7 @@ describe("LoginView", () => {
 });
 
 describe("AuthVerifyView", () => {
-  it("verifies the login token, stores the session and redirects to /chat", async () => {
+  it("verifies the login token, stores the session and redirects to /knowledge", async () => {
     setActivePinia(createPinia());
     verifyMagicLinkMock.mockResolvedValue({
       session_token: "ses123",
@@ -87,7 +87,7 @@ describe("AuthVerifyView", () => {
     const auth = useAuthStore();
     expect(auth.isAuthenticated).toBe(true);
     await flushPromises();
-    expect(router.currentRoute.value.path).toBe("/chat");
+    expect(router.currentRoute.value.path).toBe("/knowledge");
     wrapper.unmount();
   });
 

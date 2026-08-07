@@ -76,7 +76,7 @@ async function submit() {
       github_credential: githubCredential,
     });
     auth.setSession(verification);
-    await router.push("/chat");
+    await router.push("/knowledge");
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {

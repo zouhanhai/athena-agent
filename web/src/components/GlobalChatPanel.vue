@@ -25,7 +25,7 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
 </script>
 
 <template>
-  <section class="chat-panel">
+  <aside class="global-chat-panel">
     <header class="chat-header">
       <h2 class="chat-title">Personal Chat</h2>
       <div class="user-id-field">
@@ -69,24 +69,31 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
         {{ loading ? "Sending..." : "Send" }}
       </t-button>
     </footer>
-  </section>
+  </aside>
 </template>
 
 <style scoped>
-.chat-panel {
+.global-chat-panel {
+  width: 360px;
+  min-width: 360px;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 48px);
-  padding: 24px;
+  padding: 16px;
+  box-sizing: border-box;
+  background: var(--caleo-body-bg);
+  border-left: 1px solid var(--caleo-border);
+  position: sticky;
+  top: 0;
 }
 
 .chat-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-  padding: 16px 20px;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 16px;
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
@@ -95,7 +102,7 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
 
 .chat-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
   color: var(--caleo-text);
 }
 
@@ -111,7 +118,7 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
 }
 
 .user-id-input {
-  width: 160px;
+  width: 140px;
 }
 
 .message-list {
@@ -182,7 +189,7 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   display: flex;
   align-items: flex-end;
   gap: 12px;
-  margin-top: 16px;
+  margin-top: 12px;
   padding: 16px;
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
