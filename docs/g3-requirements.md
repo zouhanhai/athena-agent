@@ -52,11 +52,32 @@ chat with each other) is deliberately deferred to a later milestone.**
 
 ## 4. Open design decisions for G3 Goal decomposition (to confirm)
 
-A. Is the Agent Registry its own Spec, or folded into the team-conversation Spec?
-B. The 3-column workbench (Chat | Repo tree | Kanban) — new page, or refactor existing pages?
-C. Does multi-agent *parallelism* belong in G3 or stay in M4?
-D. Where do the "soul" roles (Consultant/PM/EngD/Reviewer/Writer) live — Hermes profiles,
-   OpenCode agent config, or Pi capability?
+A. **Agent Registry = independent Spec.** ✓ confirmed
+B. **Workbench 3-panel page**: Chat | Repo tree | Kanban. Kanban is NOT a separate
+   panel — fold it into the Workbench page achieving the 3-panel effect. **Open UX
+   question: multiple conversations.** A user does not have only one conversation:
+   - private chat with their own agent
+   - participate in multi-user conversations
+   - Workbench conversation
+   How to present this dynamically (modern pattern for many live conversations)?
+   → **RESOLVED: unified conversation list + type labels (Teams-style).** Use the
+     long sidebar as a conversation list (like Teams/Slack channels). Each
+     conversation is a first-class entity with a **type**: private (own agent) /
+     multi-user / Workbench. Click any → opens its message stream. A **Workbench**
+     conversation additionally renders the 3-panel layout (Chat | Repo tree | Kanban).
+     Modern niceties: dynamic create/delete, unread markers, search.
+C. **Employee login + RBAC in G3** (since it shares the agent registry), but as a
+   **separate Spec**.
+D. **soul roles (Consultant/PM/EngD/Reviewer/Writer)** belong to **git-driven
+   development** — kept separate from the agent-channel work in G3. (soul-driven
+   dev is a distinct concern, not part of the multi-agent federation channel.)
+
+## 4.1 GitHub integration (per-user credentials)
+
+GitHub visibility is driven by **the signed-in user's own GitHub credential**
+(SSH key or token) provided at platform registration. The Workbench repo tree /
+PR / Issue views render only the repos **that user can see** (their permission
+scope). This keeps GitHub auth per-user rather than a shared service account.
 
 ## 5. StaffDeck reference notes (OpenBMB)
 
