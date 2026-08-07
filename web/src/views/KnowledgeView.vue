@@ -210,7 +210,7 @@ const configs = computed<UserConfigs>(() => ({
       radius: (node) => (node.size as number) ?? 14,
       color: colors.value.sky,
     },
-    focusring: { color: colors.value.primary, width: 2, padding: 3 },
+    focusring: { color: colors.value.primary, width: 1.5, padding: 3 },
     label: { visible: true, color: colors.value.text, fontSize: 12, fontFamily: "inherit" },
   },
   edge: {
