@@ -53,6 +53,8 @@ export interface AgentRegistry {
   getByAlias(alias: string): Promise<AgentRecord | null>;
   create(input: AgentCreateInput): Promise<AgentRecord>;
   updateByAlias(alias: string, patch: AgentUpdateInput): Promise<AgentRecord>;
+  /** Seed the default Athena agent (idempotent). Called on server start. */
+  seed(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -119,6 +121,12 @@ export class MemoryAgentRegistry implements AgentRegistry {
     };
     this.agents.set(alias, updated);
     return updated;
+  }
+
+  async seed(): Promise<void> {
+    if (!this.agents.has(DEFAULT_ATHENA.alias)) {
+      this.setRecord(DEFAULT_ATHENA);
+    }
   }
 
   async close(): Promise<void> {
@@ -201,6 +209,11 @@ export class PostgresAgentRegistry implements AgentRegistry {
         DEFAULT_ATHENA.runtime ?? "",
       ],
     );
+  }
+
+  /** Eagerly ensure table + seed Athena. Idempotent (ON CONFLICT DO NOTHING). */
+  async seed(): Promise<void> {
+    await this.ensureReady();
   }
 
   async create(input: AgentCreateInput): Promise<AgentRecord> {

@@ -77,6 +77,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return { status: "ok" };
   });
 
+  app.addHook("onReady", async () => {
+    if (!options.registry) {
+      await registry.seed();
+    }
+  });
+
   app.addHook("onClose", async () => {
     await registry.close();
   });
