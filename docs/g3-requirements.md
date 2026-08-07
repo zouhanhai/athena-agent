@@ -79,6 +79,33 @@ GitHub visibility is driven by **the signed-in user's own GitHub credential**
 PR / Issue views render only the repos **that user can see** (their permission
 scope). This keeps GitHub auth per-user rather than a shared service account.
 
+## 4.2 Git-Driven Development — platform protocol view (worker-agnostic)
+
+The platform does **not** care whether a worker is a Pi, OpenCode, or any other
+code-capable agent. It defines a **protocol** in three layers:
+
+1. **G.S.T board structure (protocol)**
+   - The platform fixes the `docs/kanban/Gx/Sx/Tx.md` three-layer markdown
+     structure (dir naming, frontmatter, state machine). Already defined in
+     `docs/git-kanban-design.md` and used by G1/G2.
+
+2. **Planning-agent onboarding protocol (how to plan)**
+   - Tells a planning agent how to produce the three layers:
+     `grill → to-spec → to-ticket` (matt pocock skills / soul roles:
+     Consultant → PM → Eng Director).
+   - Output = the md files under `docs/kanban/`.
+   - The platform can then **construct the kanban view by scanning the repo's
+     `docs/` folder** (parse the md → board).
+
+3. **Code-agent claiming/reporting protocol (how to take & finish a ticket)**
+   - How a code agent **claims** a ticket (claim lock via git push, `session_id`).
+   - How it **reports completion** (state → done/in_review, PR number, log).
+   - How it **talks to the planning agent** (handoff / interface).
+
+**Key principle:** worker abstraction — any code-capable agent can join; the
+platform only standardizes the md files + git coordination, not the agent runtime.
+
+
 ## 5. StaffDeck reference notes (OpenBMB)
 
 - Digital employees with **positions, employee IDs, capability profiles, work records**
