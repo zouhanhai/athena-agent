@@ -98,8 +98,21 @@ code-capable agent. It defines a **protocol** in three layers:
      `docs/` folder** (parse the md → board).
 
 3. **Code-agent claiming/reporting protocol (how to take & finish a ticket)**
-   - How a code agent **claims** a ticket (claim lock via git push, `session_id`).
-   - How it **reports completion** (state → done/in_review, PR number, log).
+   - **The worker claims the ticket ITSELF via git (claim lock / git push)** —
+     the existing `git-kanban-design.md` mechanism is unchanged. The planning
+     agent does NOT claim on the worker's behalf.
+   - The planning agent's role is **notification / dispatch**: it tells a worker
+     which ticket to take. The worker then does its own git claim-lock push.
+     ```
+     Planning agent (creates G.S.T md)
+        │  notify "take G1.S1.T2"      (dispatch / scheduling)
+        ▼
+     Worker agent → git claim lock    (worker pushes its own claim; git = mutex)
+        │  report done / in_review
+        ▼
+     Planning agent (receives report, updates kanban md if needed)
+     ```
+   - How a code agent **reports completion** (state → done/in_review, PR number, log).
    - How it **talks to the planning agent** (handoff / interface).
 
 **Key principle:** worker abstraction — any code-capable agent can join; the
