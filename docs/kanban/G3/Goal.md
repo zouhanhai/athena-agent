@@ -7,20 +7,20 @@ status: active
 created_at: 2026-08-07
 milestone: M3
 acceptance_criteria:
-  - "Agent Registry: agents connect to Athena and declare identity (alias/owner/logo/capabilities/MCP), stored in PG"
-  - "Employee Identity: employees log in (email), pick a logo, RBAC per role, agents archived under employees"
-  - "Per-user GitHub credential (SSH/token) provided at registration, scoped to that user's GitHub permission"
-  - "Conversation System: Teams-style unified conversation list + types (private/multi-user/Workbench)"
-  - "Agent-card Chat UI: add agents to a chat as cards, toggle to speak, speaker logo on each message"
-  - "Workbench 3-panel page: Chat | GitHub repo tree | Kanban"
-  - "Git-Driven Development: full 6-role lifecycle (Consultant/PM/EngD/Worker/Reviewer/Writer) + state machine with reject→re-decompose + GitHub full ops (open PR/edit/merge)"
+  - "Global Chat panel: fixed right-side panel on every page (Knowledge/Wiki/Workbench/Upload), single shared context, agent cards above, add agent/employee entry"
+  - "Agent Registry: agents declare identity (alias/owner/logo/capabilities/MCP) in PG"
+  - "Employee Identity: email login, pick logo, RBAC, per-user GitHub credential (encrypted), agents archived under employees"
+  - "Workbench page: 3 GitHub-style tabs (Code file-tree + code view / Issues / Kanban) scoped to per-user credential"
+  - "Uploads page: own tab with per-system processing stages (docling/LightRAG/llm_wiki) + chunk progress, using the global chat"
+  - "Git-Driven Development: worker-agnostic protocol + full 6-role lifecycle (Consultant/PM/EngD/Worker/Reviewer/Writer) + state machine with reject→re-decompose + GitHub full ops"
+  - "Sidebar = pure navigation (Knowledge/Wiki/Workbench/Upload/Output[future]); Chat is not a sidebar item"
 ---
 
 # G3: Multi-Agent Federation & Team Workbench
 
 ## Background / Context
 
-Corresponds to Milestone M3. Objective: build the multi-agent federation + team workbench for the athena portal — any code-capable agent (Pi / OpenCode / other) can connect to Athena, declare its identity and capabilities, participate in conversations, and collaborate through a GitHub-driven workbench. Verified with a **single employee** first (multi-employee parallelism stays in M4).
+Corresponds to Milestone M3. Objective: build the multi-agent federation + team workbench for the athena portal — any code-capable agent (Pi / OpenCode / other) can connect to Athena, declare identity and capabilities, and participate in a **single global shared-context chat** while working across the platform. The UI is redesigned around a **global right-side Chat panel**; the sidebar becomes pure navigation. Verified with a **single employee** first (multi-employee parallelism stays in M4).
 
 Reference design docs:
 - README.md (architecture overview + M3 acceptance criteria)
@@ -29,50 +29,51 @@ Reference design docs:
 - docs/distributed-pi-collaboration.md (multi-agent federation architecture)
 - docs/pi-capabilities.md (Pi SDK + packages)
 - CONTEXT.md (glossary)
-- Reference impl: OpenBMB/StaffDeck (digital-employee platform UX)
+- Reference impl: OpenBMB/StaffDeck (digital-employee platform UX) + GitHub UI (Workbench)
 
 ## Goal
 
 1. **Agent Registry** (G3.S1): agents declare identity (alias/owner/logo/capabilities/MCP/runtime), stored in PG.
 2. **Employee Identity + RBAC + GitHub credentials** (G3.S2): email login, pick logo, RBAC, per-user GitHub credential (scoped), agents archived under employees.
-3. **Conversation System** (G3.S3): Teams-style unified conversation list + types (private/multi-user/Workbench).
-4. **Agent-card Chat UI** (G3.S4): add agents as cards to a chat, toggle to speak, speaker logo per message.
-5. **Workbench 3-panel** (G3.S5): Chat | GitHub repo tree | Kanban (frontend shell).
+3. **Global Chat panel** (G3.S3): fixed right-side panel on every page, single shared context, agent cards above, add agent/employee entry. Based on existing ChatView + S1 identity.
+4. **Workbench page** (G3.S4): GitHub-style content area with 3 tabs — Code (file tree + code view), Issues, Kanban. Scoped to per-user credential.
+5. **Uploads page** (G3.S5): own tab with detailed per-system processing stages (docling/LightRAG/llm_wiki) + chunk progress; uses the global Chat panel (no separate chat).
 6. **Git-Driven Development** (G3.S6): worker-agnostic protocol + full 6-role lifecycle + GitHub full ops (open PR/edit/merge).
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Sidebar: unified conversation list (Teams-style)           │
-│   private (own agent) / multi-user / Workbench             │
-├─────────────────────────────────────────────────────────────┤
-│ Conversation stream (G3.S3/S4)                             │
-│   agent cards above, speaker logo on messages              │
-├─────────────────────────────────────────────────────────────┤
-│ Workbench 3-panel (G3.S5):                                 │
-│   Chat | GitHub repo tree | Kanban                         │
-├─────────────────────────────────────────────────────────────┤
-│ Backend:                                                    │
-│   AgentRegistry (PG) — G3.S1                               │
-│   Employee+RBAC+GitHub creds (PG) — G3.S2                  │
-│   ConversationService — G3.S3                              │
-│   GitDrivenService (docs scan, kanban, GitHub ops) — G3.S6 │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────┬──────────────────────────────┬──────────────────────┐
+│ Sidebar     │ Content area (per tab)        │ Global Chat panel    │
+│ (nav only)  │                              │ (fixed right, S3)    │
+│ Knowledge   │  Knowledge / Wiki /          │  agent cards (S1)    │
+│ Wiki        │  Workbench (S4) /            │  add agent/employee  │
+│ Workbench   │  Uploads (S5) /              │  single shared       │
+│ Upload      │  Output[future]              │  context, speaker    │
+│ Output[fu]  │                              │  logos, speak-toggle │
+└─────────────┴──────────────────────────────┴──────────────────────┘
+
+Backend:
+  AgentRegistry (PG) — S1
+  Employee+RBAC+GitHub creds (PG) — S2
+  ConversationService (global context) — S3
+  GitDrivenService (docs scan, kanban, GitHub ops) — S6
 ```
 
 ## Confirmed Decisions
 
 - **Single employee** for G3 (multi-employee parallelism → M4).
+- **Sidebar = pure navigation**; Chat is a global right-side panel (not a sidebar item).
+- **Global single-context Chat**: switching tabs changes only center content; chat context never changes. Rationale: deepseek LLM cache high hit-rate + cheap.
 - **Agent Registry independent Spec** (S1); stored in PG.
 - **Employee login + RBAC in G3** (shares registry), separate Spec (S2).
-- **Workbench 3-panel** page (S5); Kanban is not a separate panel — folded into Workbench.
-- **Conversations = Teams-style unified list + type labels** (S3), using the long sidebar.
-- **Agent cards + speak toggle + speaker logo** (S4), StaffDeck-style display.
+- **S3 = Conversation + Global Chat panel** (merged S3+S4 of old plan).
+- **Workbench (S4) = 3 GitHub-style tabs**: Code (file tree + code view + syntax highlight + branch) / Issues / Kanban, scoped to per-user credential.
+- **Uploads (S5) = own tab**: detailed per-system stages + chunk progress; uses global Chat (no separate chat).
 - **soul roles belong to git-driven development** (S6), separate from agent channel.
 - **GitHub per-user credential + FULL ops** (browse + open PR/edit/merge), scoped to user (S2 + S6).
-- **Git-driven = worker-agnostic protocol**: worker claims via git claim-lock itself; planning agent notifies/dispatches. Full 6-role lifecycle (Consultant/PM/EngD/Worker/Reviewer/Writer) + state machine with reject→re-decompose.
-- **Backend parsing/logic in S6; frontend rendering in S5.**
+- **Git-driven = worker-agnostic protocol**: worker claims via git claim-lock; planning agent notifies/dispatches. Full 6-role lifecycle + state machine with reject→re-decompose.
+- **Backend parsing/logic in S6; frontend rendering in S4.**
 
 ## Tech Stack
 

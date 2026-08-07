@@ -1,86 +1,94 @@
 ---
 id: g3_s4
-title: "G3.S4: Agent-Card Chat UI"
+title: "G3.S4: Workbench (GitHub-Style Content Area)"
 layer: S
 parent: G3
 owner: pm
 status: active
 milestone: M3
 acceptance_criteria:
-  - "Chat area has a region above messages to pick agents to add into the conversation"
-  - "Each added agent shows as a card (StaffDeck-style): logo, alias, capabilities"
-  - "Each card has a toggle/slider controlling whether the agent may speak"
-  - "Adding an agent = that agent sees the conversation context"
-  - "Each message bubble shows the speaker's logo (which agent/employee said it)"
+  - "Workbench page shows 3 tabs: Code | Issues | Kanban"
+  - "Code tab: GitHub-style file tree (left) + code view (right) with line numbers + syntax highlighting + branch selector, scoped to per-user credential"
+  - "Issues tab: GitHub-style issue list"
+  - "Kanban tab: board from S6 docs-scan"
+  - "Global Chat panel (S3) present on the Workbench page (right side)"
 ---
 
-# G3.S4: Agent-Card Chat UI
+# G3.S4: Workbench (GitHub-Style Content Area)
 
 ## Task
 
-Build the agent-aware chat UI — a region above the messages to add agents into a conversation (as cards with a speak-toggle), and speaker logos on each message so you can tell who said what.
+Build the Workbench page — a GitHub-style content area with 3 tabs (Code / Issues / Kanban), scoped to the per-user GitHub credential. The global Chat panel (S3) is present on the right.
 
 ## Key Dependencies
 
-- G3.S1 (agent registry — agent identity/capabilities for cards)
-- G3.S3 (conversation system — messages/stream)
+- G3.S2 (per-user GitHub credential)
+- G3.S6 (GitHub API + kanban docs-scan backend)
+- G3.S3 (global chat panel on the page)
 
 ## Architecture
 
 ```
-Conversation stream (from S3)
-  ┌─────────────────────────────────────────────┐
-  │ Agent picker (above messages)               │
-  │   [pick agents to add to conversation]      │
-  ├─────────────────────────────────────────────┤
-  │ Agent cards (each joined agent)             │
-  │   [logo] [alias] [capabilities] [toggle]    │
-  ├─────────────────────────────────────────────┤
-  │ Message stream                              │
-  │   [speaker logo] message text               │
-  └─────────────────────────────────────────────┘
+Workbench page (center content area)
+┌──────────────────────────────────────────────┐
+│ [Code] [Issues] [Kanban]   ← 3 tabs          │
+├──────────────────────────────────────────────┤
+│ Code tab (GitHub-style):                     │
+│  ┌──────────────┬─────────────────────────┐  │
+│  │ repo tree    │ code view              │  │
+│  │ + branch     │ line numbers + syntax  │  │
+│  │ selector     │ highlight              │  │
+│  └──────────────┴─────────────────────────┘  │
+│ Issues tab: GitHub-style issue list          │
+│ Kanban tab: board from S6 docs-scan          │
+└──────────────────────────────────────────────┘
+(Global Chat panel S3 on the right)
 ```
 
 ## UI Placement (Decided)
 
-- Inside the conversation message area (S3): agent picker + cards above the stream, speaker logo on each bubble.
+- Workbench is a sidebar nav item (page). Center content = 3 GitHub-style tabs.
+- Global Chat (S3) on the right, same as every other page.
 
 ## Implementation
 
-### 1. Agent picker (frontend)
-- Region above messages: list available agents (S1) → pick to add
-- Adding an agent → shows as a card + agent gains conversation context
+### 1. Workbench page with 3 tabs (frontend)
+- [Code] [Issues] [Kanban] tab bar (TDesign tabs)
+- Global Chat panel (S3) on the right
 
-### 2. Agent card component
-- Each card: logo (S1), alias, capabilities, and a **toggle/slider** for "may speak"
-- StaffDeck-style display (clean, logo + identity)
+### 2. Code tab (GitHub-style)
+- Left: repo tree (folders/files, expandable to leaf) + branch selector
+- Right: code view with line numbers + syntax highlighting (per-language colors)
+- Scoped to per-user credential (S2)
+- Consumes S6 GitHub API
 
-### 3. Speak toggle
-- Toggle controls whether the agent responds in this conversation
-- Off = agent reads context but does not respond
+### 3. Issues tab (GitHub-style)
+- Issue list (open/closed, labels, assignees)
+- Consumes S6 GitHub API
 
-### 4. Speaker logo on messages
-- Each message bubble shows the speaker's logo (S1) to identify which agent/employee said it
-- Includes the human user's logo (S2) for their own messages
+### 4. Kanban tab
+- Board from S6 docs-scan (Goals/Specs/Tickets + status)
+- Consumes S6 /api/kanban
 
 ## Reference
 
 - Spec: `docs/kanban/G3/Goal.md`
-- Requirements: `docs/g3-requirements.md` §2 (agent-aware conversation UI)
-- StaffDeck (card display reference)
+- Requirements: `docs/g3-requirements.md` §4.1 (GitHub) + SUPERSEDED layout
+- GitHub UI reference (the attached screenshot / repo UI)
 
 ## How to Locate Reference Docs
 
 - `parent: G3` → `docs/kanban/G3/Goal.md`
-- Requirements: `docs/g3-requirements.md` §2
+- Requirements: `docs/g3-requirements.md` §4.1
 
 ## Notes
 
-- Multi-agent collaboration mechanics (@-mentions, agents chatting each other) are **deferred** to a later milestone — G3 only does pick + speak-toggle + speaker logo.
+- S4 is the **frontend shell**; all logic (GitHub API, docs scan) lives in S6.
+- Per-user credential scoping is essential (each user sees only their repos).
 - Use **implement** + tdd + code-review
 
 ## Dependencies
 
-- G3.S1 (agents), G3.S3 (conversation)
+- G3.S2 (GitHub credential), G3.S6 (GitHub API + kanban scan), G3.S3 (chat)
 
 ## Log

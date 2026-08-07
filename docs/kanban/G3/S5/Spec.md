@@ -1,83 +1,106 @@
 ---
 id: g3_s5
-title: "G3.S5: Workbench 3-Panel"
+title: "G3.S5: Uploads Page (Per-System Ingest Detail)"
 layer: S
 parent: G3
 owner: pm
 status: active
 milestone: M3
 acceptance_criteria:
-  - "Workbench conversation renders 3-panel layout: Chat | GitHub repo tree | Kanban"
-  - "Chat panel reuses S3/S4 conversation"
-  - "GitHub repo tree panel consumes S6 GitHub API, expandable to files, scoped to user credential"
-  - "Kanban panel consumes S6 docs scan, shows G.S.T board"
-  - "Panels are resizable / collapsible"
+  - "Uploads is an independent sidebar tab (knowledge-base platform: ingest is core)"
+  - "Detail of per-system processing stages: docling / LightRAG / llm_wiki each with their sub-steps"
+  - "LightRAG chunk progress (e.g. chunk 12/182) surfaced to the UI"
+  - "Task status reflects REAL LightRAG backend state (processing/processed/failed), not a false done"
+  - "Uses the global Chat panel (S3) — no separate chat on this page"
 ---
 
-# G3.S5: Workbench 3-Panel
+# G3.S5: Uploads Page (Per-System Ingest Detail)
 
 ## Task
 
-Build the Workbench 3-panel page (frontend shell): Chat | GitHub repo tree | Kanban. This is a Workbench-type conversation (S3) rendered with the 3-panel layout. All data comes from S6 (GitHub API, docs scan) + S3/S4 (chat).
+Build the Uploads page — an independent tab showing detailed per-system ingest progress (docling / LightRAG / llm_wiki), with LightRAG chunk progress and real backend status. Uses the global Chat panel (S3). This extends the G2 ingest functionality into a first-class page.
 
 ## Key Dependencies
 
-- G3.S3 (conversation — Workbench type)
-- G3.S4 (agent-card chat — left panel)
-- G3.S6 (GitHub API, kanban/docs scan — middle + right panels)
+- G2 ingest pipeline (docling parse + LightRAG + llm_wiki)
+- G3.S3 (global chat panel — used, no separate chat)
+- LightRAG document status API (/documents)
 
 ## Architecture
 
 ```
-Workbench conversation (type=workbench, from S3)
-  ┌─────────────┬─────────────────────┬─────────────┐
-  │ Chat (S3/S4)│ GitHub repo tree    │ Kanban (S6) │
-  │   left      │   middle (S6 API)   │   right      │
-  └─────────────┴─────────────────────┴─────────────┘
-  resizable / collapsible panels
+Uploads page (center content area)
+┌──────────────────────────────────────────────┐
+│ Upload area: drag/drop/select/URL             │
+├──────────────────────────────────────────────┤
+│ Task list (one card per upload)              │
+│ ┌──────────────────────────────────────────┐ │
+│ │ [filename] [status badge] [retry/del]    │ │
+│ │ docling  parse  ✅/⏳/❌                  │ │
+│ │   ├─ read file                           │ │
+│ │   └─ parse + OCR + image desc            │ │
+│ │ LightRAG ingest ⏳ chunk 12/182           │ │
+│ │   ├─ chunking  ✅ 182 chunks             │ │
+│ │   ├─ entity/relation extraction ⏳        │ │
+│ │   ├─ graph build                         │ │
+│ │   └─ embedding                           │ │
+│ │ llm_wiki   ⏳                            │ │
+│ │   ├─ classify                            │ │
+│ │   ├─ write page                          │ │
+│ │   └─ rebuild index                       │ │
+│ └──────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+(Global Chat panel S3 on the right)
 ```
 
 ## UI Placement (Decided)
 
-- A Workbench conversation (S3) renders the 3-panel layout instead of a plain message stream.
-- Panels: Chat (left), GitHub repo tree (middle), Kanban (right).
+- Uploads is an independent sidebar tab (like Knowledge/Wiki/Workbench).
+- Center content = upload area + detailed task cards.
+- Global Chat (S3) on the right.
 
 ## Implementation
 
-### 1. 3-panel layout (frontend)
-- Resizable/collapsible panels (Vue3 + TDesign split-pane or custom)
-- Workbench conversation type triggers this layout
+### 1. Uploads page (frontend)
+- Independent sidebar item (Uploads)
+- Upload area (drag/drop/select/URL) — reuse G2 Add Data logic
+- Task list with detailed per-system progress
 
-### 2. GitHub repo tree panel (middle)
-- Consumes S6 GitHub API: list repos (scoped to user credential), expand tree to files
-- File tree: repo → dirs → files (recursive)
+### 2. Per-system processing stage model (backend)
+- Extend task model with per-system sub-steps:
+  - docling: read file / parse+OCR+image desc
+  - LightRAG: chunking / entity extraction / graph build / embedding
+  - llm_wiki: classify / write page / rebuild index
+- Each sub-step has status (pending/running/done/failed)
 
-### 3. Kanban panel (right)
-- Consumes S6 docs-scan: parse docs/kanban/*.md → board (Goals/Specs/Tickets + status)
-- Display: columns by status (backlog/in_progress/done/...) or tree by G.S.T
+### 3. LightRAG real status + chunk progress
+- Poll LightRAG /documents for real status (processing/processed/failed)
+- Chunk progress: parse LightRAG log (`Chunk N of 182`) or a status field
+- Task must NOT show false "done" — reflect LightRAG backend reality
 
-### 4. Chat panel (left)
-- Reuses S3 conversation + S4 agent cards
+### 4. Athena chat integration
+- Use global Chat panel (S3); user can ask Athena about ingest while working
 
 ## Reference
 
 - Spec: `docs/kanban/G3/Goal.md`
-- Requirements: `docs/g3-requirements.md` §B (Workbench 3-panel) + §4.1 (GitHub)
-- Design: `docs/git-kanban-design.md` (kanban structure)
+- Requirements: `docs/g3-requirements.md` §2 (Uploads tab) + SUPERSEDED layout
+- G2 ingest pipeline (existing)
 
 ## How to Locate Reference Docs
 
 - `parent: G3` → `docs/kanban/G3/Goal.md`
-- Requirements: `docs/g3-requirements.md` §B
-- Kanban structure: `docs/git-kanban-design.md`
+- Requirements: `docs/g3-requirements.md` §2
+- G2 ingest: `docs/knowledge-rag-design.md`
 
 ## Notes
 
-- S5 is the **frontend shell**; all logic (GitHub API, docs scan) lives in S6
+- Extends G2 functionality into a first-class page (G2 is done; this is G3 scope).
+- Key fix: task status must reflect real LightRAG backend state (not false done).
 - Use **implement** + tdd + code-review
 
 ## Dependencies
 
-- G3.S3 (conversation), G3.S4 (chat), G3.S6 (GitHub API + kanban scan)
+- G2 ingest pipeline, G3.S3 (global chat)
 
 ## Log

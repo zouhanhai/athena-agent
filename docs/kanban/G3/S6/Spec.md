@@ -49,7 +49,7 @@ Kanban: scan docs/kanban/*.md → board
 
 ## UI Placement (Decided)
 
-- Backend-first. S5 (Workbench) renders the GitHub tree + Kanban using these APIs. No separate git-driven admin page in G3.
+- Backend-first. **G3.S4 (Workbench)** renders the GitHub tree + Kanban using these APIs. No separate git-driven admin page in G3.
 
 ## Implementation
 
