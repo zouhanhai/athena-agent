@@ -8,6 +8,7 @@ import { registerChatRoutes } from "./routes/chat.js";
 import { registerKbRoutes } from "./routes/kb.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerLogoRoutes } from "./routes/logos.js";
+import { registerEmployeeRoutes } from "./routes/employees.js";
 import {
   MemoryAgentRegistry,
   PostgresAgentRegistry,
@@ -19,6 +20,19 @@ import {
   OpenRouterLogoClient,
   type LogoStore,
 } from "./agents/logos.js";
+import {
+  ConsoleMailer,
+  MagicLinkAuthService,
+  MemoryAuthTokenStore,
+  PostgresAuthTokenStore,
+  ResendMailer,
+  type AuthService,
+} from "./employees/auth.js";
+import {
+  MemoryEmployeeRegistry,
+  PostgresEmployeeRegistry,
+  type EmployeeRegistry,
+} from "./employees/employees.js";
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { DoclingParser } from "./kb/docling.js";
@@ -34,6 +48,8 @@ export interface BuildAppOptions {
   taskQueue?: IngestTaskQueue;
   registry?: AgentRegistry;
   logos?: LogoStore;
+  employees?: EmployeeRegistry;
+  auth?: AuthService;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
   maxFileSize?: number;
 }
@@ -74,6 +90,30 @@ export function defaultAgentRegistry(): AgentRegistry {
   return new MemoryAgentRegistry([DEFAULT_ATHENA]);
 }
 
+/** Default employee registry: Postgres when DATABASE_URL is set, else in-memory. */
+export function defaultEmployeeRegistry(): EmployeeRegistry {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new PostgresEmployeeRegistry({ connectionString });
+  }
+  return new MemoryEmployeeRegistry();
+}
+
+/** Default auth: email magic link via Resend when RESEND_API_KEY is set, else console logs. */
+export function defaultAuthService(employees: EmployeeRegistry): AuthService {
+  const connectionString = process.env.DATABASE_URL;
+  const tokens = connectionString
+    ? new PostgresAuthTokenStore({ connectionString })
+    : new MemoryAuthTokenStore();
+  const mailer = process.env.RESEND_API_KEY ? new ResendMailer() : new ConsoleMailer();
+  return new MagicLinkAuthService({
+    registry: employees,
+    tokens,
+    mailer,
+    appBaseUrl: process.env.APP_BASE_URL,
+  });
+}
+
 /** Default file-backed logo store rooted at web/public/logos with the owl as style reference. */
 export function defaultLogoStore(): LogoStore {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -89,6 +129,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const manager = options.manager ?? new AgentManager();
   const registry = options.registry ?? defaultAgentRegistry();
   const logos = options.logos ?? defaultLogoStore();
+  const employees = options.employees ?? defaultEmployeeRegistry();
+  const auth = options.auth ?? defaultAuthService(employees);
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -102,16 +144,22 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (!options.registry) {
       await registry.seed();
     }
+    if (!options.employees) {
+      await employees.seed();
+    }
   });
 
   app.addHook("onClose", async () => {
     await registry.close();
     await logos.close();
+    await employees.close();
+    await auth.close();
   });
 
   registerAgentRoutes(app, { registry });
   registerLogoRoutes(app, { logoStore: logos, registry });
   registerChatRoutes(app, { manager });
+  registerEmployeeRoutes(app, { employees, auth });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
     retrieval: options.retrieval ?? defaultRetrievalService(),
