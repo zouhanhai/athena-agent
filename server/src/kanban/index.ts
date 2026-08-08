@@ -27,3 +27,16 @@ export {
   writeTicketFile,
 } from "./board.js";
 export type { BoardRef, BoardFile, ParsedBoardFile, TicketDocument } from "./board.js";
+export {
+  scanBoard,
+  defaultBoardRoot,
+  FileBoardScanner,
+} from "./scan.js";
+export type {
+  KanbanBoard,
+  BoardGoal,
+  BoardSpec,
+  BoardTicket,
+  BoardError,
+  BoardScanner,
+} from "./scan.js";
