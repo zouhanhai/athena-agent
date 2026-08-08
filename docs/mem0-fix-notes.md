@@ -1,30 +1,49 @@
-# Mem0 修复记录 (2026-08-08)
+# Mem0 迁移到 pgvector 记录 (2026-08-08)
 
-## 问题
-`mem0_add` / `mem0_search` 报: "Mem0 backend not initialized: No module named 'mem0'"
+## 问题演进
+1. `mem0_add` 报 "No module named 'mem0'" → 根因: Hermes TUI 用系统 `/usr/bin/python3`, 系统 python 没装 mem0ai
+2. 装 mem0ai 到系统 python 后 → 报 "QdrantLocal already accessed by another instance"
+3. 根因: Hermes 的 TUI gateway 进程 + agent 进程同时初始化 mem0, QdrantLocal(嵌入式) 只能单进程持有文件锁 → 冲突
 
-## 根因
-- Hermes TUI 进程 (`~/.local/bin/hermes` → `/usr/bin/python3`) 用**系统 python** 启动
-- 系统 python `/usr/bin/python3` **没有装 mem0ai**（只有 `~/.hermes/hermes-agent/venv` 里有 2.0.10）
-- 两天前的端到端测试是**手动用 venv python** 跑的，Hermes 进程本身从没真正用过 mem0
+## 解决方案: 迁移到 pgvector (用户偏好, 不用 qdrant)
 
-## 修复
-已把 mem0ai 2.0.17 装到系统 python（user site）:
+### 1. 本机 Postgres 配置 (sudo 密码用户提供)
 ```
-/usr/bin/python3 -m pip install --user --break-system-packages mem0ai
+sudo apt-get install -y postgresql-16-pgvector   # 已装 0.6.0
+sudo -u postgres psql -c "CREATE ROLE mem0 WITH LOGIN PASSWORD 'mem0_pg_2026'"
+sudo -u postgres createdb -O mem0 mem0
+sudo -u postgres psql -d mem0 -c 'CREATE EXTENSION IF NOT EXISTS vector'
 ```
-- 系统 python 现在能 `import mem0` (2.0.17) ✓
+- 认证: pg_hba.conf 127.0.0.1/32 已是 scram-sha-256, mem0 角色用密码 TCP 连接 OK
+- 验证: `psql -h 127.0.0.1 -U mem0 -d mem0` (PGPASSWORD=mem0_pg_2026) ✓
 
-## 生效条件
-**重启 Hermes 进程**（当前 PID 565 是装 mem0 前启动的，缓存了 import 失败）。
-重启后 `mem0_add`/`mem0_search` 应可用。
+### 2. 系统 python 依赖
+```
+pip install --user --break-system-packages mem0ai          # 2.0.17
+pip install --user --break-system-packages psycopg[binary] # mem0 pgvector 需要
+pip install --user --break-system-packages psycopg-pool    # mem0 pgvector 需要
+```
 
-## mem0.json (OSS 本地, ~/.hermes/mem0.json)
-- mode: oss, user_id: hermes-user
-- llm: openrouter deepseek/deepseek-v4-flash
-- embedder: openrouter qwen/qwen3-embedding-8b, embedding_dims 768
-- vector_store: qdrant QdrantLocal (path ~/.hermes/mem0_qdrant, collection mem0, embedding_model_dims 768)
+### 3. mem0.json 改为 pgvector (~/.hermes/mem0.json)
+```json
+"vector_store": {
+  "provider": "pgvector",
+  "config": { "host": "127.0.0.1", "port": 5432, "user": "mem0",
+              "password": "mem0_pg_2026", "dbname": "mem0",
+              "embedding_model_dims": 768 }
+}
+```
 
-## 待办
-- Hermes 重启后验证 mem0_add/search 可用
-- 若仍失败, 看 plugins/memory/mem0/_backend.py OSSBackend 初始化 (它会自动重建维度不符的集合)
+### 4. 验证 (独立 python 进程, 系统 python)
+- ADD ok (id fbda50b1...) ✓
+- SEARCH 返回 1 结果 ✓
+- mem0 pgvector 完整闭环可用
+
+## 关键结论
+- **独立进程验证通过**, 但 **当前 Hermes 进程需重启** 才能加载新的 pgvector 配置
+  (Hermes 的 `initialize()` 只在 session 启动时调一次, `_backend` 缓存; 改 mem0.json 后重启才生效)
+- 之前 QdrantLocal 的 `.lock`/storage.sqlite 锁由 TUI gateway 进程持有, 是残留状态, 已不再使用
+
+## 剩余
+- 重启 Hermes 后验证 mem0_add/search 工具可用
+- sudo 密码用户提供, 已用于 PG 配置 (勿写入明文文件)
