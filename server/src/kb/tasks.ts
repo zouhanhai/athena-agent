@@ -12,6 +12,12 @@ import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
 import { documentIdFrom } from "./ingest.js";
 import type { ContentDedupStore } from "./dedup.js";
+import {
+  LightRagTrackPoller,
+  type LightRagTrackOutcome,
+  type LightRagTrackProgress,
+} from "./lightrag-track.js";
+import type { LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js";
 
 export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwiki";
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -90,6 +96,14 @@ export interface IngestTask {
   /** Layer-2 semantic near-duplicate notice (G2.S5.T14): file path of an
    *  existing doc that LightRAG found highly similar. Best-effort. */
   nearDuplicate?: string;
+  /** Real LightRAG backend state + chunk progress (G3.S5.T3). Set once the
+   *  LightRAG stage starts; reflects the actual /documents status, never a
+   *  false "done" at submit time. */
+  lightrag?: LightRagTrackProgress & {
+    /** LightRAG submission track id, used to poll /documents/track_status. */
+    trackId?: string;
+    error?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -107,6 +121,12 @@ export interface IngestTaskQueueOptions {
   /** Optional content-dedup store (G2.S5.T14). When set, identical content is
    *  skipped before the pipelines run; newly stored content is recorded. */
   dedup?: ContentDedupStore;
+  /** Poll interval (ms) between LightRAG track-status checks. Default: 1500. */
+  lightragPollIntervalMs?: number;
+  /** Max time (ms) to wait for LightRAG to process before failing. Default: 10 min. */
+  lightragWaitTimeoutMs?: number;
+  /** Injectable sleep for the LightRAG poll loop (tests). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface IngestSubmitResult {
@@ -126,11 +146,27 @@ export class IngestTaskQueue {
   private readonly ingest: KnowledgeIngestService;
   private readonly dedup?: ContentDedupStore;
   private readonly tasks = new Map<string, IngestTask>();
+  private readonly lightragPoller: LightRagTrackPoller;
 
   constructor(options: IngestTaskQueueOptions) {
     this.parser = options.parser;
     this.ingest = options.ingest;
     this.dedup = options.dedup;
+    // The poller reads real status through the ingest service (which owns the
+    // LightRAG client); tests inject fakes that resolve it directly.
+    const service = this.ingest as KnowledgeIngestService & {
+      getLightRagTrackStatus?: (trackId: string) => Promise<LightRagTrackStatus>;
+      getLightRagPipelineStatus?: () => Promise<LightRagPipelineStatus>;
+    };
+    this.lightragPoller = new LightRagTrackPoller({
+      getTrackStatus: (trackId) =>
+        service.getLightRagTrackStatus?.(trackId) ??
+        Promise.resolve({ track_id: trackId, documents: [], total_count: 0 }),
+      getPipelineStatus: () => service.getLightRagPipelineStatus?.(),
+      pollIntervalMs: options.lightragPollIntervalMs,
+      timeoutMs: options.lightragWaitTimeoutMs,
+      sleep: options.sleep,
+    });
   }
 
   /** Create + return a task without starting it. */
@@ -198,6 +234,24 @@ export class IngestTaskQueue {
     });
   }
 
+  /** Reflect one LightRAG poll outcome on the task (G3.S5.T3). Called on every
+   *  poll tick so the task tracks the REAL backend status while it processes. */
+  private applyLightRagProgress(id: string, outcome: LightRagTrackOutcome): void {
+    this.patch(id, (t) => {
+      t.lightrag = {
+        ...t.lightrag,
+        backendStatus: outcome.backendStatus,
+        chunksProcessed: outcome.chunksProcessed,
+        chunksCount: outcome.chunksCount,
+      };
+    });
+    // Chunking is finished once the chunk total is known (LightRAG sets
+    // chunks_count when it transitions into PROCESSING).
+    if (typeof outcome.chunksCount === "number" && outcome.chunksCount > 0) {
+      this.setStep(id, "ingesting_lightrag", "chunking", "done");
+    }
+  }
+
   private async run(id: string, input: string, source: string): Promise<void> {
     const task = this.tasks.get(id);
     if (!task) return;
@@ -247,27 +301,54 @@ export class IngestTaskQueue {
       }
     }
 
-    // --- LightRAG ingesting ---
+    // --- LightRAG ingesting (G3.S5.T3: real backend status, no false done) ---
     if (task.stages.ingesting_lightrag.status !== "done") {
       this.patch(id, (t) => {
         t.status = "ingesting";
         t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running", steps: t.stages.ingesting_lightrag.steps };
         t.progress = 50;
       });
-      // LightRAG is a single API call; the four internal phases all run within it.
       this.markStageSteps(id, "ingesting_lightrag", "running");
-      const lightrag = await this.safeIngest(() => this.ingest.ingestLightRag(markdown!, fileName!));
-      console.log(`[tasks:${id}] lightrag ingest: ${lightrag.ok ? "ok" : "FAILED " + (lightrag.error ?? "")}`);
-      this.patch(id, (t) => {
-        t.stages.ingesting_lightrag = {
-          name: "ingesting_lightrag",
-          status: lightrag.ok ? "done" : "failed",
-          ...(lightrag.ok ? {} : { error: lightrag.error }),
-          steps: t.stages.ingesting_lightrag.steps,
-        };
-        t.progress = 72;
-      });
-      this.markStageSteps(id, "ingesting_lightrag", lightrag.ok ? "done" : "failed", lightrag.error);
+
+      // The 202 submit only means LightRAG queued the doc. Submit, then poll
+      // /documents/track_status until the backend actually processed (or failed).
+      const submitted = await this.safeIngest(() => this.ingest.ingestLightRag(markdown!, fileName!));
+      if (!submitted.ok || !submitted.trackId) {
+        const message = submitted.error ?? "LightRAG rejected the document";
+        console.error(`[tasks:${id}] lightrag submit FAILED: ${message}`);
+        this.patch(id, (t) => {
+          t.stages.ingesting_lightrag = {
+            name: "ingesting_lightrag",
+            status: "failed",
+            error: message,
+            steps: t.stages.ingesting_lightrag.steps,
+          };
+          t.progress = 72;
+        });
+        this.markStageSteps(id, "ingesting_lightrag", "failed", message);
+      } else {
+        const trackId = submitted.trackId;
+        this.patch(id, (t) => {
+          t.lightrag = { trackId, backendStatus: "pending" };
+        });
+        const outcome = await this.lightragPoller.wait(trackId, (o) => this.applyLightRagProgress(id, o));
+        console.log(
+          `[tasks:${id}] lightrag track ${trackId} -> ${outcome.state}` +
+            (typeof outcome.chunksCount === "number" ? ` (${outcome.chunksProcessed ?? 0}/${outcome.chunksCount} chunks)` : ""),
+        );
+        this.patch(id, (t) => {
+          const done = outcome.state === "done";
+          t.stages.ingesting_lightrag = {
+            name: "ingesting_lightrag",
+            status: done ? "done" : "failed",
+            ...(done ? {} : { error: outcome.error }),
+            steps: t.stages.ingesting_lightrag.steps,
+          };
+          t.progress = 72;
+          t.lightrag = { ...t.lightrag, ...(outcome.error ? { error: outcome.error } : {}) };
+        });
+        this.markStageSteps(id, "ingesting_lightrag", outcome.state === "done" ? "done" : "failed", outcome.error);
+      }
     }
 
     // --- llm_wiki ingesting ---

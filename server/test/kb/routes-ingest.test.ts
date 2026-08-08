@@ -29,6 +29,17 @@ function makeTaskQueue(opts: {
       }
       return { ok: true, trackId: "insert_1" };
     },
+    async getLightRagTrackStatus(trackId: string) {
+      return {
+        track_id: trackId,
+        total_count: 1,
+        status_summary: { processed: 1 },
+        documents: [{ id: "d1", status: "processed", chunks_count: 12 }],
+      };
+    },
+    async getLightRagPipelineStatus() {
+      return { history_messages: ["Chunk 12 of 12 extracted 3 Ent + 2 Rel"] };
+    },
     async ingestLlmWiki() {
       counts.llmwiki += 1;
       if (opts.llmwikiFailures !== undefined && counts.llmwiki <= opts.llmwikiFailures) {
@@ -37,7 +48,11 @@ function makeTaskQueue(opts: {
       return { ok: true };
     },
   };
-  return new IngestTaskQueue({ parser: parser as never, ingest: ingest as never });
+  return new IngestTaskQueue({
+    parser: parser as never,
+    ingest: ingest as never,
+    sleep: async () => {},
+  });
 }
 
 function multipartBody(filename: string, content: string): Buffer {

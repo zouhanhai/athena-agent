@@ -17,6 +17,7 @@ export interface IngestTaskItem {
   dedup?: IngestTask["dedup"];
   nearDuplicate?: string;
   stages: IngestTask["stages"];
+  lightrag?: IngestTask["lightrag"];
 }
 
 /** Optimistic per-system stages with pending sub-steps (G3.S5.T2), shown while
@@ -131,6 +132,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
       dedup: updated.dedup,
       nearDuplicate: updated.nearDuplicate,
       stages: updated.stages,
+      lightrag: updated.lightrag,
     };
     const index = tasks.value.indexOf(existing);
     tasks.value.splice(index, 1, merged);

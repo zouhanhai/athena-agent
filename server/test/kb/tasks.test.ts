@@ -13,12 +13,23 @@ function makeFakes(opts: {
   lightragOk?: boolean;
   llmwikiOk?: boolean;
   parseError?: Error;
+  lightragTrack?: {
+    /** Status sequence returned by the fake /documents/track_status (last repeats). */
+    statuses?: string[];
+    chunksCount?: number;
+    errorMsg?: string;
+    historyMessages?: string[];
+  };
   dedup?: {
     duplicate?: boolean;
     method?: "hash" | "chunks";
     existingSource?: string;
   };
   nearDuplicate?: string;
+  /** Injectable poller sleep so tests can gate/avoid real timer delays. */
+  sleep?: (ms: number) => Promise<void>;
+  /** LightRAG poll loop timeout (ms). */
+  lightragWaitTimeoutMs?: number;
 } = {}) {
   const flags = {
     lightragOk: opts.lightragOk !== false,
@@ -36,12 +47,36 @@ function makeFakes(opts: {
       return { markdown: opts.markdown ?? "# Doc", outputPath: "/shared/input/doc.md", stem: "doc" };
     },
   };
+  const lightragStatuses = opts.lightragTrack?.statuses ?? ["processed"];
+  let trackStatusIdx = 0;
   const ingest = {
     async ingestLightRag(markdown: string, fileName: string) {
       calls.push({ kind: "ingest.lightrag", args: [markdown, fileName] });
       return flags.lightragOk
         ? { ok: true, trackId: "insert_1" }
         : { ok: false, error: "LightRAG down" };
+    },
+    async getLightRagTrackStatus(trackId: string) {
+      const status = lightragStatuses[Math.min(trackStatusIdx, lightragStatuses.length - 1)];
+      trackStatusIdx += 1;
+      return {
+        track_id: trackId,
+        total_count: 1,
+        status_summary: { [status]: 1 },
+        documents: [
+          {
+            id: "d1",
+            status,
+            ...(opts.lightragTrack?.chunksCount !== undefined
+              ? { chunks_count: opts.lightragTrack.chunksCount }
+              : {}),
+            ...(opts.lightragTrack?.errorMsg ? { error_msg: opts.lightragTrack.errorMsg } : {}),
+          },
+        ],
+      };
+    },
+    async getLightRagPipelineStatus() {
+      return { history_messages: opts.lightragTrack?.historyMessages ?? [] };
     },
     async ingestLlmWiki(fileName: string, markdown: string, onStep?: (step: string, status: "running" | "done") => void) {
       calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown] });
@@ -76,6 +111,8 @@ function makeFakes(opts: {
     parser: parser as never,
     ingest: ingest as never,
     dedup: dedup as never,
+    sleep: opts.sleep ?? (async () => {}),
+    lightragWaitTimeoutMs: opts.lightragWaitTimeoutMs,
   });
   return { queue, calls, flags };
 }
@@ -88,6 +125,15 @@ async function untilDone(queue: IngestTaskQueue, id: string): Promise<void> {
     await new Promise((r) => setTimeout(r, 5));
   }
   throw new Error("task did not finish in time");
+}
+
+async function waitFor(check: () => boolean, deadlineMs = 2000): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error("condition not met in time");
 }
 
 test("createTask seeds per-system sub-steps (docling/LightRAG/llm_wiki) each pending", () => {
@@ -396,4 +442,132 @@ test("task records a LightRAG semantic near-duplicate notice when found", async 
   assert.equal(task.status, "done");
   assert.equal(task.nearDuplicate, "sommerseminar-l-sen.pdf.md");
   assert.equal(task.dedup, undefined);
+});
+
+test("task stays ingesting (not done) while LightRAG reports processing; chunk total surfaces", async () => {
+  // Gate the poller's first sleep so the running mid-state is observable
+  // before the fake backend flips to processed.
+  let release: () => void = () => {};
+  let sleepCalls = 0;
+  const sleep = async () => {
+    sleepCalls += 1;
+    if (sleepCalls === 1) await new Promise<void>((r) => (release = r));
+  };
+  const { queue } = makeFakes({
+    lightragTrack: { statuses: ["processing", "processed"], chunksCount: 182 },
+    sleep,
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+
+  await waitFor(() => queue.getTask(taskId)!.lightrag?.backendStatus === "processing");
+  const mid = queue.getTask(taskId)!;
+  assert.equal(mid.status, "ingesting", "task must not be done while LightRAG processes");
+  assert.equal(mid.stages.ingesting_lightrag.status, "running");
+  assert.equal(mid.stages.ingesting_lightrag.steps.find((s) => s.name === "chunking")!.status, "done", "chunking is done once the chunk total is known");
+  assert.equal(mid.lightrag!.backendStatus, "processing");
+  assert.equal(mid.lightrag!.chunksCount, 182);
+  assert.equal(mid.lightrag!.chunksProcessed, 0);
+
+  release();
+  await untilDone(queue, taskId);
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_lightrag.status, "done");
+  assert.equal(task.lightrag!.backendStatus, "processed");
+  assert.equal(task.lightrag!.chunksCount, 182);
+  assert.equal(task.lightrag!.chunksProcessed, 182);
+});
+
+test("chunk progress (N/M) is surfaced from the LightRAG pipeline log while processing", async () => {
+  let release: () => void = () => {};
+  let sleepCalls = 0;
+  const sleep = async () => {
+    sleepCalls += 1;
+    if (sleepCalls === 1) await new Promise<void>((r) => (release = r));
+  };
+  const { queue } = makeFakes({
+    lightragTrack: {
+      statuses: ["processing", "processed"],
+      chunksCount: 182,
+      historyMessages: ["Indexing files", "Chunk 12 of 182 extracted 3 Ent + 2 Rel chunk-abc"],
+    },
+    sleep,
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+
+  await waitFor(() => queue.getTask(taskId)!.lightrag?.chunksProcessed === 12);
+  const mid = queue.getTask(taskId)!;
+  assert.equal(mid.lightrag!.chunksProcessed, 12);
+  assert.equal(mid.lightrag!.chunksCount, 182);
+
+  release();
+  await untilDone(queue, taskId);
+  assert.equal(queue.getTask(taskId)!.lightrag!.chunksProcessed, 182);
+});
+
+test("task reflects the real LightRAG backend failure (stage failed, backend error surfaced)", async () => {
+  const { queue } = makeFakes({
+    lightragTrack: { statuses: ["failed"], errorMsg: "chunking exploded" },
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.stages.ingesting_lightrag.status, "failed");
+  assert.equal(task.lightrag!.backendStatus, "failed");
+  assert.match(task.stages.ingesting_lightrag.error ?? "", /chunking exploded/);
+  // llm_wiki still ran; the task stays done but surfaces the failed stage reason.
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_llmwiki.status, "done");
+  assert.match(task.error ?? "", /chunking exploded/);
+});
+
+test("no false done: LightRAG polling timeout marks the lightrag stage failed", async () => {
+  const { queue } = makeFakes({
+    lightragTrack: { statuses: ["processing"] },
+    lightragWaitTimeoutMs: 30,
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.stages.ingesting_lightrag.status, "failed");
+  assert.match(task.stages.ingesting_lightrag.error ?? "", /timed out/);
+  assert.notEqual(task.stages.ingesting_lightrag.status, "done", "never falsely done");
+  // llm_wiki is independent and still runs to completion.
+  assert.equal(task.stages.ingesting_llmwiki.status, "done");
+});
+
+test("failed LightRAG submit is recorded as a failed stage without polling", async () => {
+  const { queue, calls } = makeFakes({ lightragOk: false });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.stages.ingesting_lightrag.status, "failed");
+  assert.match(task.stages.ingesting_lightrag.error ?? "", /LightRAG down/);
+  assert.equal(
+    calls.filter((c) => c.kind === "ingest.lightrag").length,
+    1,
+  );
+});
+
+test("retry re-runs a failed LightRAG stage and polls it to completion", async () => {
+  const { queue, calls } = makeFakes({
+    lightragTrack: { statuses: ["failed", "processed"], errorMsg: "transient" },
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+  assert.equal(queue.getTask(taskId)!.stages.ingesting_lightrag.status, "failed");
+  assert.equal(calls.filter((c) => c.kind === "ingest.lightrag").length, 1);
+
+  // Second attempt succeeds at the backend.
+  const retried = queue.retry(taskId);
+  assert.notEqual(retried.stages.ingesting_lightrag.status, "failed", "retry resets the failed stage and re-drives it");
+  await untilDone(queue, taskId);
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_lightrag.status, "done");
+  assert.equal(task.lightrag!.backendStatus, "processed");
+  assert.equal(calls.filter((c) => c.kind === "ingest.lightrag").length, 2, "failed stage re-run once");
 });

@@ -83,6 +83,35 @@ export interface LightRagDocument {
   id: string;
   file_path?: string;
   status?: string;
+  /** Total chunks the document was split into (once chunking has run). */
+  chunks_count?: number;
+  error_msg?: string;
+}
+
+export interface LightRagTrackDocument {
+  id: string;
+  file_path?: string;
+  status?: string;
+  chunks_count?: number;
+  error_msg?: string;
+}
+
+/** Per-submission processing status from GET /documents/track_status. */
+export interface LightRagTrackStatus {
+  track_id: string;
+  documents: LightRagTrackDocument[];
+  total_count: number;
+  status_summary?: Record<string, number>;
+}
+
+/** Read-only projection of GET /documents/pipeline_status. */
+export interface LightRagPipelineStatus {
+  busy?: boolean;
+  job_name?: string;
+  docs?: number;
+  cur_batch?: number;
+  latest_message?: string;
+  history_messages?: string[];
 }
 
 export interface LightRagDeleteResult {
@@ -146,10 +175,30 @@ export class LightRagClient {
         id,
         ...(typeof obj.file_path === "string" && obj.file_path ? { file_path: obj.file_path } : {}),
         ...(typeof obj.status === "string" && obj.status ? { status: obj.status } : {}),
+        ...(typeof obj.chunks_count === "number" ? { chunks_count: obj.chunks_count } : {}),
+        ...(typeof obj.error_msg === "string" && obj.error_msg ? { error_msg: obj.error_msg } : {}),
       });
     }
     }
     return docs;
+  }
+
+  /**
+   * GET /documents/track_status/{track_id} - real per-submission processing
+   * status. `ingestText` returns a `track_id`; poll this endpoint until the
+   * document reports processed (or failed) instead of trusting the 202 submit.
+   */
+  async getTrackStatus(trackId: string): Promise<LightRagTrackStatus> {
+    return this.request(`/documents/track_status/${encodeURIComponent(trackId)}`);
+  }
+
+  /**
+   * GET /documents/pipeline_status - global indexing progress. `latest_message`
+   * / `history_messages` carry lines like "Chunk 12 of 182 extracted 3 Ent + 2
+   * Rel <key>", used to surface live chunk progress for a running document.
+   */
+  async getPipelineStatus(): Promise<LightRagPipelineStatus> {
+    return this.request("/documents/pipeline_status");
   }
 
   /**

@@ -9,7 +9,7 @@
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LightRagClient } from "./lightrag.js";
+import type { LightRagClient, LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
 import { WIKI_CATEGORIES, isValidTopic } from "./llmwiki.js";
 import { parseFrontmatter } from "./frontmatter.js";
@@ -362,6 +362,23 @@ export class KnowledgeIngestService {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /**
+   * Real per-submission LightRAG status (G3.S5.T3). The task queue polls this
+   * after the 202 submit so the task reflects the actual backend state instead
+   * of a false "done".
+   */
+  async getLightRagTrackStatus(trackId: string): Promise<LightRagTrackStatus> {
+    return this.lightrag.getTrackStatus(trackId);
+  }
+
+  /**
+   * Global LightRAG indexing progress; `latest_message` / `history_messages`
+   * carry "Chunk N of M" lines used to surface chunk progress.
+   */
+  async getLightRagPipelineStatus(): Promise<LightRagPipelineStatus> {
+    return this.lightrag.getPipelineStatus();
   }
 
   /**

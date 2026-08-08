@@ -81,6 +81,19 @@ export interface IngestTask {
   };
   /** Layer-2 semantic near-duplicate notice: path of an existing similar doc. */
   nearDuplicate?: string;
+  /** Real LightRAG backend state + chunk progress (G3.S5.T3): reflects the
+   *  actual /documents status, never a false "done" at submit time. */
+  lightrag?: {
+    /** LightRAG submission track id. */
+    trackId?: string;
+    /** Raw backend status (e.g. "processing", "processed", "failed"). */
+    backendStatus?: string;
+    /** Number of chunks fully processed. */
+    chunksProcessed?: number;
+    /** Total chunks the document was split into. */
+    chunksCount?: number;
+    error?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }

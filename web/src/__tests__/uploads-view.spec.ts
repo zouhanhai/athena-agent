@@ -190,6 +190,60 @@ describe("uploads page", () => {
     wrapper.unmount();
   });
 
+  it("surfaces real LightRAG chunk progress (chunk N/M) while processing", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "ingesting",
+        progress: 60,
+        stages: {
+          parsing: { name: "parsing", status: "done" },
+          ingesting_lightrag: {
+            name: "ingesting_lightrag",
+            status: "running",
+            steps: [
+              { name: "chunking", status: "done" },
+              { name: "entity_extraction", status: "running" },
+              { name: "graph_build", status: "running" },
+              { name: "embedding", status: "running" },
+            ],
+          },
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
+        },
+        lightrag: { backendStatus: "processing", chunksProcessed: 12, chunksCount: 182 },
+      }),
+    );
+    const wrapper = await mountApp();
+
+    await submitFile(wrapper);
+
+    expect(wrapper.text()).toContain("chunk 12/182");
+    expect(wrapper.find(".task-badge.ingesting").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the chunk total once LightRAG finished processing", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "done",
+        progress: 100,
+        stages: {
+          parsing: { name: "parsing", status: "done" },
+          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
+        },
+        lightrag: { backendStatus: "processed", chunksProcessed: 182, chunksCount: 182 },
+      }),
+    );
+    const wrapper = await mountApp();
+
+    await submitFile(wrapper);
+
+    expect(wrapper.text()).toContain("182 chunks");
+    wrapper.unmount();
+  });
+
   it("renders the per-system sub-steps (docling/LightRAG/llm_wiki) with statuses", async () => {
     ingestFileMock.mockResolvedValue("t-1");
     getTaskMock.mockResolvedValue(

@@ -79,6 +79,18 @@ function stageStatus(stage: IngestTaskStage): string {
   return stage.status;
 }
 
+/** Chunk progress text for the LightRAG stage (G3.S5.T3): "chunk 12/182"
+ *  while processing, "182 chunks" once processed. Empty when the backend has
+ *  not yet reported a chunk total. */
+function lightragChunkText(task: IngestTaskItem): string {
+  const lr = task.lightrag;
+  if (lr?.chunksCount == null || lr.chunksCount <= 0) return "";
+  if (task.stages.ingesting_lightrag.status === "done") {
+    return `${lr.chunksCount} chunks`;
+  }
+  return `chunk ${lr.chunksProcessed ?? 0}/${lr.chunksCount}`;
+}
+
 function friendlyStep(step: { name: string }): string {
   return step.name.replace(/_/g, " ");
 }
@@ -198,6 +210,12 @@ function stepMark(status: string): string {
             >
               <span class="task-stage-label">
                 {{ stage.label }}: {{ task.stages[stage.key].status }}
+              </span>
+              <span
+                v-if="stage.key === 'ingesting_lightrag' && lightragChunkText(task)"
+                class="task-stage-chunk"
+              >
+                {{ lightragChunkText(task) }}
               </span>
               <ul v-if="task.stages[stage.key].steps?.length" class="task-stage-steps">
                 <li
@@ -439,6 +457,12 @@ function stepMark(status: string): string {
 
 .task-stage-label {
   font-weight: 600;
+}
+
+.task-stage-chunk {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--caleo-primary);
 }
 
 .task-stage-steps {

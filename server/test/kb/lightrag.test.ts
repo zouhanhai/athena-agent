@@ -153,6 +153,61 @@ test("LightRagClient strips trailing slash from baseUrl", async () => {
   assert.equal(calls[0].url, "http://kb:9621/health");
 });
 
+test("LightRagClient.getTrackStatus GETs /documents/track_status/{track_id}", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: {
+      track_id: "insert_123",
+      total_count: 1,
+      status_summary: { processed: 1 },
+      documents: [
+        {
+          id: "doc-1",
+          file_path: "athena-overview.md",
+          status: "processed",
+          chunks_count: 182,
+          error_msg: null,
+        },
+      ],
+    },
+  }));
+  const client = new LightRagClient({ baseUrl: "http://kb:9621", fetchImpl });
+  const status = await client.getTrackStatus("insert_123");
+  assert.equal(calls[0].method, "GET");
+  assert.equal(calls[0].url, "http://kb:9621/documents/track_status/insert_123");
+  assert.equal(status.documents.length, 1);
+  assert.equal(status.documents[0].status, "processed");
+  assert.equal(status.documents[0].chunks_count, 182);
+  assert.equal(status.documents[0].file_path, "athena-overview.md");
+});
+
+test("LightRagClient.getTrackStatus URL-encodes the track id", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: { track_id: "a b", documents: [], total_count: 0 },
+  }));
+  const client = new LightRagClient({ baseUrl: "http://kb:9621", fetchImpl });
+  await client.getTrackStatus("a b");
+  assert.equal(calls[0].url, "http://kb:9621/documents/track_status/a%20b");
+});
+
+test("LightRagClient.getPipelineStatus GETs /documents/pipeline_status", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: {
+      busy: true,
+      latest_message: "Chunk 12 of 182 extracted 3 Ent + 2 Rel",
+      history_messages: ["Indexing files", "Chunk 8 of 182 ..."],
+    },
+  }));
+  const client = new LightRagClient({ baseUrl: "http://kb:9621", fetchImpl });
+  const status = await client.getPipelineStatus();
+  assert.equal(calls[0].url, "http://kb:9621/documents/pipeline_status");
+  assert.equal(calls[0].method, "GET");
+  assert.equal(status.latest_message, "Chunk 12 of 182 extracted 3 Ent + 2 Rel");
+  assert.deepEqual(status.history_messages, ["Indexing files", "Chunk 8 of 182 ..."]);
+});
+
 test("LightRagClient.listDocuments flattens all statuses into doc records", async () => {
   const { fetchImpl } = makeFetchMock(() => ({
     status: 200,
