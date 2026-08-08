@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useChatStore, PAGE_LABELS } from "@/stores/chat";
+import { useChatStore } from "@/stores/chat";
 import { useAuthStore } from "@/stores/auth";
 import { listAgents } from "@/api/agents";
 import { listEmployees } from "@/api/invitations";
@@ -11,7 +11,7 @@ import type { EmployeeRecord } from "@/api/invitations";
 
 const chat = useChatStore();
 const auth = useAuthStore();
-const { messages, loading, error, userId, page } = storeToRefs(chat);
+const { messages, loading, error } = storeToRefs(chat);
 
 const input = ref("");
 const agentPickerOpen = ref(false);
@@ -20,9 +20,9 @@ const availableAgents = ref<AgentRecord[]>([]);
 const availableEmployees = ref<EmployeeRecord[]>([]);
 const pickerError = ref("");
 
-const pageLabel = computed(() => PAGE_LABELS[page.value] ?? "");
-
 // The signed-in employee is the human behind the user bubbles (G3.S2 identity).
+// userId (sent with each message so the server attributes who is speaking) is
+// derived from the signed-in employee — not typed by hand.
 watch(
   () => auth.employee,
   (employee) => {
@@ -33,6 +33,7 @@ watch(
         name: employee.display_name || employee.email,
         logoUrl: employee.logo_url,
       });
+      chat.userId = employee.id;
     }
   },
   { immediate: true },
@@ -121,22 +122,6 @@ function addEmployee(emp: EmployeeRecord) {
 
 <template>
   <aside class="global-chat-panel">
-    <header class="chat-header">
-      <h2 class="chat-title">Shared Chat</h2>
-      <div class="chat-header-right">
-        <span v-if="pageLabel" class="page-context">Context: {{ pageLabel }}</span>
-        <div class="user-id-field">
-          <span class="user-id-label">User ID</span>
-          <t-input
-            v-model="userId"
-            class="user-id-input"
-            size="small"
-            placeholder="User ID"
-          />
-        </div>
-      </div>
-    </header>
-
     <section class="participants">
       <h3 class="participants-title">In conversation</h3>
       <div class="agent-cards">
@@ -251,56 +236,6 @@ function addEmployee(emp: EmployeeRecord) {
   border-left: 1px solid var(--caleo-border);
   position: sticky;
   top: 0;
-}
-
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 12px 16px;
-  background: var(--caleo-surface);
-  border: 1px solid var(--caleo-border);
-  border-radius: 8px;
-  box-shadow: var(--caleo-shadow);
-}
-
-.chat-title {
-  margin: 0;
-  font-size: 16px;
-  color: var(--caleo-text);
-}
-
-.chat-header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.page-context {
-  font-size: 12px;
-  color: var(--caleo-primary);
-  background: color-mix(in srgb, var(--caleo-primary) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--caleo-primary) 40%, transparent);
-  border-radius: 999px;
-  padding: 2px 10px;
-  white-space: nowrap;
-}
-
-.user-id-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.user-id-label {
-  font-size: 13px;
-  color: var(--caleo-text-secondary);
-}
-
-.user-id-input {
-  width: 140px;
 }
 
 .participants {

@@ -8,7 +8,6 @@ import {
   TerminalIcon,
   UploadIcon,
   UsergroupIcon,
-  ViewGanttIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
 import SettingsPanel from "@/components/SettingsPanel.vue";
@@ -31,7 +30,6 @@ const navItems: NavItem[] = [
   { label: "Knowledge", path: "/knowledge", icon: BookIcon },
   { label: "Workbench", path: "/workbench", icon: TerminalIcon },
   { label: "Uploads", path: "/uploads", icon: UploadIcon },
-  { label: "Kanban", path: "/kanban", icon: ViewGanttIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
   { label: "Agents", path: "/agents", icon: UsergroupIcon },
 ];
