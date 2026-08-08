@@ -12,7 +12,9 @@ import { MemoryEmployeeRegistry, type GithubCredential } from "../src/employees/
 import type {
   EditFileInput,
   GitHubApi,
+  GithubBranch,
   GithubCommit,
+  GithubFileContent,
   GithubIssue,
   GithubMergeResult,
   GithubPull,
@@ -48,6 +50,20 @@ class FakeGitHubApi implements GitHubApi {
   async listTree(credential: GithubCredential, owner: string, repo: string, ref?: string): Promise<GithubTreeEntry[]> {
     this.record("listTree", credential, [owner, repo, ref]);
     return TREE_SAMPLE;
+  }
+  async listBranches(credential: GithubCredential, owner: string, repo: string): Promise<GithubBranch[]> {
+    this.record("listBranches", credential, [owner, repo]);
+    return BRANCH_SAMPLE;
+  }
+  async getFileContent(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    path: string,
+    ref?: string,
+  ): Promise<GithubFileContent> {
+    this.record("getFileContent", credential, [owner, repo, path, ref]);
+    return { path, sha: "cccc", size: 120, content: "const x = 1;\n" };
   }
   async listPulls(credential: GithubCredential, owner: string, repo: string): Promise<GithubPull[]> {
     this.record("listPulls", credential, [owner, repo]);
@@ -106,6 +122,11 @@ const REPO_SAMPLE: GithubRepo[] = [
 const TREE_SAMPLE: GithubTreeEntry[] = [
   { path: "README.md", type: "blob", mode: "100644", sha: "aaaa", size: 12 },
   { path: "server/src/index.ts", type: "blob", mode: "100644", sha: "cccc", size: 120 },
+];
+
+const BRANCH_SAMPLE: GithubBranch[] = [
+  { name: "feature", sha: "f000000000000000000000000000000000000000", protected: false },
+  { name: "master", sha: "b000000000000000000000000000000000000000", protected: true },
 ];
 
 const PULL_SAMPLE: GithubPull[] = [
@@ -292,6 +313,60 @@ test("GET /api/github/repos/:owner/:repo/tree returns the tree scoped to the use
   assert.equal(call?.method, "listTree");
   assert.equal(call?.credential.value, "ghp_alice");
   assert.deepEqual(call?.args, ["acme", "box", "feature"]);
+});
+
+test("GET /api/github/repos/:owner/:repo/branches returns branches scoped to the user's credential", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos/acme/box/branches",
+    headers: bearer(aliceToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().branches, BRANCH_SAMPLE);
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "listBranches");
+  assert.equal(call?.credential.value, "ghp_alice");
+  assert.deepEqual(call?.args, ["acme", "box"]);
+});
+
+test("GET /api/github/repos/:owner/:repo/branches requires authentication", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/branches" });
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/github/repos/:owner/:repo/content returns file text scoped to the user's credential", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos/acme/box/content?path=server/src/index.ts&ref=feature",
+    headers: bearer(aliceToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().content, "const x = 1;\n");
+  assert.equal(res.json().path, "server/src/index.ts");
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "getFileContent");
+  assert.equal(call?.credential.value, "ghp_alice");
+  assert.deepEqual(call?.args, ["acme", "box", "server/src/index.ts", "feature"]);
+});
+
+test("GET /api/github/repos/:owner/:repo/content requires a path param", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos/acme/box/content",
+    headers: bearer(aliceToken),
+  });
+  assert.equal(res.statusCode, 400);
+});
+
+test("GET /api/github/repos/:owner/:repo/content requires authentication", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos/acme/box/content?path=README.md",
+  });
+  assert.equal(res.statusCode, 401);
 });
 
 test("GET /api/github/repos/:owner/:repo/pulls returns PRs scoped to the user's credential", async () => {

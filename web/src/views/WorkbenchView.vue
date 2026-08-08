@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import CodeTab from "@/components/CodeTab.vue";
 
 type WorkbenchTabValue = "code" | "issues" | "kanban";
 
@@ -14,7 +15,7 @@ const tabs: WorkbenchTab[] = [
     value: "code",
     label: "Code",
     description:
-      "Browse repositories as a GitHub-style file tree with branch selector and syntax-highlighted code view. Coming in G3.S4.T2.",
+      "Browse repositories as a GitHub-style file tree with branch selector and syntax-highlighted code view.",
   },
   {
     value: "issues",
@@ -48,8 +49,13 @@ const activeTab = ref<WorkbenchTabValue>("code");
         :label="tab.label"
       >
         <div class="tab-panel" :class="`tab-panel-${tab.value}`">
-          <h3 class="tab-title">{{ tab.label }}</h3>
-          <p class="tab-description">{{ tab.description }}</p>
+          <template v-if="tab.value === 'code'">
+            <CodeTab class="code-tab-host" />
+          </template>
+          <template v-else>
+            <h3 class="tab-title">{{ tab.label }}</h3>
+            <p class="tab-description">{{ tab.description }}</p>
+          </template>
         </div>
       </t-tab-panel>
     </t-tabs>
@@ -135,6 +141,18 @@ const activeTab = ref<WorkbenchTabValue>("code");
   padding: 40px;
   gap: 12px;
   color: var(--caleo-text);
+}
+
+.tab-panel-code {
+  padding: 0;
+  justify-content: stretch;
+  gap: 0;
+}
+
+.code-tab-host {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
 }
 
 .tab-title {

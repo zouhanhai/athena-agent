@@ -19,6 +19,21 @@ export interface GithubTreeEntry {
   size: number | null;
 }
 
+/** A branch of a repo, for the branch selector. */
+export interface GithubBranch {
+  name: string;
+  sha: string;
+  protected: boolean;
+}
+
+/** A file's contents as returned for the code view (decoded to UTF-8 text). */
+export interface GithubFileContent {
+  path: string;
+  sha: string;
+  size: number | null;
+  content: string;
+}
+
 /** A pull request as returned to the browse API. */
 export interface GithubPull {
   number: number;
@@ -78,6 +93,16 @@ export interface GitHubApi {
   listRepos(credential: GithubCredential): Promise<GithubRepo[]>;
   /** List the repo's recursive git tree at an optional ref (branch/tag/sha; default branch when omitted). */
   listTree(credential: GithubCredential, owner: string, repo: string, ref?: string): Promise<GithubTreeEntry[]>;
+  /** List branches of a repo, for the branch selector. */
+  listBranches(credential: GithubCredential, owner: string, repo: string): Promise<GithubBranch[]>;
+  /** Read a file's UTF-8 text content at an optional ref (branch/tag/sha). */
+  getFileContent(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    path: string,
+    ref?: string,
+  ): Promise<GithubFileContent>;
   /** List open pull requests for a repo. */
   listPulls(credential: GithubCredential, owner: string, repo: string): Promise<GithubPull[]>;
   /** List open issues for a repo. */
@@ -268,6 +293,49 @@ export class GithubRestClient implements GitHubApi {
     const response = await this.request(credential, `/repos/${owner}/${repo}/${resource}?state=open&per_page=100`);
     const data = await this.json(response);
     return Array.isArray(data) ? data : [];
+  }
+
+  async listBranches(credential: GithubCredential, owner: string, repo: string): Promise<GithubBranch[]> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/branches?per_page=100`);
+    const data = await this.json(response);
+    const items = Array.isArray(data) ? data : [];
+    const mapped: GithubBranch[] = [];
+    for (const item of items) {
+      const branch = item as Record<string, unknown>;
+      const commit = branch.commit as Record<string, unknown> | null;
+      mapped.push({
+        name: this.string(branch.name),
+        sha: this.string(commit?.sha),
+        protected: Boolean(branch.protected),
+      });
+    }
+    return mapped;
+  }
+
+  async getFileContent(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    path: string,
+    ref?: string,
+  ): Promise<GithubFileContent> {
+    const params = new URLSearchParams();
+    if (ref) {
+      params.set("ref", ref);
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const response = await this.request(
+      credential,
+      `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}${suffix}`,
+    );
+    const data = (await this.json(response)) as Record<string, unknown>;
+    const encoded = this.string(data.content);
+    return {
+      path: this.string(data.path),
+      sha: this.string(data.sha),
+      size: this.positiveInt(data.size),
+      content: encoded ? Buffer.from(encoded, "base64").toString("utf8") : "",
+    };
   }
 
   async listPulls(credential: GithubCredential, owner: string, repo: string): Promise<GithubPull[]> {

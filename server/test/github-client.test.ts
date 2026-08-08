@@ -301,3 +301,81 @@ test("openPull maps a 401 GitHub response to GithubAuthError", async () => {
     GithubAuthError,
   );
 });
+
+const BRANCH_BODY = [
+  { name: "feature", protected: false, commit: { sha: "f000000000000000000000000000000000000000" } },
+  { name: "master", protected: true, commit: { sha: "b000000000000000000000000000000000000000" } },
+];
+
+test("listBranches calls the branches endpoint and maps branch head shas", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: BRANCH_BODY };
+    }),
+  });
+  const branches = await client.listBranches(tokenCredential, "acme", "box");
+  assert.match(calledUrl, /\/repos\/acme\/box\/branches\?per_page=100/);
+  assert.deepEqual(branches, [
+    { name: "feature", sha: "f000000000000000000000000000000000000000", protected: false },
+    { name: "master", sha: "b000000000000000000000000000000000000000", protected: true },
+  ]);
+});
+
+test("listBranches rejects an ssh credential", async () => {
+  const client = new GithubRestClient({ fetchImpl: mockFetch(async () => ({ status: 200, body: [] })) });
+  await assert.rejects(
+    client.listBranches({ type: "ssh", value: "ssh-ed25519 key" }, "acme", "box"),
+    GithubCredentialUnsupportedError,
+  );
+});
+
+const CONTENT_BODY = {
+  name: "index.ts",
+  path: "server/src/index.ts",
+  sha: "cccc",
+  size: 120,
+  html_url: "https://github.com/acme/box/blob/master/server/src/index.ts",
+  encoding: "base64",
+  content: Buffer.from("const x = 1;\nconsole.log(x);\n").toString("base64"),
+};
+
+test("getFileContent fetches the contents API with a ref and decodes base64 to text", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: CONTENT_BODY };
+    }),
+  });
+  const file = await client.getFileContent(tokenCredential, "acme", "box", "server/src/index.ts", "master");
+  assert.match(calledUrl, /\/repos\/acme\/box\/contents\/server%2Fsrc%2Findex\.ts\?ref=master/);
+  assert.equal(file.content, "const x = 1;\nconsole.log(x);\n");
+  assert.equal(file.path, "server/src/index.ts");
+  assert.equal(file.sha, "cccc");
+});
+
+test("getFileContent without a ref omits the query param", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: CONTENT_BODY };
+    }),
+  });
+  const file = await client.getFileContent(tokenCredential, "acme", "box", "README.md");
+  assert.equal(calledUrl, "https://api.github.test/repos/acme/box/contents/README.md");
+  assert.equal(file.content, "const x = 1;\nconsole.log(x);\n");
+});
+
+test("getFileContent rejects an ssh credential", async () => {
+  const client = new GithubRestClient({ fetchImpl: mockFetch(async () => ({ status: 200, body: {} })) });
+  await assert.rejects(
+    client.getFileContent({ type: "ssh", value: "ssh-ed25519 key" }, "acme", "box", "README.md"),
+    GithubCredentialUnsupportedError,
+  );
+});

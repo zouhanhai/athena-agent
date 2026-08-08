@@ -216,6 +216,33 @@ export function registerGithubRoutes(app: FastifyInstance, options: GithubRouteO
     });
   });
 
+  app.get("/api/github/repos/:owner/:repo/branches", async (request, reply) => {
+    const { owner, repo } = repoParams(request);
+    if (!owner || !repo) {
+      return reply.code(400).send({ error: "owner and repo are required" });
+    }
+    return withCredential(request, reply, async (credential) => {
+      const branches = await github.listBranches(credential, owner, repo);
+      return { branches };
+    });
+  });
+
+  app.get("/api/github/repos/:owner/:repo/content", async (request, reply) => {
+    const { owner, repo } = repoParams(request);
+    if (!owner || !repo) {
+      return reply.code(400).send({ error: "owner and repo are required" });
+    }
+    const path = requiredString((request.query as { path?: unknown }).path);
+    if (!path) {
+      return reply.code(400).send({ error: "path is required" });
+    }
+    const ref = optionalString((request.query as { ref?: unknown }).ref);
+    return withCredential(request, reply, async (credential) => {
+      const file = await github.getFileContent(credential, owner, repo, path, ref);
+      return file;
+    });
+  });
+
   app.get("/api/github/repos/:owner/:repo/pulls", async (request, reply) => {
     const { owner, repo } = repoParams(request);
     if (!owner || !repo) {
