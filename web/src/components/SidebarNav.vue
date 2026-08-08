@@ -5,6 +5,7 @@ import { storeToRefs } from "pinia";
 import {
   BookIcon,
   FolderOpenIcon,
+  TerminalIcon,
   UsergroupIcon,
   ViewGanttIcon,
 } from "tdesign-icons-vue-next";
@@ -27,6 +28,7 @@ const menuTheme = computed(() => (mode.value === "dark" ? "dark" : "light"));
 
 const navItems: NavItem[] = [
   { label: "Knowledge", path: "/knowledge", icon: BookIcon },
+  { label: "Workbench", path: "/workbench", icon: TerminalIcon },
   { label: "Kanban", path: "/kanban", icon: ViewGanttIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
   { label: "Agents", path: "/agents", icon: UsergroupIcon },

@@ -41,6 +41,11 @@ const routes: RouteRecordRaw[] = [
     name: "wiki",
     component: () => import("../views/WikiView.vue"),
   },
+  {
+    path: "/workbench",
+    name: "workbench",
+    component: () => import("../views/WorkbenchView.vue"),
+  },
 ];
 
 export default createRouter({
