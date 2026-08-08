@@ -11,7 +11,7 @@
  */
 import type { WikiTreeNode } from "@/api/kb";
 
-export type WikiView = "topic" | "type" | "all";
+export type WikiView = "topic" | "type";
 
 export interface WikiPage {
   path: string;

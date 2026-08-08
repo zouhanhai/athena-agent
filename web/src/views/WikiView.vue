@@ -35,10 +35,9 @@ const treeKeys = { value: "path", label: "name", children: "children" };
 const renderedContent = computed(() => renderMarkdown(content.value));
 
 /** Tree shown in the sidebar for the active view (no file duplication). */
-const displayTree = computed(() => {
-  if (view.value === "all") return tree.value;
-  return buildViewTree(flattenPages(tree.value), view.value);
-});
+const displayTree = computed(() =>
+  buildViewTree(flattenPages(tree.value), view.value),
+);
 
 /** The selected wiki page path (only for file nodes). */
 const selectedFile = computed(() =>
@@ -147,7 +146,6 @@ watch(
         >
           <t-radio-button value="topic">Topic</t-radio-button>
           <t-radio-button value="type">Type</t-radio-button>
-          <t-radio-button value="all">All</t-radio-button>
         </t-radio-group>
         <t-button
           v-if="selectedFile"

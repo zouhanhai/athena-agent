@@ -104,26 +104,6 @@ describe("renderMarkdown", () => {
 });
 
 describe("WikiView", () => {
-  it("loads the wiki tree on mount and renders folder/file names in All view", async () => {
-    getWikiTreeMock.mockResolvedValue(sampleTree);
-    const { wrapper } = await mountView();
-    await flushPromises();
-
-    expect(getWikiTreeMock).toHaveBeenCalledTimes(1);
-    expect(wrapper.find(".wiki-title").text()).toBe("Wiki");
-    await clickView(wrapper, "All");
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("docs");
-    expect(wrapper.text()).toContain("release-notes.md");
-
-    await expandFolder(wrapper, "docs");
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("runbook.md");
-    wrapper.unmount();
-  });
-
   it("shows a friendly empty state when the wiki has no pages", async () => {
     getWikiTreeMock.mockResolvedValue([]);
     const { wrapper } = await mountView();
@@ -161,7 +141,9 @@ describe("WikiView", () => {
     readWikiPageMock.mockResolvedValue("Root page body.");
     const { wrapper } = await mountView();
     await flushPromises();
-    await clickView(wrapper, "All");
+    await clickView(wrapper, "Topic");
+    await flushPromises();
+    await expandFolder(wrapper, "Untagged");
     await flushPromises();
 
     const fileItem = wrapper
@@ -183,7 +165,9 @@ describe("WikiView", () => {
     readWikiPageMock.mockRejectedValue(new Error("page not found"));
     const { wrapper } = await mountView();
     await flushPromises();
-    await clickView(wrapper, "All");
+    await clickView(wrapper, "Topic");
+    await flushPromises();
+    await expandFolder(wrapper, "Untagged");
     await flushPromises();
 
     const fileItem = wrapper
@@ -196,7 +180,7 @@ describe("WikiView", () => {
     wrapper.unmount();
   });
 
-  it("shows a segmented control with Topic / Type / All views", async () => {
+  it("shows a segmented control with Topic / Type views", async () => {
     getWikiTreeMock.mockResolvedValue(sampleTree);
     const { wrapper } = await mountView();
     await flushPromises();
@@ -205,7 +189,7 @@ describe("WikiView", () => {
     const labels = buttons.map((b) => b.text().trim());
     expect(labels).toContain("Topic");
     expect(labels).toContain("Type");
-    expect(labels).toContain("All");
+    expect(labels).not.toContain("All");
     wrapper.unmount();
   });
 
@@ -238,27 +222,14 @@ describe("WikiView", () => {
     wrapper.unmount();
   });
 
-  it("switches to the All view and shows the raw physical tree", async () => {
-    getWikiTreeMock.mockResolvedValue(metaTree);
-    const { wrapper } = await mountView();
-    await flushPromises();
-
-    await clickView(wrapper, "All");
-    await flushPromises();
-
-    // physical folders, not metadata groups
-    expect(wrapper.text()).toContain("sommerseminar");
-    expect(wrapper.text()).toContain("concepts");
-    expect(wrapper.text()).not.toContain("Untagged");
-    wrapper.unmount();
-  });
-
   it("shows a Delete button only when a file is selected", async () => {
     getWikiTreeMock.mockResolvedValue(sampleTree);
     readWikiPageMock.mockResolvedValue("body");
     const { wrapper } = await mountView();
     await flushPromises();
-    await clickView(wrapper, "All");
+    await clickView(wrapper, "Topic");
+    await flushPromises();
+    await expandFolder(wrapper, "Untagged");
     await flushPromises();
 
     const headerControls = wrapper.find(".wiki-controls");
@@ -289,7 +260,9 @@ describe("WikiView", () => {
     });
     const { wrapper } = await mountView();
     await flushPromises();
-    await clickView(wrapper, "All");
+    await clickView(wrapper, "Topic");
+    await flushPromises();
+    await expandFolder(wrapper, "Untagged");
     await flushPromises();
 
     const fileItem = wrapper
