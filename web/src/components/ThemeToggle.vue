@@ -141,23 +141,37 @@ function onToggle() {
 }
 
 .theme-toggle__moon {
-  background: radial-gradient(circle at 40% 40%, #eef0f6 0%, #c9cfdf 60%, #a8b0c6 100%);
+  background: radial-gradient(circle at 42% 40%, #fdfdfe 0%, #dce0ec 55%, #b8bfd6 100%);
   opacity: 0;
   transform: scale(0.85);
-  box-shadow: inset 2px 2px 5px rgba(120, 130, 160, 0.4);
+  box-shadow: inset -2px -2px 4px rgba(90, 100, 130, 0.35);
+  overflow: hidden;
 }
 
-/* Crescent cutout */
+/* Crescent: mask a bright circle by punching out a shifted circle → clear moon shape. */
+.theme-toggle__moon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #ffffff 0%, #e6e9f2 60%, #c3c9dd 100%);
+  -webkit-mask: radial-gradient(circle at 62% 40%, transparent 0 42%, #000 43% 100%);
+  mask: radial-gradient(circle at 62% 40%, transparent 0 42%, #000 43% 100%);
+}
+
+/* Small craters for a soft lunar texture. */
 .theme-toggle__moon::after {
   content: "";
   position: absolute;
-  top: 3px;
-  left: 4px;
-  width: 16px;
-  height: 16px;
+  top: 8px;
+  left: 5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: #2a3650;
-  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.5);
+  background: rgba(120, 130, 160, 0.35);
+  box-shadow:
+    7px 5px 0 rgba(120, 130, 160, 0.22),
+    11px 10px 0 rgba(120, 130, 160, 0.18);
 }
 
 .theme-toggle.is-dark .theme-toggle__sun {
