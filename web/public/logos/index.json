@@ -118,6 +118,15 @@
       "created_at": "2026-08-08T00:00:00.000Z"
     },
     {
+      "id": "goose",
+      "name": "goose",
+      "animal": "goose",
+      "url": "/logos/goose-clean.png",
+      "filename": "goose-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
       "id": "hedgehog",
       "name": "hedgehog",
       "animal": "hedgehog",
@@ -240,6 +249,15 @@
       "animal": "rhino",
       "url": "/logos/rhino-clean.png",
       "filename": "rhino-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "sheep",
+      "name": "sheep",
+      "animal": "sheep",
+      "url": "/logos/sheep-clean.png",
+      "filename": "sheep-clean.png",
       "source": "generated",
       "created_at": "2026-08-08T00:00:00.000Z"
     },
