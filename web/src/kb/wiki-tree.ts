@@ -4,7 +4,6 @@
  * The backend stores each wiki page once (physical tree) and returns frontmatter
  * `type` + `topic` metadata per page. These helpers build the tree shown by the
  * frontend for each view:
- *   - "all":   the raw physical tree
  *   - "topic": pages grouped by topic (slash paths render as nested folders,
  *              e.g. "sap/fiori" → sap/ → fiori/)
  *   - "type":  pages grouped by frontmatter type (concepts/, entities/, ...)
@@ -133,6 +132,6 @@ function buildTypeTree(pages: WikiPage[]): WikiTreeNode[] {
 }
 
 /** Build the view tree for the active view from a flat page list. */
-export function buildViewTree(pages: WikiPage[], view: Exclude<WikiView, "all">): WikiTreeNode[] {
+export function buildViewTree(pages: WikiPage[], view: WikiView): WikiTreeNode[] {
   return view === "topic" ? buildTopicTree(pages) : buildTypeTree(pages);
 }
