@@ -107,7 +107,7 @@ const emit = defineEmits<{
 }
 
 .card-remove:hover {
-  color: #d54941;
+  color: var(--caleo-error);
 }
 
 .cap-chip-list {

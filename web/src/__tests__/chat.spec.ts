@@ -120,14 +120,9 @@ afterEach(() => {
 });
 
 describe("GlobalChatPanel personal chat panel (store-backed)", () => {
-  it("renders userId field, message list, composer and send button from the store", () => {
+  it("renders message list, composer and send button from the store", () => {
     const wrapper = mountChat();
-    const store = useChatStore();
 
-    expect(wrapper.text()).toContain("Shared Chat");
-    expect((wrapper.find(".user-id-input input").element as HTMLInputElement).value).toBe(
-      store.userId,
-    );
     expect(wrapper.find(".message-list").exists()).toBe(true);
     expect(wrapper.find(".composer-input textarea").exists()).toBe(true);
     expect(wrapper.find(".send-button").exists()).toBe(true);
@@ -175,14 +170,14 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
     wrapper.unmount();
   });
 
-  it("sends the userId typed in the header field", async () => {
+  it("sends using the store userId when no identity is set", async () => {
     stubStream();
     const wrapper = mountChat();
-    await wrapper.find(".user-id-input input").setValue("alice");
+    const store = useChatStore();
     await send(wrapper, "hi");
 
     expect(streamChatMock).toHaveBeenCalledWith(
-      "alice",
+      store.userId,
       "hi",
       expect.any(Object),
       "",
@@ -271,14 +266,14 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
     wrapper.unmount();
   });
 
-  it("shows the page-context badge for a known page", async () => {
+  it("tracks the page context in the store without a header badge", async () => {
     const wrapper = mountChat();
     const store = useChatStore();
     store.setPage("/workbench");
     await flushPromises();
 
-    expect(wrapper.find(".page-context").exists()).toBe(true);
-    expect(wrapper.find(".page-context").text()).toContain("Workbench");
+    expect(store.page).toBe("/workbench");
+    expect(wrapper.find(".page-context").exists()).toBe(false);
     wrapper.unmount();
   });
 

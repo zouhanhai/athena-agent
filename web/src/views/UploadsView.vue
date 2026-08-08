@@ -151,7 +151,7 @@ function stepMark(status: string): string {
           v-model="urlInput"
           size="small"
           clearable
-          placeholder="https://example.com/page — paste a URL to ingest"
+          placeholder="https://example.com/page - paste a URL to ingest"
           @enter="submitUrl"
         />
         <t-button
@@ -242,6 +242,7 @@ function stepMark(status: string): string {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 48px);
+  height: calc(100dvh - 48px);
   padding: 24px;
   gap: 16px;
   overflow-y: auto;
@@ -251,17 +252,18 @@ function stepMark(status: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 16px 20px;
+  gap: 12px;
+  padding: 10px 14px;
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
-  box-shadow: var(--caleo-shadow);
 }
 
 .uploads-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
   color: var(--caleo-text);
 }
 
@@ -341,7 +343,7 @@ function stepMark(status: string): string {
 
 .upload-error {
   margin: 0;
-  color: #d54941;
+  color: var(--caleo-error);
   font-size: 13px;
 }
 
@@ -414,6 +416,7 @@ function stepMark(status: string): string {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
@@ -430,12 +433,12 @@ function stepMark(status: string): string {
 }
 
 .task-badge.done {
-  color: #2f9e63;
+  color: var(--caleo-success);
   background: rgba(47, 158, 99, 0.14);
 }
 
 .task-badge.failed {
-  color: #d54941;
+  color: var(--caleo-error);
   background: rgba(213, 73, 65, 0.14);
 }
 
@@ -462,6 +465,7 @@ function stepMark(status: string): string {
 .task-stage-chunk {
   margin-left: 6px;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
   color: var(--caleo-primary);
 }
 
@@ -485,6 +489,7 @@ function stepMark(status: string): string {
   flex-shrink: 0;
   width: 10px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
   color: var(--caleo-text-secondary);
 }
 
@@ -499,11 +504,11 @@ function stepMark(status: string): string {
 }
 
 .task-step.done .task-step-mark {
-  color: #2f9e63;
+  color: var(--caleo-success);
 }
 
 .task-step.failed .task-step-mark {
-  color: #d54941;
+  color: var(--caleo-error);
 }
 
 .task-stage.running {
@@ -512,18 +517,18 @@ function stepMark(status: string): string {
 }
 
 .task-stage.done {
-  color: #2f9e63;
+  color: var(--caleo-success);
   border-color: rgba(47, 158, 99, 0.5);
 }
 
 .task-stage.failed {
-  color: #d54941;
+  color: var(--caleo-error);
   border-color: rgba(213, 73, 65, 0.5);
 }
 
 .task-stage-error {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #d54941;
+  color: var(--caleo-error);
 }
 </style>

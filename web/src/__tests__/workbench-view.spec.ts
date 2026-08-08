@@ -133,7 +133,7 @@ describe("workbench page", () => {
     await waitForRoute("/workbench");
     await flushPromises();
     expect(chat.page).toBe("/workbench");
-    expect(wrapper.text()).toContain("Context: Workbench");
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
     wrapper.unmount();
   });
 });

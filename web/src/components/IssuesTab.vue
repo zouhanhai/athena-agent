@@ -135,7 +135,7 @@ watch(state, () => {
       </div>
 
       <div v-if="selectedRepo" class="issues-list">
-        <p v-if="!issues.length && !loading" class="issues-none">No issues here — try a different state filter.</p>
+        <p v-if="!issues.length && !loading" class="issues-none">No issues here. Try a different state filter.</p>
         <article v-for="issue in issues" :key="issue.number" class="issue-row">
           <span class="issue-state-icon" :class="`is-${issue.state}`" :aria-label="`${issue.state} issue`">
             {{ issue.state === "open" ? "◉" : "✓" }}
@@ -207,7 +207,7 @@ watch(state, () => {
   padding: 10px 14px;
   margin-bottom: 10px;
   font-size: 13px;
-  color: #d54941;
+  color: var(--caleo-error);
   background: rgba(213, 73, 65, 0.08);
   border: 1px solid rgba(213, 73, 65, 0.3);
   border-radius: 6px;

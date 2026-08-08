@@ -229,6 +229,7 @@ function addEmployee(emp: EmployeeRecord) {
   min-width: 280px;
   max-width: 70vw;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   padding: 16px;
@@ -290,7 +291,7 @@ function addEmployee(emp: EmployeeRecord) {
 }
 
 .picker-option:hover {
-  background: var(--caleo-hover, rgba(255, 102, 51, 0.08));
+  background: var(--caleo-hover);
 }
 
 .picker-logo {
@@ -301,7 +302,7 @@ function addEmployee(emp: EmployeeRecord) {
 }
 
 .picker-error {
-  color: #d54941;
+  color: var(--caleo-error);
   font-size: 12px;
 }
 
@@ -333,6 +334,25 @@ function addEmployee(emp: EmployeeRecord) {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  animation: message-enter 0.2s var(--caleo-ease-out);
+}
+
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-row {
+    animation: none;
+  }
 }
 
 .message-row.user {
@@ -360,7 +380,7 @@ function addEmployee(emp: EmployeeRecord) {
   border-radius: 50%;
   object-fit: contain;
   flex-shrink: 0;
-  background: var(--caleo-card-bg, #fff);
+  background: var(--caleo-card-bg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -408,7 +428,7 @@ function addEmployee(emp: EmployeeRecord) {
 
 .chat-error {
   margin: 8px 0 0;
-  color: #d54941;
+  color: var(--caleo-error);
   font-size: 13px;
 }
 

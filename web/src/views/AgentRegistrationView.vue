@@ -76,7 +76,7 @@ onMounted(load);
 }
 
 .reg-error {
-  color: #d54941;
+  color: var(--caleo-error);
 }
 
 .reg-empty,

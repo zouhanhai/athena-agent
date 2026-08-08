@@ -71,6 +71,7 @@ const activeTab = ref<WorkbenchTabValue>("code");
   display: flex;
   flex-direction: column;
   height: calc(100vh - 48px);
+  height: calc(100dvh - 48px);
   padding: 24px;
 }
 
@@ -78,23 +79,25 @@ const activeTab = ref<WorkbenchTabValue>("code");
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-  padding: 16px 20px;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
-  box-shadow: var(--caleo-shadow);
 }
 
 .workbench-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
   color: var(--caleo-text);
 }
 
 .workbench-meta {
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   color: var(--caleo-text-secondary);
 }
 

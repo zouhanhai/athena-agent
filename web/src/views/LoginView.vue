@@ -95,7 +95,7 @@ async function submit() {
 }
 
 .login-error {
-  color: #d54941;
+  color: var(--caleo-error);
   font-size: 13px;
   margin: 0;
 }

@@ -151,7 +151,7 @@ onMounted(() => {
   padding: 10px 14px;
   margin: 12px 12px 0;
   font-size: 13px;
-  color: #d54941;
+  color: var(--caleo-error);
   background: rgba(213, 73, 65, 0.08);
   border: 1px solid rgba(213, 73, 65, 0.3);
   border-radius: 6px;
@@ -290,6 +290,6 @@ onMounted(() => {
   margin: 0;
   padding: 6px 14px 12px;
   font-size: 12px;
-  color: #d54941;
+  color: var(--caleo-error);
 }
 </style>

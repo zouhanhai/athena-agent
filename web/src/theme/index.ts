@@ -14,6 +14,7 @@ const brandVars: Record<string, string> = {
   "--td-brand-color-active": caleoPalette.primaryHover,
   "--td-brand-color-focus": "rgba(255, 102, 51, 0.2)",
   "--td-brand-color-light": "rgba(255, 102, 51, 0.12)",
+  "--caleo-ease-out": "cubic-bezier(0.23, 1, 0.32, 1)",
 };
 
 const themePalettes: Record<ThemeMode, Record<string, string>> = {
@@ -35,6 +36,10 @@ const themePalettes: Record<ThemeMode, Record<string, string>> = {
     "--caleo-bubble-ai": "#33373f",
     "--caleo-bubble-user": caleoPalette.primary,
     "--caleo-bubble-user-text": "#ffffff",
+    "--caleo-error": "#e0654f",
+    "--caleo-success": "#55b87f",
+    "--caleo-hover": "rgba(255, 102, 51, 0.14)",
+    "--caleo-card-bg": "#262a33",
 
     "--td-bg-color-page": "#1f2128",
     "--td-bg-color-container": "#262a33",
@@ -76,6 +81,10 @@ const themePalettes: Record<ThemeMode, Record<string, string>> = {
     "--caleo-bubble-ai": "#e5e7eb",
     "--caleo-bubble-user": caleoPalette.sky,
     "--caleo-bubble-user-text": "#ffffff",
+    "--caleo-error": "#d54941",
+    "--caleo-success": "#2f9e63",
+    "--caleo-hover": "rgba(255, 102, 51, 0.08)",
+    "--caleo-card-bg": "#ffffff",
 
     "--td-bg-color-page": "#e7e9ec",
     "--td-bg-color-container": "#ffffff",

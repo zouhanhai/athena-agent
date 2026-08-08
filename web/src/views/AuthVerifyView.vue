@@ -40,7 +40,7 @@ onMounted(async () => {
 }
 
 .verify-error {
-  color: #d54941;
+  color: var(--caleo-error);
 }
 
 .verify-loading {

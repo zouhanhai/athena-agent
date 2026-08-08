@@ -90,6 +90,7 @@ onMounted(() => {
 <style scoped>
 .app-shell {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .app-content {
@@ -97,6 +98,7 @@ onMounted(() => {
   min-width: 0;
   min-height: 0;
   height: 100vh;
+  height: 100dvh;
   overflow: auto;
   background: var(--caleo-body-bg);
 }

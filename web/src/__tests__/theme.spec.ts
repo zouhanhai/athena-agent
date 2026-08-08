@@ -89,3 +89,38 @@ describe("theme css variables", () => {
     expect(root.style.getPropertyValue("--caleo-text")).toBe("#e8e9ec");
   });
 });
+
+describe("semantic + motion tokens", () => {
+  it("defines semantic error/success tokens with dark-mode contrast lifts", () => {
+    const dark = caleoThemeVars("dark");
+    const light = caleoThemeVars("light");
+
+    expect(light["--caleo-error"]).toBe("#d54941");
+    expect(light["--caleo-success"]).toBe("#2f9e63");
+    expect(dark["--caleo-error"]).not.toBe(light["--caleo-error"]);
+    expect(dark["--caleo-success"]).not.toBe(light["--caleo-success"]);
+  });
+
+  it("defines the shared hover and card-bg tokens per mode", () => {
+    const dark = caleoThemeVars("dark");
+    const light = caleoThemeVars("light");
+
+    expect(dark["--caleo-hover"]).toContain("255, 102, 51");
+    expect(light["--caleo-hover"]).toContain("255, 102, 51");
+    expect(dark["--caleo-card-bg"]).toBe(dark["--caleo-surface"]);
+    expect(light["--caleo-card-bg"]).toBe(light["--caleo-surface"]);
+  });
+
+  it("defines a shared strong ease-out curve for motion", () => {
+    const vars = caleoThemeVars("dark");
+    expect(vars["--caleo-ease-out"]).toBe("cubic-bezier(0.23, 1, 0.32, 1)");
+  });
+
+  it("applyTheme writes the semantic tokens onto the document root", () => {
+    applyTheme("dark");
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--caleo-error")).toBeTruthy();
+    expect(root.style.getPropertyValue("--caleo-success")).toBeTruthy();
+    expect(root.style.getPropertyValue("--caleo-hover")).toBeTruthy();
+  });
+});

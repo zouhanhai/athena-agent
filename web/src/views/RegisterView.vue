@@ -178,7 +178,7 @@ async function submit() {
 }
 
 .reg-error {
-  color: #d54941;
+  color: var(--caleo-error);
   font-size: 13px;
 }
 
@@ -195,7 +195,7 @@ async function submit() {
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 16px;
-  background: var(--caleo-card-bg, #fff);
+  background: var(--caleo-card-bg);
 }
 
 .reg-invited-label {

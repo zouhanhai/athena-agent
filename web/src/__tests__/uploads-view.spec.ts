@@ -144,6 +144,14 @@ describe("uploads page", () => {
     wrapper.unmount();
   });
 
+  it("uses a hyphen, not an em-dash, in the URL placeholder (anti-slop §9.G)", async () => {
+    const wrapper = await mountApp();
+    const placeholder = wrapper.find(".url-row input").attributes("placeholder") ?? "";
+    expect(placeholder).not.toContain("—");
+    expect(placeholder).toContain("paste a URL to ingest");
+    wrapper.unmount();
+  });
+
   it("submits a selected file and shows a task entry with progress", async () => {
     ingestFileMock.mockResolvedValue("t-1");
     getTaskMock.mockResolvedValue(makeTask({ status: "done", progress: 100 }));
@@ -368,7 +376,7 @@ describe("uploads page", () => {
     const wrapper = await mountApp();
     const chat = useChatStore();
     expect(chat.page).toBe("/uploads");
-    expect(wrapper.text()).toContain("Context: Uploads");
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
     wrapper.unmount();
   });
 });

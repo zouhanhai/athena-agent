@@ -86,6 +86,7 @@ const sidebarTopOffset = "24px";
 .app-aside {
   width: 220px;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--caleo-sidebar-bg);
   border-right: 1px solid var(--caleo-sidebar-border);
   display: flex;

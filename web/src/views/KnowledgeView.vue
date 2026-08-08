@@ -236,10 +236,10 @@ const eventHandlers = {
 
 const metaText = computed(() => {
   if (nodeMode.value) {
-    return `local graph for "${nodeRoot.value ?? searchQuery.value}" · ${graph.value.nodes.length} entities · ${graph.value.edges.length} links`;
+    return `local graph for "${nodeRoot.value ?? searchQuery.value}" · ${graph.value.nodes.length} entities, ${graph.value.edges.length} links`;
   }
   if (selectedTopic.value) {
-    return `Showing ${graph.value.nodes.length} entities · ${graph.value.edges.length} links`;
+    return `Showing ${graph.value.nodes.length} entities, ${graph.value.edges.length} links`;
   }
   return "";
 });
@@ -385,40 +385,44 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 48px);
+  height: calc(100dvh - 48px);
   padding: 24px;
 }
 
+/* Compact toolbar header: the Add Data panel is gone (G3.S8.T1), so the header
+   is a single tight row instead of an oversized banner (G3.S7.T2). */
 .knowledge-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-  padding: 16px 20px;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
-  box-shadow: var(--caleo-shadow);
 }
 
 .knowledge-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
   color: var(--caleo-text);
 }
 
 .knowledge-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .knowledge-search-input {
-  width: 240px;
+  width: 220px;
 }
 
 .topic-filter {
-  width: 180px;
+  width: 160px;
 }
 
 .topic-filter-label {
@@ -437,6 +441,7 @@ onMounted(() => {
 
 .knowledge-meta {
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   color: var(--caleo-text-secondary);
 }
 
@@ -464,7 +469,7 @@ onMounted(() => {
 .knowledge-error {
   margin: 0;
   padding: 16px;
-  color: #d54941;
+  color: var(--caleo-error);
   font-size: 13px;
 }
 
@@ -581,6 +586,7 @@ onMounted(() => {
 
 .relation-weight {
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: var(--caleo-text-secondary);
   flex-shrink: 0;
 }

@@ -309,6 +309,20 @@ describe("KnowledgeView node search (local graph)", () => {
     wrapper.unmount();
   });
 
+  it("renders node-local meta with a single separator (middle-dot rationed)", async () => {
+    getGraphTopicsMock.mockResolvedValue([]);
+    getGraphMock.mockResolvedValue(clusterGraph);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await search(wrapper, "Alpha");
+
+    const meta = wrapper.find(".knowledge-meta");
+    expect(meta.text()).toBe('local graph for "Alpha" · 3 entities, 2 links');
+    expect(meta.text().split("·")).toHaveLength(2);
+    wrapper.unmount();
+  });
+
   it("shows a message when no node matches the search", async () => {
     getGraphTopicsMock.mockResolvedValue([]);
     getGraphMock.mockResolvedValue({ nodes: [], edges: [] });

@@ -131,7 +131,7 @@ async function confirm() {
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
-  background: var(--caleo-card-bg, #fff);
+  background: var(--caleo-card-bg);
 }
 
 .decl-header {
@@ -248,7 +248,7 @@ async function confirm() {
 }
 
 .decl-error {
-  color: #d54941;
+  color: var(--caleo-error);
   font-size: 13px;
 }
 

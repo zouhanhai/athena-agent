@@ -57,7 +57,6 @@ function onToggle() {
 
 <style scoped>
 .theme-toggle {
-  --caleo-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --caleo-duration-toggle: 200ms;
 
   display: flex;

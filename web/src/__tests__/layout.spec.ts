@@ -44,10 +44,10 @@ function navItemByText(wrapper: AppWrapper, label: string) {
 }
 
 describe("portal sidebar navigation", () => {
-  it("renders the sidebar with Knowledge / Kanban / Wiki items and no Chat", async () => {
+  it("renders the sidebar with Knowledge / Workbench / Uploads / Wiki / Agents and no Chat", async () => {
     const wrapper = await mountApp();
     const labels = navItems(wrapper).map((item) => item.text());
-    for (const label of ["Knowledge", "Kanban", "Wiki", "Agents"]) {
+    for (const label of ["Knowledge", "Workbench", "Uploads", "Wiki", "Agents"]) {
       expect(labels.some((text) => text.includes(label))).toBe(true);
     }
     expect(labels.some((text) => text.includes("Chat"))).toBe(false);
@@ -103,13 +103,13 @@ describe("portal sidebar navigation", () => {
 
   it("highlights the nav item of the active route", async () => {
     const wrapper = await mountApp();
-    await router.push("/kanban");
+    await router.push("/workbench");
     await flushPromises();
     const active = navItems(wrapper).filter((item) =>
       item.classes().includes("t-is-active"),
     );
     expect(active).toHaveLength(1);
-    expect(active[0]!.text()).toContain("Kanban");
+    expect(active[0]!.text()).toContain("Workbench");
     wrapper.unmount();
   });
 
