@@ -265,6 +265,10 @@ export class IngestTaskQueue {
     // via the preclassified result). Undefined when only the llm_wiki stage is
     // re-run on retry (then it classifies internally as before).
     let preclassified: WikiClassification | undefined;
+    // G3.S8.T2: frontmatter-wrapped content computed during classify-first,
+    // reused by the parallel LightRAG stage. Declared at run() scope so the
+    // parallel async branch can read it.
+    let preparedContent: string | undefined;
 
     // --- parsing (docling) ---
     if (task.stages.parsing.status !== "done") {
@@ -307,41 +311,54 @@ export class IngestTaskQueue {
       }
     }
 
-    // --- LightRAG ingesting (G3.S5.T3: real backend status, no false done) ---
-    if (task.stages.ingesting_lightrag.status !== "done") {
+    // --- Ingesting: classify once, then LightRAG + llm_wiki run in PARALLEL ---
+    const lightragTodo = task.stages.ingesting_lightrag.status !== "done";
+    const llmwikiTodo = task.stages.ingesting_llmwiki.status !== "done";
+
+    // Classify FIRST (shared by both systems) so LightRAG gets content WITH
+    // frontmatter (type + topic). Only needed when either stage still runs.
+    if ((lightragTodo || llmwikiTodo) && !preclassified) {
       this.patch(id, (t) => {
         t.status = "ingesting";
-        t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running", steps: t.stages.ingesting_lightrag.steps };
+        if (lightragTodo) t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running", steps: t.stages.ingesting_lightrag.steps };
+        if (llmwikiTodo) t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
         t.progress = 50;
       });
       this.markStageSteps(id, "ingesting_lightrag", "running");
-
-      // Classify FIRST so LightRAG ingests the content WITH frontmatter
-      // (type + topic) — its documents then carry topic metadata (G3.S8.T2).
       const prepared = await this.safePrepare(() =>
         this.ingest.prepareForIngest({ title: extractPageTitle(markdown!) ?? stemTitle(fileName!), content: markdown! }),
       );
-      if (prepared) preclassified = prepared.classification;
+      if (prepared) {
+        preclassified = prepared.classification;
+        preparedContent = prepared.frontmatterContent;
+      }
+    }
 
-      // The 202 submit only means LightRAG queued the doc. Submit, then poll
-      // /documents/track_status until the backend actually processed (or failed).
-      const submitted = await this.safeIngest(() =>
-        this.ingest.ingestLightRag(prepared?.frontmatterContent ?? markdown!, fileName!),
-      );
-      if (!submitted.ok || !submitted.trackId) {
-        const message = submitted.error ?? "LightRAG rejected the document";
-        console.error(`[tasks:${id}] lightrag submit FAILED: ${message}`);
+    const [, llmwiki] = await Promise.all([
+      (async () => {
+        if (!lightragTodo) return;
         this.patch(id, (t) => {
-          t.stages.ingesting_lightrag = {
-            name: "ingesting_lightrag",
-            status: "failed",
-            error: message,
-            steps: t.stages.ingesting_lightrag.steps,
-          };
-          t.progress = 72;
+          t.status = "ingesting";
+          t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running", steps: t.stages.ingesting_lightrag.steps };
+          t.progress = 50;
         });
-        this.markStageSteps(id, "ingesting_lightrag", "failed", message);
-      } else {
+        this.markStageSteps(id, "ingesting_lightrag", "running");
+
+        // The 202 submit only means LightRAG queued the doc. Submit, then poll
+        // /documents/track_status until the backend actually processed (or failed).
+        const submitted = await this.safeIngest(() =>
+          this.ingest.ingestLightRag(preparedContent ?? markdown!, fileName!),
+        );
+        if (!submitted.ok || !submitted.trackId) {
+          const message = submitted.error ?? "LightRAG rejected the document";
+          console.error(`[tasks:${id}] lightrag submit FAILED: ${message}`);
+          this.patch(id, (t) => {
+            t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "failed", error: message, steps: t.stages.ingesting_lightrag.steps };
+            t.progress = 72;
+          });
+          this.markStageSteps(id, "ingesting_lightrag", "failed", message);
+          return;
+        }
         const trackId = submitted.trackId;
         this.patch(id, (t) => {
           t.lightrag = { trackId, backendStatus: "pending" };
@@ -353,43 +370,32 @@ export class IngestTaskQueue {
         );
         this.patch(id, (t) => {
           const done = outcome.state === "done";
-          t.stages.ingesting_lightrag = {
-            name: "ingesting_lightrag",
-            status: done ? "done" : "failed",
-            ...(done ? {} : { error: outcome.error }),
-            steps: t.stages.ingesting_lightrag.steps,
-          };
+          t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: done ? "done" : "failed", ...(done ? {} : { error: outcome.error }), steps: t.stages.ingesting_lightrag.steps };
           t.progress = 72;
           t.lightrag = { ...t.lightrag, ...(outcome.error ? { error: outcome.error } : {}) };
         });
         this.markStageSteps(id, "ingesting_lightrag", outcome.state === "done" ? "done" : "failed", outcome.error);
-      }
-    }
-
-    // --- llm_wiki ingesting ---
-    if (task.stages.ingesting_llmwiki.status !== "done") {
-      this.patch(id, (t) => {
-        t.status = "ingesting";
-        t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
-        t.progress = 85;
-      });
-      const llmwiki = await this.safeIngest(() =>
-        this.ingest.ingestLlmWiki(fileName!, markdown!, (step, status) => {
-          this.setStep(id, "ingesting_llmwiki", step, status);
-        }, preclassified),
-      );
-      console.log(`[tasks:${id}] llm_wiki ingest: ${llmwiki.ok ? "ok" : "FAILED " + (llmwiki.error ?? "")}`);
-      this.patch(id, (t) => {
-        t.stages.ingesting_llmwiki = {
-          name: "ingesting_llmwiki",
-          status: llmwiki.ok ? "done" : "failed",
-          ...(llmwiki.ok ? {} : { error: llmwiki.error }),
-          steps: t.stages.ingesting_llmwiki.steps,
-        };
-        t.progress = 100;
-      });
-      this.markStageSteps(id, "ingesting_llmwiki", llmwiki.ok ? "done" : "failed", llmwiki.error);
-    }
+      })(),
+      (async () => {
+        if (!llmwikiTodo) return;
+        this.patch(id, (t) => {
+          t.status = "ingesting";
+          t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
+          t.progress = 85;
+        });
+        const res = await this.safeIngest(() =>
+          this.ingest.ingestLlmWiki(fileName!, markdown!, (step, status) => {
+            this.setStep(id, "ingesting_llmwiki", step, status);
+          }, preclassified),
+        );
+        console.log(`[tasks:${id}] llm_wiki ingest: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}`);
+        this.patch(id, (t) => {
+          t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: res.ok ? "done" : "failed", ...(res.ok ? {} : { error: res.error }), steps: t.stages.ingesting_llmwiki.steps };
+          t.progress = 100;
+        });
+        this.markStageSteps(id, "ingesting_llmwiki", res.ok ? "done" : "failed", res.error);
+      })(),
+    ]);
 
     // --- finalize ---
     this.patch(id, (t) => {
@@ -407,9 +413,11 @@ export class IngestTaskQueue {
             : undefined;
       if (lightragOk || llmwikiOk) {
         t.status = "done";
+        t.progress = 100;
         if (failedStage?.error) t.error = failedStage.error;
       } else {
         t.status = "failed";
+        t.progress = 100;
         t.error = failedStage?.error ?? "Both knowledge systems failed";
       }
     });
