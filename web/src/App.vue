@@ -102,18 +102,17 @@ onMounted(() => {
 }
 
 .chat-splitter {
-  width: 8px;
+  width: 5px;
   cursor: col-resize;
   flex-shrink: 0;
   background: var(--caleo-border);
-  border-left: 1px solid color-mix(in srgb, var(--caleo-primary) 20%, transparent);
-  transition: background 0.15s;
+  transition: width 0.15s, background 0.15s;
   touch-action: none;
 }
 
 .chat-splitter:hover,
 .chat-splitter:active {
+  width: 10px;
   background: var(--caleo-primary);
-  opacity: 0.5;
 }
 </style>
