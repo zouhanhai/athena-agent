@@ -78,6 +78,23 @@ function taskProgressStatus(task: IngestTaskItem): "success" | "error" | "active
 function stageStatus(stage: IngestTaskStage): string {
   return stage.status;
 }
+
+function friendlyStep(step: { name: string }): string {
+  return step.name.replace(/_/g, " ");
+}
+
+function stepMark(status: string): string {
+  switch (status) {
+    case "done":
+      return "✓";
+    case "failed":
+      return "✕";
+    case "running":
+      return "…";
+    default:
+      return "○";
+  }
+}
 </script>
 
 <template>
@@ -169,7 +186,7 @@ function stageStatus(stage: IngestTaskStage): string {
             :status="taskProgressStatus(task)"
           />
           <div class="task-stages">
-            <span
+            <div
               v-for="stage in [
                 { key: 'parsing' as const, label: 'Parse' },
                 { key: 'ingesting_lightrag' as const, label: 'LightRAG' },
@@ -179,8 +196,21 @@ function stageStatus(stage: IngestTaskStage): string {
               class="task-stage"
               :class="stageStatus(task.stages[stage.key])"
             >
-              {{ stage.label }}: {{ task.stages[stage.key].status }}
-            </span>
+              <span class="task-stage-label">
+                {{ stage.label }}: {{ task.stages[stage.key].status }}
+              </span>
+              <ul v-if="task.stages[stage.key].steps?.length" class="task-stage-steps">
+                <li
+                  v-for="step in task.stages[stage.key].steps"
+                  :key="step.name"
+                  class="task-step"
+                  :class="step.status"
+                >
+                  <span class="task-step-mark">{{ stepMark(step.status) }}</span>
+                  <span class="task-step-name" :title="step.error">{{ friendlyStep(step) }}</span>
+                </li>
+              </ul>
+            </div>
           </div>
           <p v-if="hasFailedStage(task)" class="task-stage-error">{{ friendlyError(task) }}</p>
         </div>
@@ -394,16 +424,62 @@ function stageStatus(stage: IngestTaskStage): string {
 .task-stages {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin-top: 8px;
 }
 
 .task-stage {
-  padding: 2px 8px;
-  border-radius: 999px;
+  padding: 6px 10px;
+  border-radius: 8px;
   font-size: 11px;
   border: 1px solid var(--caleo-border);
   color: var(--caleo-text-secondary);
+  background: var(--caleo-surface);
+}
+
+.task-stage-label {
+  font-weight: 600;
+}
+
+.task-stage-steps {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.task-step-mark {
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+  color: var(--caleo-text-secondary);
+}
+
+.task-step-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-step.running .task-step-mark {
+  color: var(--caleo-primary);
+}
+
+.task-step.done .task-step-mark {
+  color: #2f9e63;
+}
+
+.task-step.failed .task-step-mark {
+  color: #d54941;
 }
 
 .task-stage.running {

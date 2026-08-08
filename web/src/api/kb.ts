@@ -47,10 +47,18 @@ export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwik
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "ingesting" | "done" | "failed";
 
+/** Per-system sub-step (G3.S5.T2): docling / LightRAG / llm_wiki phases. */
+export interface IngestTaskStep {
+  name: string;
+  status: StageStatus;
+  error?: string;
+}
+
 export interface IngestTaskStage {
   name: TaskStageName;
   status: StageStatus;
   error?: string;
+  steps: IngestTaskStep[];
 }
 
 export interface IngestTask {

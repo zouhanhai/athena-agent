@@ -80,6 +80,15 @@ function navItemByText(wrapper: AppWrapper, label: string) {
     .find((item) => item.text().includes(label));
 }
 
+function makeSteps(stage: "parsing" | "ingesting_lightrag" | "ingesting_llmwiki", status: string) {
+  const names: Record<string, string[]> = {
+    parsing: ["read_file", "parse_ocr_image_desc"],
+    ingesting_lightrag: ["chunking", "entity_extraction", "graph_build", "embedding"],
+    ingesting_llmwiki: ["classify", "write_page", "rebuild_index"],
+  };
+  return (names[stage] ?? []).map((name) => ({ name, status }));
+}
+
 function makeTask(overrides: Record<string, unknown> = {}) {
   const base = {
     id: "t-1",
@@ -87,9 +96,9 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     status: "ingesting",
     progress: 72,
     stages: {
-      parsing: { name: "parsing", status: "done" },
-      ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
-      ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running" },
+      parsing: { name: "parsing", status: "done", steps: makeSteps("parsing", "done") },
+      ingesting_lightrag: { name: "ingesting_lightrag", status: "done", steps: makeSteps("ingesting_lightrag", "done") },
+      ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running", steps: makeSteps("ingesting_llmwiki", "pending") },
     },
   };
   return { ...base, ...overrides };
@@ -178,6 +187,65 @@ describe("uploads page", () => {
     expect(wrapper.text()).toContain("Parse: done");
     expect(wrapper.text()).toContain("LightRAG: done");
     expect(wrapper.text()).toContain("llm_wiki: running");
+    wrapper.unmount();
+  });
+
+  it("renders the per-system sub-steps (docling/LightRAG/llm_wiki) with statuses", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        stages: {
+          parsing: {
+            name: "parsing",
+            status: "running",
+            steps: [
+              { name: "read_file", status: "done" },
+              { name: "parse_ocr_image_desc", status: "running" },
+            ],
+          },
+          ingesting_lightrag: {
+            name: "ingesting_lightrag",
+            status: "failed",
+            error: "timeout",
+            steps: [
+              { name: "chunking", status: "done" },
+              { name: "entity_extraction", status: "done" },
+              { name: "graph_build", status: "failed", error: "timeout" },
+              { name: "embedding", status: "pending" },
+            ],
+          },
+          ingesting_llmwiki: {
+            name: "ingesting_llmwiki",
+            status: "pending",
+            steps: [
+              { name: "classify", status: "pending" },
+              { name: "write_page", status: "pending" },
+              { name: "rebuild_index", status: "pending" },
+            ],
+          },
+        },
+      }),
+    );
+    const wrapper = await mountApp();
+
+    await submitFile(wrapper);
+
+    // docling sub-steps
+    expect(wrapper.text()).toContain("read file");
+    expect(wrapper.text()).toContain("parse ocr image desc");
+    // LightRAG sub-steps
+    expect(wrapper.text()).toContain("chunking");
+    expect(wrapper.text()).toContain("entity extraction");
+    expect(wrapper.text()).toContain("graph build");
+    expect(wrapper.text()).toContain("embedding");
+    // llm_wiki sub-steps
+    expect(wrapper.text()).toContain("classify");
+    expect(wrapper.text()).toContain("write page");
+    expect(wrapper.text()).toContain("rebuild index");
+    // failed step error is surfaced as a tooltip title on the step name
+    const failedStep = wrapper.find(".task-step.failed .task-step-name");
+    expect(failedStep.exists()).toBe(true);
+    expect(failedStep.attributes("title")).toBe("timeout");
     wrapper.unmount();
   });
 

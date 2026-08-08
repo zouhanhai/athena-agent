@@ -19,6 +19,40 @@ export interface IngestTaskItem {
   stages: IngestTask["stages"];
 }
 
+/** Optimistic per-system stages with pending sub-steps (G3.S5.T2), shown while
+ *  the first poll replaces them with the live backend state. */
+export function initialStages(): IngestTask["stages"] {
+  return {
+    parsing: {
+      name: "parsing",
+      status: "pending",
+      steps: [
+        { name: "read_file", status: "pending" },
+        { name: "parse_ocr_image_desc", status: "pending" },
+      ],
+    },
+    ingesting_lightrag: {
+      name: "ingesting_lightrag",
+      status: "pending",
+      steps: [
+        { name: "chunking", status: "pending" },
+        { name: "entity_extraction", status: "pending" },
+        { name: "graph_build", status: "pending" },
+        { name: "embedding", status: "pending" },
+      ],
+    },
+    ingesting_llmwiki: {
+      name: "ingesting_llmwiki",
+      status: "pending",
+      steps: [
+        { name: "classify", status: "pending" },
+        { name: "write_page", status: "pending" },
+        { name: "rebuild_index", status: "pending" },
+      ],
+    },
+  };
+}
+
 export interface UseIngestTasksOptions {
   /** Poll interval in ms. Injectable for tests. Default: 1500. */
   pollIntervalMs?: number;
@@ -133,11 +167,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
         kind: "file",
         status: "pending",
         progress: 0,
-        stages: {
-          parsing: { name: "parsing", status: "pending" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "pending" },
-          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
-        },
+        stages: initialStages(),
       });
       startPolling(taskId);
       await poll(taskId);
@@ -161,11 +191,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
         kind: "url",
         status: "pending",
         progress: 0,
-        stages: {
-          parsing: { name: "parsing", status: "pending" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "pending" },
-          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
-        },
+        stages: initialStages(),
       });
       startPolling(taskId);
       await poll(taskId);
@@ -214,11 +240,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
         kind: meta.kind,
         status: "pending",
         progress: 0,
-        stages: {
-          parsing: { name: "parsing", status: "pending" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "pending" },
-          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
-        },
+        stages: initialStages(),
       });
       startPolling(meta.id);
       void poll(meta.id);

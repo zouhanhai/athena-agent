@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
+import type { LlmWikiStepName } from "./ingest.js";
 import { documentIdFrom } from "./ingest.js";
 import type { ContentDedupStore } from "./dedup.js";
 
@@ -16,10 +17,47 @@ export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwik
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "ingesting" | "done" | "failed";
 
+/** Per-system sub-step name (G3.S5.T2). */
+export type DoclingStepName = "read_file" | "parse_ocr_image_desc";
+export type LightRagStepName = "chunking" | "entity_extraction" | "graph_build" | "embedding";
+export type StepName = DoclingStepName | LightRagStepName | LlmWikiStepName;
+
+export interface TaskStep {
+  name: StepName;
+  status: StageStatus;
+  error?: string;
+}
+
 export interface TaskStage {
   name: TaskStageName;
   status: StageStatus;
   error?: string;
+  steps: TaskStep[];
+}
+
+const LIGHTRAG_STEPS: LightRagStepName[] = ["chunking", "entity_extraction", "graph_build", "embedding"];
+
+/** Fresh pending sub-steps for a stage, e.g. `["read_file", "parse_ocr_image_desc"]`. */
+export function initialSteps(stage: TaskStageName): TaskStep[] {
+  switch (stage) {
+    case "parsing":
+      return [
+        { name: "read_file", status: "pending" },
+        { name: "parse_ocr_image_desc", status: "pending" },
+      ];
+    case "ingesting_lightrag":
+      return LIGHTRAG_STEPS.map((name) => ({ name, status: "pending" }));
+    case "ingesting_llmwiki":
+      return [
+        { name: "classify", status: "pending" },
+        { name: "write_page", status: "pending" },
+        { name: "rebuild_index", status: "pending" },
+      ];
+  }
+}
+
+function initialStage(name: TaskStageName): TaskStage {
+  return { name, status: "pending", steps: initialSteps(name) };
 }
 
 export interface IngestTask {
@@ -77,9 +115,9 @@ export interface IngestSubmitResult {
 
 function initialStages(): IngestTask["stages"] {
   return {
-    parsing: { name: "parsing", status: "pending" },
-    ingesting_lightrag: { name: "ingesting_lightrag", status: "pending" },
-    ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
+    parsing: initialStage("parsing"),
+    ingesting_lightrag: initialStage("ingesting_lightrag"),
+    ingesting_llmwiki: initialStage("ingesting_llmwiki"),
   };
 }
 
@@ -139,6 +177,27 @@ export class IngestTaskQueue {
     task.updatedAt = Date.now();
   }
 
+  /** Set every sub-step of a stage to the given status (optionally with an error).
+   *  A completed ("done") sub-step is never downgraded to failed — only the
+   *  pending/running remainder of a failed stage becomes failed. */
+  private markStageSteps(id: string, stageName: TaskStageName, status: StageStatus, error?: string): void {
+    this.patch(id, (t) => {
+      for (const step of t.stages[stageName].steps) {
+        if (status === "failed" && step.status === "done") continue;
+        step.status = status;
+        if (error !== undefined) step.error = error;
+      }
+    });
+  }
+
+  /** Set a single sub-step's status. */
+  private setStep(id: string, stageName: TaskStageName, stepName: StepName, status: StageStatus): void {
+    this.patch(id, (t) => {
+      const step = t.stages[stageName].steps.find((s) => s.name === stepName);
+      if (step) step.status = status;
+    });
+  }
+
   private async run(id: string, input: string, source: string): Promise<void> {
     const task = this.tasks.get(id);
     if (!task) return;
@@ -152,21 +211,24 @@ export class IngestTaskQueue {
       this.patch(id, (t) => {
         t.status = "parsing";
         t.progress = 15;
-        t.stages.parsing = { name: "parsing", status: "running" };
+        t.stages.parsing = { name: "parsing", status: "running", steps: t.stages.parsing.steps };
       });
       try {
         console.log(`[tasks:${id}] parsing start: ${input}`);
+        this.setStep(id, "parsing", "read_file", "running");
         const parsed = await this.parser.parse(input);
         markdown = parsed.markdown;
         fileName = `${parsed.stem || documentIdFrom(source, source)}.md`;
         console.log(`[tasks:${id}] parsing done (${markdown?.length ?? 0} chars)`);
         this.patch(id, (t) => {
-          t.stages.parsing = { name: "parsing", status: "done" };
+          t.stages.parsing = { name: "parsing", status: "done", steps: t.stages.parsing.steps };
           t.documentId = parsed.stem || documentIdFrom(source, source);
           t.markdown = markdown;
           t.fileName = fileName;
           t.progress = 35;
         });
+        this.setStep(id, "parsing", "read_file", "done");
+        this.setStep(id, "parsing", "parse_ocr_image_desc", "done");
       } catch (err) {
         console.error(`[tasks:${id}] parsing FAILED:`, err);
         return this.fail(id, err, "parsing");
@@ -189,9 +251,11 @@ export class IngestTaskQueue {
     if (task.stages.ingesting_lightrag.status !== "done") {
       this.patch(id, (t) => {
         t.status = "ingesting";
-        t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running" };
+        t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running", steps: t.stages.ingesting_lightrag.steps };
         t.progress = 50;
       });
+      // LightRAG is a single API call; the four internal phases all run within it.
+      this.markStageSteps(id, "ingesting_lightrag", "running");
       const lightrag = await this.safeIngest(() => this.ingest.ingestLightRag(markdown!, fileName!));
       console.log(`[tasks:${id}] lightrag ingest: ${lightrag.ok ? "ok" : "FAILED " + (lightrag.error ?? "")}`);
       this.patch(id, (t) => {
@@ -199,28 +263,36 @@ export class IngestTaskQueue {
           name: "ingesting_lightrag",
           status: lightrag.ok ? "done" : "failed",
           ...(lightrag.ok ? {} : { error: lightrag.error }),
+          steps: t.stages.ingesting_lightrag.steps,
         };
         t.progress = 72;
       });
+      this.markStageSteps(id, "ingesting_lightrag", lightrag.ok ? "done" : "failed", lightrag.error);
     }
 
     // --- llm_wiki ingesting ---
     if (task.stages.ingesting_llmwiki.status !== "done") {
       this.patch(id, (t) => {
         t.status = "ingesting";
-        t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running" };
+        t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
         t.progress = 85;
       });
-      const llmwiki = await this.safeIngest(() => this.ingest.ingestLlmWiki(fileName!, markdown!));
+      const llmwiki = await this.safeIngest(() =>
+        this.ingest.ingestLlmWiki(fileName!, markdown!, (step, status) => {
+          this.setStep(id, "ingesting_llmwiki", step, status);
+        }),
+      );
       console.log(`[tasks:${id}] llm_wiki ingest: ${llmwiki.ok ? "ok" : "FAILED " + (llmwiki.error ?? "")}`);
       this.patch(id, (t) => {
         t.stages.ingesting_llmwiki = {
           name: "ingesting_llmwiki",
           status: llmwiki.ok ? "done" : "failed",
           ...(llmwiki.ok ? {} : { error: llmwiki.error }),
+          steps: t.stages.ingesting_llmwiki.steps,
         };
         t.progress = 100;
       });
+      this.markStageSteps(id, "ingesting_llmwiki", llmwiki.ok ? "done" : "failed", llmwiki.error);
     }
 
     // --- finalize ---
@@ -285,8 +357,9 @@ export class IngestTaskQueue {
       t.dedup = { duplicate: true, ...(method ? { method } : {}), ...(existingSource ? { existingSource } : {}) };
       t.error = undefined;
       // Parsing succeeded; the two ingest stages were skipped (not failed).
-      t.stages.parsing = { name: "parsing", status: "done" };
+      t.stages.parsing = { ...t.stages.parsing, status: "done" };
     });
+    this.markStageSteps(id, "parsing", "done");
   }
 
   /**
@@ -320,7 +393,7 @@ export class IngestTaskQueue {
       const reRunParsing = failedStages.includes("parsing");
       t.status = reRunParsing ? "parsing" : "ingesting";
       for (const name of failedStages) {
-        t.stages[name] = { name, status: "pending" };
+        t.stages[name] = initialStage(name);
       }
     });
     void this.run(taskId, task.input!, task.source);
@@ -340,7 +413,8 @@ export class IngestTaskQueue {
     this.patch(id, (t) => {
       t.status = "failed";
       t.error = message;
-      t.stages[stage] = { name: stage, status: "failed", error: message };
+      t.stages[stage] = { name: stage, status: "failed", error: message, steps: t.stages[stage].steps };
     });
+    this.markStageSteps(id, stage, "failed", message);
   }
 }

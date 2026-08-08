@@ -29,6 +29,10 @@ export interface SystemIngestStatus {
   trackId?: string;
 }
 
+/** llm_wiki sub-step progress reporting (G3.S5.T2). */
+export type LlmWikiStepName = "classify" | "write_page" | "rebuild_index";
+export type LlmWikiProgress = (step: LlmWikiStepName, status: "running" | "done") => void;
+
 export interface DeleteDocumentResult {
   /** True when the wiki page was removed (the tree can refresh). */
   ok: boolean;
@@ -369,21 +373,27 @@ export class KnowledgeIngestService {
    * G2.S5.T10: when the classifier also derives a topic, the page is written
    * under wiki/<topic>/ instead so related documents group together.
    */
-  async ingestLlmWiki(fileName: string, content: string): Promise<SystemIngestStatus> {
+  async ingestLlmWiki(fileName: string, content: string, onStep?: LlmWikiProgress): Promise<SystemIngestStatus> {
     try {
       const { id, wikiDir } = await this.resolveProject();
       const title = extractPageTitle(content) ?? stemTitle(fileName);
+      onStep?.("classify", "running");
       const classification = await this.classify({ title, content });
+      onStep?.("classify", "done");
       const category = classification.category;
       const topic = classification.topic && isValidTopic(classification.topic)
         ? classification.topic
         : undefined;
       const subDir = topic ?? categoryDir(category);
       const targetDir = join(wikiDir, subDir);
+      onStep?.("write_page", "running");
       await this.mkdir(targetDir);
       await this.writeFile(join(targetDir, fileName), withFrontmatter(category, title, content, topic));
+      onStep?.("write_page", "done");
+      onStep?.("rebuild_index", "running");
       await this.rebuildIndex(wikiDir);
       await this.llmwiki.rescan(id);
+      onStep?.("rebuild_index", "done");
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
