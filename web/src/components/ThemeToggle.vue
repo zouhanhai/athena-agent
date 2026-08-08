@@ -50,7 +50,12 @@ function onToggle() {
       <!-- Thumb: sun in day / moon in night -->
       <div class="theme-toggle__thumb">
         <div class="theme-toggle__thumb-icon theme-toggle__sun" aria-hidden="true" />
-        <div class="theme-toggle__thumb-icon theme-toggle__moon" aria-hidden="true" />
+        <img
+          class="theme-toggle__thumb-icon theme-toggle__moon-img"
+          src="/moon-icon-clean.png"
+          alt=""
+          aria-hidden="true"
+        />
       </div>
     </div>
   </div>
@@ -140,31 +145,14 @@ function onToggle() {
   mask: radial-gradient(circle, transparent 55%, #000 56% 78%, transparent 79%);
 }
 
-.theme-toggle__moon {
-  background: radial-gradient(circle at 42% 40%, #fdfdfe 0%, #dce0ec 55%, #b8bfd6 100%);
+/* Moon uses a krea-generated realistic lunar-surface image (transparent bg). */
+.theme-toggle__moon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   opacity: 0;
-  transform: scale(0.85);
-  box-shadow: inset -2px -2px 4px rgba(90, 100, 130, 0.35);
-  overflow: hidden;
-}
-
-/* Lunar craters: dark pits with a bright rim (like real moon craters).
-   One ::after element renders multiple craters via box-shadow (each shadow = a crater). */
-.theme-toggle__moon::after {
-  content: "";
-  position: absolute;
-  top: 8px;
-  left: 5px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(85, 95, 125, 0.28);
-  box-shadow:
-    inset 0 0 3px rgba(60, 70, 100, 0.5),
-    0 1px 1px rgba(255, 255, 255, 0.6),
-    9px 6px 0 -1px rgba(85, 95, 125, 0.22),
-    11px 13px 0 -2px rgba(85, 95, 125, 0.2),
-    1px 12px 0 -2px rgba(85, 95, 125, 0.18);
+  transform: scale(0.85) rotate(-10deg);
+  transition: opacity var(--caleo-duration-toggle) ease, transform var(--caleo-duration-toggle) ease;
 }
 
 .theme-toggle.is-dark .theme-toggle__sun {
@@ -172,9 +160,9 @@ function onToggle() {
   transform: scale(0.7) rotate(40deg);
 }
 
-.theme-toggle.is-dark .theme-toggle__moon {
+.theme-toggle.is-dark .theme-toggle__moon-img {
   opacity: 1;
-  transform: scale(1) rotate(-10deg);
+  transform: scale(1) rotate(0deg);
 }
 
 /* Sky scenes fade in/out. */
