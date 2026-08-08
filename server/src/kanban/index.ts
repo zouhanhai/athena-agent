@@ -73,3 +73,24 @@ export type {
   PlanInputSpec,
   PlannedGoal,
 } from "./planning.js";
+export {
+  appendLog,
+  claimTicket,
+  reportTicket,
+  claimableTickets,
+  dispatchNotice,
+  dispatchNext,
+  ClaimError,
+  ReportError,
+} from "./protocol.js";
+export type {
+  ClaimInput,
+  ClaimResult,
+  ReportStatus,
+  ReportInput,
+  ReportResult,
+  ClaimableTicket,
+  DispatchNotice,
+} from "./protocol.js";
+export { GitClaimLock, ClaimConflictError } from "./git-lock.js";
+export type { GitClaimLockOptions } from "./git-lock.js";
