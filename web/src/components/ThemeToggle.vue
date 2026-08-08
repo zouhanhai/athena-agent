@@ -212,7 +212,7 @@ function onToggle() {
   width: 20px;
   height: 9px;
   top: 9px;
-  left: 22px;
+  left: 10px;
   transform: translateX(0);
   opacity: 1;
 }
@@ -232,7 +232,7 @@ function onToggle() {
   width: 13px;
   height: 7px;
   top: 5px;
-  left: 44px;
+  left: 34px;
   transform: translateX(0);
   opacity: 0.85;
   transition-delay: 0.06s;
@@ -249,14 +249,14 @@ function onToggle() {
   opacity: 0;
 }
 
-/* Stars fade in one-by-one (staggered) when entering night. */
+/* Stars fade in one-by-one (staggered) when entering night. Gold color. */
 .theme-toggle__star {
   position: absolute;
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 3px rgba(255, 255, 255, 0.9);
+  background: #ffd75e;
+  box-shadow: 0 0 3px rgba(255, 215, 94, 0.9);
   opacity: 0;
   transform: scale(0.5);
   transition:
@@ -268,7 +268,7 @@ function onToggle() {
   position: absolute;
   inset: -1px;
   border-radius: 50%;
-  background: #fff;
+  background: #ffd75e;
   opacity: 0.5;
 }
 .theme-toggle.is-dark .theme-toggle__star {
