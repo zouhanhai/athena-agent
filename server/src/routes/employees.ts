@@ -7,6 +7,7 @@ import {
   isGithubCredentialType,
   type EmployeeRecord,
   type EmployeeRegistry,
+  type EmployeeUpdateInput,
   type GithubCredential,
 } from "../employees/employees.js";
 import type { AgentRegistry } from "../agents/registry.js";
@@ -68,6 +69,7 @@ function mapEmployeeError(err: unknown): { code: number; message: string } | nul
  * - POST /api/auth/login { email } → email a magic link (200)
  * - POST /api/auth/verify { token } → { session_token, employee } (200 | 401)
  * - GET /api/me (Bearer) → current employee
+ * - PUT /api/me (Bearer) → update own display_name / logo_url / github_credential
  * - GET/POST /api/employees, GET/PUT /api/employees/:email (admin RBAC)
  * - GET /api/employees/:id/agents → agents archived under an employee
  */
@@ -110,6 +112,53 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
       }
       return employee;
     } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * Update the signed-in employee's own profile (self-scoped, no RBAC permission
+   * needed): display_name, logo_url and/or github_credential (encrypted at rest,
+   * never returned in the response).
+   */
+  app.put("/api/me", async (request, reply) => {
+    const body = (request.body ?? {}) as {
+      display_name?: unknown;
+      logo_url?: unknown;
+      github_credential?: unknown;
+    };
+    const patch: EmployeeUpdateInput = {};
+    if (body.display_name !== undefined) {
+      if (typeof body.display_name !== "string") {
+        return reply.code(400).send({ error: "display_name must be a string" });
+      }
+      patch.display_name = body.display_name;
+    }
+    if (body.logo_url !== undefined) {
+      if (typeof body.logo_url !== "string") {
+        return reply.code(400).send({ error: "logo_url must be a string" });
+      }
+      patch.logo_url = body.logo_url;
+    }
+    const githubCredential = githubCredentialFromBody(body.github_credential, reply);
+    if (githubCredential === null) {
+      return;
+    }
+    if (githubCredential !== undefined) {
+      patch.github_credential = githubCredential;
+    }
+    try {
+      const employee = await currentEmployee(request, auth);
+      if (!employee) {
+        return reply.code(401).send({ error: "unauthorized" });
+      }
+      const record = await employees.updateByEmail(employee.email, patch);
+      return record;
+    } catch (err) {
+      const mapped = mapEmployeeError(err);
+      if (mapped) {
+        return reply.code(mapped.code).send({ error: mapped.message });
+      }
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });

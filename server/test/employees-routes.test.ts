@@ -8,6 +8,9 @@ import {
   type MagicLinkMailer,
 } from "../src/employees/auth.js";
 import { MemoryEmployeeRegistry } from "../src/employees/employees.js";
+import { createSecretCipher } from "../src/employees/crypto.js";
+
+const TEST_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
 interface SentMail {
   to: string;
@@ -26,10 +29,13 @@ let registry: MemoryEmployeeRegistry;
 
 beforeEach(async () => {
   sent = [];
-  registry = new MemoryEmployeeRegistry([
-    { email: "admin@caleo.com", display_name: "Admin", role: "admin" },
-    { email: "member@caleo.com", display_name: "Member", role: "member" },
-  ]);
+  registry = new MemoryEmployeeRegistry(
+    [
+      { email: "admin@caleo.com", display_name: "Admin", role: "admin" },
+      { email: "member@caleo.com", display_name: "Member", role: "member" },
+    ],
+    { cipher: createSecretCipher(TEST_KEY) },
+  );
   const mailer: MagicLinkMailer = {
     async sendLoginLink(input) {
       sent.push({ to: input.to, magicLinkUrl: input.magicLinkUrl });
@@ -228,4 +234,99 @@ test("PUT /api/employees/:email updates role for admins", async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().role, "admin");
   assert.equal(res.json().display_name, "Promoted");
+});
+
+test("PUT /api/me updates display_name and logo_url for self", async () => {
+  const sessionToken = await login("member@caleo.com");
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { display_name: "Member Updated", logo_url: "/logos/fox-clean.png" },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.email, "member@caleo.com");
+  assert.equal(body.display_name, "Member Updated");
+  assert.equal(body.logo_url, "/logos/fox-clean.png");
+  assert.equal(body.role, "member");
+});
+
+test("PUT /api/me stores a github_credential encrypted and never returns the secret", async () => {
+  const sessionToken = await login("member@caleo.com");
+  const secret = "ghp_membermustneverleak";
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { github_credential: { type: "token", value: secret } },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.ok(!("github_credential" in body), "response must not expose the credential");
+  assert.ok(!JSON.stringify(body).includes(secret), "response must not contain the plaintext secret");
+
+  const stored = await registry.getGithubCredential("member@caleo.com");
+  assert.deepEqual(stored, { type: "token", value: secret });
+});
+
+test("PUT /api/me overwrites a previously registered github_credential", async () => {
+  const sessionToken = await login("member@caleo.com");
+  await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { github_credential: { type: "ssh", value: "ssh-ed25519 firstkey" } },
+  });
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { github_credential: { type: "token", value: "ghp_newer" } },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(await registry.getGithubCredential("member@caleo.com"), {
+    type: "token",
+    value: "ghp_newer",
+  });
+});
+
+test("PUT /api/me requires authentication", async () => {
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    payload: { display_name: "Anon" },
+  });
+  assert.equal(res.statusCode, 401);
+});
+
+test("PUT /api/me rejects an invalid github_credential", async () => {
+  const sessionToken = await login("member@caleo.com");
+  const badType = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { github_credential: { type: "password", value: "x" } },
+  });
+  assert.equal(badType.statusCode, 400);
+
+  const missingValue = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { github_credential: { type: "token", value: "  " } },
+  });
+  assert.equal(missingValue.statusCode, 400);
+});
+
+test("PUT /api/me cannot change the role", async () => {
+  const sessionToken = await login("member@caleo.com");
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { display_name: "Still Member", role: "admin" },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().role, "member");
 });

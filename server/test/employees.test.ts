@@ -101,6 +101,36 @@ test("updateByEmail on an unknown email throws EmployeeNotFoundError", async () 
   );
 });
 
+test("updateByEmail stores a github_credential encrypted — overwriting any prior one", async () => {
+  const registry = new MemoryEmployeeRegistry([], { cipher: TEST_CIPHER });
+  await registry.create({
+    email: "alice@example.com",
+    github_credential: { type: "ssh", value: "ssh-ed25519 oldkey" },
+  });
+
+  await registry.updateByEmail("alice@example.com", {
+    github_credential: { type: "token", value: "ghp_newsecret" },
+  });
+
+  const stored = await registry.getGithubCredential("alice@example.com");
+  assert.deepEqual(stored, { type: "token", value: "ghp_newsecret" });
+  const record = await registry.getByEmail("alice@example.com");
+  assert.equal(record?.display_name, "", "credential update should not touch profile fields");
+});
+
+test("updateByEmail without github_credential leaves the stored credential intact", async () => {
+  const registry = new MemoryEmployeeRegistry([], { cipher: TEST_CIPHER });
+  await registry.create({
+    email: "alice@example.com",
+    github_credential: { type: "token", value: "ghp_keepme" },
+  });
+  await registry.updateByEmail("alice@example.com", { display_name: "Alice" });
+  assert.deepEqual(await registry.getGithubCredential("alice@example.com"), {
+    type: "token",
+    value: "ghp_keepme",
+  });
+});
+
 let pgRegistry: PostgresEmployeeRegistry | null = null;
 let pgInit: Promise<PostgresEmployeeRegistry | null> | null = null;
 

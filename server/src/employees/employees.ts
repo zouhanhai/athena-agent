@@ -48,6 +48,8 @@ export interface EmployeeUpdateInput {
   display_name?: string;
   logo_url?: string;
   role?: EmployeeRole;
+  /** Re-encrypt/overwrite the employee's GitHub credential. Never returned in responses. */
+  github_credential?: GithubCredential;
 }
 
 export class EmployeeConflictError extends Error {}
@@ -164,6 +166,9 @@ export class MemoryEmployeeRegistry implements EmployeeRegistry {
     };
     this.byId.set(updated.id, updated);
     this.byEmail.set(updated.email, updated);
+    if (patch.github_credential) {
+      this.setGithubCredential(updated.email, patch.github_credential);
+    }
     return updated;
   }
 
@@ -358,15 +363,27 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
 
   async updateByEmail(email: string, patch: EmployeeUpdateInput): Promise<EmployeeRecord> {
     await this.ensureReady();
+    const encrypted = patch.github_credential
+      ? this.encryptGithubCredential(patch.github_credential)
+      : null;
     const result = await this.pool.query<EmployeeRow>(
       `UPDATE employees
        SET display_name = COALESCE($2, display_name),
            logo_url = COALESCE($3, logo_url),
            role = COALESCE($4, role),
+           github_credential_type = COALESCE($5, github_credential_type),
+           github_credential_enc = COALESCE($6, github_credential_enc),
            updated_at = now()
        WHERE email = $1
        RETURNING *`,
-      [normalizeEmail(email), patch.display_name ?? null, patch.logo_url ?? null, patch.role ?? null],
+      [
+        normalizeEmail(email),
+        patch.display_name ?? null,
+        patch.logo_url ?? null,
+        patch.role ?? null,
+        encrypted?.type ?? null,
+        encrypted?.enc ?? null,
+      ],
     );
     if (result.rows.length === 0) {
       throw new EmployeeNotFoundError(`employee "${email}" not found`);
