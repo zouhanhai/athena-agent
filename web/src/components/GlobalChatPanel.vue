@@ -356,7 +356,9 @@ function addEmployee(emp: EmployeeRecord) {
 }
 
 .message-row.user {
-  justify-content: flex-end;
+  /* row-reverse flips the main axis: flex-start = visual RIGHT, so user
+     bubbles sit on the right while the speaker avatar sits on the left. */
+  justify-content: flex-start;
   flex-direction: row-reverse;
 }
 
