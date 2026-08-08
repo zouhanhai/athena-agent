@@ -139,6 +139,24 @@ describe("portal sidebar navigation", () => {
     expect(wrapper.find(".app-footer .settings-trigger").exists()).toBe(true);
     wrapper.unmount();
   });
+
+  it("places the animated theme toggle slider under the Settings button", async () => {
+    const wrapper = await mountApp();
+    const footer = wrapper.find(".app-footer");
+    const toggle = footer.find(".theme-toggle");
+    expect(toggle.exists()).toBe(true);
+
+    const footerChildren = Array.from(footer.element.children);
+    const settingsIdx = footerChildren.findIndex((el) =>
+      el.classList.contains("settings-panel"),
+    );
+    const toggleIdx = footerChildren.findIndex((el) =>
+      el.classList.contains("theme-toggle"),
+    );
+    expect(settingsIdx).toBeGreaterThanOrEqual(0);
+    expect(toggleIdx).toBeGreaterThan(settingsIdx);
+    wrapper.unmount();
+  });
 });
 
 describe("global chat panel", () => {

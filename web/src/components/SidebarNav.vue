@@ -11,6 +11,7 @@ import {
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
 import SettingsPanel from "@/components/SettingsPanel.vue";
+import ThemeToggle from "@/components/ThemeToggle.vue";
 import { useThemeStore } from "@/stores/theme";
 
 interface NavItem {
@@ -76,6 +77,7 @@ const sidebarTopOffset = "24px";
     </t-menu>
     <footer class="app-footer">
       <SettingsPanel />
+      <ThemeToggle />
     </footer>
   </t-aside>
 </template>
