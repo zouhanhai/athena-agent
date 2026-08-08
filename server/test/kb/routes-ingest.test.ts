@@ -22,6 +22,12 @@ function makeTaskQueue(opts: {
     },
   };
   const ingest = {
+    async prepareForIngest(input: { title: string; content: string }) {
+      return {
+        classification: { category: "concept", pagePath: "wiki/concepts/uploaded.md", topic: "sommerseminar" },
+        frontmatterContent: `---\ntype: concept\ntitle: ${input.title}\ntopic: sommerseminar\n---\n\n${input.content}`,
+      };
+    },
     async ingestLightRag() {
       counts.lightrag += 1;
       if (opts.lightragFailures !== undefined && counts.lightrag <= opts.lightragFailures) {

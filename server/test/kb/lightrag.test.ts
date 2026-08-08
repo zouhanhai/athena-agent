@@ -63,7 +63,7 @@ test("LightRagClient.getHealth calls GET /health", async () => {
   assert.equal(calls[0].method, "GET");
 });
 
-test("LightRagClient.ingestText POSTs JSON to /documents/text with file_source", async () => {
+test("LightRagClient.ingestText POSTs JSON to /documents/text with file_source + paragraph_semantic chunking", async () => {
   const { fetchImpl, calls } = makeFetchMock((url) => ({
     status: 200,
     body: { status: "success", message: "ok", track_id: "insert_123" },
@@ -73,18 +73,40 @@ test("LightRagClient.ingestText POSTs JSON to /documents/text with file_source",
   assert.equal(result.track_id, "insert_123");
   assert.equal(calls[0].url, "http://kb:9621/documents/text");
   assert.equal(calls[0].method, "POST");
-  assert.deepEqual(calls[0].body, { text: "# Doc", file_source: "athena-overview.md" });
+  assert.deepEqual(calls[0].body, {
+    text: "# Doc",
+    file_source: "athena-overview.md",
+    chunking: { strategy: "paragraph_semantic" },
+  });
   assert.equal(calls[0].headers["content-type"], "application/json");
 });
 
-test("LightRagClient.ingestText omits file_source when not provided", async () => {
+test("LightRagClient.ingestText omits file_source when not provided and defaults to paragraph_semantic chunking", async () => {
   const { fetchImpl, calls } = makeFetchMock(() => ({
     status: 200,
     body: { status: "success", message: "ok", track_id: "t" },
   }));
   const client = new LightRagClient({ baseUrl: "http://kb:9621", fetchImpl });
   await client.ingestText("text only");
-  assert.deepEqual(calls[0].body, { text: "text only" });
+  assert.deepEqual(calls[0].body, {
+    text: "text only",
+    chunking: { strategy: "paragraph_semantic" },
+  });
+});
+
+test("LightRagClient.ingestText accepts a chunking override", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: { status: "success", message: "ok", track_id: "t" },
+  }));
+  const client = new LightRagClient({ baseUrl: "http://kb:9621", fetchImpl });
+  await client.ingestText("text", {
+    chunking: { strategy: "fixed_token", chunk_token_size: 1200 },
+  });
+  assert.deepEqual(calls[0].body, {
+    text: "text",
+    chunking: { strategy: "fixed_token", chunk_token_size: 1200 },
+  });
 });
 
 test("LightRagClient.query POSTs /query and returns response with references", async () => {

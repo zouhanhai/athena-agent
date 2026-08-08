@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { LightRagClient, LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
 import { WIKI_CATEGORIES, isValidTopic } from "./llmwiki.js";
+import { DOC_TYPE_DIRS } from "./taxonomy.js";
 import { parseFrontmatter } from "./frontmatter.js";
 
 export interface IngestInput {
@@ -128,45 +129,86 @@ export function stemTitle(fileName: string): string {
 }
 
 /**
- * Deterministic local topic detection (G2.S5.T10). Recognizes a stable
- * subject key so related documents (e.g. 3 Sommerseminar PDFs) group under a
- * shared topic folder even when the llm_wiki agent is unavailable. Returns
+ * Deterministic local topic detection (G2.S5.T10, updated to the hierarchical
+ * CALEO topic tree from docs/taxonomy.md). Recognizes stable subject keywords
+ * so related documents group under a shared topic folder even when the
+ * llm_wiki agent is unavailable. More specific paths are matched first. Returns
  * undefined when no recognizable subject is found (falls back to type dir).
  */
+const TOPIC_PATTERNS: [RegExp, string][] = [
+  [/\b(sommerseminar|sommer\s*seminar)\b/, "internal/events"],
+  [/\b(summer\s*school|conference|workshop|retreat|meetup)\b/, "internal/events"],
+  [/\b(group\s*reporting|groupreporting)\b/, "sap/consolidation/group-reporting"],
+  [/\b(bcs|business\s*consolidation\s*system)\b/, "sap/consolidation/bcs"],
+  [/\bndc\s*financial\s*consolidation\b/, "sap/consolidation/ndc-financial-consolidation"],
+  [/\b(bpc|bw\s*planning)\b/, "sap/planning/bpc"],
+  [/\bdatasphere\b/, "sap/business-warehouse/datasphere"],
+  [/\b(bw\/4|business\s*warehouse)\b/, "sap/business-warehouse/bw"],
+  [/\b(btp|business\s*technology\s*platform)\b/, "sap/cloud/btp"],
+  [/\bbdc\b/, "sap/cloud/bdc"],
+  [/\bsac\b/, "sap/reporting/sac"],
+  [/\blumira\b/, "sap/reporting/lumira"],
+  [/\b(bex|wad)\b/, "sap/reporting/legacy"],
+  [/\babap\b/, "sap/development/abap"],
+  [/\bcds\b/, "sap/development/cds"],
+  [/\b(fiori|ui5)\b/, "sap/development/fiori"],
+  [/\besg\b/, "sap/esg"],
+  [/\bs\/?4hana\b/, "sap/migration/s4hana"],
+  [/\bconsolidation\b/, "sap/consolidation"],
+];
+
 export function localTopic(title: string, content: string): string | undefined {
   const haystack = `${title}\n${content}`.toLowerCase();
-  const patterns: [RegExp, string][] = [
-    [/\bsommerseminar\b/, "sommerseminar"],
-    [/\bsummer\s*school\b/, "summer-school"],
-    [/\bconference\b/, "conference"],
-    [/\bworkshop\b/, "workshop"],
-    [/\bretreat\b/, "retreat"],
-    [/\bmeetup\b/, "meetup"],
-  ];
-  for (const [re, topic] of patterns) {
+  for (const [re, topic] of TOPIC_PATTERNS) {
     if (re.test(haystack)) return topic;
   }
   return undefined;
 }
 
-/** Deterministic heuristic classifier used when the llm_wiki agent is unavailable. */
+/**
+ * Deterministic heuristic classifier used when the llm_wiki agent is
+ * unavailable. Implements the 13-kind CALEO taxonomy (docs/taxonomy.md). The
+ * old research-oriented comparison/query/synthesis types are gone, so
+ * financial-report text can no longer be misclassified as `comparison`.
+ */
 export function localClassify(title: string, content: string): WikiClassification {
   const stem = slugify(title);
   const haystack = `${title}\n${content}`.toLowerCase();
   const category: WikiCategory = (() => {
-    if (/\b(vs\.?|comparison|compare|differences?|alternatives?)\b/.test(haystack)) {
-      return "comparison";
+    if (/\b(sommerseminar|conference|workshop|retreat|meetup|summer\s*school|agenda|itinerary)\b/.test(haystack)) {
+      return "event";
     }
-    if (/(open question|research question|investigat|\?\s*$)/.test(haystack)) {
-      return "query";
-    }
-    if (/\b(paper|arxiv|doi|blog|article|talk|conference|publication)\b/.test(haystack)) {
+    if (/\b(paper|arxiv|doi|publication|official\s*(documentation|docs?|guide)|help\.sap\.com|vendor\s*(material|documentation|docs?)|published\s*by)\b/.test(haystack)) {
       return "source";
     }
-    if (/\b(summary|overview|conclusion|synthesis|takeaways?|cross-cutting)\b/.test(haystack)) {
-      return "synthesis";
+    if (/\b(meeting\s*minutes|attendees?|action\s*items?|discussion\s*points)\b/.test(haystack)) {
+      return "minute";
     }
-    if (/\b(company|corporation|inc\.?|dataset|model)\b/.test(haystack)) {
+    if (/\b(annual\s*report|financial\s*report|project\s*status|quarterly\s*report|audit\s*report|income\s*statement|balance\s*sheet|profit|revenue|findings|overview)\b/.test(haystack)) {
+      return "report";
+    }
+    if (/\b(how\s*to|runbook|step\s*-?\s*by\s*-?\s*step|operating\s*guide|user\s*guide|manual|handbook|troubleshoot)\b/.test(haystack)) {
+      return "manual";
+    }
+    if (/\b(specification|requirements|architecture|interface|config(?:uration)?|schema|data\s*model)\b/.test(haystack)) {
+      return "spec";
+    }
+    if (/\b(proposal|implementation\s*plan|roadmap|offering|scope\s*of\s*work|statement\s*of\s*work|quotation)\b/.test(haystack)) {
+      return "proposal";
+    }
+    if (/\b(contract|agreement|n\s*d\s*a|partnership|procurement|terms\s*and\s*conditions)\b/.test(haystack)) {
+      return "contract";
+    }
+    if (/\b(policy|regulation|sop|code\s*of\s*conduct|compliance)\b/.test(haystack)) {
+      return "policy";
+    }
+    if (/\b(presentation|slides|slide\s*deck|deck|training\s*material|talk)\b/.test(haystack)) {
+      return "presentation";
+    }
+    if (/\b(employee\s*profile|profile\s*of|curriculum\s*vitae|\bcv\b|biography)\b/.test(haystack)) {
+      return "person";
+    }
+    if (/\b(company|corporation|inc\.?|gmbh|dataset|project|product|client)\b/.test(haystack)) {
       return "entity";
     }
     return "concept";
@@ -183,18 +225,9 @@ function isValidCategory(category: string): category is WikiCategory {
   return (WIKI_CATEGORIES as readonly string[]).includes(category);
 }
 
-const CATEGORY_DIRS: Record<WikiCategory, string> = {
-  entity: "entities",
-  concept: "concepts",
-  source: "sources",
-  query: "queries",
-  comparison: "comparisons",
-  synthesis: "synthesis",
-};
-
 /** Map a wiki category (frontmatter `type`) to its plural directory under wiki/. */
 export function categoryDir(category: WikiCategory): string {
-  return CATEGORY_DIRS[category];
+  return DOC_TYPE_DIRS[category];
 }
 
 /** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title + topic). */
@@ -339,8 +372,13 @@ export class KnowledgeIngestService {
     const documentId = documentIdFrom(input.title, input.source);
     const fileName = `${documentId}.md`;
 
-    const lightragResult = await this.ingestLightRag(input.content, fileName);
-    const llmwikiResult = await this.ingestLlmWiki(fileName, input.content);
+    // G3.S8.T2: classify FIRST (llm_wiki agent, local fallback) so LightRAG
+    // receives the content WITH frontmatter (type + topic) — its documents then
+    // carry topic metadata that the graph can filter by. The same classification
+    // is reused by the llm_wiki stage so both systems agree on type/topic.
+    const { frontmatterContent, classification } = await this.prepareForIngest(input);
+    const lightragResult = await this.ingestLightRag(frontmatterContent, fileName);
+    const llmwikiResult = await this.ingestLlmWiki(fileName, input.content, undefined, classification);
 
     return {
       documentId,
@@ -348,6 +386,32 @@ export class KnowledgeIngestService {
         lightrag: lightragResult,
         llmwiki: llmwikiResult,
       },
+    };
+  }
+
+  /**
+   * Classify a document (llm_wiki agent with local fallback) and wrap its
+   * content in the llm_wiki frontmatter schema (type + title + topic), so the
+   * caller can feed LightRAG content that already carries the topic — making
+   * LightRAG documents filterable by topic via their content_summary/metadata
+   * (G3.S8.T2). Best-effort: never throws; the local heuristic is the floor.
+   */
+  async prepareForIngest(input: { title: string; content: string }): Promise<{
+    classification: WikiClassification;
+    frontmatterContent: string;
+  }> {
+    let classification: WikiClassification;
+    try {
+      classification = await this.classify(input);
+    } catch {
+      classification = localClassify(input.title, input.content);
+    }
+    const topic = classification.topic && isValidTopic(classification.topic)
+      ? classification.topic
+      : undefined;
+    return {
+      classification,
+      frontmatterContent: withFrontmatter(classification.category, input.title, input.content, topic),
     };
   }
 
@@ -389,13 +453,22 @@ export class KnowledgeIngestService {
    * wiki/<category>/ (not flat root), then wiki/index.md is rebuilt.
    * G2.S5.T10: when the classifier also derives a topic, the page is written
    * under wiki/<topic>/ instead so related documents group together.
+   * G3.S8.T2: when `preclassified` is given (the caller already classified the
+   * doc — e.g. ingestMarkdown/task queue, to feed LightRAG the frontmatter),
+   * the classification is REUSED instead of calling the agent again, so both
+   * systems carry the exact same type + topic.
    */
-  async ingestLlmWiki(fileName: string, content: string, onStep?: LlmWikiProgress): Promise<SystemIngestStatus> {
+  async ingestLlmWiki(
+    fileName: string,
+    content: string,
+    onStep?: LlmWikiProgress,
+    preclassified?: WikiClassification,
+  ): Promise<SystemIngestStatus> {
     try {
       const { id, wikiDir } = await this.resolveProject();
       const title = extractPageTitle(content) ?? stemTitle(fileName);
       onStep?.("classify", "running");
-      const classification = await this.classify({ title, content });
+      const classification = preclassified ?? await this.classify({ title, content });
       onStep?.("classify", "done");
       const category = classification.category;
       const topic = classification.topic && isValidTopic(classification.topic)

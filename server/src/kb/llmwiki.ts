@@ -7,6 +7,13 @@
 import { readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
+import {
+  DOC_TYPES,
+  DOC_TYPES_JOINED,
+  TOPIC_TREE_PROMPT,
+  TYPE_CRITERIA_PROMPT,
+  type DocType,
+} from "./taxonomy.js";
 
 export interface LlmWikiOptions {
   /** Base URL of the llm_wiki API. Default: http://127.0.0.1:19828 */
@@ -93,17 +100,14 @@ export interface LlmWikiSearchOptions {
   includeContent?: boolean;
 }
 
-/** llm_wiki wiki page categories (from the project schema / project.rs). */
-export const WIKI_CATEGORIES = [
-  "entity",
-  "concept",
-  "source",
-  "query",
-  "comparison",
-  "synthesis",
-] as const;
+/**
+ * llm_wiki wiki page categories — the 13-kind CALEO taxonomy (docs/taxonomy.md),
+ * which replaces the older research-oriented entity/concept/source/query/
+ * comparison/synthesis set.
+ */
+export const WIKI_CATEGORIES = DOC_TYPES;
 
-export type WikiCategory = (typeof WIKI_CATEGORIES)[number];
+export type WikiCategory = DocType;
 
 export interface WikiClassification {
   /** Which category directory the page belongs under (wiki/<category>/). */
@@ -326,12 +330,14 @@ export class LlmWikiClient {
 
   /**
    * POST /projects/{id}/chat - ask the llm_wiki LLM agent to classify a
-   * document into a wiki category (entity/concept/source/query/comparison/
-   * synthesis) plus a stable topic key (G2.S5.T10/T11), so ingestion can place
-   * it in the right wiki/<category>/ or wiki/<topic>/ dir. When `existingTopics`
-   * is provided the agent is instructed to REUSE an existing topic/path when the
-   * document belongs to it (only creating a new one when none fits), keeping
-   * related docs grouped (e.g. a 4th Sommerseminar doc → `sommerseminar`).
+   * document into a wiki category (the 13-kind CALEO taxonomy from
+   * docs/taxonomy.md) plus a hierarchical topic path (G2.S5.T10/T11), so
+   * ingestion can place it in the right wiki/<category>/ or wiki/<topic>/ dir.
+   * The prompt embeds the full taxonomy (type criteria + topic tree) and, when
+   * `existingTopics` is provided, instructs the agent to REUSE an existing
+   * topic/path when the document belongs to it (only creating a new one when
+   * none fits), keeping related docs grouped (e.g. a 4th Sommerseminar doc →
+   * `internal/events`).
    */
   async classify(
     projectId: string,
@@ -348,22 +354,23 @@ export class LlmWikiClient {
         : "There are no existing topics yet; create a fresh stable topic key if the document " +
           "has a clear subject (single slug or slash path such as 'sap/fiori').\n\n";
     const prompt =
-      "You are a wiki librarian. Classify the following document into exactly one wiki category:\n" +
-      "- entity: named things (models, companies, people, datasets)\n" +
-      "- concept: ideas, techniques, phenomena\n" +
-      "- source: papers, articles, talks, blog posts\n" +
-      "- query: open questions under investigation\n" +
-      "- comparison: side-by-side analysis of related entities\n" +
-      "- synthesis: cross-cutting summaries and conclusions\n\n" +
-      "Also derive a short STABLE TOPIC key that groups this document with related ones " +
-      "on the same subject (e.g. 'sommerseminar', 'sap/fiori', 'runbook'). " +
-      "A topic may be a slash path for a broad subject with a finer sub-dimension. " +
-      "Use the same topic for documents about the same subject; omit it (empty string) " +
+      "You are a wiki librarian. Classify the following document into exactly ONE document type " +
+      "and ONE hierarchical topic.\n\n" +
+      "## 1. Document type\n" +
+      TYPE_CRITERIA_PROMPT +
+      "\n\n" +
+      "## 2. Topic (hierarchical)\n" +
+      TOPIC_TREE_PROMPT +
+      "\n\n" +
+      "Use the SAME topic for documents about the same subject; omit it (empty string) " +
       "if the document is standalone.\n\n" +
       topicHint +
       `Document title: ${input.title}\n\n` +
       `Document content:\n${excerpt}\n\n` +
-      'Reply with ONLY a single JSON object like {"category":"concept","topic":"chain-of-thought","pagePath":"wiki/concepts/chain-of-thought.md"} and nothing else. pagePath must start with "wiki/" and end with ".md"; topic must be a lowercase kebab-case key, optionally a slash path like "sap/fiori", or an empty string.';
+      `Reply with ONLY a single JSON object like {"category":"concept","topic":"chain-of-thought","pagePath":"wiki/concepts/chain-of-thought.md"} and nothing else. ` +
+      `category must be one of: ${DOC_TYPES_JOINED}. ` +
+      `pagePath must start with "wiki/" and end with ".md"; ` +
+      `topic must be a topic path from the tree above (or a more specific sub-path), or an empty string.`;
     const body: Record<string, unknown> = {
       message: prompt,
       mode: "fast",

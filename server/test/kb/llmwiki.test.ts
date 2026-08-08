@@ -223,6 +223,44 @@ test("parseClassification validates category and pagePath", () => {
   assert.equal(parseClassification("no json here"), null);
 });
 
+test("parseClassification accepts the 13-kind CALEO taxonomy types", () => {
+  for (const type of ["report", "minute", "spec", "manual", "proposal", "contract", "policy", "presentation", "event", "source", "person", "entity", "concept"]) {
+    const parsed = parseClassification(`{"category":"${type}","pagePath":"wiki/x.md"}`);
+    assert.ok(parsed, `type ${type} is accepted`);
+    assert.equal(parsed!.category, type);
+  }
+  // the removed research-oriented types are rejected
+  for (const type of ["comparison", "query", "synthesis"]) {
+    assert.equal(parseClassification(`{"category":"${type}","pagePath":"wiki/x.md"}`), null);
+  }
+});
+
+test("LlmWikiClient.classify embeds the CALEO taxonomy in the agent prompt", async () => {
+  const { fetchImpl, calls } = makeFetchMock(() => ({
+    status: 200,
+    body: {
+      ok: true,
+      message: { role: "assistant", content: '{"category":"source","topic":"sap/consolidation/group-reporting","pagePath":"wiki/sources/gr.md"}' },
+    },
+  }));
+  const client = new LlmWikiClient({ baseUrl: "http://wiki:19828", fetchImpl });
+  const result = await client.classify("athena-wiki", {
+    title: "SAP Group Reporting",
+    content: "# SAP Group Reporting\n\nExternal SAP documentation.",
+  });
+  const message = calls[0].body.message as string;
+  assert.ok(message.includes("wiki librarian"), "prompt keeps the librarian framing");
+  assert.ok(message.includes("internal/events"), "prompt embeds the topic tree (internal/events)");
+  assert.ok(message.includes("sap/consolidation/group-reporting"), "prompt embeds the topic tree (sap/consolidation/group-reporting)");
+  assert.ok(message.includes("source: external reference material"), "prompt embeds type criteria");
+  assert.match(
+    message,
+    /category must be one of: report, minute, spec, manual, proposal, contract, policy, presentation, event, source, person, entity, concept/,
+    "prompt lists exactly the 13 taxonomy types (no comparison/query/synthesis)",
+  );
+  assert.deepEqual(result, { category: "source", topic: "sap/consolidation/group-reporting", pagePath: "wiki/sources/gr.md" });
+});
+
 test("parseClassification parses an optional topic key", () => {
   assert.deepEqual(
     parseClassification('{"category":"concept","topic":"sommerseminar","pagePath":"wiki/concepts/sommerseminar.md"}'),

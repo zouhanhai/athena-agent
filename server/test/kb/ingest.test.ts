@@ -55,7 +55,7 @@ function makeFakes(opts: { classify?: (input: { title: string; content: string }
   };
 }
 
-test("ingestMarkdown feeds LightRAG and writes the wiki page into a category dir + rebuilds index", async () => {
+test("ingestMarkdown feeds LightRAG frontmatter-wrapped content and writes the wiki page into a type dir + rebuilds index", async () => {
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({
     lightrag: fakes.lightrag,
@@ -76,14 +76,18 @@ test("ingestMarkdown feeds LightRAG and writes the wiki page into a category dir
   assert.equal(result.systems.lightrag.ok, true);
   assert.equal(result.systems.llmwiki.ok, true);
 
+  // G3.S8.T2: LightRAG receives content WITH frontmatter (type + title), not raw content.
   const ingest = fakes.calls.find((c) => c.kind === "lightrag.ingestText");
-  assert.deepEqual(ingest?.args, ["# Incident Runbook\n\nStep 1", { fileSource: "runbook.md" }]);
+  assert.equal(ingest?.args[1]?.fileSource, "runbook.md");
+  const lightragContent = ingest?.args[0] as string;
+  assert.match(lightragContent, /^---\ntype: manual\ntitle: Incident Runbook\n/);
+  assert.ok(lightragContent.endsWith("\n\n# Incident Runbook\n\nStep 1"));
 
   const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
   assert.ok(write?.args[0]);
-  assert.equal(write.args[0], "/data/wiki/concepts/runbook.md");
+  assert.equal(write.args[0], "/data/wiki/manuals/runbook.md");
   const content = write.args[1] as string;
-  assert.match(content, /^---\ntype: concept\ntitle: Incident Runbook\n/);
+  assert.match(content, /^---\ntype: manual\ntitle: Incident Runbook\n/);
   assert.ok(content.endsWith("\n\n# Incident Runbook\n\nStep 1"));
 
   const rebuild = fakes.calls.find((c) => c.kind === "rebuildIndex");
@@ -390,18 +394,27 @@ test("withFrontmatter includes the topic field when provided", () => {
   assert.match(out, /^---\ntype: concept\ntitle: Sommerseminar\ntopic: sommerseminar\ncreated: \d{4}-\d{2}-\d{2}\n/);
 });
 
-test("localTopic groups related Sommerseminar documents under one topic", () => {
-  assert.equal(localTopic("Sommerseminar Lüsen/Südtirol 2026", "C-Day für die CALEOs"), "sommerseminar");
-  assert.equal(localTopic("Infos Sommerseminar 2026", "Sommerseminar vom 12. - 14. Juni 2026"), "sommerseminar");
-  assert.equal(localTopic("Sommerseminar Mallorca 2023", "CALEO Sommerseminar vom 15.06.2023"), "sommerseminar");
+test("localTopic groups related Sommerseminar documents under internal/events", () => {
+  assert.equal(localTopic("Sommerseminar Lüsen/Südtirol 2026", "C-Day für die CALEOs"), "internal/events");
+  assert.equal(localTopic("Infos Sommerseminar 2026", "Sommerseminar vom 12. - 14. Juni 2026"), "internal/events");
+  assert.equal(localTopic("Sommerseminar Mallorca 2023", "CALEO Sommerseminar vom 15.06.2023"), "internal/events");
   assert.equal(localTopic("Chain of Thought", "some reasoning text"), undefined);
 });
 
-test("localClassify derives a topic for Sommerseminar docs while keeping the type", () => {
+test("localTopic maps SAP subjects to the hierarchical topic tree", () => {
+  assert.equal(localTopic("Group Reporting", "SAP Group Reporting for consolidation"), "sap/consolidation/group-reporting");
+  assert.equal(localTopic("SAP BCS Guide", "business consolidation system"), "sap/consolidation/bcs");
+  assert.equal(localTopic("BW/4", "business warehouse migration"), "sap/business-warehouse/bw");
+  assert.equal(localTopic("SAC", "reporting with SAC"), "sap/reporting/sac");
+  assert.equal(localTopic("Fiori", "UI5 development"), "sap/development/fiori");
+  assert.equal(localTopic("S/4HANA", "migration"), "sap/migration/s4hana");
+});
+
+test("localClassify derives a topic for Sommerseminar docs while classifying them as events", () => {
   const result = localClassify("Sommerseminar Lüsen/Südtirol 2026", "C-Day für die CALEOs");
-  assert.equal(result.category, "concept");
-  assert.equal(result.topic, "sommerseminar");
-  assert.match(result.pagePath, /^wiki\/concepts\/sommerseminar-/);
+  assert.equal(result.category, "event");
+  assert.equal(result.topic, "internal/events");
+  assert.match(result.pagePath, /^wiki\/events\/sommerseminar-/);
 });
 
 test("ingest writes under wiki/<topic>/ when the classifier returns a topic", async () => {
@@ -427,13 +440,62 @@ test("ingest writes under wiki/<topic>/ when the classifier returns a topic", as
   assert.match(write?.args[1] as string, /^---\ntype: concept\ntitle: Sommerseminar\ntopic: sommerseminar\n/);
 });
 
-test("localClassify maps keyword-heavy docs to the right category", () => {
-  assert.equal(localClassify("Alpha vs Beta", "comparing both approaches").category, "comparison");
-  assert.equal(localClassify("Open question", "is there a better way?").category, "query");
+test("localClassify maps docs to the 13-kind CALEO taxonomy", () => {
+  assert.equal(localClassify("Incident Runbook", "step-by-step troubleshooting guide").category, "manual");
+  assert.equal(localClassify("Annual Report", "financial results and revenue").category, "report");
+  assert.equal(localClassify("Sprint Retro", "attendees, action items, decisions").category, "minute");
   assert.equal(localClassify("Paper review", "this paper from arxiv").category, "source");
-  assert.equal(localClassify("Summary", "overview of findings").category, "synthesis");
+  assert.equal(localClassify("SAP Fiori Configuration", "interface specification and requirements").category, "spec");
+  assert.equal(localClassify("Migration Offer", "implementation plan and roadmap").category, "proposal");
+  assert.equal(localClassify("NDA", "terms and conditions agreement").category, "contract");
+  assert.equal(localClassify("Compliance", "code of conduct policy").category, "policy");
+  assert.equal(localClassify("Quarterly Deck", "slides for the steering committee").category, "presentation");
   assert.equal(localClassify("Acme Corp", "the company dataset").category, "entity");
   assert.equal(localClassify("Unclear", "some text").category, "concept");
+});
+
+test("localClassify maps the external SAP Group Reporting doc to source + sap/consolidation/group-reporting (not comparison)", () => {
+  const result = localClassify(
+    "SAP Group Reporting",
+    "SAP Group Reporting — official vendor documentation for financial consolidation (help.sap.com).",
+  );
+  assert.equal(result.category, "source");
+  assert.equal(result.topic, "sap/consolidation/group-reporting");
+  assert.match(result.pagePath, /^wiki\/sources\//);
+});
+
+test("ingestMarkdown classifies FIRST and feeds LightRAG the topic via frontmatter (G3.S8.T2)", async () => {
+  let classifyCalls = 0;
+  const classify: (input: { title: string; content: string }) => Promise<WikiClassification> = async () => {
+    classifyCalls += 1;
+    return {
+      category: "event",
+      pagePath: "wiki/events/sommerseminar-2026.md",
+      topic: "internal/events",
+    };
+  };
+  const fakes = makeFakes({ classify });
+  const service = new KnowledgeIngestService({
+    lightrag: fakes.lightrag,
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    classify,
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  await service.ingestMarkdown({ title: "Sommerseminar 2026", content: "# Sommerseminar 2026\n\nC-Day" });
+
+  const ingest = fakes.calls.find((c) => c.kind === "lightrag.ingestText");
+  const lightragContent = ingest?.args[0] as string;
+  assert.match(lightragContent, /^---\ntype: event\ntitle: Sommerseminar 2026\ntopic: internal\/events\n/);
+
+  // the same classification is reused for the wiki page (no double classify call)
+  assert.equal(classifyCalls, 1);
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  assert.equal(write?.args[0], "/data/wiki/internal/events/sommerseminar-2026.md");
+  assert.match(write?.args[1] as string, /^---\ntype: event\ntitle: Sommerseminar 2026\ntopic: internal\/events\n/);
 });
 
 test("buildWikiIndex groups pages by frontmatter type", () => {

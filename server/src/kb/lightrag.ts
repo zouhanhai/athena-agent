@@ -119,6 +119,23 @@ export interface LightRagDeleteResult {
   message?: string;
 }
 
+export interface LightRagChunking {
+  strategy: string;
+  [key: string]: unknown;
+}
+
+/** Default chunking strategy for new ingests (G3.S8.T2): paragraph_semantic
+ *  beats the fixed_token default for prose documents, and the LightRAG doc
+ *  metadata then reports `process_options: "P"` / `chunk_method: "paragraph_semantic"`. */
+export const DEFAULT_CHUNKING: LightRagChunking = { strategy: "paragraph_semantic" };
+
+export interface LightRagIngestOptions {
+  /** Source file label stored on the LightRAG document (its `file_path`). */
+  fileSource?: string;
+  /** Chunking override. Defaults to paragraph_semantic for new ingests. */
+  chunking?: LightRagChunking;
+}
+
 export class LightRagClient {
   private readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -136,11 +153,12 @@ export class LightRagClient {
   }
 
   /** POST /documents/text - enqueue text for chunking + indexing. */
-  async ingestText(text: string, options: { fileSource?: string } = {}): Promise<LightRagInsertResult> {
+  async ingestText(text: string, options: LightRagIngestOptions = {}): Promise<LightRagInsertResult> {
     const body: Record<string, unknown> = { text };
     if (options.fileSource) {
       body.file_source = options.fileSource;
     }
+    body.chunking = options.chunking ?? DEFAULT_CHUNKING;
     return this.request("/documents/text", { method: "POST", body });
   }
 

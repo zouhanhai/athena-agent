@@ -186,21 +186,31 @@ function basename(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
-/** Keep only nodes whose source file maps to `topic`, plus edges between them. */
+/** Keep only nodes whose source file maps to `topic` (or a sub-topic of it,
+ *  enabling hierarchical drill-down, e.g. "sap" includes "sap/consolidation/
+ *  group-reporting"), plus the edges between them. */
 function filterGraphByTopic(
   graph: KnowledgeGraph,
   topic: string,
   topicMap: Map<string, string>,
 ): KnowledgeGraph {
+  // A node's file_path is the LightRAG file_source (<documentId>.md). The
+  // topic map (built from llm_wiki page frontmatter) keys on the wiki page
+  // basename AND full path, so a node maps to its topic via file_path.
   const nodeTopic = (node: KnowledgeGraphNode): string | undefined => {
     if (!node.filePath) return undefined;
     return topicMap.get(node.filePath) ?? topicMap.get(basename(node.filePath));
   };
 
+  const matches = (nodeTopicValue: string | undefined): boolean => {
+    if (nodeTopicValue === topic) return true;
+    return typeof nodeTopicValue === "string" && nodeTopicValue.startsWith(`${topic}/`);
+  };
+
   const kept = new Set<string>();
   const nodes: KnowledgeGraphNode[] = [];
   for (const node of graph.nodes) {
-    if (nodeTopic(node) === topic) {
+    if (matches(nodeTopic(node))) {
       kept.add(node.id);
       nodes.push(node);
     }

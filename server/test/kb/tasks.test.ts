@@ -50,6 +50,13 @@ function makeFakes(opts: {
   const lightragStatuses = opts.lightragTrack?.statuses ?? ["processed"];
   let trackStatusIdx = 0;
   const ingest = {
+    async prepareForIngest(input: { title: string; content: string }) {
+      calls.push({ kind: "ingest.prepare", args: [input.title] });
+      return {
+        classification: { category: "concept", pagePath: "wiki/concepts/doc.md", topic: "sommerseminar" },
+        frontmatterContent: `---\ntype: concept\ntitle: ${input.title}\ntopic: sommerseminar\n---\n\n${input.content}`,
+      };
+    },
     async ingestLightRag(markdown: string, fileName: string) {
       calls.push({ kind: "ingest.lightrag", args: [markdown, fileName] });
       return flags.lightragOk
@@ -267,8 +274,21 @@ test("submitFile runs parse → lightrag → llmwiki and finishes done with full
 
   assert.deepEqual(
     calls.map((c) => c.kind),
-    ["parser.parse", "ingest.lightrag", "ingest.llmwiki"],
+    ["parser.parse", "ingest.prepare", "ingest.lightrag", "ingest.llmwiki"],
   );
+});
+
+test("submitFile feeds LightRAG frontmatter-wrapped content (classify-first, G3.S8.T2)", async () => {
+  const { queue, calls } = makeFakes({});
+  const { taskId } = queue.submitFile("/tmp/report.pdf", "report.pdf");
+  await untilDone(queue, taskId);
+  assert.equal(queue.getTask(taskId)!.status, "done");
+
+  const lightrag = calls.find((c) => c.kind === "ingest.lightrag");
+  assert.ok(lightrag, "LightRAG is reached");
+  assert.match(lightrag!.args[0] as string, /^---\ntype: concept\n/);
+  assert.match(lightrag!.args[0] as string, /topic: sommerseminar/);
+  assert.ok((lightrag!.args[0] as string).endsWith("# Doc"), "body follows the frontmatter");
 });
 
 test("submitUrl passes the URL straight to docling parsing", async () => {
@@ -426,7 +446,7 @@ test("non-duplicate content proceeds through the full pipeline", async () => {
   assert.equal(queue.getTask(taskId)!.status, "done");
   assert.deepEqual(
     calls.map((c) => c.kind),
-    ["parser.parse", "ingest.lightrag", "ingest.llmwiki"],
+    ["parser.parse", "ingest.prepare", "ingest.lightrag", "ingest.llmwiki"],
   );
 });
 

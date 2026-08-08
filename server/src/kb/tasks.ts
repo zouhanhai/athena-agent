@@ -10,7 +10,8 @@ import { randomUUID } from "node:crypto";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
-import { documentIdFrom } from "./ingest.js";
+import { documentIdFrom, extractPageTitle, stemTitle } from "./ingest.js";
+import type { WikiClassification } from "./llmwiki.js";
 import type { ContentDedupStore } from "./dedup.js";
 import {
   LightRagTrackPoller,
@@ -259,6 +260,11 @@ export class IngestTaskQueue {
 
     let markdown = task.markdown;
     let fileName = task.fileName;
+    // G3.S8.T2: classification computed once before the LightRAG stage so both
+    // systems receive the SAME type+topic (LightRAG via frontmatter, llm_wiki
+    // via the preclassified result). Undefined when only the llm_wiki stage is
+    // re-run on retry (then it classifies internally as before).
+    let preclassified: WikiClassification | undefined;
 
     // --- parsing (docling) ---
     if (task.stages.parsing.status !== "done") {
@@ -310,9 +316,18 @@ export class IngestTaskQueue {
       });
       this.markStageSteps(id, "ingesting_lightrag", "running");
 
+      // Classify FIRST so LightRAG ingests the content WITH frontmatter
+      // (type + topic) — its documents then carry topic metadata (G3.S8.T2).
+      const prepared = await this.safePrepare(() =>
+        this.ingest.prepareForIngest({ title: extractPageTitle(markdown!) ?? stemTitle(fileName!), content: markdown! }),
+      );
+      if (prepared) preclassified = prepared.classification;
+
       // The 202 submit only means LightRAG queued the doc. Submit, then poll
       // /documents/track_status until the backend actually processed (or failed).
-      const submitted = await this.safeIngest(() => this.ingest.ingestLightRag(markdown!, fileName!));
+      const submitted = await this.safeIngest(() =>
+        this.ingest.ingestLightRag(prepared?.frontmatterContent ?? markdown!, fileName!),
+      );
       if (!submitted.ok || !submitted.trackId) {
         const message = submitted.error ?? "LightRAG rejected the document";
         console.error(`[tasks:${id}] lightrag submit FAILED: ${message}`);
@@ -361,7 +376,7 @@ export class IngestTaskQueue {
       const llmwiki = await this.safeIngest(() =>
         this.ingest.ingestLlmWiki(fileName!, markdown!, (step, status) => {
           this.setStep(id, "ingesting_llmwiki", step, status);
-        }),
+        }, preclassified),
       );
       console.log(`[tasks:${id}] llm_wiki ingest: ${llmwiki.ok ? "ok" : "FAILED " + (llmwiki.error ?? "")}`);
       this.patch(id, (t) => {
@@ -486,6 +501,18 @@ export class IngestTaskQueue {
       return await fn();
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** Classify-and-wrap is best-effort: if it fails, ingestion falls back to
+   *  feeding LightRAG the raw markdown (no frontmatter). */
+  private async safePrepare(fn: () => Promise<{ classification: WikiClassification; frontmatterContent: string }>): Promise<
+    { classification: WikiClassification; frontmatterContent: string } | undefined
+  > {
+    try {
+      return await fn();
+    } catch {
+      return undefined;
     }
   }
 

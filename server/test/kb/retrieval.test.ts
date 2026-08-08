@@ -114,6 +114,55 @@ test("getGraph with a topic filters nodes by file_path→topic and keeps interna
   assert.equal(graph.edges[0]!.target, "n2");
 });
 
+test("getGraph with a parent topic includes sub-topic nodes via file_path (hierarchical drill-down)", async () => {
+  const nodes = [
+    { id: "n1", label: "GR", properties: { file_path: "gr.md" } },
+    { id: "n2", label: "S4", properties: { file_path: "s4.md" } },
+    { id: "n3", label: "CoT", properties: { file_path: "cot.md" } },
+  ];
+  const edges = [
+    { source: "n1", target: "n2", weight: 1 },
+    { source: "n1", target: "n3", weight: 2 },
+  ];
+  const lightrag = stubLightrag({
+    getGraph: async () => ({ nodes, edges }),
+  });
+  const llmwiki = stubLlmwiki({
+    listWikiPages: async () => [
+      { path: "wiki/sap/consolidation/group-reporting/gr.md", type: "source", topic: "sap/consolidation/group-reporting" },
+      { path: "wiki/sap/migration/s4hana/s4.md", type: "source", topic: "sap/migration/s4hana" },
+      { path: "wiki/concepts/cot.md", type: "concept", topic: "chain-of-thought" },
+    ],
+  });
+  const service = makeService({ lightrag, llmwiki });
+
+  const graph = await service.getGraph("*", "sap");
+  assert.deepEqual(graph.nodes.map((n) => n.id).sort(), ["n1", "n2"]);
+  assert.equal(graph.edges.length, 1);
+  assert.equal(graph.edges[0]!.source, "n1");
+  assert.equal(graph.edges[0]!.target, "n2");
+});
+
+test("getGraph with a deep topic filters to exactly that topic (no drill-up)", async () => {
+  const nodes = [
+    { id: "n1", label: "GR", properties: { file_path: "gr.md" } },
+    { id: "n2", label: "S4", properties: { file_path: "s4.md" } },
+  ];
+  const lightrag = stubLightrag({
+    getGraph: async () => ({ nodes, edges: [] }),
+  });
+  const llmwiki = stubLlmwiki({
+    listWikiPages: async () => [
+      { path: "wiki/sap/consolidation/group-reporting/gr.md", type: "source", topic: "sap/consolidation/group-reporting" },
+      { path: "wiki/sap/migration/s4hana/s4.md", type: "source", topic: "sap/migration/s4hana" },
+    ],
+  });
+  const service = makeService({ lightrag, llmwiki });
+
+  const graph = await service.getGraph("*", "sap/consolidation/group-reporting");
+  assert.deepEqual(graph.nodes.map((n) => n.id).sort(), ["n1"]);
+});
+
 test("getGraph without a topic returns the full graph", async () => {
   const nodes = [
     { id: "n1", label: "A", properties: { file_path: "Sommerseminar-L-sen.md" } },
