@@ -460,6 +460,72 @@ watch(
   border-top: 1px solid var(--caleo-border);
   margin: 1.5em 0;
 }
+
+/* GitHub-style task lists (markdown-it-task-lists): - [ ] / - [x] */
+.wiki-content :deep(.task-list-item) {
+  list-style: none;
+  margin: 0.25em 0;
+}
+.wiki-content :deep(.task-list-item-checkbox) {
+  margin: 0 0.5em 0 0;
+  accent-color: var(--caleo-primary);
+}
+.wiki-content :deep(ul.contains-task-list),
+.wiki-content :deep(ol.contains-task-list) {
+  padding-left: 0.4em;
+}
+
+/* Inline images: responsive + rounded + subtle border */
+.wiki-content :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--caleo-border);
+  margin: 0.5em 0;
+}
+
+/* Code highlighting: keyword/string/comment colours follow theme-ish palette */
+.wiki-content :deep(.hljs-keyword),
+.wiki-content :deep(.hljs-selector-tag),
+.wiki-content :deep(.hljs-literal),
+.wiki-content :deep(.hljs-built_in) {
+  color: var(--caleo-primary);
+}
+.wiki-content :deep(.hljs-string),
+.wiki-content :deep(.hljs-regexp),
+.wiki-content :deep(.hljs-addition) {
+  color: #86d98a;
+}
+.wiki-content :deep(.hljs-comment),
+.wiki-content :deep(.hljs-quote) {
+  color: var(--caleo-text-secondary);
+  font-style: italic;
+}
+.wiki-content :deep(.hljs-number),
+.wiki-content :deep(.hljs-symbol) {
+  color: #e0c07a;
+}
+.wiki-content :deep(.hljs-title),
+.wiki-content :deep(.hljs-section),
+.wiki-content :deep(.hljs-name) {
+  color: var(--caleo-sky);
+}
+.wiki-content :deep(.hljs-attr),
+.wiki-content :deep(.hljs-attribute) {
+  color: #d7a7e0;
+}
+
+/* Definition lists / task label spacing */
+.wiki-content :deep(strong) {
+  color: var(--caleo-text);
+  font-weight: 600;
+}
+.wiki-content :deep(mark) {
+  background: color-mix(in srgb, var(--caleo-primary) 25%, transparent);
+  color: var(--caleo-text);
+  padding: 0 3px;
+  border-radius: 3px;
+}
 </style>
 
 <!-- G2.S5.T11: non-scoped overrides so the segmented view-switcher selected segment
