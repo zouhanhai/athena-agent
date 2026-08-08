@@ -67,7 +67,7 @@ export class LogoGenerationError extends Error {}
 export interface OpenRouterLogoClientOptions {
   /** Path to the Pi auth.json. Default: ~/.pi/agent/auth.json. */
   authPath?: string;
-  /** OpenRouter image model. Default: google/gemini-3.1-flash-image. */
+  /** OpenRouter image model. Default: qwen/qwen-image-3. */
   model?: string;
   /** OpenRouter base URL. Default: https://openrouter.ai/api/v1 */
   baseUrl?: string;
@@ -75,7 +75,7 @@ export interface OpenRouterLogoClientOptions {
   size?: string;
 }
 
-const DEFAULT_IMAGE_MODEL = "google/gemini-3.1-flash-image";
+const DEFAULT_IMAGE_MODEL = "qwen/qwen-image-3";
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_SIZE = "512x512";
 
