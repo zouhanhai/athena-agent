@@ -67,6 +67,43 @@ export function nodeRelations(graph: KnowledgeGraph, nodeId: string): NodeRelati
   return { incoming, outgoing };
 }
 
+/** Extract the local neighborhood of `rootId`: the root node plus every node
+ *  reachable within `hops` edges, keeping only edges between included nodes.
+ *  Used to render a small focused subgraph instead of the full 1000+ graph. */
+export function localSubgraph(
+  graph: KnowledgeGraph,
+  rootId: string,
+  hops = 2,
+): KnowledgeGraph {
+  const included = new Set<string>([rootId]);
+  let frontier = new Set<string>([rootId]);
+  for (let hop = 0; hop < hops; hop++) {
+    const next = new Set<string>();
+    for (const edge of graph.edges) {
+      if (!edge.source || !edge.target) continue;
+      if (frontier.has(edge.source) && !included.has(edge.target)) {
+        next.add(edge.target);
+      }
+      if (frontier.has(edge.target) && !included.has(edge.source)) {
+        next.add(edge.source);
+      }
+    }
+    for (const id of next) included.add(id);
+    frontier = next;
+  }
+
+  return {
+    nodes: graph.nodes.filter((node) => node.id && included.has(node.id)),
+    edges: graph.edges.filter(
+      (edge) =>
+        edge.source &&
+        edge.target &&
+        included.has(edge.source) &&
+        included.has(edge.target),
+    ),
+  };
+}
+
 /** Assign a palette color to each distinct entity type, deterministically. */
 export function buildTypeColors(types: string[], palette: string[]): Record<string, string> {
   const map: Record<string, string> = {};

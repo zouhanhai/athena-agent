@@ -1,150 +1,35 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
-import { useRouter } from "vue-router";
 import { VNetworkGraph } from "v-network-graph";
 import { ForceLayout } from "v-network-graph/lib/force-layout";
 import type { UserConfigs } from "v-network-graph";
 import "v-network-graph/lib/style.css";
 
-import { getGraph, getGraphTopics, searchKnowledge } from "@/api/kb";
-import type { KnowledgeGraph, KnowledgeSearchResult, IngestTaskStage } from "@/api/kb";
-import { buildTypeColors, mapKnowledgeGraph, nodeRelations } from "@/kb/graph";
-import { useIngestTasks } from "@/kb/ingest";
-import type { IngestTaskItem } from "@/kb/ingest";
+import { getGraph, getGraphTopics } from "@/api/kb";
+import type { KnowledgeGraph } from "@/api/kb";
+import { buildTypeColors, localSubgraph, mapKnowledgeGraph, nodeRelations } from "@/kb/graph";
 import { caleoPalette } from "@/theme";
 import { useThemeStore } from "@/stores/theme";
 
 const theme = useThemeStore();
 const { mode } = storeToRefs(theme);
-const router = useRouter();
 
 const graph = ref<KnowledgeGraph>({ nodes: [], edges: [] });
-const loading = ref(true);
+const loading = ref(false);
 const error = ref("");
 const selectedNodeId = ref<string | null>(null);
 
 const topics = ref<string[]>([]);
 const selectedTopic = ref("");
 const topicLoading = ref(false);
-const totalNodes = ref(0);
 
+/** Node-local view: when set, the graph shows the local neighborhood of the
+ *  named node (node + 1-2 hop relations) instead of the whole topic graph. */
+const nodeMode = ref(false);
+const nodeRoot = ref<string | null>(null);
 const searchQuery = ref("");
 const searching = ref(false);
-const searchResults = ref<KnowledgeSearchResult[]>([]);
-const searchError = ref("");
-const searchActive = ref(false);
-
-const showAddData = ref(true);
-const fileInput = ref<HTMLInputElement | null>(null);
-const dragging = ref(false);
-const urlInput = ref("");
-const {
-  tasks,
-  submitting,
-  submitError,
-  addFile,
-  addUrl,
-  removeTask,
-  retryTask,
-} = useIngestTasks();
-
-const ACCEPT_HINT = "application/pdf,.docx,.xlsx,.pptx,image/*,.html,.epub,.csv,.md,.txt";
-
-function pickFiles(): void {
-  fileInput.value?.click();
-}
-
-function onFileChange(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  const files = Array.from(input.files ?? []);
-  input.value = "";
-  void ingestFiles(files);
-}
-
-function onDrop(event: DragEvent): void {
-  dragging.value = false;
-  const files = Array.from(event.dataTransfer?.files ?? []);
-  void ingestFiles(files);
-}
-
-async function ingestFiles(files: File[]): Promise<void> {
-  for (const file of files) {
-    await addFile(file);
-  }
-}
-
-async function submitUrl(): Promise<void> {
-  const url = urlInput.value.trim();
-  if (!url) return;
-  await addUrl(url);
-  urlInput.value = "";
-}
-
-function stageStatus(stage: IngestTaskStage): string {
-  return stage.status;
-}
-
-function hasFailedStage(task: IngestTaskItem): boolean {
-  return (
-    task.stages.parsing.status === "failed" ||
-    task.stages.ingesting_lightrag.status === "failed" ||
-    task.stages.ingesting_llmwiki.status === "failed"
-  );
-}
-
-/**
- * Map a raw task/stage error to a human-friendly message. Duplicate-name uploads
- * hit a LightRAG 409 ("already contains ..."). Surface that clearly so the user
- * knows to delete the existing document first.
- */
-function friendlyError(task: IngestTaskItem): string {
-  const raw = task.error ?? "";
-  if (/409|already contains|duplicate/i.test(raw)) {
-    return "This file already exists in the knowledge base. Delete it in the Wiki panel, then upload again.";
-  }
-  return raw || "This document could not be fully ingested.";
-}
-
-function onRetry(taskId: string): void {
-  void retryTask(taskId);
-}
-
-function taskProgressStatus(task: IngestTaskItem): "success" | "error" | "active" {
-  if (task.status === "failed") return "error";
-  if (task.status === "done") return "success";
-  if (task.progress > 0) return "active";
-  return "active";
-}
-
-async function runSearch() {
-  const query = searchQuery.value.trim();
-  if (!query) return;
-  searchActive.value = true;
-  searching.value = true;
-  searchError.value = "";
-  try {
-    searchResults.value = await searchKnowledge(query);
-  } catch (err) {
-    searchError.value = err instanceof Error ? err.message : String(err);
-    searchResults.value = [];
-  } finally {
-    searching.value = false;
-  }
-}
-
-function clearSearch() {
-  searchActive.value = false;
-  searchQuery.value = "";
-  searchResults.value = [];
-  searchError.value = "";
-}
-
-function onResultClick(result: KnowledgeSearchResult) {
-  if (result.source === "llmwiki" && result.path) {
-    void router.push({ path: "/wiki", query: { path: result.path } });
-  }
-}
 
 function resolveColor(varName: string, fallback: string): string {
   if (typeof document !== "undefined") {
@@ -222,14 +107,20 @@ const configs = computed<UserConfigs>(() => ({
 
 const viewGraph = computed(() => mapKnowledgeGraph(graph.value));
 
-async function loadGraph() {
+/** Load the topic-scoped subgraph. With no topic selected the graph stays empty
+ *  (never auto-loads the full 1000+ node graph). */
+async function loadTopicGraph() {
   loading.value = true;
   error.value = "";
+  nodeMode.value = false;
+  nodeRoot.value = null;
   try {
     const topic = selectedTopic.value || undefined;
-    const result = await getGraph(undefined, topic);
-    if (!topic) totalNodes.value = result.nodes.length;
-    graph.value = result;
+    if (!topic) {
+      graph.value = { nodes: [], edges: [] };
+      return;
+    }
+    graph.value = await getGraph(undefined, topic);
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -251,11 +142,75 @@ async function loadTopics() {
 
 async function onTopicChange() {
   selectedNodeId.value = null;
-  await loadGraph();
+  searchQuery.value = "";
+  await loadTopicGraph();
+}
+
+/** Look up a node by name and show only its 1-2 hop neighborhood. */
+async function loadNodeGraph(query: string) {
+  loading.value = true;
+  searching.value = true;
+  error.value = "";
+  try {
+    const result = await getGraph(query);
+    const root = result.nodes.find(
+      (node) => (node.label ?? node.id ?? "").toLowerCase() === query.toLowerCase(),
+    );
+    if (!root?.id) {
+      error.value = `No node named "${query}" found.`;
+      graph.value = { nodes: [], edges: [] };
+      return;
+    }
+    nodeMode.value = true;
+    nodeRoot.value = root.label ?? query;
+    searchQuery.value = root.label ?? query;
+    graph.value = localSubgraph(result, root.id, 2);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    graph.value = { nodes: [], edges: [] };
+  } finally {
+    loading.value = false;
+    searching.value = false;
+  }
+}
+
+function runSearch() {
+  const query = searchQuery.value.trim();
+  if (!query) return;
+  selectedNodeId.value = null;
+  void loadNodeGraph(query);
+}
+
+function clearSearch() {
+  searchQuery.value = "";
+  nodeMode.value = false;
+  nodeRoot.value = null;
+  selectedNodeId.value = null;
+  if (selectedTopic.value) {
+    void loadTopicGraph();
+  } else {
+    graph.value = { nodes: [], edges: [] };
+    error.value = "";
+  }
+}
+
+function refresh() {
+  if (nodeMode.value) {
+    const query = searchQuery.value.trim();
+    if (query) void loadNodeGraph(query);
+  } else if (selectedTopic.value) {
+    void loadTopicGraph();
+  }
 }
 
 function onNodeClick(nodeId: string) {
+  const node = graph.value.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
   selectedNodeId.value = nodeId;
+  nodeMode.value = true;
+  nodeRoot.value = node.label ?? nodeId;
+  searchQuery.value = node.label ?? nodeId;
+  graph.value = localSubgraph(graph.value, nodeId, 2);
 }
 
 const selectedNode = computed(() => {
@@ -279,8 +234,19 @@ const eventHandlers = {
   "node:click": ({ node }: { node: string }) => onNodeClick(node),
 };
 
+const metaText = computed(() => {
+  if (nodeMode.value) {
+    return `local graph for "${nodeRoot.value ?? searchQuery.value}" · ${graph.value.nodes.length} entities · ${graph.value.edges.length} links`;
+  }
+  if (selectedTopic.value) {
+    return `Showing ${graph.value.nodes.length} entities · ${graph.value.edges.length} links`;
+  }
+  return "";
+});
+
+const hasView = computed(() => nodeMode.value || Boolean(selectedTopic.value));
+
 onMounted(() => {
-  void loadGraph();
   void loadTopics();
 });
 </script>
@@ -290,15 +256,7 @@ onMounted(() => {
     <header class="knowledge-header">
       <h2 class="knowledge-title">Knowledge Graph</h2>
       <div class="knowledge-controls">
-        <span class="knowledge-meta">
-          <template v-if="selectedTopic">
-            Showing {{ graph.nodes.length }} of {{ totalNodes }} entities ·
-            {{ graph.edges.length }} links
-          </template>
-          <template v-else>
-            {{ graph.nodes.length }} entities · {{ graph.edges.length }} links
-          </template>
-        </span>
+        <span v-if="metaText" class="knowledge-meta">{{ metaText }}</span>
         <t-select
           v-model="selectedTopic"
           class="topic-filter"
@@ -319,7 +277,7 @@ onMounted(() => {
           class="knowledge-search-input"
           size="small"
           clearable
-          placeholder="Search knowledge..."
+          placeholder="Search a node..."
           @enter="runSearch"
           @clear="clearSearch"
         >
@@ -335,165 +293,30 @@ onMounted(() => {
             </t-button>
           </template>
         </t-input>
-        <t-button
-          size="small"
-          variant="outline"
-          :theme="showAddData ? 'primary' : 'default'"
-          @click="showAddData = !showAddData"
-        >
-          {{ showAddData ? "Hide Data Input" : "Add Data" }}
-        </t-button>
-        <t-button size="small" variant="outline" :loading="loading" @click="loadGraph">
+        <t-button size="small" variant="outline" :loading="loading" @click="refresh">
           Refresh
         </t-button>
       </div>
     </header>
 
-    <div v-if="showAddData" class="add-data-panel">
-      <div class="add-data-head">
-        <h3 class="add-data-title">Add Data</h3>
-        <span class="add-data-hint">
-          PDF · DOCX · XLSX · PPTX · images · HTML · EPUB · CSV · Markdown · URL
-        </span>
-      </div>
-
-      <div
-        class="drop-zone"
-        :class="{ dragging }"
-        @click="pickFiles"
-        @dragover.prevent="dragging = true"
-        @dragleave.prevent="dragging = false"
-        @drop.prevent="onDrop"
-      >
-        <input
-          ref="fileInput"
-          type="file"
-          multiple
-          :accept="ACCEPT_HINT"
-          hidden
-          @change="onFileChange"
-        />
-        <span class="drop-zone-main">Drop files here or click to upload</span>
-        <span class="drop-zone-sub">Every file is parsed by docling → LightRAG + llm_wiki</span>
-      </div>
-
-      <div class="url-row">
-        <t-input
-          v-model="urlInput"
-          size="small"
-          clearable
-          placeholder="https://example.com/page — paste a URL to ingest"
-          @enter="submitUrl"
-        />
-        <t-button
-          size="small"
-          variant="outline"
-          :loading="submitting"
-          :disabled="!urlInput.trim()"
-          @click="submitUrl"
-        >
-          Ingest URL
-        </t-button>
-      </div>
-
-      <p v-if="submitError" class="add-data-error">{{ submitError }}</p>
-
-      <div v-if="tasks.length" class="task-list">
-        <div v-for="task in tasks" :key="task.id" class="task-item">
-          <div class="task-head">
-            <span class="task-source" :title="task.source">{{ task.source }}</span>
-            <span class="task-badge" :class="task.status">{{ task.status }}</span>
-            <div class="task-actions">
-              <t-button
-                v-if="hasFailedStage(task)"
-                size="small"
-                variant="outline"
-                theme="danger"
-                @click="onRetry(task.id)"
-              >
-                Retry
-              </t-button>
-              <t-button size="small" variant="text" @click="removeTask(task.id)">
-                Remove
-              </t-button>
-            </div>
-          </div>
-          <t-progress
-            :percentage="task.progress"
-            :status="taskProgressStatus(task)"
-          />
-          <div class="task-stages">
-            <span
-              v-for="stage in [
-                { key: 'parsing' as const, label: 'Parse' },
-                { key: 'ingesting_lightrag' as const, label: 'LightRAG' },
-                { key: 'ingesting_llmwiki' as const, label: 'llm_wiki' },
-              ]"
-              :key="stage.key"
-              class="task-stage"
-              :class="stageStatus(task.stages[stage.key])"
-            >
-              {{ stage.label }}: {{ task.stages[stage.key].status }}
-            </span>
-          </div>
-          <p v-if="hasFailedStage(task)" class="task-stage-error">{{ friendlyError(task) }}</p>
-        </div>
-      </div>
-    </div>
-
     <div class="knowledge-body">
-      <template v-if="searchActive">
-        <div class="search-results">
-          <div class="search-results-head">
-            <span class="search-results-title">
-              {{ searchResults.length }} result{{ searchResults.length === 1 ? "" : "s" }}
-              for "{{ searchQuery }}"
-            </span>
-            <t-button size="small" variant="text" @click="clearSearch">
-              Back to graph
-            </t-button>
-          </div>
-          <p v-if="searchError" class="knowledge-error">{{ searchError }}</p>
-          <p v-else-if="searching" class="knowledge-status">Searching...</p>
-          <p v-else-if="searchResults.length === 0" class="knowledge-status">
-            No results found.
-          </p>
-          <ul v-else class="search-result-list">
-            <li
-              v-for="(result, index) in searchResults"
-              :key="`${result.source}-${index}`"
-              class="search-result-item"
-              :class="{ clickable: result.source === 'llmwiki' && result.path }"
-              @click="onResultClick(result)"
-            >
-              <div class="search-result-head">
-                <span class="search-result-title">{{ result.title }}</span>
-                <span class="search-result-source" :class="result.source">
-                  {{ result.source === "lightrag" ? "RAG" : "Wiki" }}
-                </span>
-              </div>
-              <p class="search-result-snippet">{{ result.snippet }}</p>
-              <p v-if="result.path" class="search-result-path">{{ result.path }}</p>
-            </li>
-          </ul>
-        </div>
+      <template v-if="error">
+        <p class="knowledge-error">{{ error }}</p>
       </template>
 
-      <template v-else>
-        <p v-if="error" class="knowledge-error">{{ error }}</p>
-        <p v-else-if="loading && graph.nodes.length === 0" class="knowledge-status">
+      <template v-else-if="hasView">
+        <p v-if="loading && graph.nodes.length === 0" class="knowledge-status">
           Loading knowledge graph...
         </p>
         <div
           v-else-if="!loading && graph.nodes.length === 0"
           class="knowledge-empty"
         >
-          <p class="knowledge-empty-title">No knowledge graph yet</p>
+          <p class="knowledge-empty-title">No entities in this view</p>
           <p class="knowledge-empty-sub">
-            Ingest a document from the Data input panel to build the entity graph.
+            Try a different topic or search for another node.
           </p>
         </div>
-
         <template v-else>
           <div class="knowledge-canvas">
             <v-network-graph
@@ -546,6 +369,13 @@ onMounted(() => {
           </aside>
         </template>
       </template>
+
+      <div v-else class="knowledge-empty">
+        <p class="knowledge-empty-title">Explore the knowledge graph</p>
+        <p class="knowledge-empty-sub">
+          Choose a topic above or search for an entity to see its local neighborhood.
+        </p>
+      </div>
     </div>
   </section>
 </template>
@@ -608,284 +438,6 @@ onMounted(() => {
 .knowledge-meta {
   font-size: 13px;
   color: var(--caleo-text-secondary);
-}
-
-.search-results {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: var(--caleo-surface);
-  border: 1px solid var(--caleo-border);
-  border-radius: 8px;
-  box-shadow: var(--caleo-shadow);
-  padding: 16px;
-  overflow-y: auto;
-}
-
-.search-results-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.search-results-title {
-  font-size: 13px;
-  color: var(--caleo-text-secondary);
-}
-
-.search-result-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.search-result-item {
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--caleo-surface-hover);
-  border: 1px solid var(--caleo-border);
-}
-
-.search-result-item.clickable {
-  cursor: pointer;
-}
-
-.search-result-item.clickable:hover {
-  border-color: var(--caleo-primary);
-}
-
-.search-result-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.search-result-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--caleo-text);
-}
-
-.search-result-source {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-
-.search-result-source.lightrag {
-  color: var(--caleo-primary);
-  background: var(--caleo-sidebar-active);
-}
-
-.search-result-source.llmwiki {
-  color: var(--caleo-sky);
-  background: var(--caleo-surface-hover);
-}
-
-.search-result-snippet {
-  margin: 8px 0 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--caleo-text-secondary);
-}
-
-.search-result-path {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--caleo-sky);
-  word-break: break-all;
-}
-
-.add-data-panel {
-  margin-bottom: 16px;
-  padding: 16px;
-  background: var(--caleo-surface);
-  border: 1px solid var(--caleo-border);
-  border-radius: 8px;
-  box-shadow: var(--caleo-shadow);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.add-data-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.add-data-title {
-  margin: 0;
-  font-size: 15px;
-  color: var(--caleo-text);
-}
-
-.add-data-hint {
-  font-size: 12px;
-  color: var(--caleo-text-secondary);
-}
-
-.drop-zone {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 20px;
-  border: 1px dashed var(--caleo-border);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.drop-zone:hover,
-.drop-zone.dragging {
-  border-color: var(--caleo-primary);
-  background: var(--caleo-surface-hover);
-}
-
-.drop-zone-main {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--caleo-text);
-}
-
-.drop-zone-sub {
-  font-size: 12px;
-  color: var(--caleo-text-secondary);
-}
-
-.url-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.url-row :deep(.t-input) {
-  flex: 1;
-}
-
-.add-data-error {
-  margin: 0;
-  color: #d54941;
-  font-size: 13px;
-}
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border-top: 1px solid var(--caleo-border);
-  padding-top: 12px;
-}
-
-.task-item {
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--caleo-surface-hover);
-  border: 1px solid var(--caleo-border);
-}
-
-.task-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.task-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.task-source {
-  font-size: 13px;
-  color: var(--caleo-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.task-badge {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-
-.task-badge.pending {
-  color: var(--caleo-text-secondary);
-  background: var(--caleo-surface-hover);
-}
-
-.task-badge.parsing,
-.task-badge.ingesting {
-  color: var(--caleo-primary);
-  background: var(--caleo-sidebar-active);
-}
-
-.task-badge.done {
-  color: #2f9e63;
-  background: rgba(47, 158, 99, 0.14);
-}
-
-.task-badge.failed {
-  color: #d54941;
-  background: rgba(213, 73, 65, 0.14);
-}
-
-.task-stages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.task-stage {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  border: 1px solid var(--caleo-border);
-  color: var(--caleo-text-secondary);
-}
-
-.task-stage.running {
-  color: var(--caleo-primary);
-  border-color: var(--caleo-primary);
-}
-
-.task-stage.done {
-  color: #2f9e63;
-  border-color: rgba(47, 158, 99, 0.5);
-}
-
-.task-stage.failed {
-  color: #d54941;
-  border-color: rgba(213, 73, 65, 0.5);
-}
-
-.task-stage-error {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: #d54941;
 }
 
 .knowledge-body {

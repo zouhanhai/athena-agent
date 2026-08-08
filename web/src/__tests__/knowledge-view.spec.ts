@@ -7,9 +7,10 @@ import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
 import KnowledgeView from "@/views/KnowledgeView.vue";
-import { getGraph, getGraphTopics, searchKnowledge } from "@/api/kb";
+import { getGraph, getGraphTopics } from "@/api/kb";
 import {
   buildTypeColors,
+  localSubgraph,
   mapKnowledgeGraph,
   nodeRelations,
 } from "@/kb/graph";
@@ -28,7 +29,6 @@ vi.mock("@/api/kb", () => ({
 
 const getGraphMock = getGraph as unknown as ReturnType<typeof vi.fn>;
 const getGraphTopicsMock = getGraphTopics as unknown as ReturnType<typeof vi.fn>;
-const searchKnowledgeMock = searchKnowledge as unknown as ReturnType<typeof vi.fn>;
 
 const GraphStub = defineComponent({
   name: "VNetworkGraph",
@@ -88,18 +88,32 @@ const sampleGraph: KnowledgeGraph = {
   ],
 };
 
+/** A graph with a reachable cluster (n1-n2-n3) plus an isolated node (n4), so a
+ *  1-2 hop local subgraph is provably smaller than the whole graph. */
+const clusterGraph: KnowledgeGraph = {
+  nodes: [
+    { id: "n1", label: "Alpha", type: "concept" },
+    { id: "n2", label: "Beta", type: "org" },
+    { id: "n3", label: "Gamma" },
+    { id: "n4", label: "Delta" },
+  ],
+  edges: [
+    { source: "n1", target: "n2", weight: 1 },
+    { source: "n2", target: "n3" },
+  ],
+};
+
 afterEach(() => {
   getGraphMock.mockReset();
   getGraphTopicsMock.mockReset();
-  searchKnowledgeMock.mockReset();
 });
 
 describe("graph mapping helpers", () => {
   it("maps LightRAG nodes/edges to the v-network-graph format", () => {
     const view = mapKnowledgeGraph(sampleGraph);
     expect(Object.keys(view.nodes)).toEqual(["n1", "n2", "n3"]);
-    expect(view.nodes.n1).toEqual({ name: "Alpha", type: "concept" });
-    expect(view.nodes.n2).toEqual({ name: "Beta", type: "org" });
+    expect(view.nodes.n1).toEqual({ name: "Alpha", type: "concept", size: 14 });
+    expect(view.nodes.n2).toEqual({ name: "Beta", type: "org", size: 14 });
     expect(view.edges.e0).toEqual({ source: "n1", target: "n2" });
     expect(view.edges.e1).toEqual({ source: "n2", target: "n3" });
   });
@@ -124,67 +138,68 @@ describe("graph mapping helpers", () => {
     expect(relations.incoming).toEqual([{ other: "n1", weight: 1 }]);
     expect(relations.outgoing).toEqual([{ other: "n3" }]);
   });
-});
 
-describe("KnowledgeView", () => {
-  it("fetches the graph on mount and passes mapped nodes/edges to the graph", async () => {
-    getGraphMock.mockResolvedValue(sampleGraph);
-    const { wrapper } = await mountView();
-    await flushPromises();
-
-    expect(getGraphMock).toHaveBeenCalledTimes(1);
-    expect(wrapper.find(".knowledge-title").text()).toContain("Knowledge Graph");
-    const stub = graphStub(wrapper);
-    expect(stub.exists()).toBe(true);
-    expect(Object.keys(stub.props("nodes") ?? {})).toEqual(["n1", "n2", "n3"]);
-    expect(Object.keys(stub.props("edges") ?? {})).toEqual(["e0", "e1"]);
-    wrapper.unmount();
+  it("extracts a node's 1-2 hop neighborhood, excluding unrelated nodes", () => {
+    const sub = localSubgraph(clusterGraph, "n1", 2);
+    expect(sub.nodes.map((n) => n.id).sort()).toEqual(["n1", "n2", "n3"]);
+    expect(sub.edges).toEqual([
+      { source: "n1", target: "n2", weight: 1 },
+      { source: "n2", target: "n3" },
+    ]);
   });
 
-  it("shows a friendly empty state when there are no entities", async () => {
-    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
-    const { wrapper } = await mountView();
-    await flushPromises();
+  it("keeps only edges between included nodes, honoring the hop limit", () => {
+    const graph: KnowledgeGraph = {
+      nodes: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B" },
+        { id: "c", label: "C" },
+        { id: "d", label: "D" },
+        { id: "e", label: "E" },
+      ],
+      edges: [
+        { source: "a", target: "b" },
+        { source: "b", target: "c" },
+        { source: "d", target: "e" },
+      ],
+    };
+    const oneHop = localSubgraph(graph, "a", 1);
+    expect(oneHop.nodes.map((n) => n.id).sort()).toEqual(["a", "b"]);
+    expect(oneHop.edges).toEqual([{ source: "a", target: "b" }]);
 
-    expect(wrapper.text()).toContain("No knowledge graph yet");
-    expect(graphStub(wrapper).exists()).toBe(false);
-    wrapper.unmount();
+    const twoHop = localSubgraph(graph, "a", 2);
+    expect(twoHop.nodes.map((n) => n.id).sort()).toEqual(["a", "b", "c"]);
+    expect(twoHop.edges).toEqual([
+      { source: "a", target: "b" },
+      { source: "b", target: "c" },
+    ]);
   });
 
-  it("shows the error message when fetching fails", async () => {
-    getGraphMock.mockRejectedValue(new Error("lightrag down"));
-    const { wrapper } = await mountView();
-    await flushPromises();
-
-    expect(wrapper.find(".knowledge-error").text()).toContain("lightrag down");
-    wrapper.unmount();
-  });
-
-  it("shows entity details when a node is clicked", async () => {
-    getGraphMock.mockResolvedValue(sampleGraph);
-    const { wrapper } = await mountView();
-    await flushPromises();
-
-    await graphStub(wrapper).trigger("click");
-    await flushPromises();
-
-    const detail = wrapper.find(".knowledge-detail");
-    expect(detail.exists()).toBe(true);
-    expect(detail.text()).toContain("Alpha");
-    expect(detail.text()).toContain("concept");
-    expect(detail.text()).toContain("Beta");
-    wrapper.unmount();
+  it("returns just the root when it has no relations", () => {
+    const sub = localSubgraph(clusterGraph, "n4", 2);
+    expect(sub.nodes.map((n) => n.id)).toEqual(["n4"]);
+    expect(sub.edges).toEqual([]);
   });
 });
 
-describe("KnowledgeView topic filter", () => {
-  it("loads the topic list on mount and renders it in the select", async () => {
-    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
+describe("KnowledgeView default view", () => {
+  it("loads topics on mount but does NOT auto-load the full graph", async () => {
     getGraphTopicsMock.mockResolvedValue(["ops", "sommerseminar"]);
     const { wrapper } = await mountView();
     await flushPromises();
 
     expect(getGraphTopicsMock).toHaveBeenCalledTimes(1);
+    expect(getGraphMock).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Explore the knowledge graph");
+    expect(graphStub(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows the topic options in the filter select", async () => {
+    getGraphTopicsMock.mockResolvedValue(["ops", "sommerseminar"]);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
     const select = wrapper.findComponent({ name: "TSelect" });
     expect(select.exists()).toBe(true);
     expect(select.props("options")).toEqual([
@@ -193,15 +208,12 @@ describe("KnowledgeView topic filter", () => {
     ]);
     wrapper.unmount();
   });
+});
 
-  it("re-fetches the graph with the selected topic and shows the filtered note", async () => {
-    getGraphMock
-      .mockResolvedValueOnce({ nodes: sampleGraph.nodes, edges: sampleGraph.edges })
-      .mockResolvedValueOnce({
-        nodes: [sampleGraph.nodes[0]!],
-        edges: [],
-      });
+describe("KnowledgeView topic filter", () => {
+  it("re-fetches the graph scoped to the selected topic", async () => {
     getGraphTopicsMock.mockResolvedValue(["sommerseminar"]);
+    getGraphMock.mockResolvedValue({ nodes: [sampleGraph.nodes[0]!], edges: [] });
     const { wrapper } = await mountView();
     await flushPromises();
 
@@ -211,24 +223,51 @@ describe("KnowledgeView topic filter", () => {
     await flushPromises();
 
     expect(getGraphMock).toHaveBeenLastCalledWith(undefined, "sommerseminar");
-    expect(wrapper.text()).toContain("Showing 1 of 3 entities");
+    const stub = graphStub(wrapper);
+    expect(stub.exists()).toBe(true);
+    expect(Object.keys(stub.props("nodes") ?? {})).toEqual(["n1"]);
+    expect(wrapper.text()).toContain("Showing 1 entities");
     wrapper.unmount();
   });
 
-  it("shows the full-graph meta when no topic is selected", async () => {
+  it("returns to the explore prompt when the topic is cleared", async () => {
+    getGraphTopicsMock.mockResolvedValue(["sommerseminar"]);
     getGraphMock.mockResolvedValue(sampleGraph);
-    getGraphTopicsMock.mockResolvedValue([]);
     const { wrapper } = await mountView();
     await flushPromises();
 
-    expect(wrapper.text()).toContain("3 entities · 2 links");
+    const select = wrapper.findComponent({ name: "TSelect" });
+    await select.vm.$emit("update:modelValue", "sommerseminar");
+    await select.vm.$emit("change", "sommerseminar");
+    await flushPromises();
+    await select.vm.$emit("update:modelValue", "");
+    await select.vm.$emit("clear");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Explore the knowledge graph");
+    expect(graphStub(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows the error message when the topic graph fetch fails", async () => {
+    getGraphTopicsMock.mockResolvedValue(["sommerseminar"]);
+    getGraphMock.mockRejectedValue(new Error("lightrag down"));
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    const select = wrapper.findComponent({ name: "TSelect" });
+    await select.vm.$emit("update:modelValue", "sommerseminar");
+    await select.vm.$emit("change", "sommerseminar");
+    await flushPromises();
+
+    expect(wrapper.find(".knowledge-error").text()).toContain("lightrag down");
     wrapper.unmount();
   });
 });
 
-describe("KnowledgeView search", () => {
+describe("KnowledgeView node search (local graph)", () => {
   async function search(wrapper: ViewMount["wrapper"], query: string) {
-    const input = wrapper.find('.knowledge-search-input input');
+    const input = wrapper.find(".knowledge-search-input input");
     await input.setValue(query);
     const buttons = wrapper.findAll("button");
     const searchBtn = buttons.find((b) => b.text().includes("Search"));
@@ -236,83 +275,130 @@ describe("KnowledgeView search", () => {
     await flushPromises();
   }
 
-  it("searches and renders results with source badges", async () => {
-    getGraphMock.mockResolvedValue(sampleGraph);
-    searchKnowledgeMock.mockResolvedValue([
-      { source: "lightrag", title: "RAG summary", snippet: "semantic answer" },
-      { source: "llmwiki", title: "Runbook", snippet: "Incident process", path: "docs/runbook.md", score: 0.9 },
-    ]);
+  it("searches a node and shows only its local neighborhood, not the whole graph", async () => {
+    getGraphTopicsMock.mockResolvedValue([]);
+    getGraphMock.mockResolvedValue(clusterGraph);
     const { wrapper } = await mountView();
     await flushPromises();
 
-    await search(wrapper, "incidents");
+    await search(wrapper, "Alpha");
 
-    expect(searchKnowledgeMock).toHaveBeenCalledWith("incidents");
-    expect(wrapper.find(".search-results").exists()).toBe(true);
-    expect(wrapper.text()).toContain('2 results for "incidents"');
-    expect(wrapper.text()).toContain("RAG summary");
-    expect(wrapper.text()).toContain("Runbook");
-    expect(wrapper.text()).toContain("semantic answer");
+    expect(getGraphMock).toHaveBeenCalledWith("Alpha");
+    const stub = graphStub(wrapper);
+    expect(stub.exists()).toBe(true);
+    expect(Object.keys(stub.props("nodes") ?? {})).toEqual(["n1", "n2", "n3"]);
+    expect(wrapper.text()).toContain('local graph for "Alpha"');
+    expect(wrapper.text()).toContain("3 entities");
     wrapper.unmount();
   });
 
-  it("navigates to the wiki page when a wiki result is clicked", async () => {
-    getGraphMock.mockResolvedValue(sampleGraph);
-    searchKnowledgeMock.mockResolvedValue([
-      { source: "llmwiki", title: "Runbook", snippet: "Incident", path: "docs/runbook.md" },
-    ]);
-    const { wrapper, router } = await mountView();
-    await flushPromises();
-
-    await search(wrapper, "runbook");
-    await wrapper.find(".search-result-item").trigger("click");
-    await flushPromises();
-
-    expect(router.currentRoute.value.fullPath).toBe("/wiki?path=docs/runbook.md");
-    wrapper.unmount();
-  });
-
-  it("shows an empty message when no results are found", async () => {
-    getGraphMock.mockResolvedValue(sampleGraph);
-    searchKnowledgeMock.mockResolvedValue([]);
+  it("searches with the topic filter cleared first", async () => {
+    getGraphTopicsMock.mockResolvedValue(["sommerseminar"]);
+    getGraphMock.mockResolvedValue(clusterGraph);
     const { wrapper } = await mountView();
     await flushPromises();
 
-    await search(wrapper, "zzz");
+    const select = wrapper.findComponent({ name: "TSelect" });
+    await select.vm.$emit("update:modelValue", "sommerseminar");
+    await select.vm.$emit("change", "sommerseminar");
+    await flushPromises();
+    await search(wrapper, "Beta");
 
-    expect(wrapper.text()).toContain("No results found.");
+    expect(getGraphMock).toHaveBeenLastCalledWith("Beta");
+    expect(wrapper.text()).toContain('local graph for "Beta"');
     wrapper.unmount();
   });
 
-  it("shows the error when the search fails", async () => {
-    getGraphMock.mockResolvedValue(sampleGraph);
-    searchKnowledgeMock.mockRejectedValue(new Error("search down"));
+  it("shows a message when no node matches the search", async () => {
+    getGraphTopicsMock.mockResolvedValue([]);
+    getGraphMock.mockResolvedValue({ nodes: [], edges: [] });
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    await search(wrapper, "Ghost");
+
+    expect(wrapper.find(".knowledge-error").text()).toContain('No node named "Ghost"');
+    expect(graphStub(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows the error when the node lookup fails", async () => {
+    getGraphTopicsMock.mockResolvedValue([]);
+    getGraphMock.mockRejectedValue(new Error("search down"));
     const { wrapper } = await mountView();
     await flushPromises();
 
     await search(wrapper, "boom");
 
-    expect(wrapper.find(".search-results").text()).toContain("search down");
+    expect(wrapper.find(".knowledge-error").text()).toContain("search down");
     wrapper.unmount();
   });
 
-  it("returns to the graph view when cleared", async () => {
-    getGraphMock.mockResolvedValue(sampleGraph);
-    searchKnowledgeMock.mockResolvedValue([
-      { source: "llmwiki", title: "Runbook", snippet: "Incident", path: "a.md" },
-    ]);
+  it("returns to the explore prompt when the node search is cleared", async () => {
+    getGraphTopicsMock.mockResolvedValue([]);
+    getGraphMock.mockResolvedValue(clusterGraph);
     const { wrapper } = await mountView();
     await flushPromises();
 
-    await search(wrapper, "runbook");
-    const backBtn = wrapper
-      .findAll("button")
-      .find((b) => b.text().includes("Back to graph"));
-    await backBtn!.trigger("click");
+    await search(wrapper, "Alpha");
+    expect(graphStub(wrapper).exists()).toBe(true);
+
+    const searchInput = wrapper
+      .findAllComponents({ name: "TInput" })
+      .find((c) => c.classes().includes("knowledge-search-input"));
+    await searchInput!.vm.$emit("clear");
     await flushPromises();
 
-    expect(wrapper.find(".search-results").exists()).toBe(false);
-    expect(graphStub(wrapper).exists()).toBe(true);
+    expect(wrapper.text()).toContain("Explore the knowledge graph");
+    expect(graphStub(wrapper).exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe("KnowledgeView node click", () => {
+  it("focuses the graph on the clicked node's 1-2 hop neighborhood", async () => {
+    getGraphTopicsMock.mockResolvedValue(["sommerseminar"]);
+    getGraphMock.mockResolvedValue(clusterGraph);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    const select = wrapper.findComponent({ name: "TSelect" });
+    await select.vm.$emit("update:modelValue", "sommerseminar");
+    await select.vm.$emit("change", "sommerseminar");
+    await flushPromises();
+    expect(graphStub(wrapper).props("nodes")).toHaveProperty("n4");
+
+    await graphStub(wrapper).trigger("click");
+    await flushPromises();
+
+    const stub = graphStub(wrapper);
+    expect(Object.keys(stub.props("nodes") ?? {})).toEqual(["n1", "n2", "n3"]);
+    expect(stub.props("nodes")).not.toHaveProperty("n4");
+    const detail = wrapper.find(".knowledge-detail");
+    expect(detail.exists()).toBe(true);
+    expect(detail.text()).toContain("Alpha");
+    expect(detail.text()).toContain("concept");
+    expect(detail.text()).toContain("Beta");
+    wrapper.unmount();
+  });
+
+  it("shows the detail panel when a node is clicked in a node-local view", async () => {
+    getGraphTopicsMock.mockResolvedValue([]);
+    getGraphMock.mockResolvedValue(clusterGraph);
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    const input = wrapper.find(".knowledge-search-input input");
+    await input.setValue("Alpha");
+    const buttons = wrapper.findAll("button");
+    const searchBtn = buttons.find((b) => b.text().includes("Search"));
+    await searchBtn!.trigger("click");
+    await flushPromises();
+
+    await graphStub(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".knowledge-detail").text()).toContain("Alpha");
     wrapper.unmount();
   });
 });
