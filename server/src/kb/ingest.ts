@@ -377,8 +377,13 @@ export class KnowledgeIngestService {
     // carry topic metadata that the graph can filter by. The same classification
     // is reused by the llm_wiki stage so both systems agree on type/topic.
     const { frontmatterContent, classification } = await this.prepareForIngest(input);
-    const lightragResult = await this.ingestLightRag(frontmatterContent, fileName);
-    const llmwikiResult = await this.ingestLlmWiki(fileName, input.content, undefined, classification);
+
+    // LightRAG and llm_wiki are independent once classification is done — run
+    // them in parallel so ingestion isn't serialized behind the slower system.
+    const [lightragResult, llmwikiResult] = await Promise.all([
+      this.ingestLightRag(frontmatterContent, fileName),
+      this.ingestLlmWiki(fileName, input.content, undefined, classification),
+    ]);
 
     return {
       documentId,
