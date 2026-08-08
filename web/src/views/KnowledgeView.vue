@@ -413,12 +413,17 @@ onMounted(() => {
 
 .knowledge-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .knowledge-search-input {
   width: 220px;
+  max-width: 100%;
+  flex-shrink: 1;
+  min-width: 120px;
 }
 
 .topic-filter {
