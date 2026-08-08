@@ -1,64 +1,301 @@
 {
   "logos": [
     {
-      "id": "fox",
-      "name": "fox",
-      "animal": "fox",
-      "color": "teal",
-      "url": "/logos/fox.jpg",
-      "filename": "fox.jpg",
+      "id": "bear",
+      "name": "bear",
+      "animal": "bear",
+      "url": "/logos/bear-clean.png",
+      "filename": "bear-clean.png",
       "source": "generated",
-      "created_at": "2026-08-07T22:38:19.529Z"
+      "created_at": "2026-08-08T00:00:00.000Z"
     },
     {
-      "id": "eagle",
-      "name": "eagle",
-      "animal": "eagle",
-      "color": "amber",
-      "url": "/logos/eagle.jpg",
-      "filename": "eagle.jpg",
+      "id": "camel",
+      "name": "camel",
+      "animal": "camel",
+      "url": "/logos/camel-clean.png",
+      "filename": "camel-clean.png",
       "source": "generated",
-      "created_at": "2026-08-07T22:38:25.545Z"
+      "created_at": "2026-08-08T00:00:00.000Z"
     },
     {
-      "id": "lion",
-      "name": "lion",
-      "animal": "lion",
-      "color": "crimson",
-      "url": "/logos/lion.jpg",
-      "filename": "lion.jpg",
+      "id": "cat",
+      "name": "cat",
+      "animal": "cat",
+      "url": "/logos/cat-clean.png",
+      "filename": "cat-clean.png",
       "source": "generated",
-      "created_at": "2026-08-07T22:38:32.009Z"
+      "created_at": "2026-08-08T00:00:00.000Z"
     },
     {
-      "id": "wolf",
-      "name": "wolf",
-      "animal": "wolf",
-      "color": "indigo",
-      "url": "/logos/wolf.jpg",
-      "filename": "wolf.jpg",
+      "id": "chicken",
+      "name": "chicken",
+      "animal": "chicken",
+      "url": "/logos/chicken-clean.png",
+      "filename": "chicken-clean.png",
       "source": "generated",
-      "created_at": "2026-08-07T22:38:37.961Z"
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "cow",
+      "name": "cow",
+      "animal": "cow",
+      "url": "/logos/cow-clean.png",
+      "filename": "cow-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "deer",
+      "name": "deer",
+      "animal": "deer",
+      "url": "/logos/deer-clean.png",
+      "filename": "deer-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "dog",
+      "name": "dog",
+      "animal": "dog",
+      "url": "/logos/dog-clean.png",
+      "filename": "dog-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
     },
     {
       "id": "dolphin",
       "name": "dolphin",
       "animal": "dolphin",
-      "color": "blue",
-      "url": "/logos/dolphin.jpg",
-      "filename": "dolphin.jpg",
+      "url": "/logos/dolphin-clean.png",
+      "filename": "dolphin-clean.png",
       "source": "generated",
-      "created_at": "2026-08-07T22:38:44.594Z"
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "dragon",
+      "name": "dragon",
+      "animal": "dragon",
+      "url": "/logos/dragon-clean.png",
+      "filename": "dragon-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "eagle",
+      "name": "eagle",
+      "animal": "eagle",
+      "url": "/logos/eagle-clean.png",
+      "filename": "eagle-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "elephant",
+      "name": "elephant",
+      "animal": "elephant",
+      "url": "/logos/elephant-clean.png",
+      "filename": "elephant-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "fox",
+      "name": "fox",
+      "animal": "fox",
+      "url": "/logos/fox-medium-clean.png",
+      "filename": "fox-medium-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "giraffe",
+      "name": "giraffe",
+      "animal": "giraffe",
+      "url": "/logos/giraffe-clean.png",
+      "filename": "giraffe-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "hedgehog",
+      "name": "hedgehog",
+      "animal": "hedgehog",
+      "url": "/logos/hedgehog-clean.png",
+      "filename": "hedgehog-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "hippo",
+      "name": "hippo",
+      "animal": "hippo",
+      "url": "/logos/hippo-clean.png",
+      "filename": "hippo-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "horse",
+      "name": "horse",
+      "animal": "horse",
+      "url": "/logos/horse-clean.png",
+      "filename": "horse-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "kangaroo",
+      "name": "kangaroo",
+      "animal": "kangaroo",
+      "url": "/logos/kangaroo-clean.png",
+      "filename": "kangaroo-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "koala",
+      "name": "koala",
+      "animal": "koala",
+      "url": "/logos/koala-clean.png",
+      "filename": "koala-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "lion",
+      "name": "lion",
+      "animal": "lion",
+      "url": "/logos/lion-clean.png",
+      "filename": "lion-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "monkey",
+      "name": "monkey",
+      "animal": "monkey",
+      "url": "/logos/monkey-clean.png",
+      "filename": "monkey-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "mouse",
+      "name": "mouse",
+      "animal": "mouse",
+      "url": "/logos/mouse-clean.png",
+      "filename": "mouse-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "panda",
+      "name": "panda",
+      "animal": "panda",
+      "url": "/logos/panda-clean.png",
+      "filename": "panda-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "panda-bear",
+      "name": "panda-bear",
+      "animal": "panda-bear",
+      "url": "/logos/panda-bear-clean.png",
+      "filename": "panda-bear-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "penguin",
+      "name": "penguin",
+      "animal": "penguin",
+      "url": "/logos/penguin-clean.png",
+      "filename": "penguin-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "rabbit",
+      "name": "rabbit",
+      "animal": "rabbit",
+      "url": "/logos/rabbit-clean.png",
+      "filename": "rabbit-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
     },
     {
       "id": "raven",
       "name": "raven",
       "animal": "raven",
-      "color": "violet",
-      "url": "/logos/raven.jpg",
-      "filename": "raven.jpg",
+      "url": "/logos/raven-clean.png",
+      "filename": "raven-clean.png",
       "source": "generated",
-      "created_at": "2026-08-07T22:38:52.810Z"
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "rhino",
+      "name": "rhino",
+      "animal": "rhino",
+      "url": "/logos/rhino-clean.png",
+      "filename": "rhino-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "squirrel",
+      "name": "squirrel",
+      "animal": "squirrel",
+      "url": "/logos/squirrel-clean.png",
+      "filename": "squirrel-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "tiger",
+      "name": "tiger",
+      "animal": "tiger",
+      "url": "/logos/tiger-clean.png",
+      "filename": "tiger-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "turtle",
+      "name": "turtle",
+      "animal": "turtle",
+      "url": "/logos/turtle-clean.png",
+      "filename": "turtle-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "wolf",
+      "name": "wolf",
+      "animal": "wolf",
+      "url": "/logos/wolf-clean.png",
+      "filename": "wolf-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "wombat",
+      "name": "wombat",
+      "animal": "wombat",
+      "url": "/logos/wombat-clean.png",
+      "filename": "wombat-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
+      "id": "zebra",
+      "name": "zebra",
+      "animal": "zebra",
+      "url": "/logos/zebra-clean.png",
+      "filename": "zebra-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
     }
   ]
 }
