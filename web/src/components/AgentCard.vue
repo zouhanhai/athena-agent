@@ -61,10 +61,11 @@ const emit = defineEmits<{
 .agent-card-logo {
   width: 36px;
   height: 36px;
-  border-radius: 50%;
+  /* No circle crop, no white background — logo shows transparent on the card surface */
+  border-radius: 0;
   object-fit: contain;
   flex-shrink: 0;
-  background: var(--caleo-card-bg, #fff);
+  background: transparent;
 }
 
 .agent-card-body {
