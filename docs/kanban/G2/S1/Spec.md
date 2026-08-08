@@ -29,7 +29,7 @@ Deploy LightRAG knowledge service (vector + knowledge graph) on 6900XT.
   - Main LLM: `deepseek/deepseek-v4-flash` (conversation/reasoning)
   - Embedding: `qwen/qwen3-embedding-8b`
   - Image recognition: `qwen/qwen3.7-flash` (optional)
-  - Image generation: `qwen/qwen-image-3` (M5)
+  - Image generation: `google/gemini-3.1-flash-image` (OpenRouter; note: `qwen/qwen-image-3` does NOT exist on OpenRouter — image gen is Gemini-only there) (M5)
 - Postgres + pgvector (already installed, weknora/qm database)
 - NetworkX graph (default)
 

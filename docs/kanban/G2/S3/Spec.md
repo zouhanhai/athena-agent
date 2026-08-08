@@ -50,7 +50,7 @@ Pi (AgentSession) models must use **OpenRouter** (base_url `https://openrouter.a
 - Main model: `deepseek/deepseek-v4-flash` (conversation/reasoning)
 - Vision: `qwen/qwen3.7-flash` (image recognition)
 - Embedding: `qwen/qwen3-embedding-8b` (LightRAG/llm_wiki embedding)
-- Image generation: `qwen/qwen-image-3` (M5 output)
+- Image generation: `google/gemini-3.1-flash-image` (OpenRouter; `qwen/qwen-image-3` does NOT exist there — image gen is Gemini-only) (M5 output)
 Update `~/.pi/agent/models.json` (+ models-store.json) and `auth.json` so Pi uses
 `openrouter/deepseek-v4-flash` instead of the direct DeepSeek API.
 
