@@ -11,6 +11,7 @@ import {
   GithubAuthError,
   GithubCredentialUnsupportedError,
   type GitHubApi,
+  type GithubIssueState,
 } from "../github/client.js";
 import {
   GITHUB_OP_KINDS,
@@ -36,6 +37,15 @@ function requiredString(value: unknown): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+/** Issue state filter validation; returns the normalized state or null when invalid. */
+function issueState(value: unknown): GithubIssueState | null {
+  const s = optionalString(value);
+  if (s === undefined) {
+    return "open";
+  }
+  return s === "open" || s === "closed" || s === "all" ? s : null;
 }
 
 function optionalInt(value: unknown): number | undefined {
@@ -259,8 +269,12 @@ export function registerGithubRoutes(app: FastifyInstance, options: GithubRouteO
     if (!owner || !repo) {
       return reply.code(400).send({ error: "owner and repo are required" });
     }
+    const state = issueState((request.query as { state?: unknown }).state);
+    if (state === null) {
+      return reply.code(400).send({ error: "state must be one of: open, closed, all" });
+    }
     return withCredential(request, reply, async (credential) => {
-      const issues = await github.listIssues(credential, owner, repo);
+      const issues = await github.listIssues(credential, owner, repo, state);
       return { issues };
     });
   });

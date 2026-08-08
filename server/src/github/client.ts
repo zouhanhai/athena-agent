@@ -55,7 +55,11 @@ export interface GithubIssue {
   user_login: string | null;
   body: string | null;
   labels: string[];
+  assignees: string[];
 }
+
+/** Issue state filter for listIssues (GitHub API `state` query param). */
+export type GithubIssueState = "open" | "closed" | "all";
 
 /** Input for opening a pull request. */
 export interface OpenPullInput {
@@ -105,8 +109,13 @@ export interface GitHubApi {
   ): Promise<GithubFileContent>;
   /** List open pull requests for a repo. */
   listPulls(credential: GithubCredential, owner: string, repo: string): Promise<GithubPull[]>;
-  /** List open issues for a repo. */
-  listIssues(credential: GithubCredential, owner: string, repo: string): Promise<GithubIssue[]>;
+  /** List issues for a repo, optionally filtered by state (default: open). */
+  listIssues(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    state?: GithubIssueState,
+  ): Promise<GithubIssue[]>;
   /** Open a pull request. */
   openPull(credential: GithubCredential, owner: string, repo: string, input: OpenPullInput): Promise<GithubPull>;
   /** Edit (PUT) a file's contents. */
@@ -289,8 +298,9 @@ export class GithubRestClient implements GitHubApi {
     owner: string,
     repo: string,
     resource: "pulls" | "issues",
+    state: GithubIssueState = "open",
   ): Promise<unknown[]> {
-    const response = await this.request(credential, `/repos/${owner}/${repo}/${resource}?state=open&per_page=100`);
+    const response = await this.request(credential, `/repos/${owner}/${repo}/${resource}?state=${state}&per_page=100`);
     const data = await this.json(response);
     return Array.isArray(data) ? data : [];
   }
@@ -360,13 +370,19 @@ export class GithubRestClient implements GitHubApi {
     return mapped;
   }
 
-  async listIssues(credential: GithubCredential, owner: string, repo: string): Promise<GithubIssue[]> {
-    const items = await this.listCollection(credential, owner, repo, "issues");
+  async listIssues(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    state: GithubIssueState = "open",
+  ): Promise<GithubIssue[]> {
+    const items = await this.listCollection(credential, owner, repo, "issues", state);
     const mapped: GithubIssue[] = [];
     for (const item of items) {
       const issue = item as Record<string, unknown>;
       const user = issue.user as Record<string, unknown> | null;
       const labels = Array.isArray(issue.labels) ? issue.labels : [];
+      const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
       mapped.push({
         number: this.positiveInt(issue.number) ?? 0,
         title: this.string(issue.title),
@@ -375,6 +391,9 @@ export class GithubRestClient implements GitHubApi {
         user_login: this.maybeString(user?.login),
         body: this.maybeString(issue.body),
         labels: labels.map((label) => String((label as Record<string, unknown>)?.name ?? label)),
+        assignees: assignees.map((assignee) =>
+          String((assignee as Record<string, unknown>)?.login ?? assignee),
+        ),
       });
     }
     return mapped;

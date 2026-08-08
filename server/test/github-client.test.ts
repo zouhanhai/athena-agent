@@ -201,6 +201,7 @@ const ISSUE_BODY = {
   user: { login: "bob" },
   body: "Details",
   labels: [{ name: "bug" }, { name: "p1" }],
+  assignees: [{ login: "alice" }, { login: "carol" }],
 };
 
 test("listIssues maps open issues for the repo", async () => {
@@ -223,8 +224,38 @@ test("listIssues maps open issues for the repo", async () => {
       user_login: "bob",
       body: "Details",
       labels: ["bug", "p1"],
+      assignees: ["alice", "carol"],
     },
   ]);
+});
+
+test("listIssues with state=closed requests closed issues", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: [{ ...ISSUE_BODY, state: "closed" }] };
+    }),
+  });
+  const issues = await client.listIssues(tokenCredential, "acme", "box", "closed");
+  assert.match(calledUrl, /\/repos\/acme\/box\/issues\?state=closed/);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].state, "closed");
+});
+
+test("listIssues with state=all requests both states", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: [] };
+    }),
+  });
+  const issues = await client.listIssues(tokenCredential, "acme", "box", "all");
+  assert.match(calledUrl, /\/repos\/acme\/box\/issues\?state=all/);
+  assert.deepEqual(issues, []);
 });
 
 test("openPull POSTs the pull payload and maps the created PR", async () => {

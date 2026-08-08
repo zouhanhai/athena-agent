@@ -69,8 +69,8 @@ class FakeGitHubApi implements GitHubApi {
     this.record("listPulls", credential, [owner, repo]);
     return PULL_SAMPLE;
   }
-  async listIssues(credential: GithubCredential, owner: string, repo: string): Promise<GithubIssue[]> {
-    this.record("listIssues", credential, [owner, repo]);
+  async listIssues(credential: GithubCredential, owner: string, repo: string, state?: string): Promise<GithubIssue[]> {
+    this.record("listIssues", credential, [owner, repo, state]);
     return ISSUE_SAMPLE;
   }
   async openPull(
@@ -151,6 +151,7 @@ const ISSUE_SAMPLE: GithubIssue[] = [
     user_login: "bob",
     body: "Details",
     labels: ["bug"],
+    assignees: ["alice"],
   },
 ];
 
@@ -382,7 +383,28 @@ test("GET /api/github/repos/:owner/:repo/issues returns issues scoped to the use
   const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues", headers: bearer(bobToken) });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json().issues, ISSUE_SAMPLE);
-  assert.equal(github.calls.at(-1)?.credential.value, "ghp_bob");
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "listIssues");
+  assert.equal(call?.credential.value, "ghp_bob");
+  assert.deepEqual(call?.args, ["acme", "box", "open"]);
+});
+
+test("GET /api/github/repos/:owner/:repo/issues passes the state filter through", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos/acme/box/issues?state=closed",
+    headers: bearer(aliceToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "listIssues");
+  assert.deepEqual(call?.args, ["acme", "box", "closed"]);
+});
+
+test("GET /api/github/repos/:owner/:repo/issues requires authentication", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues" });
+  assert.equal(res.statusCode, 401);
 });
 
 async function requestOpenPull(token: string, extra: Record<string, unknown> = {}) {

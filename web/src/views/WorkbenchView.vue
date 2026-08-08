@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import CodeTab from "@/components/CodeTab.vue";
+import IssuesTab from "@/components/IssuesTab.vue";
 
 type WorkbenchTabValue = "code" | "issues" | "kanban";
 
@@ -21,7 +22,7 @@ const tabs: WorkbenchTab[] = [
     value: "issues",
     label: "Issues",
     description:
-      "View issues as a GitHub-style list with open/closed state, labels and assignees. Coming in G3.S4.T3.",
+      "View issues as a GitHub-style list with open/closed state, labels and assignees.",
   },
   {
     value: "kanban",
@@ -51,6 +52,9 @@ const activeTab = ref<WorkbenchTabValue>("code");
         <div class="tab-panel" :class="`tab-panel-${tab.value}`">
           <template v-if="tab.value === 'code'">
             <CodeTab class="code-tab-host" />
+          </template>
+          <template v-else-if="tab.value === 'issues'">
+            <IssuesTab class="issues-tab-host" />
           </template>
           <template v-else>
             <h3 class="tab-title">{{ tab.label }}</h3>
@@ -149,7 +153,19 @@ const activeTab = ref<WorkbenchTabValue>("code");
   gap: 0;
 }
 
+.tab-panel-issues {
+  padding: 0;
+  justify-content: stretch;
+  gap: 0;
+}
+
 .code-tab-host {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.issues-tab-host {
   flex: 1;
   min-height: 0;
   width: 100%;

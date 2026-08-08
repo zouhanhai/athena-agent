@@ -33,6 +33,19 @@ export interface GithubFileContent {
   content: string;
 }
 
+export interface GithubIssue {
+  number: number;
+  title: string;
+  state: string;
+  html_url: string;
+  user_login: string | null;
+  body: string | null;
+  labels: string[];
+  assignees: string[];
+}
+
+export type GithubIssueState = "open" | "closed" | "all";
+
 async function request<T>(sessionToken: string, url: string): Promise<T> {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${sessionToken}` },
@@ -102,4 +115,19 @@ export async function fetchFileContent(
     sessionToken,
     `/api/github/repos/${owner}/${repo}/content?${params.toString()}`,
   );
+}
+
+/** GET /api/github/repos/:owner/:repo/issues?state=... → issues of a repo. */
+export async function fetchIssues(
+  sessionToken: string,
+  owner: string,
+  repo: string,
+  state: GithubIssueState = "open",
+): Promise<GithubIssue[]> {
+  const params = new URLSearchParams({ state });
+  const data = await request<{ issues: GithubIssue[] }>(
+    sessionToken,
+    `/api/github/repos/${owner}/${repo}/issues?${params.toString()}`,
+  );
+  return data.issues;
 }
