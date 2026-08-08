@@ -16,7 +16,7 @@ describe("animated theme toggle", () => {
     localStorage.clear();
   });
 
-  it("renders as a switch in dark mode by default, showing the stars + moon group", () => {
+  it("renders as a switch in dark mode by default, showing the night scene (moon + stars)", () => {
     const { wrapper } = mountToggle();
     const toggle = wrapper.find(".theme-toggle");
 
@@ -24,12 +24,10 @@ describe("animated theme toggle", () => {
     expect(toggle.attributes("data-mode")).toBe("dark");
     expect(toggle.attributes("aria-checked")).toBe("true");
 
-    expect(
-      wrapper.find(".theme-toggle__icons--dark").attributes("aria-hidden"),
-    ).toBe("false");
-    expect(
-      wrapper.find(".theme-toggle__icons--light").attributes("aria-hidden"),
-    ).toBe("true");
+    // night sky visible, day sky hidden; moon visible, sun hidden
+    expect(toggle.classes()).toContain("is-dark");
+    expect(toggle.find(".theme-toggle__sky--night").attributes("aria-hidden")).toBe("false");
+    expect(toggle.find(".theme-toggle__sky--day").attributes("aria-hidden")).toBe("true");
   });
 
   it("clicking the slider switches the theme store to light and shows the sun + cloud group", async () => {
@@ -41,15 +39,10 @@ describe("animated theme toggle", () => {
     expect(theme.mode).toBe("light");
     expect(localStorage.getItem("caleo-theme")).toBe("light");
     expect(wrapper.find(".theme-toggle").attributes("data-mode")).toBe("light");
-    expect(wrapper.find(".theme-toggle").attributes("aria-checked")).toBe(
-      "false",
-    );
-    expect(
-      wrapper.find(".theme-toggle__icons--dark").attributes("aria-hidden"),
-    ).toBe("true");
-    expect(
-      wrapper.find(".theme-toggle__icons--light").attributes("aria-hidden"),
-    ).toBe("false");
+    expect(wrapper.find(".theme-toggle").attributes("aria-checked")).toBe("false");
+    expect(wrapper.find(".theme-toggle").classes()).toContain("is-light");
+    expect(wrapper.find(".theme-toggle__sky--day").attributes("aria-hidden")).toBe("false");
+    expect(wrapper.find(".theme-toggle__sky--night").attributes("aria-hidden")).toBe("true");
   });
 
   it("reflects a theme change made outside the component", async () => {
@@ -58,9 +51,11 @@ describe("animated theme toggle", () => {
     theme.setMode("light");
     await flushPromises();
     expect(wrapper.find(".theme-toggle").attributes("data-mode")).toBe("light");
+    expect(wrapper.find(".theme-toggle").classes()).toContain("is-light");
 
     theme.setMode("dark");
     await flushPromises();
     expect(wrapper.find(".theme-toggle").attributes("data-mode")).toBe("dark");
+    expect(wrapper.find(".theme-toggle").classes()).toContain("is-dark");
   });
 });
