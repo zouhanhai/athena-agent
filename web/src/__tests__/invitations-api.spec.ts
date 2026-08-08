@@ -7,6 +7,7 @@ import {
   verifyMagicLink,
   listEmployees,
   fetchMe,
+  updateMe,
 } from "@/api/invitations";
 
 const fetchMock = vi.fn();
@@ -112,5 +113,39 @@ describe("invitations API", () => {
 
     fetchMock.mockResolvedValue(ok({ id: "e1", email: "a@b.com" }));
     expect(await fetchMe("good")).toMatchObject({ id: "e1" });
+  });
+
+  it("updateMe PUTs the profile update to /api/me with the Bearer session token", async () => {
+    const updated = {
+      id: "e1",
+      email: "carol@caleo.com",
+      display_name: "Carol C.",
+      logo_url: "/logos/wolf-indigo.png",
+      role: "member",
+    };
+    fetchMock.mockResolvedValue(ok(updated));
+    const result = await updateMe("ses123", {
+      display_name: "Carol C.",
+      logo_url: "/logos/wolf-indigo.png",
+      github_credential: { type: "token", value: "ghp_x" },
+    });
+    expect(result.display_name).toBe("Carol C.");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/me");
+    expect(init.method).toBe("PUT");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer ses123",
+    });
+    expect(JSON.parse(init.body)).toEqual({
+      display_name: "Carol C.",
+      logo_url: "/logos/wolf-indigo.png",
+      github_credential: { type: "token", value: "ghp_x" },
+    });
+  });
+
+  it("updateMe throws on a non-ok response", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "server down" }), { status: 500 }));
+    await expect(updateMe("ses123", { display_name: "Carol" })).rejects.toThrow("server down");
   });
 });

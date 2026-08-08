@@ -7,7 +7,6 @@ import {
   FolderOpenIcon,
   TerminalIcon,
   UploadIcon,
-  UsergroupIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
 import SettingsPanel from "@/components/SettingsPanel.vue";
@@ -32,7 +31,6 @@ const navItems: NavItem[] = [
   { label: "Workbench", path: "/workbench", icon: TerminalIcon },
   { label: "Uploads", path: "/uploads", icon: UploadIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
-  { label: "Agents", path: "/agents", icon: UsergroupIcon },
 ];
 
 const sidebarTopOffset = "24px";

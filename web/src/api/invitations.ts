@@ -29,6 +29,13 @@ export interface InvitedEmployeeRegistrationInput {
   github_credential?: GithubCredential;
 }
 
+/** Self-service profile update for the signed-in employee (PUT /api/me). */
+export interface MeUpdateInput {
+  display_name?: string;
+  logo_url?: string;
+  github_credential?: GithubCredential;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -101,6 +108,21 @@ export async function fetchMe(sessionToken: string): Promise<EmployeeRecord | nu
     throw new Error(`Request failed with status ${res.status}`);
   }
   return (await res.json()) as EmployeeRecord;
+}
+
+/** PUT /api/me → update the signed-in employee's own display_name / logo_url / github_credential. */
+export async function updateMe(
+  sessionToken: string,
+  input: MeUpdateInput,
+): Promise<EmployeeRecord> {
+  return request<EmployeeRecord>("/api/me", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    body: JSON.stringify(input),
+  });
 }
 
 /** GET /api/employees (Bearer) → the registered employees, for the add-employee entry. */

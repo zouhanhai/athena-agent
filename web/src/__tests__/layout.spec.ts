@@ -44,13 +44,14 @@ function navItemByText(wrapper: AppWrapper, label: string) {
 }
 
 describe("portal sidebar navigation", () => {
-  it("renders the sidebar with Knowledge / Workbench / Uploads / Wiki / Agents and no Chat", async () => {
+  it("renders the sidebar with Knowledge / Workbench / Uploads / Wiki and no Chat / Agents", async () => {
     const wrapper = await mountApp();
     const labels = navItems(wrapper).map((item) => item.text());
-    for (const label of ["Knowledge", "Workbench", "Uploads", "Wiki", "Agents"]) {
+    for (const label of ["Knowledge", "Workbench", "Uploads", "Wiki"]) {
       expect(labels.some((text) => text.includes(label))).toBe(true);
     }
     expect(labels.some((text) => text.includes("Chat"))).toBe(false);
+    expect(labels.some((text) => text.includes("Agents"))).toBe(false);
     wrapper.unmount();
   });
 

@@ -35,17 +35,16 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="agent-registration">
-    <h2 class="reg-title">Agent Registration</h2>
-    <p class="reg-intro">
+  <div class="agent-management">
+    <p class="am-intro">
       Connected agents auto-declare their capabilities. Review each declaration,
       then assign an alias and logo to register the agent.
     </p>
-    <p v-if="error" class="reg-error">{{ error }}</p>
-    <p v-if="loading" class="reg-loading">Loading declarations…</p>
+    <p v-if="error" class="am-error">{{ error }}</p>
+    <p v-if="loading" class="am-loading">Loading declarations…</p>
     <p
       v-if="!loading && !error && declarations.length === 0"
-      class="reg-empty"
+      class="am-empty"
     >
       No pending agent declarations. Agents connect and self-declare via
       POST /api/agents/self-declare.
@@ -57,30 +56,22 @@ onMounted(load);
       :logos="logos"
       @registered="onRegistered"
     />
-  </section>
+  </div>
 </template>
 
 <style scoped>
-.agent-registration {
-  padding: 24px;
-  max-width: 720px;
-}
-
-.reg-title {
-  margin: 0 0 4px;
-}
-
-.reg-intro {
-  margin: 0 0 16px;
+.am-intro {
+  margin: 0 0 12px;
+  font-size: 13px;
   opacity: 0.8;
 }
 
-.reg-error {
+.am-error {
   color: var(--caleo-error);
 }
 
-.reg-empty,
-.reg-loading {
+.am-empty,
+.am-loading {
   opacity: 0.7;
 }
 </style>
