@@ -191,12 +191,15 @@ function onToggle() {
   opacity: 1;
 }
 
-/* Clouds (day) */
+/* Clouds drift in from the right when entering day; drift out to the right on night. */
 .theme-toggle__cloud {
   position: absolute;
   border-radius: 999px;
   background: #fff;
   box-shadow: inset 0 -3px 4px rgba(160, 190, 210, 0.4);
+  transition:
+    transform 0.45s cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 0.45s ease;
 }
 .theme-toggle__cloud::before,
 .theme-toggle__cloud::after {
@@ -210,6 +213,8 @@ function onToggle() {
   height: 9px;
   top: 9px;
   left: 22px;
+  transform: translateX(0);
+  opacity: 1;
 }
 .theme-toggle__cloud--a::before {
   width: 12px;
@@ -228,7 +233,9 @@ function onToggle() {
   height: 7px;
   top: 5px;
   left: 44px;
-  opacity: 0.8;
+  transform: translateX(0);
+  opacity: 0.85;
+  transition-delay: 0.06s;
 }
 .theme-toggle__cloud--b::before {
   width: 8px;
@@ -236,8 +243,13 @@ function onToggle() {
   top: -4px;
   left: 2px;
 }
+/* In night, clouds have drifted off to the right and faded. */
+.theme-toggle.is-dark .theme-toggle__cloud {
+  transform: translateX(16px);
+  opacity: 0;
+}
 
-/* Stars (night) */
+/* Stars fade in one-by-one (staggered) when entering night. */
 .theme-toggle__star {
   position: absolute;
   width: 3px;
@@ -245,6 +257,11 @@ function onToggle() {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 0 3px rgba(255, 255, 255, 0.9);
+  opacity: 0;
+  transform: scale(0.5);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 .theme-toggle__star::after {
   content: "";
@@ -254,23 +271,31 @@ function onToggle() {
   background: #fff;
   opacity: 0.5;
 }
+.theme-toggle.is-dark .theme-toggle__star {
+  opacity: 1;
+  transform: scale(1);
+}
 .theme-toggle__star--a {
   top: 7px;
   left: 20px;
+  transition-delay: 0.1s;
 }
 .theme-toggle__star--b {
   top: 13px;
   left: 34px;
+  transition-delay: 0.2s;
 }
 .theme-toggle__star--c {
   top: 7px;
   left: 50px;
+  transition-delay: 0.3s;
 }
 .theme-toggle__star--d {
   top: 18px;
   left: 56px;
   width: 2px;
   height: 2px;
+  transition-delay: 0.4s;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -279,6 +304,16 @@ function onToggle() {
   .theme-toggle__thumb-icon,
   .theme-toggle__sky {
     transition: none;
+  }
+
+  /* Keep opacity-based visibility cues, drop translate/scale movement. */
+  .theme-toggle__cloud {
+    transition: opacity 0.2s ease;
+    transform: none;
+  }
+  .theme-toggle__star {
+    transition: opacity 0.2s ease;
+    transform: none;
   }
 }
 </style>
