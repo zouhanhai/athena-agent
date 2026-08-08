@@ -253,6 +253,15 @@
       "created_at": "2026-08-08T00:00:00.000Z"
     },
     {
+      "id": "shark",
+      "name": "shark",
+      "animal": "shark",
+      "url": "/logos/shark-clean.png",
+      "filename": "shark-clean.png",
+      "source": "generated",
+      "created_at": "2026-08-08T00:00:00.000Z"
+    },
+    {
       "id": "sheep",
       "name": "sheep",
       "animal": "sheep",
