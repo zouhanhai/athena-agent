@@ -183,7 +183,7 @@ function detectImageExt(buffer: Buffer): "png" | "jpg" | "webp" {
 }
 
 function logoPrompt(animal: string, color: string): string {
-  return `Minimalist flat vector logo of a ${animal} head, bold geometric rounded silhouette, flat ${color} background with a subtle lighter accent shape, clean modern mascot style consistent with the reference owl logo, no text, centered, square 1:1`;
+  return `Minimalist flat vector logo of a ${animal} head, bold geometric rounded silhouette in ${color}, on a fully transparent background (no background, isolated subject, no fill, no square, no frame), clean modern mascot style consistent with the reference owl logo, no text, centered`;
 }
 
 export interface FileLogoStoreOptions {
