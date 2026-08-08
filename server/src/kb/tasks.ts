@@ -24,9 +24,11 @@ export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwik
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "ingesting" | "done" | "failed";
 
-/** Per-system sub-step name (G3.S5.T2). */
+/** Per-system sub-step name (G3.S5.T2). LightRAG has ONE sub-step: chunking
+ *  already includes entity extraction + embedding upsert (inline per chunk), so
+ *  a single "chunking + embedding" step with chunk progress is enough (G3.S5.T4). */
 export type DoclingStepName = "read_file" | "parse_ocr_image_desc";
-export type LightRagStepName = "chunking" | "entity_extraction" | "graph_build" | "embedding";
+export type LightRagStepName = "chunking_embedding";
 export type StepName = DoclingStepName | LightRagStepName | LlmWikiStepName;
 
 export interface TaskStep {
@@ -42,7 +44,7 @@ export interface TaskStage {
   steps: TaskStep[];
 }
 
-const LIGHTRAG_STEPS: LightRagStepName[] = ["chunking", "entity_extraction", "graph_build", "embedding"];
+const LIGHTRAG_STEPS: LightRagStepName[] = ["chunking_embedding"];
 
 /** Fresh pending sub-steps for a stage, e.g. `["read_file", "parse_ocr_image_desc"]`. */
 export function initialSteps(stage: TaskStageName): TaskStep[] {
@@ -246,10 +248,10 @@ export class IngestTaskQueue {
         chunksCount: outcome.chunksCount,
       };
     });
-    // Chunking is finished once the chunk total is known (LightRAG sets
-    // chunks_count when it transitions into PROCESSING).
+    // Chunking + embedding is finished once the chunk total is known (LightRAG
+    // sets chunks_count when it transitions into PROCESSING).
     if (typeof outcome.chunksCount === "number" && outcome.chunksCount > 0) {
-      this.setStep(id, "ingesting_lightrag", "chunking", "done");
+      this.setStep(id, "ingesting_lightrag", "chunking_embedding", "done");
     }
   }
 

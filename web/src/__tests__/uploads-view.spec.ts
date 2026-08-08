@@ -210,10 +210,7 @@ describe("uploads page", () => {
             name: "ingesting_lightrag",
             status: "running",
             steps: [
-              { name: "chunking", status: "done" },
-              { name: "entity_extraction", status: "running" },
-              { name: "graph_build", status: "running" },
-              { name: "embedding", status: "running" },
+              { name: "chunking_embedding", status: "running" },
             ],
           },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },

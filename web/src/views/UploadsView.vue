@@ -95,6 +95,36 @@ function friendlyStep(step: { name: string }): string {
   return step.name.replace(/_/g, " ");
 }
 
+/** Human-readable elapsed time since `from` (ms). */
+function fmtElapsed(from: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - from) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}m ${sec}s`;
+}
+
+/** Estimated remaining time for LightRAG chunking/embedding, based on the
+ *  actual processed/total chunk ratio × elapsed time. Null when not enough
+ *  data (no chunks yet). */
+function etaText(task: IngestTaskItem): string {
+  const lr = task.lightrag;
+  const processed = lr?.chunksProcessed ?? 0;
+  const total = lr?.chunksCount ?? 0;
+  if (total <= 0 || processed <= 0 || processed >= total) return "";
+  const start = task.createdAt || task.updatedAt;
+  const elapsedMs = Math.max(0, Date.now() - start);
+  if (elapsedMs <= 0) return "";
+  const rate = processed / total;
+  const totalMs = elapsedMs / rate;
+  const remainingMs = Math.max(0, totalMs - elapsedMs);
+  const s = Math.ceil(remainingMs / 1000);
+  if (s < 60) return `~${s}s left`;
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `~${m}m ${sec}s left`;
+}
+
 function stepMark(status: string): string {
   switch (status) {
     case "done":
@@ -216,6 +246,13 @@ function stepMark(status: string): string {
                 class="task-stage-chunk"
               >
                 {{ lightragChunkText(task) }}
+              </span>
+              <span
+                v-if="stage.key === 'ingesting_lightrag' && task.status === 'ingesting'"
+                class="task-stage-time"
+              >
+                {{ fmtElapsed(task.updatedAt || task.createdAt) }}
+                <template v-if="etaText(task)"> · {{ etaText(task) }}</template>
               </span>
               <ul v-if="task.stages[stage.key].steps?.length" class="task-stage-steps">
                 <li

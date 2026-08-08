@@ -18,6 +18,8 @@ export interface IngestTaskItem {
   nearDuplicate?: string;
   stages: IngestTask["stages"];
   lightrag?: IngestTask["lightrag"];
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** Optimistic per-system stages with pending sub-steps (G3.S5.T2), shown while
@@ -36,10 +38,9 @@ export function initialStages(): IngestTask["stages"] {
       name: "ingesting_lightrag",
       status: "pending",
       steps: [
-        { name: "chunking", status: "pending" },
-        { name: "entity_extraction", status: "pending" },
-        { name: "graph_build", status: "pending" },
-        { name: "embedding", status: "pending" },
+        // chunking already includes entity extraction + embedding upsert (inline
+        // per chunk) — a single "chunking + embedding" step with chunk progress.
+        { name: "chunking_embedding", status: "pending" },
       ],
     },
     ingesting_llmwiki: {
@@ -133,6 +134,8 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
       nearDuplicate: updated.nearDuplicate,
       stages: updated.stages,
       lightrag: updated.lightrag,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
     };
     const index = tasks.value.indexOf(existing);
     tasks.value.splice(index, 1, merged);
@@ -170,6 +173,8 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
         status: "pending",
         progress: 0,
         stages: initialStages(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
       startPolling(taskId);
       await poll(taskId);
@@ -194,6 +199,8 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
         status: "pending",
         progress: 0,
         stages: initialStages(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
       startPolling(taskId);
       await poll(taskId);
@@ -243,6 +250,8 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
         status: "pending",
         progress: 0,
         stages: initialStages(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
       startPolling(meta.id);
       void poll(meta.id);
