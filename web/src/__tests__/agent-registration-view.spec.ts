@@ -34,7 +34,7 @@ const declaration = {
 };
 
 const logos = [
-  { id: "l1", name: "fox", animal: "fox", color: "teal", url: "/logos/fox-teal.png", filename: "fox-teal.png", source: "generated", created_at: "x" },
+  { id: "l1", name: "fox", animal: "fox", color: "teal", url: "/logos/fox-clean.png", filename: "fox-clean.png", source: "generated", created_at: "x" },
   { id: "l2", name: "wolf", animal: "wolf", color: "indigo", url: "/logos/wolf-indigo.png", filename: "wolf-indigo.png", source: "generated", created_at: "x" },
 ];
 
@@ -98,7 +98,7 @@ describe("AgentRegistrationView", () => {
     await wrapper.find(".decl-alias").setValue("Hermes");
     const fox = wrapper
       .findAll(".logo-option")
-      .find((el) => el.attributes("data-url") === "/logos/fox-teal.png");
+      .find((el) => el.attributes("data-url") === "/logos/fox-clean.png");
     await fox!.trigger("click");
     await wrapper.find(".decl-confirm").trigger("click");
     await flushPromises();
@@ -106,7 +106,7 @@ describe("AgentRegistrationView", () => {
     expect(registerDeclarationMock).toHaveBeenCalledWith("d1", {
       alias: "Hermes",
       owner_employee_id: "employee",
-      logo_url: "/logos/fox-teal.png",
+      logo_url: "/logos/fox-clean.png",
     });
     expect(wrapper.findAll(".declaration-card")).toHaveLength(0);
     wrapper.unmount();

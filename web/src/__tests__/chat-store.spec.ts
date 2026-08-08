@@ -190,7 +190,7 @@ describe("chat store participant hooks", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: ["github"],
     });
 
@@ -211,7 +211,7 @@ describe("chat store participant hooks", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: ["github"],
     });
 
@@ -228,7 +228,7 @@ describe("chat store participant hooks", () => {
       id: "hermes::Hermes",
       kind: "agent" as const,
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: ["github"],
     };
     store.onAgentJoined(input);
@@ -243,7 +243,7 @@ describe("chat store participant hooks", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: [],
     });
 
@@ -260,7 +260,7 @@ describe("chat store participant hooks", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: [],
     });
 
@@ -304,7 +304,7 @@ describe("chat store message speakers", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: [],
     });
 
@@ -329,14 +329,14 @@ describe("chat store message speakers", () => {
   it("setUserSpeaker attributes user bubbles to the signed-in employee", async () => {
     resolveStream();
     const store = useChatStore();
-    store.setUserSpeaker({ id: "e1", kind: "employee", name: "Carol", logoUrl: "/logos/raven.png" });
+    store.setUserSpeaker({ id: "e1", kind: "employee", name: "Carol", logoUrl: "/logos/raven-clean.png" });
 
     await store.send("hi");
 
     expect(store.messages[0]!.speaker).toMatchObject({
       id: "e1",
       name: "Carol",
-      logoUrl: "/logos/raven.png",
+      logoUrl: "/logos/raven-clean.png",
     });
   });
 });

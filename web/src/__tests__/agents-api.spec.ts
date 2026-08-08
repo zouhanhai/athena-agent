@@ -62,12 +62,12 @@ describe("listDeclarations", () => {
 
 describe("registerDeclaration", () => {
   it("POSTs the employee-chosen alias + owner + logo for a declaration", async () => {
-    const agent = { id: "a1", alias: "Hermes", owner_employee_id: "zhang.wei", logo_url: "/logos/fox.png", capabilities: caps, runtime: "local", created_at: "x", updated_at: "x" };
+    const agent = { id: "a1", alias: "Hermes", owner_employee_id: "zhang.wei", logo_url: "/logos/fox-clean.png", capabilities: caps, runtime: "local", created_at: "x", updated_at: "x" };
     stubFetch(jsonResponse(agent, 201));
     const result = await registerDeclaration("d1", {
       alias: "Hermes",
       owner_employee_id: "zhang.wei",
-      logo_url: "/logos/fox.png",
+      logo_url: "/logos/fox-clean.png",
     });
 
     expect(fetchMock()).toHaveBeenCalledWith(
@@ -75,7 +75,7 @@ describe("registerDeclaration", () => {
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alias: "Hermes", owner_employee_id: "zhang.wei", logo_url: "/logos/fox.png" }),
+        body: JSON.stringify({ alias: "Hermes", owner_employee_id: "zhang.wei", logo_url: "/logos/fox-clean.png" }),
       }),
     );
     expect(result).toEqual(agent);
@@ -94,7 +94,7 @@ describe("listAgents", () => {
 
 describe("listLogos", () => {
   it("GETs the logo set for the employee to pick from", async () => {
-    const logos = [{ id: "l1", name: "fox", url: "/logos/fox.png", filename: "fox.png", source: "generated", created_at: "x" }];
+    const logos = [{ id: "l1", name: "fox", url: "/logos/fox-clean.png", filename: "fox-clean.png", source: "generated", created_at: "x" }];
     stubFetch(jsonResponse({ logos }));
     const result = await listLogos();
     expect(fetchMock()).toHaveBeenCalledWith("/api/logos", undefined);

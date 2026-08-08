@@ -100,14 +100,14 @@ test("registerInvitedEmployee creates a member employee with encrypted github cr
   const token = tokenFromUrl(sent[0].inviteUrl);
   const { session_token, employee } = await invitations.registerInvitedEmployee(token, {
     display_name: "Carol",
-    logo_url: "/logos/fox-teal.png",
+    logo_url: "/logos/fox-clean.png",
     github_credential: { type: "token", value: "ghp_supersecret" },
   });
   assert.ok(session_token);
   assert.equal(employee.email, "carol@caleo.com");
   assert.equal(employee.role, "member");
   assert.equal(employee.display_name, "Carol");
-  assert.equal(employee.logo_url, "/logos/fox-teal.png");
+  assert.equal(employee.logo_url, "/logos/fox-clean.png");
 
   const credential = await registry.getGithubCredential("carol@caleo.com");
   assert.deepEqual(credential, { type: "token", value: "ghp_supersecret" });

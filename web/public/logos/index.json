@@ -103,8 +103,8 @@
       "id": "fox",
       "name": "fox",
       "animal": "fox",
-      "url": "/logos/fox-medium-clean.png",
-      "filename": "fox-medium-clean.png",
+      "url": "/logos/fox-clean.png",
+      "filename": "fox-clean.png",
       "source": "generated",
       "created_at": "2026-08-08T00:00:00.000Z"
     },

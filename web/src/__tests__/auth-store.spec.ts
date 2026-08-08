@@ -8,7 +8,7 @@ const verification = {
     id: "e1",
     email: "carol@caleo.com",
     display_name: "Carol",
-    logo_url: "/logos/fox.png",
+    logo_url: "/logos/fox-clean.png",
     role: "member" as const,
     created_at: "x",
     updated_at: "x",

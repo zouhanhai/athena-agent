@@ -104,14 +104,14 @@ test("registerDeclaration creates an agent with employee-chosen alias/logo and c
     payload: {
       alias: "Hermes",
       owner_employee_id: "zhang.wei",
-      logo_url: "/logos/fox-teal.png",
+      logo_url: "/logos/fox-clean.png",
     },
   });
   assert.equal(res.statusCode, 201);
   const agent = res.json();
   assert.equal(agent.alias, "Hermes");
   assert.equal(agent.owner_employee_id, "zhang.wei");
-  assert.equal(agent.logo_url, "/logos/fox-teal.png");
+  assert.equal(agent.logo_url, "/logos/fox-clean.png");
   assert.equal(agent.runtime, "local", "runtime should come from the declaration");
   assert.deepEqual(
     agent.capabilities,

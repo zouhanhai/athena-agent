@@ -51,7 +51,7 @@ describe("invitations API", () => {
     fetchMock.mockResolvedValue(ok(verification));
     const result = await registerInvitedEmployee("tok", {
       display_name: "Carol",
-      logo_url: "/logos/fox.png",
+      logo_url: "/logos/fox-clean.png",
       github_credential: { type: "token", value: "ghp_x" },
     });
     expect(result.session_token).toBe("ses123");
@@ -61,7 +61,7 @@ describe("invitations API", () => {
     expect(JSON.parse(init.body)).toEqual({
       token: "tok",
       display_name: "Carol",
-      logo_url: "/logos/fox.png",
+      logo_url: "/logos/fox-clean.png",
       github_credential: { type: "token", value: "ghp_x" },
     });
   });
@@ -96,7 +96,7 @@ describe("invitations API", () => {
 
   it("listEmployees GETs employees with the Bearer session token", async () => {
     const employees = [
-      { id: "e1", email: "carol@caleo.com", display_name: "Carol", logo_url: "/logos/fox.png", role: "member" },
+      { id: "e1", email: "carol@caleo.com", display_name: "Carol", logo_url: "/logos/fox-clean.png", role: "member" },
     ];
     fetchMock.mockResolvedValue(ok({ employees }));
     const result = await listEmployees("ses123");

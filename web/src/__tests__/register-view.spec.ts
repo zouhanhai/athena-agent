@@ -23,7 +23,7 @@ const registerInvitedEmployeeMock = registerInvitedEmployee as unknown as Return
 const listLogosMock = listLogos as unknown as ReturnType<typeof vi.fn>;
 
 const logos = [
-  { id: "l1", name: "fox", animal: "fox", color: "teal", url: "/logos/fox-teal.png", filename: "fox-teal.png", source: "generated" as const, created_at: "x" },
+  { id: "l1", name: "fox", animal: "fox", color: "teal", url: "/logos/fox-clean.png", filename: "fox-clean.png", source: "generated" as const, created_at: "x" },
   { id: "l2", name: "wolf", animal: "wolf", color: "indigo", url: "/logos/wolf-indigo.png", filename: "wolf-indigo.png", source: "generated" as const, created_at: "x" },
 ];
 
@@ -87,7 +87,7 @@ describe("RegisterView", () => {
     await wrapper.find(".reg-name").setValue("Carol");
     const fox = wrapper
       .findAll(".logo-option")
-      .find((el) => el.attributes("data-url") === "/logos/fox-teal.png");
+      .find((el) => el.attributes("data-url") === "/logos/fox-clean.png");
     await fox!.trigger("click");
     await wrapper.find(".reg-github-value").setValue("ghp_supersecret");
     await wrapper.find(".reg-submit").trigger("click");
@@ -95,7 +95,7 @@ describe("RegisterView", () => {
 
     expect(registerInvitedEmployeeMock).toHaveBeenCalledWith("invite-token", {
       display_name: "Carol",
-      logo_url: "/logos/fox-teal.png",
+      logo_url: "/logos/fox-clean.png",
       github_credential: { type: "token", value: "ghp_supersecret" },
     });
     const auth = useAuthStore();

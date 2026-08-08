@@ -9,8 +9,8 @@ test("live default store serves committed animal logos via GET /api/logos", asyn
   const { logos } = res.json();
   assert.ok(logos.length >= 6, `expected >=6 committed logos, got ${logos.length}`);
   const fox = logos.find((l: { animal: string }) => l.animal === "fox");
-  assert.equal(fox?.url, "/logos/fox.jpg");
-  const stat = await import("node:fs/promises").then((m) => m.stat("../web/public/logos/fox.jpg"));
+  assert.equal(fox?.url, "/logos/fox-clean.png");
+  const stat = await import("node:fs/promises").then((m) => m.stat("../web/public/logos/fox-clean.png"));
   assert.ok(stat.size > 0);
   await app.close();
 });

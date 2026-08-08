@@ -32,7 +32,7 @@ const HERMES_AGENT = {
   id: "a2",
   alias: "Hermes",
   owner_employee_id: "e1",
-  logo_url: "/logos/fox.png",
+  logo_url: "/logos/fox-clean.png",
   runtime: "local",
   created_at: "",
   updated_at: "",
@@ -313,7 +313,7 @@ describe("GlobalChatPanel agent cards", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: ["github"],
     });
     await wrapper.vm.$nextTick();
@@ -365,7 +365,7 @@ describe("GlobalChatPanel agent cards", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: [],
     });
     await wrapper.vm.$nextTick();
@@ -386,7 +386,7 @@ describe("GlobalChatPanel agent cards", () => {
         id: "e2",
         email: "carol@caleo.com",
         display_name: "Carol",
-        logo_url: "/logos/raven.png",
+        logo_url: "/logos/raven-clean.png",
         role: "member",
         created_at: "",
         updated_at: "",
@@ -421,7 +421,7 @@ describe("GlobalChatPanel agent cards", () => {
       id: "hermes::Hermes",
       kind: "agent",
       name: "Hermes",
-      logoUrl: "/logos/fox.png",
+      logoUrl: "/logos/fox-clean.png",
       capabilities: [],
     });
     await wrapper.vm.$nextTick();

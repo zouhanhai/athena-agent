@@ -188,7 +188,7 @@ test("POST /api/invitations/register completes the invited employee registration
     payload: {
       token,
       display_name: "Carol",
-      logo_url: "/logos/fox-teal.png",
+      logo_url: "/logos/fox-clean.png",
       github_credential: { type: "token", value: "ghp_secret" },
     },
   });
