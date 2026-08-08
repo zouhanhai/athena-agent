@@ -41,7 +41,6 @@ export type {
   BoardScanner,
 } from "./scan.js";
 export {
-  PLANNING_OWNER,
   PlanningError,
   goalId,
   specId,
@@ -94,3 +93,33 @@ export type {
 } from "./protocol.js";
 export { GitClaimLock, ClaimConflictError } from "./git-lock.js";
 export type { GitClaimLockOptions } from "./git-lock.js";
+export {
+  ROLE_IDS,
+  ROLE_STAGES,
+  ROLES,
+  roleSoul,
+  PLANNING_OWNER,
+} from "./roles.js";
+export type { RoleId, RoleStage, RoleSoul } from "./roles.js";
+export {
+  STATE_MACHINE,
+  TRANSITION_ACTOR,
+  canTransition,
+  transitionsFrom,
+  transitionsTo,
+  transitionId,
+  actorFor,
+} from "./state-machine.js";
+export type { TransitionId } from "./state-machine.js";
+export {
+  rejectTicket,
+  approveTicket,
+  reDecompose,
+  LifecycleError,
+} from "./lifecycle.js";
+export type {
+  RejectInput,
+  ApproveInput,
+  ReDecomposeInput,
+  ReDecomposeResult,
+} from "./lifecycle.js";

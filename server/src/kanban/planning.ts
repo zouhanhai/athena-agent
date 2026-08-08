@@ -13,13 +13,9 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { parseRef, writeBoardFile, writeTicketFile, type BoardFileBase, type TicketDocument } from "./board.js";
 import type { GoalFrontmatter, SpecFrontmatter, TicketFrontmatter } from "./schema.js";
+import { PLANNING_OWNER } from "./roles.js";
 
-/** The soul role that owns each layer's planning output. */
-export const PLANNING_OWNER: Record<"goal" | "spec" | "ticket", string> = {
-  goal: "consultant",
-  spec: "pm",
-  ticket: "eng-director",
-};
+export { PLANNING_OWNER };
 
 /** Thrown when a planning draft or plan fails validation. */
 export class PlanningError extends Error {}

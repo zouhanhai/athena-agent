@@ -10,8 +10,9 @@
  * claim/report mutually exclusive lives in ./git-lock.ts (GitClaimLock).
  */
 
-import { readBoardFile, writeBoardFile, parseRef } from "./board.js";
+import { readTicketFile, writeBoardFile } from "./board.js";
 import { scanBoard, type KanbanBoard, type BoardTicket } from "./scan.js";
+import { transitionsTo } from "./state-machine.js";
 import type { TicketFrontmatter, TicketStatus } from "./schema.js";
 
 /** Thrown when a ticket cannot be claimed because it is not claimable. */
@@ -53,10 +54,10 @@ export interface ReportResult {
   log: string;
 }
 
-/** True when a worker may report in this ticket status (claimed, or done → in_review). */
+/** In which statuses a worker may report each status — derived from the state machine. */
 const REPORTABLE: Record<ReportStatus, readonly TicketStatus[]> = {
-  done: ["in_progress"],
-  in_review: ["in_progress", "done"],
+  done: transitionsTo("done"),
+  in_review: transitionsTo("in_review"),
 };
 
 /** Statuses that resolve a blocker, i.e. the blocking ticket no longer blocks. */
@@ -71,15 +72,12 @@ async function loadTicket(
   root: string,
   ref: string,
   fail: (message: string) => Error,
-): Promise<{ doc: Awaited<ReturnType<typeof readBoardFile>>; ticket: TicketFrontmatter }> {
-  if (parseRef(ref).t === undefined) {
-    throw fail(`ref "${ref}" is not a ticket (expected Gx.Sy.Tz)`);
+): Promise<{ doc: Awaited<ReturnType<typeof readTicketFile>>["doc"]; ticket: TicketFrontmatter }> {
+  try {
+    return await readTicketFile(root, ref);
+  } catch (err) {
+    throw fail(err instanceof Error ? err.message : String(err));
   }
-  const doc = await readBoardFile(root, ref);
-  if (doc.frontmatter.layer !== "T") {
-    throw fail(`ref "${ref}" is not a ticket`);
-  }
-  return { doc, ticket: doc.frontmatter as TicketFrontmatter };
 }
 
 /** Append a `## Log` entry to a ticket body; creates the section when missing. */

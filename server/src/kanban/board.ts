@@ -99,6 +99,21 @@ export interface TicketDocument {
   body: string;
 }
 
+/** Read a board file and validate it is a ticket (layer T). */
+export async function readTicketFile(
+  root: string,
+  ref: string,
+): Promise<{ doc: BoardFile; ticket: TicketFrontmatter }> {
+  if (parseRef(ref).t === undefined) {
+    throw new Error(`ref "${ref}" is not a ticket (expected Gx.Sy.Tz)`);
+  }
+  const doc = await readBoardFile(root, ref);
+  if (doc.frontmatter.layer !== "T") {
+    throw new Error(`ref "${ref}" is not a ticket`);
+  }
+  return { doc, ticket: doc.frontmatter as TicketFrontmatter };
+}
+
 /**
  * Write a board file, creating parent directories as needed. Accepts a full
  * BoardFile (with a path) or a TicketDocument (path derived from ref).
