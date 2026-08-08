@@ -109,6 +109,17 @@ test("renderFrontmatter renders an empty array inline", () => {
   assert.equal(out, "blocked_by: []");
 });
 
+test("renderFrontmatter omits undefined values", () => {
+  const out = renderFrontmatter({
+    id: "t1",
+    milestone: undefined,
+    created_at: undefined,
+    status: "done",
+  });
+  assert.equal(out, "id: t1\nstatus: done");
+  assert.ok(!out.includes("undefined"));
+});
+
 test("renderFrontmatter renders a non-empty array as a block list", () => {
   const out = renderFrontmatter({
     blocked_by: ["t3"],

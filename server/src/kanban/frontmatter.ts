@@ -89,6 +89,7 @@ function renderValue(value: FrontmatterValue): string {
 /** Render a FrontmatterMap as the inner lines of a `---` block. */
 export function renderFrontmatter(frontmatter: Record<string, unknown>): string {
   return Object.entries(frontmatter)
+    .filter(([, value]) => value !== undefined)
     .map(([key, value]) => {
       if (Array.isArray(value) && value.length > 0) return `${key}:${renderValue(value as FrontmatterValue)}`;
       return `${key}: ${renderValue(value as FrontmatterValue)}`;

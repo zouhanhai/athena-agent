@@ -61,11 +61,15 @@ export function refToPath(ref: string, root: string = DEFAULT_BOARD_ROOT): strin
 }
 
 /** A board md file: typed frontmatter + markdown body, plus its ref/path. */
-export interface BoardFile {
+export interface BoardFileBase {
   ref: string;
-  path: string;
   frontmatter: BoardFrontmatter;
   body: string;
+}
+
+/** A board file resolved to its on-disk path. */
+export interface BoardFile extends BoardFileBase {
+  path: string;
 }
 
 /** A parsed board document without path resolution (in-memory). */
@@ -99,8 +103,9 @@ export interface TicketDocument {
  * Write a board file, creating parent directories as needed. Accepts a full
  * BoardFile (with a path) or a TicketDocument (path derived from ref).
  */
-export async function writeBoardFile(root: string, doc: BoardFile | TicketDocument): Promise<string> {
-  const filePath = "path" in doc && doc.path ? doc.path : refToPath(doc.ref, root);
+export async function writeBoardFile(root: string, doc: BoardFileBase | TicketDocument): Promise<string> {
+  const filePath =
+    "path" in doc && typeof doc.path === "string" && doc.path ? doc.path : refToPath(doc.ref, root);
   const rendered = renderBoardMd({ ...doc.frontmatter }, doc.body);
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, rendered, "utf8");
