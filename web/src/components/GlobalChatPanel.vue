@@ -225,8 +225,9 @@ function addEmployee(emp: EmployeeRecord) {
 
 <style scoped>
 .global-chat-panel {
-  width: 360px;
-  min-width: 360px;
+  width: var(--chat-panel-width, 360px);
+  min-width: 280px;
+  max-width: 70vw;
   height: 100vh;
   display: flex;
   flex-direction: column;
