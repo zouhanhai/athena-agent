@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import CodeTab from "@/components/CodeTab.vue";
 import IssuesTab from "@/components/IssuesTab.vue";
+import KanbanTab from "@/components/KanbanTab.vue";
 
 type WorkbenchTabValue = "code" | "issues" | "kanban";
 
@@ -28,7 +29,7 @@ const tabs: WorkbenchTab[] = [
     value: "kanban",
     label: "Kanban",
     description:
-      "Track Goals/Specs/Tickets as a board fed by the docs-scan. Coming in G3.S4.T4.",
+      "Track Goals/Specs/Tickets as a board fed by the docs-scan.",
   },
 ];
 
@@ -57,8 +58,7 @@ const activeTab = ref<WorkbenchTabValue>("code");
             <IssuesTab class="issues-tab-host" />
           </template>
           <template v-else>
-            <h3 class="tab-title">{{ tab.label }}</h3>
-            <p class="tab-description">{{ tab.description }}</p>
+            <KanbanTab class="kanban-tab-host" />
           </template>
         </div>
       </t-tab-panel>
@@ -159,6 +159,12 @@ const activeTab = ref<WorkbenchTabValue>("code");
   gap: 0;
 }
 
+.tab-panel-kanban {
+  padding: 0;
+  justify-content: stretch;
+  gap: 0;
+}
+
 .code-tab-host {
   flex: 1;
   min-height: 0;
@@ -171,17 +177,9 @@ const activeTab = ref<WorkbenchTabValue>("code");
   width: 100%;
 }
 
-.tab-title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-}
-
-.tab-description {
-  margin: 0;
-  max-width: 520px;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--caleo-text-secondary);
+.kanban-tab-host {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
 }
 </style>
