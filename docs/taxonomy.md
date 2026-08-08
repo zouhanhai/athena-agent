@@ -37,52 +37,52 @@ Each document gets **one** hierarchical topic path (slash-separated). Pick the *
 
 ### SAP (core business)
 ```
-sap/ai                            SAP AI (AI Foundation, Joule, CoPilot)
-sap/consolidation                 合并报表 consolidation
-  sap/consolidation/bcs           BCS
-  sap/consolidation/group-reporting   Group Reporting
+sap/ai                                  SAP AI (AI Foundation, Joule, CoPilot)
+sap/consolidation                       Consolidation
+  sap/consolidation/bcs                 BCS
+  sap/consolidation/group-reporting     Group Reporting
   sap/consolidation/ndc-financial-consolidation   NDC Financial Consolidation
-sap/planning                      规划 planning
-  sap/planning/bpc                BPC
-sap/business-warehouse            数据仓库
-  sap/business-warehouse/bw       BW / BW/4
-  sap/business-warehouse/datasphere  Datasphere
-sap/cloud                         云
-  sap/cloud/bdc                   BDC
-  sap/cloud/btp                   BTP
-sap/reporting                     报表
-  sap/reporting/legacy            Legacy (BEx, WAD)
-  sap/reporting/sac               SAC
-  sap/reporting/lumira            Lumira
-sap/development                   开发
-  sap/development/abap            ABAP
-  sap/development/cds             CDS
-  sap/development/fiori           Fiori / UI5
-sap/esg                           ESG Reporting
-sap/migration                     SAP migration (all paths)
-  sap/migration/s4hana            S/4HANA migration (greenfield/brownfield/bluefield)
-  sap/migration/bw                BW 7.5 → BW/4
-  sap/migration/consolidation     BCS → BCS4 / Group Reporting
-  sap/migration/onprem-to-cloud   On-premise → cloud (RISE, lift & shift)
+sap/planning                            Planning
+  sap/planning/bpc                      BPC
+sap/business-warehouse                  Business Warehouse
+  sap/business-warehouse/bw             BW / BW/4
+  sap/business-warehouse/datasphere     Datasphere
+sap/cloud                               Cloud
+  sap/cloud/bdc                         BDC
+  sap/cloud/btp                         BTP
+sap/reporting                           Reporting
+  sap/reporting/legacy                  Legacy (BEx, WAD)
+  sap/reporting/sac                     SAC
+  sap/reporting/lumira                  Lumira
+sap/development                         Development
+  sap/development/abap                  ABAP
+  sap/development/cds                   CDS
+  sap/development/fiori                 Fiori / UI5
+sap/esg                                 ESG Reporting
+sap/migration                           SAP migration (all paths)
+  sap/migration/s4hana                  S/4HANA migration (greenfield/brownfield/bluefield)
+  sap/migration/bw                      BW 7.5 → BW/4
+  sap/migration/consolidation           BCS → BCS4 / Group Reporting
+  sap/migration/onprem-to-cloud         On-premise → cloud (RISE, lift & shift)
 ```
 
 ### Finance (client business knowledge, non-SAP-system)
 ```
-finance/accounting                会计
-finance/reporting                 财务报告
-finance/consolidation             合并
-finance/tax                       税务
-finance/audit                     审计
+finance/accounting                      Accounting
+finance/reporting                       Financial reporting
+finance/consolidation                   Consolidation
+finance/tax                             Tax
+finance/audit                           Audit
 ```
 
 ### IT (non-SAP)
 ```
-it/ai                             AI / ML knowledge
-it/data-intelligence              Data Intelligence (SDI)
-it/infra                          基础设施
-it/cloud                          云
-it/security                       安全
-it/devops                         开发运维
+it/ai                                   AI / ML knowledge
+it/data-intelligence                    Data Intelligence (SDI)
+it/infra                                Infrastructure
+it/cloud                                Cloud
+it/security                             Security
+it/devops                               DevOps
 ```
 
 ### Client projects (consulting)
@@ -92,21 +92,21 @@ client/<client-name>/<project-name>
 
 ### Corporate (company files)
 ```
-corporate/hr                      人事
-corporate/marketing               市场
-corporate/legal                   法务
-corporate/governance              治理
-corporate/admin                   Admin Betreuer
-corporate/general                 General (company-wide / soft skills)
-corporate/project-management      Projektmanagement
+corporate/hr                            HR
+corporate/marketing                     Marketing
+corporate/legal                         Legal
+corporate/governance                    Governance
+corporate/admin                         Admin / admin support
+corporate/general                       General (company-wide / soft skills)
+corporate/project-management            Project management
 ```
 
 ### Internal (company-internal)
 ```
-internal/events                   活动 (Sommerseminar)
-internal/reports                  内部报告
-internal/onboarding               入职
-internal/training                 培训
+internal/events                         Events (Sommerseminar)
+internal/reports                        Internal reports
+internal/onboarding                     Onboarding
+internal/training                       Training
 ```
 
 ---
