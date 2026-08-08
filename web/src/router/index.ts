@@ -46,6 +46,11 @@ const routes: RouteRecordRaw[] = [
     name: "workbench",
     component: () => import("../views/WorkbenchView.vue"),
   },
+  {
+    path: "/uploads",
+    name: "uploads",
+    component: () => import("../views/UploadsView.vue"),
+  },
 ];
 
 export default createRouter({

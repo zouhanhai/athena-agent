@@ -6,6 +6,7 @@ import {
   BookIcon,
   FolderOpenIcon,
   TerminalIcon,
+  UploadIcon,
   UsergroupIcon,
   ViewGanttIcon,
 } from "tdesign-icons-vue-next";
@@ -29,6 +30,7 @@ const menuTheme = computed(() => (mode.value === "dark" ? "dark" : "light"));
 const navItems: NavItem[] = [
   { label: "Knowledge", path: "/knowledge", icon: BookIcon },
   { label: "Workbench", path: "/workbench", icon: TerminalIcon },
+  { label: "Uploads", path: "/uploads", icon: UploadIcon },
   { label: "Kanban", path: "/kanban", icon: ViewGanttIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
   { label: "Agents", path: "/agents", icon: UsergroupIcon },
