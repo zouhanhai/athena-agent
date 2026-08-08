@@ -98,7 +98,9 @@ function onToggle() {
   height: 26px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #ffffff, #e8ecf3 70%);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(120, 130, 150, 0.35);
   transition: transform var(--caleo-duration-toggle) cubic-bezier(0.23, 1, 0.32, 1);
   z-index: 2;
 }
