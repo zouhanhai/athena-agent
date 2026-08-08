@@ -13,6 +13,7 @@ import { registerGithubRoutes } from "./routes/github.js";
 import { registerInvitationRoutes } from "./routes/invitations.js";
 import { createSecretCipher, type SecretCipher } from "./employees/crypto.js";
 import { GithubRestClient, type GitHubApi } from "./github/client.js";
+import { MemoryGithubOpStore, type GithubOpStore } from "./github/ops.js";
 import {
   MemoryAgentRegistry,
   PostgresAgentRegistry,
@@ -64,6 +65,7 @@ export interface BuildAppOptions {
   employees?: EmployeeRegistry;
   auth?: AuthService;
   github?: GitHubApi;
+  ops?: GithubOpStore;
   cipher?: SecretCipher;
   invitations?: InvitationService;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
@@ -205,6 +207,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const tokens = !options.auth || !options.invitations ? defaultAuthTokenStore() : undefined;
   const auth = options.auth ?? defaultAuthService(employees, tokens);
   const github = options.github ?? defaultGithubClient();
+  const ops = options.ops ?? new MemoryGithubOpStore();
   const invitations = options.invitations ?? defaultInvitationService(employees, tokens!);
 
   app.register(multipart, {
@@ -241,7 +244,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerLogoRoutes(app, { logoStore: logos, registry });
   registerChatRoutes(app, { manager });
   registerEmployeeRoutes(app, { employees, auth, agents: registry });
-  registerGithubRoutes(app, { employees, auth, github });
+  registerGithubRoutes(app, { employees, auth, github, ops });
   registerInvitationRoutes(app, { invitations, auth });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),

@@ -10,10 +10,90 @@ export interface GithubRepo {
   default_branch: string;
 }
 
-/** GitHub operations driven by a per-user credential (G3.S2.T2). */
+/** A single entry in a repo's recursive git tree. */
+export interface GithubTreeEntry {
+  path: string;
+  type: "blob" | "tree" | "commit";
+  mode: string;
+  sha: string;
+  size: number | null;
+}
+
+/** A pull request as returned to the browse API. */
+export interface GithubPull {
+  number: number;
+  title: string;
+  state: string;
+  html_url: string;
+  head_ref: string;
+  base_ref: string;
+  user_login: string | null;
+  body: string | null;
+}
+
+/** An issue as returned to the browse API. */
+export interface GithubIssue {
+  number: number;
+  title: string;
+  state: string;
+  html_url: string;
+  user_login: string | null;
+  body: string | null;
+  labels: string[];
+}
+
+/** Input for opening a pull request. */
+export interface OpenPullInput {
+  title: string;
+  head: string;
+  base: string;
+  body?: string;
+}
+
+/** Input for editing (PUT) a file's contents. Content must be base64-encoded. */
+export interface EditFileInput {
+  message: string;
+  content: string;
+  branch?: string;
+  sha?: string;
+}
+
+/** The commit created by an edit-file op. */
+export interface GithubCommit {
+  sha: string;
+  html_url: string;
+  message: string;
+}
+
+/** The result of merging a pull request. */
+export interface GithubMergeResult {
+  merged: boolean;
+  message: string;
+  sha: string | null;
+}
+
+/** GitHub operations driven by a per-user credential (G3.S2.T2 + G3.S6.T5). */
 export interface GitHubApi {
   /** List repos visible to the authenticated credential. */
   listRepos(credential: GithubCredential): Promise<GithubRepo[]>;
+  /** List the repo's recursive git tree at an optional ref (branch/tag/sha; default branch when omitted). */
+  listTree(credential: GithubCredential, owner: string, repo: string, ref?: string): Promise<GithubTreeEntry[]>;
+  /** List open pull requests for a repo. */
+  listPulls(credential: GithubCredential, owner: string, repo: string): Promise<GithubPull[]>;
+  /** List open issues for a repo. */
+  listIssues(credential: GithubCredential, owner: string, repo: string): Promise<GithubIssue[]>;
+  /** Open a pull request. */
+  openPull(credential: GithubCredential, owner: string, repo: string, input: OpenPullInput): Promise<GithubPull>;
+  /** Edit (PUT) a file's contents. */
+  editFile(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    path: string,
+    input: EditFileInput,
+  ): Promise<GithubCommit>;
+  /** Merge a pull request. */
+  mergePull(credential: GithubCredential, owner: string, repo: string, number: number): Promise<GithubMergeResult>;
 }
 
 export class GithubAuthError extends Error {}
@@ -26,7 +106,18 @@ export interface GithubRestClientOptions {
   fetchImpl?: typeof fetch;
 }
 
-/** GitHub REST client. Repo listing requires a token; SSH keys can't authenticate the REST API. */
+const COMMON_HEADERS: Record<string, string> = {
+  Accept: "application/vnd.github+json",
+  "User-Agent": "athena-agent",
+  "X-GitHub-Api-Version": "2022-11-28",
+};
+
+const SHA_RE = /^[0-9a-f]{40}$/i;
+
+/**
+ * GitHub REST client. Browse + ops require a token; SSH keys can't
+ * authenticate the REST API.
+ */
 export class GithubRestClient implements GitHubApi {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -36,39 +127,257 @@ export class GithubRestClient implements GitHubApi {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  async listRepos(credential: GithubCredential): Promise<GithubRepo[]> {
+  /** Authenticated GET/POST/PUT/DELETE against the REST API; throws on non-2xx. */
+  private async request(
+    credential: GithubCredential,
+    path: string,
+    init: { method?: string; body?: string } = {},
+  ): Promise<Response> {
     if (credential.type !== "token") {
       throw new GithubCredentialUnsupportedError(
-        "repo listing requires a token credential (an SSH key cannot authenticate the GitHub REST API)",
+        "GitHub REST operations require a token credential (an SSH key cannot authenticate the REST API)",
       );
     }
-    const response = await this.fetchImpl(`${this.baseUrl}/user/repos?per_page=100&sort=full_name`, {
-      method: "GET",
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      method: init.method ?? "GET",
       headers: {
+        ...COMMON_HEADERS,
         Authorization: `Bearer ${credential.value}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "athena-agent",
-        "X-GitHub-Api-Version": "2022-11-28",
       },
+      body: init.body,
     });
     if (response.status === 401 || response.status === 403) {
       throw new GithubAuthError(`GitHub rejected the credential (HTTP ${response.status})`);
     }
     if (!response.ok) {
-      throw new Error(`GitHub API error ${response.status}: ${await response.text().catch(() => "")}`);
+      const err = new Error(`GitHub API error ${response.status}: ${await response.text().catch(() => "")}`);
+      Object.assign(err, { status: response.status });
+      throw err;
     }
-    const data = (await response.json()) as unknown[];
+    return response;
+  }
+
+  private async json(response: Response): Promise<unknown> {
+    return response.json().catch(() => null);
+  }
+
+  private string(value: unknown): string {
+    return value == null ? "" : String(value);
+  }
+
+  private maybeString(value: unknown): string | null {
+    return value == null ? null : String(value);
+  }
+
+  private positiveInt(value: unknown): number | null {
+    const n = typeof value === "number" && Number.isInteger(value) ? value : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** Resolve a ref (branch/tag/sha; default branch when omitted) to a commit sha. */
+  private async resolveRefSha(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    ref?: string,
+  ): Promise<string> {
+    let target = ref;
+    if (!target) {
+      const repoData = (await this.json(await this.request(credential, `/repos/${owner}/${repo}`))) as Record<
+        string,
+        unknown
+      >;
+      target = typeof repoData.default_branch === "string" ? repoData.default_branch : "HEAD";
+    }
+    if (SHA_RE.test(target)) {
+      return target;
+    }
+    const encoded = encodeURIComponent(target);
+    try {
+      const headData = (await this.json(
+        await this.request(credential, `/repos/${owner}/${repo}/git/ref/heads/${encoded}`),
+      )) as { object?: { sha?: unknown } };
+      const sha = headData.object?.sha;
+      if (typeof sha === "string") {
+        return sha;
+      }
+    } catch (err) {
+      if (!(err instanceof Error) || err.message.startsWith("GitHub API error 404") === false) {
+        throw err;
+      }
+    }
+    const tagData = (await this.json(
+      await this.request(credential, `/repos/${owner}/${repo}/git/ref/tags/${encoded}`),
+    )) as { object?: { sha?: unknown } };
+    const sha = tagData.object?.sha;
+    if (typeof sha === "string") {
+      return sha;
+    }
+    throw new Error(`GitHub API error: ref "${target}" not found in ${owner}/${repo}`);
+  }
+
+  async listRepos(credential: GithubCredential): Promise<GithubRepo[]> {
+    const response = await this.request(credential, "/user/repos?per_page=100&sort=full_name");
+    const data = await this.json(response);
     const repos = Array.isArray(data) ? data : [];
-    return repos.map((item) => {
+    const mapped: GithubRepo[] = [];
+    for (const item of repos) {
       const repo = item as Record<string, unknown>;
-      return {
-        name: String(repo.name ?? ""),
-        full_name: String(repo.full_name ?? ""),
-        html_url: String(repo.html_url ?? ""),
-        description: typeof repo.description === "string" ? repo.description : null,
+      mapped.push({
+        name: this.string(repo.name),
+        full_name: this.string(repo.full_name),
+        html_url: this.string(repo.html_url),
+        description: this.maybeString(repo.description),
         private: Boolean(repo.private),
-        default_branch: String(repo.default_branch ?? "main"),
-      };
+        default_branch: this.string(repo.default_branch) || "main",
+      });
+    }
+    return mapped;
+  }
+
+  async listTree(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    ref?: string,
+  ): Promise<GithubTreeEntry[]> {
+    const sha = await this.resolveRefSha(credential, owner, repo, ref);
+    const response = await this.request(credential, `/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`);
+    const data = (await this.json(response)) as { tree?: unknown };
+    const entries = Array.isArray(data.tree) ? data.tree : [];
+    const mapped: GithubTreeEntry[] = [];
+    for (const item of entries) {
+      const entry = item as Record<string, unknown>;
+      mapped.push({
+        path: this.string(entry.path),
+        type: entry.type === "blob" || entry.type === "commit" ? entry.type : "tree",
+        mode: this.string(entry.mode),
+        sha: this.string(entry.sha),
+        size: this.positiveInt(entry.size),
+      });
+    }
+    return mapped;
+  }
+
+  private async listCollection(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    resource: "pulls" | "issues",
+  ): Promise<unknown[]> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/${resource}?state=open&per_page=100`);
+    const data = await this.json(response);
+    return Array.isArray(data) ? data : [];
+  }
+
+  async listPulls(credential: GithubCredential, owner: string, repo: string): Promise<GithubPull[]> {
+    const items = await this.listCollection(credential, owner, repo, "pulls");
+    const mapped: GithubPull[] = [];
+    for (const item of items) {
+      const pull = item as Record<string, unknown>;
+      const head = pull.head as Record<string, unknown> | null;
+      const base = pull.base as Record<string, unknown> | null;
+      const user = pull.user as Record<string, unknown> | null;
+      mapped.push({
+        number: this.positiveInt(pull.number) ?? 0,
+        title: this.string(pull.title),
+        state: this.string(pull.state),
+        html_url: this.string(pull.html_url),
+        head_ref: this.string(head?.ref),
+        base_ref: this.string(base?.ref),
+        user_login: this.maybeString(user?.login),
+        body: this.maybeString(pull.body),
+      });
+    }
+    return mapped;
+  }
+
+  async listIssues(credential: GithubCredential, owner: string, repo: string): Promise<GithubIssue[]> {
+    const items = await this.listCollection(credential, owner, repo, "issues");
+    const mapped: GithubIssue[] = [];
+    for (const item of items) {
+      const issue = item as Record<string, unknown>;
+      const user = issue.user as Record<string, unknown> | null;
+      const labels = Array.isArray(issue.labels) ? issue.labels : [];
+      mapped.push({
+        number: this.positiveInt(issue.number) ?? 0,
+        title: this.string(issue.title),
+        state: this.string(issue.state),
+        html_url: this.string(issue.html_url),
+        user_login: this.maybeString(user?.login),
+        body: this.maybeString(issue.body),
+        labels: labels.map((label) => String((label as Record<string, unknown>)?.name ?? label)),
+      });
+    }
+    return mapped;
+  }
+
+  async openPull(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    input: OpenPullInput,
+  ): Promise<GithubPull> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/pulls`, {
+      method: "POST",
+      body: JSON.stringify(input),
     });
+    return (await this.toPull(await this.json(response)))!;
+  }
+
+  private async toPull(value: unknown): Promise<GithubPull | null> {
+    if (typeof value !== "object" || value === null) {
+      return null;
+    }
+    const pull = value as Record<string, unknown>;
+    const head = pull.head as Record<string, unknown> | null;
+    const base = pull.base as Record<string, unknown> | null;
+    const user = pull.user as Record<string, unknown> | null;
+    return {
+      number: this.positiveInt(pull.number) ?? 0,
+      title: this.string(pull.title),
+      state: this.string(pull.state),
+      html_url: this.string(pull.html_url),
+      head_ref: this.string(head?.ref),
+      base_ref: this.string(base?.ref),
+      user_login: this.maybeString(user?.login),
+      body: this.maybeString(pull.body),
+    };
+  }
+
+  async editFile(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    path: string,
+    input: EditFileInput,
+  ): Promise<GithubCommit> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+    const data = (await this.json(response)) as { sha?: unknown; html_url?: unknown; commit?: { html_url?: unknown; message?: unknown } };
+    return {
+      sha: this.string(data.sha),
+      html_url: this.string(data.html_url ?? data.commit?.html_url),
+      message: this.string(data.commit?.message),
+    };
+  }
+
+  async mergePull(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<GithubMergeResult> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/pulls/${number}/merge`, {
+      method: "PUT",
+    });
+    const data = (await this.json(response)) as Record<string, unknown>;
+    return {
+      merged: Boolean(data.merged),
+      message: this.string(data.message),
+      sha: this.maybeString(data.sha),
+    };
   }
 }
