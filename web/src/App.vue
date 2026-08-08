@@ -102,10 +102,11 @@ onMounted(() => {
 }
 
 .chat-splitter {
-  width: 6px;
+  width: 8px;
   cursor: col-resize;
   flex-shrink: 0;
-  background: transparent;
+  background: var(--caleo-border);
+  border-left: 1px solid color-mix(in srgb, var(--caleo-primary) 20%, transparent);
   transition: background 0.15s;
   touch-action: none;
 }
