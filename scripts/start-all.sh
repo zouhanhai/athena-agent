@@ -79,7 +79,11 @@ if port_in_use 3000; then
   log "athena-back :3000 already running"
 else
   log "Starting athena backend :3000"
-  ( cd "$HOME/athena-agent/server" && setsid npm run dev \
+  ( cd "$HOME/athena-agent/server" && \
+    export DATABASE_URL="postgres://hh:athena_pg_2026@127.0.0.1:5432/athena" \
+    export ADMIN_EMAIL="zouha108@caleo.com" \
+    export APP_BASE_URL="${APP_BASE_URL:-http://192.168.178.30:5173}" \
+    setsid npm run dev \
     < /dev/null > "$LOG_DIR/athena-server.log" 2>&1 & disown )
 fi
 
