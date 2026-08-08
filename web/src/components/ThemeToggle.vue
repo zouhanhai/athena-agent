@@ -145,11 +145,12 @@ function onToggle() {
   mask: radial-gradient(circle, transparent 55%, #000 56% 78%, transparent 79%);
 }
 
-/* Moon uses a krea-generated realistic lunar-surface image (transparent bg). */
+/* Moon uses a krea-generated realistic lunar-surface image filling the whole thumb. */
 .theme-toggle__moon-img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
+  border-radius: 50%;
   opacity: 0;
   transform: scale(0.85) rotate(-10deg);
   transition: opacity var(--caleo-duration-toggle) ease, transform var(--caleo-duration-toggle) ease;
