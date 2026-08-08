@@ -50,7 +50,9 @@
 - [ ] CodeGraph deployed and indexing code
 - [ ] 3 employees independent git identities + independent AgentSessions
 - [ ] Portal deployed on 6900XT via Tailscale
+  - Tailscale the 6900XT, then set `APP_BASE_URL` to the Tailscale IP so remote colleagues can reach the portal + open invite/magic-link URLs (currently LAN-only 192.168.178.30; remote access blocked until this is done — see `docs/deployment-config.md`)
 - [ ] Auth (Resend magic link) functional
+  - Requires verifying `caleo.com` domain in Resend (user lacks DNS today → 403 on send; meanwhile ConsoleMailer logs the invite/login links to `~/.athena-tmp/athena-server.log`)
 
 ### M5 — Output Page (txt/blog/charts/pptx/html)
 - [ ] Generate txt/blog/charts from knowledge base + web sources
