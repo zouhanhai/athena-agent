@@ -148,30 +148,23 @@ function onToggle() {
   overflow: hidden;
 }
 
-/* Crescent: mask a bright circle by punching out a shifted circle → clear moon shape. */
-.theme-toggle__moon::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle at 40% 35%, #ffffff 0%, #e6e9f2 60%, #c3c9dd 100%);
-  -webkit-mask: radial-gradient(circle at 62% 40%, transparent 0 42%, #000 43% 100%);
-  mask: radial-gradient(circle at 62% 40%, transparent 0 42%, #000 43% 100%);
-}
-
-/* Small craters for a soft lunar texture. */
+/* Lunar craters: dark pits with a bright rim (like real moon craters).
+   One ::after element renders multiple craters via box-shadow (each shadow = a crater). */
 .theme-toggle__moon::after {
   content: "";
   position: absolute;
   top: 8px;
   left: 5px;
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: rgba(120, 130, 160, 0.35);
+  background: rgba(85, 95, 125, 0.28);
   box-shadow:
-    7px 5px 0 rgba(120, 130, 160, 0.22),
-    11px 10px 0 rgba(120, 130, 160, 0.18);
+    inset 0 0 3px rgba(60, 70, 100, 0.5),
+    0 1px 1px rgba(255, 255, 255, 0.6),
+    9px 6px 0 -1px rgba(85, 95, 125, 0.22),
+    11px 13px 0 -2px rgba(85, 95, 125, 0.2),
+    1px 12px 0 -2px rgba(85, 95, 125, 0.18);
 }
 
 .theme-toggle.is-dark .theme-toggle__sun {
