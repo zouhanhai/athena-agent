@@ -7,6 +7,7 @@ import {
   createRefineDocumentTool,
   type RefinedDocument,
 } from "../src/agents/refine-document.js";
+import type { RefineOutputRef, RefinementMode } from "../src/agents/refine-output.js";
 
 const sampleRefined: RefinedDocument = {
   markdown: "# Sommerseminar\n\n## Workshops\n\nDetails about the workshops.",
@@ -39,6 +40,41 @@ interface FakeRuntimeCalls {
   modelId?: string;
   options?: unknown;
   context?: { systemPrompt?: string; messages: unknown[]; tools: unknown[] };
+}
+
+interface FakeStoreRecorder {
+  stored?: RefinedDocument;
+  storageDir?: string;
+}
+
+/** Fake big-output store: records the full doc, returns the small ref (no disk writes in tests). */
+function makeFakeStore(recorder?: FakeStoreRecorder) {
+  return async (
+    doc: RefinedDocument,
+    storageDir: string,
+    opts: { stem?: string; mode?: RefinementMode; sections?: string[] } = {},
+  ): Promise<RefineOutputRef> => {
+    if (recorder) {
+      recorder.stored = doc;
+      recorder.storageDir = storageDir;
+    }
+    return {
+      md_ref: `${storageDir}/${opts.stem ?? "doc"}.md`,
+      chunks_ref: `${storageDir}/${opts.stem ?? "doc"}/chunks.json`,
+      preview: doc.markdown.slice(0, 200) + (doc.markdown.length > 200 ? "…" : ""),
+      char_count: doc.markdown.length,
+      line_count: doc.markdown.split("\n").length,
+      header_count: 0,
+      chunk_count: doc.chunks.length,
+      frontmatter: doc.frontmatter,
+      entities: doc.entities,
+      relations: doc.relations,
+      keywords: doc.keywords,
+      quality: doc.quality,
+      mode: opts.mode ?? "single",
+      sections: opts.sections ?? [],
+    };
+  };
 }
 
 function makeFakeRuntime(opts: {
@@ -88,6 +124,8 @@ function parseResult<T>(result: { content: { type: string; text?: string }[] }):
   return JSON.parse(text) as T;
 }
 
+const STORE_OPTS = { storageDir: "storage", storeImpl: makeFakeStore() } as const;
+
 test("refine_document registers markdown/topic_hint params + sequential execution", () => {
   const { runtime } = makeFakeRuntime();
   const tool = createRefineDocumentTool(runtime);
@@ -101,30 +139,35 @@ test("refine_document registers markdown/topic_hint params + sequential executio
   assert.ok(schema.required?.includes("markdown"), "markdown listed as required");
 });
 
-test("execute returns the structured output contract from the constrained emit tool", async () => {
+test("execute stores the full output and returns the small ref (pi-docparser big-output pattern)", async () => {
+  const recorder: FakeStoreRecorder = {};
   const { runtime } = makeFakeRuntime({ echoInputMarkdown: true });
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: makeFakeStore(recorder) });
 
   const result = await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
-  const parsed = parseResult<RefinedDocument>(result);
+  const ref = parseResult<RefineOutputRef>(result);
 
-  assert.equal(parsed.markdown, "# Doc");
-  assert.deepEqual(parsed.frontmatter, { type: "event", topic: "internal/events" });
-  assert.equal(parsed.chunks.length, 1);
-  assert.equal(parsed.entities[0].name, "CALEO");
-  assert.deepEqual(parsed.relations[0], {
+  // full re-leveled markdown + chunks land on disk/storage (recorded by the store)
+  assert.equal(recorder.stored!.markdown, "# Doc");
+  assert.equal(recorder.stored!.chunks.length, 1);
+  // the tool returns the SMALL metadata + refs, not the full document
+  assert.equal(ref.md_ref, "storage/doc.md");
+  assert.deepEqual(ref.frontmatter, { type: "event", topic: "internal/events" });
+  assert.equal(ref.entities[0].name, "CALEO");
+  assert.deepEqual(ref.relations[0], {
     source: "CALEO",
     target: "Sommerseminar",
     keywords: ["hosts"],
     description: "CALEO hosts the Sommerseminar.",
   });
-  assert.ok(Array.isArray(parsed.keywords));
-  assert.equal(parsed.quality.action, "auto_accept");
+  assert.ok(Array.isArray(ref.keywords));
+  assert.equal(ref.quality.action, "auto_accept");
+  assert.equal(ref.mode, "single");
 });
 
 test("uses the athena provider + deepseek-v4-flash-latest with thinkingLevel high", async () => {
   const { runtime, calls } = makeFakeRuntime();
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { ...STORE_OPTS });
 
   await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
 
@@ -136,7 +179,7 @@ test("uses the athena provider + deepseek-v4-flash-latest with thinkingLevel hig
 
 test("sets constrainedSampling JSON schema on the emit tool inside the LLM context", async () => {
   const { runtime, calls } = makeFakeRuntime();
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { ...STORE_OPTS });
 
   await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
 
@@ -150,7 +193,7 @@ test("sets constrainedSampling JSON schema on the emit tool inside the LLM conte
 
 test("topic_hint is folded into the refinement system prompt", async () => {
   const { runtime, calls } = makeFakeRuntime();
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { ...STORE_OPTS });
 
   await tool.execute("c", { markdown: "# Doc", topic_hint: "internal/events" }, undefined, undefined, {} as never);
 
@@ -159,7 +202,7 @@ test("topic_hint is folded into the refinement system prompt", async () => {
 
 test("rejects when the athena model is not registered (models.json/auth.json missing)", async () => {
   const { runtime } = makeFakeRuntime({ missingModel: true });
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { ...STORE_OPTS });
 
   await assert.rejects(
     () => tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never),
@@ -176,18 +219,19 @@ test("parses plain-text JSON output when the model does not emit a tool call", a
       stopReason: "stop",
     },
   });
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { ...STORE_OPTS });
 
   const result = await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
-  const parsed = parseResult<RefinedDocument>(result);
+  const ref = parseResult<RefineOutputRef>(result);
 
-  assert.equal(parsed.quality.confidence, 0.85);
-  assert.equal(parsed.frontmatter.type, "event");
+  assert.equal(ref.quality.confidence, 0.85);
+  assert.equal(ref.frontmatter.type, "event");
 });
 
 test("falls back to raw docling markdown when the LLM pass fails (never worse than today)", async () => {
+  const recorder: FakeStoreRecorder = {};
   const { runtime } = makeFakeRuntime({ completeThrows: new Error("openrouter 429 rate limited") });
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: makeFakeStore(recorder) });
 
   const result = await tool.execute(
     "c",
@@ -196,13 +240,13 @@ test("falls back to raw docling markdown when the LLM pass fails (never worse th
     undefined,
     {} as never,
   );
-  const parsed = parseResult<RefinedDocument>(result);
+  const ref = parseResult<RefineOutputRef>(result);
 
-  assert.equal(parsed.markdown, "# Raw\n\nbody");
-  assert.deepEqual(parsed.frontmatter, { type: "document", topic: "internal/events" });
-  assert.equal(parsed.quality.complete, false);
-  assert.equal(parsed.quality.action, "review_required");
-  assert.ok(parsed.quality.issues.length > 0, "issues records the failure");
+  assert.equal(recorder.stored!.markdown, "# Raw\n\nbody");
+  assert.deepEqual(ref.frontmatter, { type: "document", topic: "internal/events" });
+  assert.equal(ref.quality.complete, false);
+  assert.equal(ref.quality.action, "review_required");
+  assert.ok(ref.quality.issues.length > 0, "issues records the failure");
 });
 
 test("falls back when the model output is not schema-parseable", async () => {
@@ -214,11 +258,11 @@ test("falls back when the model output is not schema-parseable", async () => {
       stopReason: "stop",
     },
   });
-  const tool = createRefineDocumentTool(runtime);
+  const tool = createRefineDocumentTool(runtime, { ...STORE_OPTS });
 
   const result = await tool.execute("c", { markdown: "# Raw" }, undefined, undefined, {} as never);
-  const parsed = parseResult<RefinedDocument>(result);
+  const ref = parseResult<RefineOutputRef>(result);
 
-  assert.equal(parsed.markdown, "# Raw");
-  assert.equal(parsed.quality.action, "review_required");
+  assert.equal(ref.frontmatter.type, "document");
+  assert.equal(ref.quality.action, "review_required");
 });
