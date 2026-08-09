@@ -3,7 +3,7 @@ id: g3
 title: "G3: Multi-Agent Federation & Team Workbench"
 layer: G
 owner: consultant
-status: active
+status: done
 created_at: 2026-08-07
 milestone: M3
 acceptance_criteria:
