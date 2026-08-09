@@ -38,6 +38,20 @@ These are a mix of S4.T5-new tests and pre-existing (S8.T1 / S5.T6) tests. Root-
 - Fix ALL 5 so the suite is green. Fix genuine production bugs if found (add regression tests), otherwise fix the tests.
 - Keep `npx vue-tsc --noEmit` at 0 errors.
 
+## Additional Workbench UX improvements (confirmed 2026-08-09, same ticket)
+1. **Collapsible commits panel (Code)**: the commits panel in CodeTab (`<aside class="commits-panel">`)
+   must be hideable/collapsible (a toggle to show/hide the commit history list). Keep the HEAD commit
+   visible; collapsing hides the full list.
+2. **Markdown render toggle (Code/md files)**: when a `.md` file is opened in the Workbench Code tab,
+   add a toggle to switch between the raw code view and a **rendered markdown view** (reuse the wiki
+   markdown renderer `renderMarkdown` from `@/kb/markdown` for readable display).
+3. **Kanban refresh needs scan progress feedback**: the Refresh button in KanbanTab shows only a boolean
+   `loading` — no visibility into the scan, so it looks dead ("3 file(s) failed to scan" appears only at
+   the end). Add a **scan progress indicator** (e.g. "Scanning docs/kanban…", per-file progress if the
+   backend exposes it, or at least a clear in-progress state) so the user knows the refresh is working.
+   Check the backend `/api/kanban` scan for whether it can report progress; if not, at least show a
+   spinner/"Scanning…" + surface the partial/failed-file count as feedback rather than silence.
+
 ## Recommended Skills (OpenCode)
 - **tdd** / **code-review** / **diagnosing-bugs** / **codegraph_explore**
 
