@@ -68,6 +68,14 @@
       + don't auto-retry unfixable failures (avoid the "12 identical reruns on one card" problem we saw);
       (3) optional autonomous planning (goal → tasks, dependencies, priority). See vs-github-issues: our board
       = agent's local workspace; GitHub Issues = external/team tracker; can coexist.
+- [ ] **Kanban ↔ GitHub Issues bidirectional sync + planning feedback loop** — spec `docs/spec-m4-kanban-issues-sync.md` (2026-08-09)
+  - md files stay the single source of truth (agents read/write docs/kanban directly); each **Spec →
+    a GitHub Issue** (tickets as `## Sub-tasks` checklist), giving team discussion surface.
+  - **md → GitHub** (projection): spec→issue; ticket state-machine changes + assignee/session sync;
+    Progress Log detail NOT pushed (stays in md; avoid spamming GitHub). Sync CLI/tool (board.js-style).
+  - **GitHub → md** (feedback loop): team comments/ideas → **plan agent reads them → new/edited tickets
+    or a new spec** back into md (source of truth). Human keeps authority; md authoritative on conflict.
+  - Reference: ABAPlorer workflow (Caleo, private repo `WORKFLOW-PROPOSAL.md` + `scripts/board.js`).
 - [ ] **Remote Agent Federation (HTTP/SSE + Tailscale)**
   - Architecture (decided 2026-08-09): agents stay LOCAL (tools run on each employee's machine); the platform is a control plane. Users send commands via the platform → forwarded to the right local agent → agent works locally → streams the process + result back. **Communication is HTTP + SSE, NOT WebSocket** (SSE covers real-time push; HTTP covers command send). Tailscale provides the encrypted tunnel so the server can reach every local agent across regions.
   - Each local agent (Hermes API Server `/api/sessions/{id}/chat/stream` SSE, OpenCode serve `/global/event`, etc.) already exposes an HTTP+SSE remote-control surface — no new protocol needed.
