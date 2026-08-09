@@ -237,4 +237,40 @@ describe("KanbanTab", () => {
     expect(wrapper.find(".kanban-error").text()).toContain("disk read failed");
     wrapper.unmount();
   });
+
+  it("shows scan-progress feedback while the board refreshes", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    let resolveFetch!: (board: KanbanBoard) => void;
+    fetchBoardMock.mockImplementation(
+      () =>
+        new Promise<KanbanBoard>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const wrapper = await mountKanbanTab();
+
+    expect(wrapper.find(".kanban-refresh").attributes("disabled")).toBeDefined();
+    expect(wrapper.find(".kanban-refresh").text()).toContain("Scanning");
+    expect(wrapper.text()).toContain("Scanning docs/kanban");
+
+    resolveFetch(BOARD);
+    await flushPromises();
+
+    expect(wrapper.find(".kanban-refresh").attributes("disabled")).toBeUndefined();
+    expect(wrapper.find(".kanban-refresh").text()).not.toContain("Scanning");
+    expect(wrapper.find(".kanban-column").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("surfaces the number of files that failed to scan after a refresh", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchBoardMock.mockResolvedValue({
+      goals: BOARD.goals,
+      errors: [{ file: "docs/kanban/G1/S1/T9.md", error: "boom" }],
+    });
+    const wrapper = await mountKanbanTab();
+
+    expect(wrapper.find(".kanban-scan-errors").text()).toContain("1 file(s) failed to scan");
+    wrapper.unmount();
+  });
 });

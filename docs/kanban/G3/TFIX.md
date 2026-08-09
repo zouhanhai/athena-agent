@@ -4,9 +4,11 @@ title: "G3.TFIX: Fix 5 failing frontend tests (workbench-shared-repo 2, knowledg
 layer: T
 parent: G3
 owner: eng-director
-status: backlog
-assignee: ""
-started_at: ""
+status: done
+assignee: opencode
+session_id: ses_g3_tfix
+started_at: 2026-08-09
+completed_at: 2026-08-09
 blocked_by: []
 acceptance_criteria:
   - "All 5 currently-failing web tests pass: workbench-shared-repo (2), knowledge-view (2), wiki-view (1)"
@@ -61,3 +63,42 @@ These are a mix of S4.T5-new tests and pre-existing (S8.T1 / S5.T6) tests. Root-
 - `web/src/kb/graph.ts` (`localSubgraph`), `web/src/kb/wiki-tree.ts` (`attachHeadings`)
 
 ## Log
+
+### 2026-08-09 — opencode (ses_g3_tfix) — done
+
+**Part 1 — the 5 "failing" tests were already green.** Verified the suite head: `cd web && npx vitest run`
+→ `324 passed (324)` (rerun under `--pool=forks` single-fork too), and each flagged test individually.
+The ticket baseline predates the S4.T5 implementation commits (`e5f57e2` lift repo selector / `26d403b`
+commits panel / `4274fbd` repo-bound tabs) that shipped the matching logic + tests:
+- `workbench-shared-repo.spec.ts` (2): WorkbenchView lifts the selector + fetches once (onMounted →
+  `fetchRepos(tok)`), and passes the single `repo` prop to CodeTab/IssuesTab/KanbanTab — both green.
+- `knowledge-view.spec.ts` (2): GraphStub `trigger('click')` → `eventHandlers["node:click"]` →
+  `onNodeClick` → `graph.value = localSubgraph(graph.value, nodeId, 2)`. Topic mode correctly filters
+  out n4 (nodes become [n1,n2,n3]); detail panel renders (name/type/relations). Both green — the
+  "n4 not filtered" failure was a stale-baseline artifact, not a component bug.
+- `wiki-view.spec.ts` (1): `attachHeadings`/`extractWikiHeadings` add heading child nodes ("Setup") to
+  the left tree and clicking scrolls (`scrollIntoView`). Green.
+
+No test or production code was weakened; the eng director confirmed the failures were a local
+workspace-state artifact, not real bugs. **No changes made in Part 1.**
+
+**Part 2 — Workbench UX improvements (implemented):**
+1. **Collapsible commits panel (CodeTab)**: `.commits-panel` gains a `Hide/Show` toggle
+   (`.commits-toggle`, aria-expanded, ▸/▾ caret) in the panel header. Collapsing shows only the HEAD
+   commit (`visibleCommits` = `commits.slice(0,1)`) and hides the full history; expanding restores it.
+   The HEAD commit also stays visible in the code-view header (`.code-head`).
+2. **Markdown render toggle (CodeTab)**: when a `.md` file is opened, a `Code | Preview` toggle
+   (`.md-toggle`) appears in the code-view header. Preview renders via the wiki renderer
+   `renderMarkdown` from `@/kb/markdown` (`.md-preview`, styles mirror `.wiki-content`). `viewMode`
+   resets to `code` on file/repo/branch change; non-`.md` files get no toggle.
+3. **Kanban scan-progress feedback (KanbanTab)**: Refresh now shows a spinner + "Scanning…" on the
+   button and a "Scanning docs/kanban…" status (aria-live) in the toolbar while `loading`, plus a
+   "Refreshed <time>" stamp after a successful scan. The "X file(s) failed to scan." count stays
+   surfaced. The backend `/api/kanban` scan (`scanBoard`/`scanRemoteBoard`) returns a single response
+   (no streaming/per-file progress channel), so per the ticket the spinner + failed-count fallback is
+   the right surface — verified backend, no change needed.
+
+**Tests**: added 4 CodeTab tests (collapse toggle → HEAD-only + expand, `.md` Code/Preview toggle +
+renderMarkdown output, non-md no toggle) and 2 KanbanTab tests (scan-progress state while pending,
+failed-scan count). Web: `npx vitest run` → **330/330**, `npx vue-tsc --noEmit` → 0 errors. Server:
+`npm test` → **568/568**. Committed feature-level.

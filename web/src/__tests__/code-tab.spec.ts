@@ -12,6 +12,7 @@ import {
   fetchRepos,
   fetchTree,
 } from "@/api/github";
+import { renderMarkdown } from "@/kb/markdown";
 import type { GithubBranch, GithubCommit, GithubRepo, GithubTreeEntry } from "@/api/github";
 
 vi.mock("@/api/github", () => ({
@@ -223,6 +224,92 @@ describe("CodeTab", () => {
     await flushPromises();
     expect(fetchCommitsMock.mock.calls.length).toBe(callsAfterMount + 1);
     expect(fetchCommitsMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "athena-agent", "master");
+    wrapper.unmount();
+  });
+
+  it("collapses the commit list to the HEAD commit and expands it back", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountCodeTab();
+
+    expect(wrapper.findAll(".commit-row").length).toBe(2);
+    const toggle = wrapper.find(".commits-toggle");
+    expect(toggle.exists()).toBe(true);
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+
+    await toggle.trigger("click");
+    await flushPromises();
+    const rows = wrapper.findAll(".commit-row");
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.text()).toContain("Fix login bug");
+    expect(rows[0]!.text()).not.toContain("Add docs");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+
+    await toggle.trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll(".commit-row").length).toBe(2);
+    wrapper.unmount();
+  });
+
+  it("shows a Code/Preview toggle for .md files and renders the markdown preview", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchFileContentMock.mockResolvedValue({
+      path: "README.md",
+      sha: "a1",
+      size: 12,
+      content: "# Readme\n\nSome **bold** text.",
+    });
+    const wrapper = await mountCodeTab();
+
+    const readme = wrapper
+      .findAll(".tree-node-blob")
+      .find((item) => item.text().includes("README.md"));
+    await readme!.find(".tree-row").trigger("click");
+    await flushPromises();
+
+    const toggle = wrapper.find(".md-toggle");
+    expect(toggle.exists()).toBe(true);
+    expect(wrapper.find(".code-lines").exists()).toBe(true);
+    expect(wrapper.find(".md-preview").exists()).toBe(false);
+
+    await toggle
+      .findAll("button")
+      .find((b) => b.text().includes("Preview"))!
+      .trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".code-lines").exists()).toBe(false);
+    const preview = wrapper.find(".md-preview");
+    expect(preview.exists()).toBe(true);
+    expect(preview.html()).toContain("<h1");
+    expect(preview.text()).toContain("Some bold text.");
+
+    await toggle
+      .findAll("button")
+      .find((b) => b.text().includes("Code"))!
+      .trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".code-lines").exists()).toBe(true);
+    expect(wrapper.find(".md-preview").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("renders the .md preview via the wiki renderMarkdown helper", async () => {
+    const html = renderMarkdown("# Readme\n\nSome **bold** text.");
+    expect(html).toContain("<h1");
+    expect(html).toContain("<strong>bold</strong>");
+  });
+
+  it("does not show a markdown toggle for non-markdown files", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountCodeTab();
+
+    await wrapper.findAll(".tree-node-tree > .tree-row").at(-1)!.trigger("click");
+    await flushPromises();
+    await wrapper.find(".tree-node-blob .tree-row").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".code-file-path").text()).toBe("src/index.ts");
+    expect(wrapper.find(".md-toggle").exists()).toBe(false);
     wrapper.unmount();
   });
 

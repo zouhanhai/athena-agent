@@ -12,6 +12,7 @@ import {
 } from "@/api/github";
 import { buildTree, type TreeNode } from "@/github/tree";
 import { detectLanguage, renderCodeLines } from "@/github/highlight";
+import { renderMarkdown } from "@/kb/markdown";
 
 const props = defineProps<{ repo: GithubRepo | null }>();
 
@@ -22,6 +23,7 @@ const branch = ref("");
 const tree = ref<TreeNode[]>([]);
 const selectedFile = ref<TreeNode | null>(null);
 const contentLines = ref<string[]>([]);
+const content = ref("");
 const language = ref("plaintext");
 const loading = ref(false);
 const error = ref("");
@@ -29,6 +31,7 @@ const error = ref("");
 const commits = ref<GithubCommit[]>([]);
 const commitsLoading = ref(false);
 const commitsError = ref("");
+const commitsCollapsed = ref(false);
 
 const hasSession = computed(() => !!auth.sessionToken);
 
@@ -36,6 +39,20 @@ const branchOptions = computed(() => branches.value.map((name) => ({ label: name
 
 /** The selected branch's HEAD commit (commits[0]); shown prominently in the code header. */
 const headCommit = computed(() => commits.value[0] ?? null);
+
+/** True when the open file is markdown, so the Code/Preview toggle shows. */
+const isMarkdownFile = computed(
+  () => selectedFile.value?.type === "blob" && /\.md$/i.test(selectedFile.value.path),
+);
+
+const renderedMarkdown = computed(() => renderMarkdown(content.value));
+
+const viewMode = ref<"code" | "preview">("code");
+
+/** Commits rendered in the side panel: the full history, or just HEAD when collapsed. */
+const visibleCommits = computed(() =>
+  commitsCollapsed.value ? commits.value.slice(0, 1) : commits.value,
+);
 
 /** True while onRepoChange sets the branch programmatically (skip the branch watcher). */
 let syncingBranch = false;
@@ -93,6 +110,8 @@ async function loadCommits(repo: GithubRepo, ref: string): Promise<void> {
 async function onRepoChange(): Promise<void> {
   selectedFile.value = null;
   contentLines.value = [];
+  content.value = "";
+  viewMode.value = "code";
   branches.value = [];
   tree.value = [];
   commits.value = [];
@@ -116,6 +135,8 @@ async function onBranchChange(ref: string): Promise<void> {
   }
   selectedFile.value = null;
   contentLines.value = [];
+  content.value = "";
+  viewMode.value = "code";
   await Promise.all([loadRepo(repo, ref), loadCommits(repo, ref)]);
 }
 
@@ -135,11 +156,14 @@ async function openFile(node: TreeNode): Promise<void> {
   selectedFile.value = node;
   language.value = detectLanguage(node.path);
   contentLines.value = [];
+  content.value = "";
+  viewMode.value = "code";
   loading.value = true;
   error.value = "";
   const [owner, name] = splitRepo(repo);
   try {
     const file = await fetchFileContent(auth.sessionToken, owner, name, node.path, branch.value || undefined);
+    content.value = file.content;
     contentLines.value = renderCodeLines(file.content, language.value);
   } catch (err) {
     fail(err);
@@ -217,10 +241,28 @@ watch(
               >{{ shortSha(headCommit.sha) }}</a>
               <span class="code-head-message" :title="headCommit.message">{{ headCommit.message }}</span>
             </span>
+            <span v-if="selectedFile && isMarkdownFile" class="md-toggle">
+              <button
+                type="button"
+                class="md-toggle-btn"
+                :class="{ 'is-active': viewMode === 'code' }"
+                @click="viewMode = 'code'"
+              >Code</button>
+              <button
+                type="button"
+                class="md-toggle-btn"
+                :class="{ 'is-active': viewMode === 'preview' }"
+                @click="viewMode = 'preview'"
+              >Preview</button>
+            </span>
             <span v-if="selectedFile" class="code-file-lang">{{ language }}</span>
           </header>
 
           <div v-if="!selectedFile" class="code-placeholder">Select a file to view its contents</div>
+
+          <div v-else-if="isMarkdownFile && viewMode === 'preview'" class="md-preview" :aria-label="selectedFile.path">
+            <div class="md-preview-body" v-html="renderedMarkdown" />
+          </div>
 
           <div v-else class="code-lines" :aria-label="selectedFile.path">
             <div v-for="(line, index) in contentLines" :key="index" class="code-line-row">
@@ -230,22 +272,35 @@ watch(
           </div>
         </section>
 
-        <aside class="commits-panel" aria-label="Recent commits">
+        <aside class="commits-panel" :class="{ 'is-collapsed': commitsCollapsed }" aria-label="Recent commits">
           <header class="commits-panel-header">
             <span class="commits-panel-title">Commits</span>
-            <button
-              type="button"
-              class="commits-refresh"
-              :disabled="commitsLoading"
-              @click="refreshCommits"
-            >Refresh</button>
+            <div class="commits-panel-actions">
+              <button
+                type="button"
+                class="commits-toggle"
+                :aria-expanded="commitsCollapsed ? 'false' : 'true'"
+                :title="commitsCollapsed ? 'Show commit history' : 'Hide commit history'"
+                @click="commitsCollapsed = !commitsCollapsed"
+              >
+                <span v-if="commitsCollapsed" class="commits-caret">▸</span>
+                <span v-else class="commits-caret">▾</span>
+                {{ commitsCollapsed ? "Show" : "Hide" }}
+              </button>
+              <button
+                type="button"
+                class="commits-refresh"
+                :disabled="commitsLoading"
+                @click="refreshCommits"
+              >Refresh</button>
+            </div>
           </header>
           <div v-if="commitsError" class="commits-error">{{ commitsError }}</div>
           <p v-if="!commits.length && !commitsLoading && !commitsError" class="commits-empty">
             No commits.
           </p>
           <div class="commits-list">
-            <article v-for="commit in commits" :key="commit.sha" class="commit-row">
+            <article v-for="commit in visibleCommits" :key="commit.sha" class="commit-row">
               <a
                 class="commit-sha"
                 :href="commit.html_url"
@@ -420,6 +475,141 @@ watch(
   line-height: 1.5;
 }
 
+.md-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px;
+  color: var(--caleo-text);
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.md-preview-body :deep(h1),
+.md-preview-body :deep(h2),
+.md-preview-body :deep(h3),
+.md-preview-body :deep(h4) {
+  margin: 1.2em 0 0.5em;
+  color: var(--caleo-text);
+  font-weight: 600;
+  border-bottom: 1px solid var(--caleo-border);
+  padding-bottom: 0.3em;
+}
+
+.md-preview-body :deep(h1) {
+  font-size: 22px;
+}
+
+.md-preview-body :deep(h2) {
+  font-size: 19px;
+}
+
+.md-preview-body :deep(h3) {
+  font-size: 16px;
+}
+
+.md-preview-body :deep(a) {
+  color: var(--caleo-sky);
+  text-decoration: none;
+}
+
+.md-preview-body :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.md-preview-body :deep(code) {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 13px;
+  background: var(--caleo-surface-hover);
+  color: var(--caleo-primary);
+}
+
+.md-preview-body :deep(pre) {
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  background: var(--caleo-body-bg);
+  border: 1px solid var(--caleo-border);
+}
+
+.md-preview-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: var(--caleo-text);
+}
+
+.md-preview-body :deep(blockquote) {
+  margin: 1em 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--caleo-primary);
+  background: var(--caleo-surface-hover);
+  color: var(--caleo-text-secondary);
+}
+
+.md-preview-body :deep(ul),
+.md-preview-body :deep(ol) {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.md-preview-body :deep(li) {
+  margin: 0.2em 0;
+}
+
+.md-preview-body :deep(table) {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+
+.md-preview-body :deep(th),
+.md-preview-body :deep(td) {
+  padding: 6px 10px;
+  border: 1px solid var(--caleo-border);
+  text-align: left;
+}
+
+.md-preview-body :deep(th) {
+  background: var(--caleo-surface-hover);
+  font-weight: 600;
+}
+
+.md-preview-body :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--caleo-border);
+  margin: 1.5em 0;
+}
+
+.md-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.md-toggle-btn {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  background: var(--caleo-surface);
+  border: none;
+  cursor: pointer;
+}
+
+.md-toggle-btn:hover:not(.is-active) {
+  color: var(--caleo-primary);
+}
+
+.md-toggle-btn.is-active {
+  color: var(--caleo-primary);
+  background: var(--caleo-surface-hover);
+}
+
 .code-line-row {
   display: flex;
   padding-right: 12px;
@@ -493,6 +683,33 @@ watch(
   font-size: 13px;
   font-weight: 600;
   color: var(--caleo-text);
+}
+
+.commits-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.commits-toggle {
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.commits-toggle:hover:not(:disabled) {
+  border-color: var(--caleo-primary);
+  color: var(--caleo-primary);
+}
+
+.commits-caret {
+  display: inline-block;
+  font-size: 11px;
 }
 
 .commits-refresh {

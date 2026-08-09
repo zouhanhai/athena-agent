@@ -17,6 +17,7 @@ const auth = useAuthStore();
 const board = ref<KanbanBoard | null>(null);
 const loading = ref(false);
 const error = ref("");
+const lastRefresh = ref("");
 
 const hasSession = computed(() => !!auth.sessionToken);
 
@@ -61,6 +62,7 @@ async function loadBoard(): Promise<void> {
   error.value = "";
   try {
     board.value = await fetchBoard(auth.sessionToken, props.repo?.full_name);
+    lastRefresh.value = new Date().toLocaleTimeString();
   } catch (err) {
     fail(err);
   } finally {
@@ -86,13 +88,25 @@ watch(
 
     <template v-else>
       <div class="kanban-toolbar">
-        <span class="kanban-source">{{ boardSource }}</span>
+        <div class="kanban-toolbar-left">
+          <span class="kanban-source">{{ boardSource }}</span>
+          <span v-if="loading" class="kanban-scan-status" aria-live="polite">
+            <span class="kanban-spinner" aria-hidden="true" />
+            Scanning docs/kanban…
+          </span>
+          <span v-else-if="lastRefresh" class="kanban-refreshed">
+            Refreshed {{ lastRefresh }}
+          </span>
+        </div>
         <button
           type="button"
           class="kanban-refresh"
           :disabled="loading"
           @click="loadBoard"
-        >Refresh</button>
+        >
+          <span v-if="loading" class="kanban-spinner kanban-spinner-inline" aria-hidden="true" />
+          {{ loading ? "Scanning…" : "Refresh" }}
+        </button>
       </div>
 
       <div v-if="error" class="kanban-error">{{ error }}</div>
@@ -198,13 +212,57 @@ watch(
   border-bottom: 1px solid var(--caleo-border);
 }
 
+.kanban-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .kanban-source {
   font-size: 13px;
   font-weight: 600;
   color: var(--caleo-text);
 }
 
+.kanban-scan-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-refreshed {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid var(--caleo-border);
+  border-top-color: var(--caleo-primary);
+  border-radius: 50%;
+  animation: kanban-spin 0.7s linear infinite;
+}
+
+.kanban-spinner-inline {
+  vertical-align: -2px;
+}
+
+@keyframes kanban-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .kanban-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 10px;
   font: inherit;
   font-size: 12px;
