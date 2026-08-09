@@ -30,13 +30,45 @@ semantic work that docling can't, and that currently would otherwise be scattere
 ## Where it fits
 
 Current pipeline (tasks.ts): `parsing (docling)` → `ingesting_lightrag ‖ ingesting_llmwiki`.
-New: `parsing (docling)` → **`refinement (LLM: re-header + quality + topic)`** → parallel stages.
+New: `parsing (docling)` → **`refinement (Athena LLM: re-header + quality + topic)`** → parallel stages.
 
-- Reuses the same model as llm_wiki classification (`deepseek-v4-flash-latest` via OpenRouter) for
-  consistency/cost. Athena (server knowledge agent) is the natural orchestrator, but the step itself
-  is a deterministic LLM call, not the chat agent.
-- Must be **optional/degradable**: if the LLM step fails, fall back to the docling output (no worse
-  than today).
+## Why one combined step (context-efficiency) — decided 2026-08-09
+
+The whole ingest chain currently has **several full-document / per-chunk LLM passes**, which is
+context-exploding and costly if we add ANOTHER full read:
+
+| Stage | LLM pass | Reads |
+|-------|----------|-------|
+| docling | image VLM description | images only |
+| llm_wiki | classify (type+topic) | full doc |
+| LightRAG | entity extraction | every chunk |
+| LightRAG | keyword extraction | every chunk |
+| LightRAG | paragraph-semantic chunking | chunks |
+| LightRAG | embedding | chunks (non-dialog, necessary) |
+
+So fold the FULL-DOC semantic work into **one Athena pass** that reads the document once and emits
+everything downstream needs:
+
+1. **Re-leveled markdown** (header hierarchy) → feed to BOTH LightRAG + llm_wiki.
+2. **Classification** (type + topic) → write frontmatter; llm_wiki writes page, LightRAG carries it in
+   content_summary.
+3. **Quality report** (md vs source) → operator/log.
+
+## How info flows downstream + remaining LLM steps (analysis)
+
+**Easy / low-risk (M4 scope):**
+- Re-leveled markdown + classification flow to both systems as the ingest input.
+- This removes the DUPLICATE full-doc reads: llm_wiki classify (was reading the doc) + our refinement
+  (would read it) become ONE Athena pass. LightRAG still does its own chunking/entity/keyword internally.
+
+**Hard / needs LightRAG change (M4 spike, high risk):**
+- To ALSO remove LightRAG's per-chunk LLM passes (entity extraction, keyword extraction, paragraph
+  chunk), Athena would pre-extract entities/relations/chunk-boundaries and LightRAG would have to
+  accept them instead of running its own LLM. `extract_entities` (operate.py) is a hardcoded internal
+  LLM call with **no external-injection interface** — this needs a LightRAG fork/patch, workload unknown.
+- Recommendation: **M4 = low-risk layer** (Athena re-header + quality + topic, one read); **M4+ spike**
+  to verify whether LightRAG can accept pre-extracted entities/chunks before committing to it.
+- `embedding` stays in LightRAG (necessary, non-dialog).
 
 ## Open decisions (M4)
 
