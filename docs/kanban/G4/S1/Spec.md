@@ -90,9 +90,22 @@ quality)**. Output ≥ input (rewrite + extracted structured data), so usable in
   correlation, so single-read is preferred; chunking is a fallback strategy.
 
 **Measured reference (2026-08-09)**: the 827-page "Group Reporting SAP Doc.pdf" docling parse produced a
-**2.17 MB md (27,917 lines, 3,364 headers)**. That's ~55-65k tokens input + output inflation → near/over
-the 1M context. So **≥ ~1-2 MB md (≈ 500-1000 pages) MUST be chunked**; sub-1 MB docs are single-read
-safe. A heavy-image doc also grows md further (VLM descriptions add alt text).
+**2.17 MB md (27,917 lines, 3,364 headers, ALL h2 — no h1)**. That's ~55-65k tokens input + output
+inflation → near/over the 1M context. A heavy-image doc also grows md further (VLM descriptions add alt text).
+
+**Two-stage refinement for large docs (decided 2026-08-09)** — header re-leveling does NOT need the full
+doc. This solves the size problem:
+
+1. **Stage 1 — header re-level (local, per header+batch)**: judge each header's semantic level using only
+   the header text + a few following paragraphs (tens of KB per batch), NOT the full doc. Produces the
+   corrected h1/h2/h3 hierarchy. docling often emits ALL h2 (flat) — e.g. this SAP doc has 3,364 h2, no
+   h1 — so header re-leveling gives the true structure.
+2. **Stage 2 — split by the refined h1 boundary** into semantically-complete sections, each sized to fit
+   context (~<1MB). Then per section: chunk segmentation + entity + keyword + type/topic judgment.
+
+This means `refine_document` for large docs is a two-pass process: local header pass → split → per-section
+full pass. Sub-1MB docs skip the split and do one full-doc pass. The old "split by size then refine"
+idea is superseded by "refine headers locally, THEN split by the correct h1 boundaries".
 
 ### Downstream needs no LLM (decided 2026-08-09)
 
