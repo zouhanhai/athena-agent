@@ -318,7 +318,7 @@ watch(
   flex: 0 0 320px;
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
 }
 
@@ -332,9 +332,14 @@ watch(
   min-width: 0;
   font-weight: 600;
   color: var(--caleo-text);
-  white-space: nowrap;
+  /* Allow the goal description to wrap onto multiple lines instead of a single
+     truncated line. Clamp to 3 lines so a very long description can't blow out
+     the row height. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .kanban-goal-specs {
