@@ -58,6 +58,24 @@ export interface GithubIssue {
   assignees: string[];
 }
 
+/** A commit as returned to the browse API (message, author, date, sha). */
+export interface GithubCommitEntry {
+  sha: string;
+  message: string;
+  author_name: string;
+  author_email: string | null;
+  date: string;
+  html_url: string;
+}
+
+/** Options for listing commits of a repo/branch. */
+export interface ListCommitsOptions {
+  /** Branch/tag/sha to list commits for (GitHub `sha` query param). */
+  ref?: string;
+  /** Max commits to fetch. Default: 30. */
+  perPage?: number;
+}
+
 /** Issue state filter for listIssues (GitHub API `state` query param). */
 export type GithubIssueState = "open" | "closed" | "all";
 
@@ -107,6 +125,13 @@ export interface GitHubApi {
     path: string,
     ref?: string,
   ): Promise<GithubFileContent>;
+  /** List recent commits for a repo/branch (message, author, date, sha). */
+  listCommits(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    opts?: ListCommitsOptions,
+  ): Promise<GithubCommitEntry[]>;
   /** List open pull requests for a repo. */
   listPulls(credential: GithubCredential, owner: string, repo: string): Promise<GithubPull[]>;
   /** List issues for a repo, optionally filtered by state (default: open). */
@@ -317,6 +342,37 @@ export class GithubRestClient implements GitHubApi {
         name: this.string(branch.name),
         sha: this.string(commit?.sha),
         protected: Boolean(branch.protected),
+      });
+    }
+    return mapped;
+  }
+
+  async listCommits(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    opts?: ListCommitsOptions,
+  ): Promise<GithubCommitEntry[]> {
+    const params = new URLSearchParams();
+    if (opts?.ref) {
+      params.set("sha", opts.ref);
+    }
+    params.set("per_page", String(opts?.perPage ?? 30));
+    const response = await this.request(credential, `/repos/${owner}/${repo}/commits?${params.toString()}`);
+    const data = await this.json(response);
+    const items = Array.isArray(data) ? data : [];
+    const mapped: GithubCommitEntry[] = [];
+    for (const item of items) {
+      const entry = item as Record<string, unknown>;
+      const commit = entry.commit as Record<string, unknown> | null;
+      const author = commit?.author as Record<string, unknown> | null;
+      mapped.push({
+        sha: this.string(entry.sha),
+        message: this.string(commit?.message),
+        author_name: this.string(author?.name),
+        author_email: this.maybeString(author?.email),
+        date: this.string(author?.date),
+        html_url: this.string(entry.html_url),
       });
     }
     return mapped;

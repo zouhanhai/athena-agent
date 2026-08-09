@@ -14,6 +14,7 @@ import type {
   GitHubApi,
   GithubBranch,
   GithubCommit,
+  GithubCommitEntry,
   GithubFileContent,
   GithubIssue,
   GithubMergeResult,
@@ -72,6 +73,15 @@ class FakeGitHubApi implements GitHubApi {
   async listIssues(credential: GithubCredential, owner: string, repo: string, state?: string): Promise<GithubIssue[]> {
     this.record("listIssues", credential, [owner, repo, state]);
     return ISSUE_SAMPLE;
+  }
+  async listCommits(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    opts?: { ref?: string; perPage?: number },
+  ): Promise<GithubCommitEntry[]> {
+    this.record("listCommits", credential, [owner, repo, opts]);
+    return COMMIT_SAMPLE;
   }
   async openPull(
     credential: GithubCredential,
@@ -152,6 +162,17 @@ const ISSUE_SAMPLE: GithubIssue[] = [
     body: "Details",
     labels: ["bug"],
     assignees: ["alice"],
+  },
+];
+
+const COMMIT_SAMPLE: GithubCommitEntry[] = [
+  {
+    sha: "c111111111111111111111111111111111111111",
+    message: "Fix login bug",
+    author_name: "Alice",
+    author_email: "alice@acme.com",
+    date: "2026-08-01T10:00:00Z",
+    html_url: "https://github.com/acme/box/commit/c111",
   },
 ];
 
@@ -404,6 +425,49 @@ test("GET /api/github/repos/:owner/:repo/issues passes the state filter through"
 
 test("GET /api/github/repos/:owner/:repo/issues requires authentication", async () => {
   const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues" });
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/github/repos/:owner/:repo/commits returns commits scoped to the user's credential", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos/acme/box/commits?ref=feature",
+    headers: bearer(aliceToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().commits, COMMIT_SAMPLE);
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "listCommits");
+  assert.equal(call?.credential.value, "ghp_alice");
+  assert.deepEqual(call?.args, ["acme", "box", { ref: "feature" }]);
+});
+
+test("GET /api/github/repos/:owner/:repo/commits without a ref passes no ref option", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos/acme/box/commits",
+    headers: bearer(aliceToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "listCommits");
+  assert.deepEqual(call?.args, ["acme", "box", { ref: undefined }]);
+});
+
+test("GET /api/github/repos/:owner/:repo/commits validates owner and repo", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/github/repos//box/commits",
+    headers: bearer(aliceToken),
+  });
+  assert.equal(res.statusCode, 400);
+});
+
+test("GET /api/github/repos/:owner/:repo/commits requires authentication", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/commits" });
   assert.equal(res.statusCode, 401);
 });
 

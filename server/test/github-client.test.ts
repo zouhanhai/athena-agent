@@ -410,3 +410,75 @@ test("getFileContent rejects an ssh credential", async () => {
     GithubCredentialUnsupportedError,
   );
 });
+
+const COMMIT_BODY = [
+  {
+    sha: "c111111111111111111111111111111111111111",
+    html_url: "https://github.com/acme/box/commit/c111",
+    commit: {
+      message: "Fix login bug\n\nMore details.",
+      author: { name: "Alice", email: "alice@acme.com", date: "2026-08-01T10:00:00Z" },
+    },
+  },
+  {
+    sha: "c222222222222222222222222222222222222222",
+    html_url: "https://github.com/acme/box/commit/c222",
+    commit: {
+      message: "Add docs",
+      author: { name: "Bob", email: "bob@acme.com", date: "2026-07-30T09:00:00Z" },
+    },
+  },
+];
+
+test("listCommits requests the commits endpoint with the branch ref and per_page, then maps entries", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: COMMIT_BODY };
+    }),
+  });
+  const commits = await client.listCommits(tokenCredential, "acme", "box", { ref: "master", perPage: 30 });
+  assert.match(calledUrl, /\/repos\/acme\/box\/commits\?sha=master&per_page=30/);
+  assert.deepEqual(commits, [
+    {
+      sha: "c111111111111111111111111111111111111111",
+      message: "Fix login bug\n\nMore details.",
+      author_name: "Alice",
+      author_email: "alice@acme.com",
+      date: "2026-08-01T10:00:00Z",
+      html_url: "https://github.com/acme/box/commit/c111",
+    },
+    {
+      sha: "c222222222222222222222222222222222222222",
+      message: "Add docs",
+      author_name: "Bob",
+      author_email: "bob@acme.com",
+      date: "2026-07-30T09:00:00Z",
+      html_url: "https://github.com/acme/box/commit/c222",
+    },
+  ]);
+});
+
+test("listCommits without a ref omits the sha param and defaults per_page to 30", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: [] };
+    }),
+  });
+  const commits = await client.listCommits(tokenCredential, "acme", "box");
+  assert.equal(calledUrl, "https://api.github.test/repos/acme/box/commits?per_page=30");
+  assert.deepEqual(commits, []);
+});
+
+test("listCommits rejects an ssh credential", async () => {
+  const client = new GithubRestClient({ fetchImpl: mockFetch(async () => ({ status: 200, body: [] })) });
+  await assert.rejects(
+    client.listCommits({ type: "ssh", value: "ssh-ed25519 key" }, "acme", "box"),
+    GithubCredentialUnsupportedError,
+  );
+});

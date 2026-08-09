@@ -279,6 +279,18 @@ export function registerGithubRoutes(app: FastifyInstance, options: GithubRouteO
     });
   });
 
+  app.get("/api/github/repos/:owner/:repo/commits", async (request, reply) => {
+    const { owner, repo } = repoParams(request);
+    if (!owner || !repo) {
+      return reply.code(400).send({ error: "owner and repo are required" });
+    }
+    const ref = optionalString((request.query as { ref?: unknown }).ref);
+    return withCredential(request, reply, async (credential) => {
+      const commits = await github.listCommits(credential, owner, repo, { ref });
+      return { commits };
+    });
+  });
+
   /** Load a pending op, verifying it belongs to the signed-in employee; returns null after sending a reply. */
   const ownedOp = async (
     request: FastifyRequest,
