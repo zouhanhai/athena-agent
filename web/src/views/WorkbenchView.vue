@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useAuthStore } from "@/stores/auth";
+import { fetchRepos, type GithubRepo } from "@/api/github";
 import CodeTab from "@/components/CodeTab.vue";
 import IssuesTab from "@/components/IssuesTab.vue";
 import KanbanTab from "@/components/KanbanTab.vue";
@@ -33,14 +35,61 @@ const tabs: WorkbenchTab[] = [
   },
 ];
 
+const auth = useAuthStore();
+
 const activeTab = ref<WorkbenchTabValue>("code");
+
+const repos = ref<GithubRepo[]>([]);
+const repoValue = ref("");
+const loading = ref(false);
+const error = ref("");
+
+const hasSession = computed(() => !!auth.sessionToken);
+const selectedRepo = computed(() => repos.value.find((repo) => repo.full_name === repoValue.value) ?? null);
+const repoOptions = computed(() => repos.value.map((repo) => ({ label: repo.name, value: repo.full_name })));
+
+function fail(err: unknown): void {
+  error.value = err instanceof Error ? err.message : String(err);
+}
+
+async function loadRepos(): Promise<void> {
+  if (!auth.sessionToken) {
+    return;
+  }
+  loading.value = true;
+  error.value = "";
+  try {
+    repos.value = await fetchRepos(auth.sessionToken);
+  } catch (err) {
+    fail(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(() => {
+  void loadRepos();
+});
 </script>
 
 <template>
   <section class="workbench-view">
     <header class="workbench-header">
-      <h2 class="workbench-title">Workbench</h2>
-      <span class="workbench-meta">3 GitHub-style tabs</span>
+      <div class="workbench-header-titles">
+        <h2 class="workbench-title">Workbench</h2>
+        <span class="workbench-meta">3 GitHub-style tabs</span>
+      </div>
+      <div v-if="error" class="workbench-repo-error">{{ error }}</div>
+      <t-select
+        v-if="hasSession"
+        class="workbench-repo-select"
+        v-model="repoValue"
+        :options="repoOptions"
+        :loading="loading"
+        placeholder="Select a repository"
+        clearable
+        size="small"
+      />
     </header>
 
     <t-tabs v-model="activeTab" class="workbench-tabs">
@@ -52,13 +101,13 @@ const activeTab = ref<WorkbenchTabValue>("code");
       >
         <div class="tab-panel" :class="`tab-panel-${tab.value}`">
           <template v-if="tab.value === 'code'">
-            <CodeTab class="code-tab-host" />
+            <CodeTab class="code-tab-host" :repo="selectedRepo" />
           </template>
           <template v-else-if="tab.value === 'issues'">
-            <IssuesTab class="issues-tab-host" />
+            <IssuesTab class="issues-tab-host" :repo="selectedRepo" />
           </template>
           <template v-else>
-            <KanbanTab class="kanban-tab-host" />
+            <KanbanTab class="kanban-tab-host" :repo="selectedRepo" />
           </template>
         </div>
       </t-tab-panel>
@@ -87,6 +136,12 @@ const activeTab = ref<WorkbenchTabValue>("code");
   border-radius: 8px;
 }
 
+.workbench-header-titles {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
 .workbench-title {
   margin: 0;
   font-size: 16px;
@@ -99,6 +154,15 @@ const activeTab = ref<WorkbenchTabValue>("code");
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--caleo-text-secondary);
+}
+
+.workbench-repo-error {
+  font-size: 13px;
+  color: var(--caleo-error);
+}
+
+.workbench-repo-select {
+  width: 260px;
 }
 
 .workbench-tabs {
@@ -133,10 +197,18 @@ const activeTab = ref<WorkbenchTabValue>("code");
 .workbench-tabs :deep(.t-tabs__content) {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.workbench-tabs :deep(.t-tabs__panel) {
-  height: 100%;
+/* TDesign panels render as .t-tab-panel (inactive: .t-is-hidden); the active
+   panel must fill the tabs content so the Code tab's .code-lines gets a
+   bounded height and scrolls instead of growing the page. */
+.workbench-tabs :deep(.t-tab-panel) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .tab-panel {
