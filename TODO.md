@@ -54,6 +54,7 @@
   - Tailscale the 6900XT, then set `APP_BASE_URL` to the Tailscale IP so remote colleagues can reach the portal + open invite/magic-link URLs (currently LAN-only 192.168.178.30; remote access blocked until this is done — see `docs/deployment-config.md`)
 - [ ] Auth (Resend magic link) functional
   - Requires verifying `caleo.com` domain in Resend (user lacks DNS today → 403 on send; meanwhile ConsoleMailer logs the invite/login links to `~/.athena-tmp/athena-server.log`)
+- [ ] **Normalize G3.TFIX → G3/S4/T6.md** (after the TFIX worker completes): TFIX.md was created at `docs/kanban/G3/TFIX.md` but the kanban scanner only reads `Gx/Sx/T<num>.md`, so it's an orphan (not scanned/displayed). Move it to `docs/kanban/G3/S4/T6.md` once the worker marks it done. (S4 = Workbench; the TFIX UX items are Workbench-related.)
 - [ ] **Worker progress tracking via ticket-file Progress Log** — spec `docs/spec-m4-worker-progress.md` (2026-08-09)
   - Pain: OpenCode workers don't update their ticket file → can't see progress/stuck without manually
     polling the session. Make progress readable directly from the ticket md file.
