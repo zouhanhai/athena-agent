@@ -54,6 +54,20 @@ Each ticket md (`docs/kanban/G*/S*/T*.md`) gets an auto-updated **Progress Log**
   `last_updated_at` is old relative to now (threshold, e.g. > 2–3 min) while status is in_progress.
 - The refresh button re-scans (already planned in G3.S4.T5).
 
+## Eng-director workflow (read file first, deep-query only when stalled)
+
+This is the whole point: an eng director can track every worker's progress **without polling the
+OpenCode session API** for routine updates.
+
+1. **Normal case**: read the ticket file / Kanban board → see each worker's last progress row +
+   "updated Xs ago". That's enough to know who's progressing, what they last did, and whether a
+   ticket just flipped done.
+2. **Stalled case**: if a worker shows no new row for the threshold (e.g. > 2–3 min) while status is
+   in_progress, THEN deep-query the OpenCode session (`GET /session/{id}/message`) to see whether it's
+   stuck, waiting, or just quiet (long test run). Only this case needs the API call.
+
+So the API is a **fallback for investigation**, not a routine poll.
+
 ## Open items (M4)
 
 - Plugin deployment: workers run `opencode serve` on 6900XT — plugin must be installed/enabled there.
