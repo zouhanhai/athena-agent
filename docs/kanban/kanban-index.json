@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-09T15:18:12.801Z",
+  "generated_at": "2026-08-09T15:21:21.590Z",
   "goals": [
     {
       "ref": "G1",
@@ -1150,6 +1150,23 @@
                 "All existing tests stay green"
               ],
               "started_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S2.T9",
+              "id": "t9",
+              "title": "G3.S2.T9: Manual agent registration entry in the Agents panel (admin adds an agent without self-declare)",
+              "owner": "eng-director",
+              "status": "canceled",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Settings → Agents panel has a 'Register agent' button that opens a form (alias, owner employee, logo, capabilities, runtime)",
+                "Submitting calls POST /api/agents and shows the new agent in the list",
+                "Backend POST /api/agents already exists and works (verify alias + owner_employee_id + capabilities + logo)",
+                "Frontend api/agents.ts gains a createAgent() helper",
+                "All existing tests stay green"
+              ],
+              "started_at": ""
             }
           ]
         },
@@ -1422,6 +1439,22 @@
               "started_at": ""
             },
             {
+              "ref": "G3.S5.T4",
+              "id": "t4",
+              "title": "G3.S5.T4: Full per-stage ingest progress — LightRAG + llm_wiki every step shown",
+              "owner": "eng-director",
+              "status": "canceled",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Uploads task UI shows every sub-step of BOTH LightRAG and llm_wiki ingestion with live status",
+                "LightRAG stage updates chunking / entity_extraction / graph_build / embedding as processing advances",
+                "llm_wiki stage updates classify / write_page / rebuild_index live (already wired)",
+                "backend tracks + streams these stage updates to the frontend (task status endpoint)"
+              ],
+              "started_at": ""
+            },
+            {
               "ref": "G3.S5.T5",
               "id": "t5",
               "title": "G3.S5.T5: Show source images in llm_wiki pages (pure-text for LightRAG) — export images + copy beside page + serve to frontend",
@@ -1436,6 +1469,24 @@
                 "LightRAG still ingests the SAME markdown but sees only text (image alt-text / VLM description) — image bytes never affect LightRAG chunking",
                 "a wiki-image route serves the image bytes so WikiView renders <img> with a working URL",
                 "VLM picture descriptions (alt text) are preserved so image content stays RAG-searchable"
+              ],
+              "started_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S5.T6",
+              "id": "t6",
+              "title": "G3.S5.T6: Collapsible table of contents in wiki page (long docs — TOC sub-levels fold/unfold, not flat)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g3s5t6",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The wiki page TOC (wiki-toc) sub-levels can be expanded/collapsed interactively (not a flat list)",
+                "Clicking a TOC item that has children toggles its children open/closed; clicking a leaf jumps to the heading",
+                "Default: top levels expanded, deep levels collapsed (so a doc with hundreds of headings isn't a wall of text)",
+                "Works for the existing markdown-it-table-of-contents nested <ul> output; no change to LightRAG/llm_wiki",
+                "All existing tests stay green"
               ],
               "started_at": "2026-08-09"
             }
@@ -1642,18 +1693,5 @@
       ]
     }
   ],
-  "errors": [
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G3/S2/T9.md",
-      "error": "status must be one of: backlog, in_progress, done, in_review, approved, rejected"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G3/S5/T4.md",
-      "error": "status must be one of: backlog, in_progress, done, in_review, approved, rejected"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G3/S5/T6.md",
-      "error": "acceptance_criteria must be a list of strings"
-    }
-  ]
+  "errors": []
 }
