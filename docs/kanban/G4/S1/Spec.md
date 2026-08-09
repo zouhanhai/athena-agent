@@ -125,6 +125,28 @@ Pi) has an independent key for independent cache-hit-rate + cost tracking.
 model set as `openrouter`, e.g. `~deepseek/deepseek-v4-flash-latest`) so `ModelRuntime.getModel("athena",
 "~deepseek/deepseek-v4-flash-latest")` resolves. Register when implementing `refine_document`.
 
+## How general RAG extracts chunk / entity / relation / keyword (reference, 2026-08-09)
+
+Studied LightRAG's actual implementation (`prompt.py` + `chunker/paragraph_semantic.py`) as the
+reference. This informs `refine_document`'s output contract:
+
+- **Chunking**: `paragraph_semantic` — split by paragraph boundaries + semantic completeness (NOT fixed
+  token). Params `chunk_token_size` (~1200 tokens) + `chunk_overlap_token_size` (~100). Each chunk
+  carries its **heading path** (`_clean_heading_text`) so downstream entity extraction knows the section.
+- **Entity extraction** (per-chunk LLM, then merged): fields `entity_name` (capitalize title case for
+  consistent naming — avoids "CALEO"/"caleo" variants), `entity_type` (preset types org/person/product…,
+  else `Other`), `entity_description`.
+- **Relation extraction** (binary, per-chunk): `source_entity`/`target_entity` (consistent naming),
+  `relationship_keywords`, `relationship_description`. Multi-entity statements decompose into binary edges.
+  Only "direct, clearly-stated, meaningful" relations.
+- **Keyword extraction**: relationship keywords + query keywords (high-level + low-level) for retrieval.
+- **Flow**: chunk → per-chunk LLM extract (map) → cross-chunk entity merge/dedup + relation link (reduce) →
+  entity/relation desc compression if oversize.
+
+**Advantage of Athena single-read over LightRAG's per-chunk map-reduce**: one full-doc LLM pass extracts
+ALL entities/relations with **global consistent naming** and **retains cross-chunk relations** that
+LightRAG's map-reduce can miss (each chunk only sees its local slice). This is core value of G4.S1.
+
 ## Full design (original spec reference)
 
 See `docs/spec-m4-docling-refinement.md` for the original problem statement + context-efficiency
