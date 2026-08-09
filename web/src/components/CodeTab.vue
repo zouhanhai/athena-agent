@@ -255,6 +255,7 @@ watch(
                 @click="viewMode = 'preview'"
               >Preview</button>
             </span>
+            <span v-if="selectedFile" class="code-file-lang">{{ language }}</span>
             <button
               type="button"
               class="commits-toggle"
@@ -266,7 +267,6 @@ watch(
               <span v-else class="commits-caret">▾</span>
               {{ commitsCollapsed ? "Commits" : "Hide Commits" }}
             </button>
-            <span v-if="selectedFile" class="code-file-lang">{{ language }}</span>
           </header>
 
           <div v-if="!selectedFile" class="code-placeholder">Select a file to view its contents</div>
