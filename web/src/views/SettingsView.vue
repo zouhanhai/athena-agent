@@ -19,15 +19,27 @@ const profileError = ref("");
 const uploading = ref(false);
 const logoError = ref("");
 
-const logoOptions = computed(() => [
-  { url: DEFAULT_LOGO, label: "Owl", animal: "owl", color: "athena" },
-  ...logos.value.map((logo) => ({
-    url: logo.url,
-    label: logo.name,
-    animal: logo.animal ?? "",
-    color: logo.color ?? "",
-  })),
-]);
+const logoOptions = computed(() => {
+  const options: { url: string; label: string; animal: string; color: string }[] = [];
+  // Always show the currently-selected logo (even if in use by another agent),
+  // so the picker never appears to have unselected the user's own choice.
+  if (
+    logoUrl.value &&
+    logoUrl.value !== DEFAULT_LOGO &&
+    !logos.value.some((l) => l.url === logoUrl.value)
+  ) {
+    options.push({ url: logoUrl.value, label: "current", animal: "", color: "" });
+  }
+  for (const logo of logos.value) {
+    options.push({
+      url: logo.url,
+      label: logo.name,
+      animal: logo.animal ?? "",
+      color: logo.color ?? "",
+    });
+  }
+  return options;
+});
 
 function selectLogo(url: string) {
   logoUrl.value = url;

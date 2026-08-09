@@ -25,15 +25,14 @@ const githubValue = ref("");
 
 const token = computed(() => (typeof route.query.token === "string" ? route.query.token : ""));
 
-const logoOptions = computed(() => [
-  { url: DEFAULT_LOGO, label: "Owl", animal: "owl", color: "athena" },
-  ...logos.value.map((logo) => ({
+const logoOptions = computed(() =>
+  logos.value.map((logo) => ({
     url: logo.url,
     label: logo.name,
     animal: logo.animal ?? "",
     color: logo.color ?? "",
   })),
-]);
+);
 
 function selectLogo(url: string) {
   logoUrl.value = url;
