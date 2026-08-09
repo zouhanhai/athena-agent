@@ -84,7 +84,11 @@ _BASE64_CMD_RE = re.compile(
 
 
 def resolve_openrouter_key() -> str:
-    """Resolve OPENROUTER_API_KEY to a usable plaintext value (G2.S5.T9).
+    """Resolve the key for docling's OpenRouter VLM picture descriptions (G4.S1).
+
+    Prefers the dedicated `DOCLING_OPENROUTER_KEY` (separate from Athena refinement /
+    embedding / Pi flows so docling VLM cache-hit-rate + cost are independently
+    controllable); falls back to `OPENROUTER_API_KEY`.
 
     The athena server process may hold OPENROUTER_API_KEY as an *unexecuted*
     base64 command string (e.g. ``$(echo c2st... | base64 -d)``) instead of the
@@ -93,7 +97,10 @@ def resolve_openrouter_key() -> str:
     parsing works regardless of how the server was launched. Plaintext keys
     pass through unchanged.
     """
-    raw = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    raw = (
+        os.environ.get("DOCLING_OPENROUTER_KEY", "").strip()
+        or os.environ.get("OPENROUTER_API_KEY", "").strip()
+    )
     if not raw:
         return ""
     match = _BASE64_CMD_RE.fullmatch(raw)
@@ -102,13 +109,13 @@ def resolve_openrouter_key() -> str:
             decoded = base64.b64decode(match.group(1)).decode("utf-8").strip()
         except (ValueError, UnicodeDecodeError):
             log.warning(
-                "OPENROUTER_API_KEY looks like an unexecuted base64 command "
+                "OpenRouter key looks like an unexecuted base64 command "
                 "but failed to decode; picture descriptions disabled"
             )
             return ""
         if not decoded:
             return ""
-        log.info("OPENROUTER_API_KEY was an unexecuted base64 command; decrypted it")
+        log.info("OpenRouter key was an unexecuted base64 command; decrypted it")
         return decoded
     return raw
 

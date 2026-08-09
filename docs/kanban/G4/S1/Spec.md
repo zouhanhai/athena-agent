@@ -103,7 +103,7 @@ safe. A heavy-image doc also grows md further (VLM descriptions add alt text).
   internal entity/keyword/chunk LLM passes (which had no injection interface).
 - **embedding**: the only remaining non-LLM transform (vector encoding), kept.
 
-### Dedicated OpenRouter keys for Athena refinement + embedding (decided 2026-08-09)
+### Dedicated OpenRouter keys for Athena refinement + embedding + docling (decided 2026-08-09)
 
 Athena's document-refinement LLM pass uses a **dedicated OpenRouter key** registered as an **`athena`
 provider in the Pi `auth.json`** (6900XT `~/.pi/agent/auth.json`), separate from the shared `openrouter`
@@ -115,6 +115,11 @@ The **embedding** step uses its own `EMBEDDING_OPENROUTER_KEY` (stored in `serve
 git-ignored; also on 6900XT). This is consumed by the **G4.S2 self-built RAG interface** (embedding is
 part of the RAG engine, not the Pi agent) — the self-built interface reads it; it's not used by the Pi
 agent.
+
+**docling** VLM picture descriptions use their own `DOCLING_OPENROUTER_KEY` (`server/.env.local`,
+git-ignored; also on 6900XT). `parse_doc.py:resolve_openrouter_key()` prefers it, falls back to
+`OPENROUTER_API_KEY`. So each OpenRouter-consuming subsystem (docling VLM / Athena refinement / embedding /
+Pi) has an independent key for independent cache-hit-rate + cost tracking.
 
 **Impl note (S1)**: `~/.pi/agent/models.json` `providers` must also gain an **`athena`** entry (same
 model set as `openrouter`, e.g. `~deepseek/deepseek-v4-flash-latest`) so `ModelRuntime.getModel("athena",
