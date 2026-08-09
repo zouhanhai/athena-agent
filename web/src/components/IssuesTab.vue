@@ -2,11 +2,17 @@
 import { computed, ref, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
 import {
+  addIssueComment,
+  fetchIssueDetail,
   fetchIssues,
+  fetchLabels,
+  updateIssue,
   type GithubIssue,
+  type GithubIssueComment,
   type GithubIssueState,
   type GithubRepo,
 } from "@/api/github";
+import { renderMarkdown } from "@/kb/markdown";
 
 const props = defineProps<{ repo: GithubRepo | null }>();
 
@@ -17,6 +23,24 @@ const issues = ref<GithubIssue[]>([]);
 const loading = ref(false);
 const error = ref("");
 
+const selectedNumber = ref<number | null>(null);
+const detail = ref<{ issue: GithubIssue; comments: GithubIssueComment[] } | null>(null);
+const detailLoading = ref(false);
+const detailError = ref("");
+const repoLabels = ref<string[]>([]);
+
+const editing = ref(false);
+const editTitle = ref("");
+const editBody = ref("");
+const editState = ref<"open" | "closed">("open");
+const editLabels = ref<string[]>([]);
+const saving = ref(false);
+const saveError = ref("");
+
+const commentBody = ref("");
+const commentSending = ref(false);
+const commentError = ref("");
+
 const hasSession = computed(() => !!auth.sessionToken);
 
 const stateFilters: { value: GithubIssueState; label: string }[] = [
@@ -25,6 +49,25 @@ const stateFilters: { value: GithubIssueState; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
+/** Candidate labels for the edit picker: repo labels ∪ any label seen in the list. */
+const labelOptions = computed<string[]>(() => {
+  const seen = new Set<string>();
+  for (const label of repoLabels.value) {
+    seen.add(label);
+  }
+  for (const issue of issues.value) {
+    for (const label of issue.labels) {
+      seen.add(label);
+    }
+  }
+  if (detail.value) {
+    for (const label of detail.value.issue.labels) {
+      seen.add(label);
+    }
+  }
+  return [...seen].sort();
+});
+
 function splitRepo(repo: GithubRepo): [string, string] {
   const [owner, name] = repo.full_name.split("/");
   return [owner ?? "", name ?? repo.name];
@@ -32,6 +75,10 @@ function splitRepo(repo: GithubRepo): [string, string] {
 
 function fail(err: unknown): void {
   error.value = err instanceof Error ? err.message : String(err);
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 async function loadIssues(): Promise<void> {
@@ -51,8 +98,53 @@ async function loadIssues(): Promise<void> {
   }
 }
 
+function closeDetail(): void {
+  selectedNumber.value = null;
+  detail.value = null;
+  detailError.value = "";
+  editing.value = false;
+  commentBody.value = "";
+  commentError.value = "";
+  saveError.value = "";
+}
+
+async function loadRepoLabels(owner: string, name: string): Promise<void> {
+  if (!auth.sessionToken) {
+    return;
+  }
+  try {
+    repoLabels.value = await fetchLabels(auth.sessionToken, owner, name);
+  } catch {
+    repoLabels.value = [];
+  }
+}
+
+async function openIssue(issue: GithubIssue): Promise<void> {
+  const repo = props.repo;
+  if (!auth.sessionToken || !repo) {
+    return;
+  }
+  const [owner, name] = splitRepo(repo);
+  selectedNumber.value = issue.number;
+  detail.value = null;
+  detailError.value = "";
+  editing.value = false;
+  commentBody.value = "";
+  commentError.value = "";
+  detailLoading.value = true;
+  try {
+    detail.value = await fetchIssueDetail(auth.sessionToken, owner, name, issue.number);
+  } catch (err) {
+    detailError.value = messageOf(err);
+  } finally {
+    detailLoading.value = false;
+  }
+  void loadRepoLabels(owner, name);
+}
+
 async function onRepoChange(): Promise<void> {
   issues.value = [];
+  closeDetail();
   if (!props.repo) {
     return;
   }
@@ -64,6 +156,82 @@ async function onStateChange(): Promise<void> {
     return;
   }
   await loadIssues();
+}
+
+function enterEdit(): void {
+  const current = detail.value;
+  if (!current) {
+    return;
+  }
+  editTitle.value = current.issue.title;
+  editBody.value = current.issue.body ?? "";
+  editState.value = current.issue.state === "closed" ? "closed" : "open";
+  editLabels.value = [...current.issue.labels];
+  editing.value = true;
+  saveError.value = "";
+}
+
+function cancelEdit(): void {
+  editing.value = false;
+  saveError.value = "";
+}
+
+async function saveEdit(): Promise<void> {
+  const repo = props.repo;
+  const current = detail.value;
+  if (!auth.sessionToken || !repo || !current) {
+    return;
+  }
+  const [owner, name] = splitRepo(repo);
+  saving.value = true;
+  saveError.value = "";
+  try {
+    const updated = await updateIssue(auth.sessionToken, owner, name, current.issue.number, {
+      title: editTitle.value,
+      body: editBody.value,
+      state: editState.value,
+      labels: editLabels.value,
+    });
+    detail.value = { ...current, issue: updated };
+    editing.value = false;
+    void loadIssues();
+  } catch (err) {
+    saveError.value = messageOf(err);
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function submitComment(): Promise<void> {
+  const repo = props.repo;
+  const current = detail.value;
+  if (!auth.sessionToken || !repo || !current) {
+    return;
+  }
+  const text = commentBody.value.trim();
+  if (!text) {
+    return;
+  }
+  const [owner, name] = splitRepo(repo);
+  commentSending.value = true;
+  commentError.value = "";
+  try {
+    const comment = await addIssueComment(auth.sessionToken, owner, name, current.issue.number, text);
+    detail.value = { ...current, comments: [...current.comments, comment] };
+    commentBody.value = "";
+  } catch (err) {
+    commentError.value = messageOf(err);
+  } finally {
+    commentSending.value = false;
+  }
+}
+
+function formatDate(iso: string): string {
+  if (!iso) {
+    return "";
+  }
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
 watch(
@@ -113,17 +281,20 @@ watch(state, () => {
 
       <div class="issues-list">
         <p v-if="!issues.length && !loading" class="issues-none">No issues here. Try a different state filter.</p>
-        <article v-for="issue in issues" :key="issue.number" class="issue-row">
+        <article
+          v-for="issue in issues"
+          :key="issue.number"
+          class="issue-row"
+          role="button"
+          tabindex="0"
+          @click="openIssue(issue)"
+          @keydown.enter="openIssue(issue)"
+        >
           <span class="issue-state-icon" :class="`is-${issue.state}`" :aria-label="`${issue.state} issue`">
             {{ issue.state === "open" ? "◉" : "✓" }}
           </span>
           <div class="issue-main">
-            <a
-              class="issue-title"
-              :href="issue.html_url"
-              target="_blank"
-              rel="noopener noreferrer"
-            >{{ issue.title }}</a>
+            <span class="issue-title">{{ issue.title }}</span>
             <div v-if="issue.labels.length" class="issue-labels">
               <span
                 v-for="label in issue.labels"
@@ -145,12 +316,146 @@ watch(state, () => {
           </div>
         </article>
       </div>
+
+      <aside v-if="selectedNumber !== null" class="issue-detail" aria-label="Issue detail">
+        <header class="issue-detail-header">
+          <h2 class="issue-detail-title">Issue detail</h2>
+          <button class="issue-detail-close" type="button" aria-label="Close detail" @click="closeDetail">✕</button>
+        </header>
+
+        <div class="issue-detail-scroll">
+          <p v-if="detailLoading" class="issue-detail-loading">Loading issue…</p>
+          <div v-else-if="detailError" class="issues-error">{{ detailError }}</div>
+
+          <div v-else-if="detail" class="issue-detail-content">
+            <!-- View mode -->
+            <div v-if="!editing" class="issue-view">
+              <div class="issue-view-head">
+                <span class="issue-state-icon" :class="`is-${detail.issue.state}`" :aria-label="`${detail.issue.state} issue`">
+                  {{ detail.issue.state === "open" ? "◉" : "✓" }}
+                </span>
+                <div class="issue-view-heading">
+                  <h3 class="issue-view-title">{{ detail.issue.title }}</h3>
+                  <p class="issue-view-meta">
+                    #{{ detail.issue.number }}
+                    <span class="issue-state-chip" :class="`is-${detail.issue.state}`">{{ detail.issue.state }}</span>
+                    opened by {{ detail.issue.user_login ?? "unknown" }}
+                  </p>
+                </div>
+              </div>
+
+              <div v-if="detail.issue.labels.length" class="issue-labels">
+                <span v-for="label in detail.issue.labels" :key="label" class="issue-label">{{ label }}</span>
+              </div>
+              <div v-if="detail.issue.assignees.length" class="issue-detail-assignees" aria-label="Assignees">
+                <span v-for="assignee in detail.issue.assignees" :key="assignee" class="issue-assignee">
+                  {{ assignee }}
+                </span>
+              </div>
+
+              <div class="issue-body" v-html="renderMarkdown(detail.issue.body ?? '')"></div>
+
+              <button class="issue-edit-btn" type="button" @click="enterEdit">Edit issue</button>
+
+              <h4 class="issue-comments-title">
+                Comments ({{ detail.comments.length }})
+              </h4>
+              <div class="issue-comments">
+                <p v-if="!detail.comments.length" class="issue-no-comments">No comments yet.</p>
+                <div v-for="comment in detail.comments" :key="comment.id" class="issue-comment">
+                  <div class="issue-comment-head">
+                    <strong>{{ comment.user_login ?? "unknown" }}</strong>
+                    <span class="issue-comment-date">{{ formatDate(comment.created_at) }}</span>
+                  </div>
+                  <div class="issue-comment-body" v-html="renderMarkdown(comment.body)"></div>
+                </div>
+              </div>
+
+              <div class="issue-comment-box">
+                <textarea
+                  v-model="commentBody"
+                  class="issue-comment-input"
+                  rows="3"
+                  placeholder="Leave a comment"
+                  aria-label="New comment"
+                ></textarea>
+                <div v-if="commentError" class="issues-error">{{ commentError }}</div>
+                <div class="issue-comment-actions">
+                  <button
+                    class="issue-comment-submit"
+                    type="button"
+                    :disabled="commentSending || !commentBody.trim()"
+                    @click="submitComment"
+                  >
+                    {{ commentSending ? "Posting…" : "Comment" }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Edit mode -->
+            <form v-else class="issue-edit-form" @submit.prevent="saveEdit">
+              <div class="issue-edit-field">
+                <label class="issue-edit-label" for="issue-edit-title">Title</label>
+                <input
+                  id="issue-edit-title"
+                  v-model="editTitle"
+                  class="issue-edit-input"
+                  type="text"
+                  required
+                />
+              </div>
+
+              <div class="issue-edit-field">
+                <label class="issue-edit-label" for="issue-edit-body">Body (markdown)</label>
+                <textarea
+                  id="issue-edit-body"
+                  v-model="editBody"
+                  class="issue-edit-input"
+                  rows="8"
+                ></textarea>
+              </div>
+
+              <div class="issue-edit-field">
+                <label class="issue-edit-label" for="issue-edit-state">State</label>
+                <select id="issue-edit-state" v-model="editState" class="issue-edit-input">
+                  <option value="open">open</option>
+                  <option value="closed">closed</option>
+                </select>
+              </div>
+
+              <fieldset class="issue-edit-field">
+                <legend class="issue-edit-label">Labels</legend>
+                <div class="issue-edit-label-picker">
+                  <label v-for="label in labelOptions" :key="label" class="issue-edit-label-check">
+                    <input v-model="editLabels" type="checkbox" :value="label" />
+                    <span>{{ label }}</span>
+                  </label>
+                  <p v-if="!labelOptions.length" class="issue-no-comments">No labels on this repository.</p>
+                </div>
+              </fieldset>
+
+              <div v-if="saveError" class="issues-error">{{ saveError }}</div>
+
+              <div class="issue-edit-actions">
+                <button class="issue-edit-save" type="submit" :disabled="saving">
+                  {{ saving ? "Saving…" : "Save" }}
+                </button>
+                <button class="issue-edit-cancel" type="button" :disabled="saving" @click="cancelEdit">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </aside>
     </template>
   </div>
 </template>
 
 <style scoped>
 .issues-tab {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -257,21 +562,13 @@ watch(state, () => {
   color: var(--caleo-text-secondary);
 }
 
-.issues-placeholder {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  color: var(--caleo-text-secondary);
-}
-
 .issue-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--caleo-border);
+  cursor: pointer;
 }
 
 .issue-row:hover {
@@ -304,11 +601,6 @@ watch(state, () => {
   font-size: 15px;
   font-weight: 600;
   color: var(--caleo-text);
-  text-decoration: none;
-}
-
-.issue-title:hover {
-  color: var(--caleo-primary);
 }
 
 .issue-labels {
@@ -336,8 +628,7 @@ watch(state, () => {
 
 .issue-assignees {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
 }
@@ -350,5 +641,304 @@ watch(state, () => {
   color: var(--caleo-text-secondary);
   background: rgba(127, 127, 127, 0.1);
   border-radius: 999px;
+}
+
+.issue-detail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(64%, 560px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--caleo-surface);
+  border-left: 1px solid var(--caleo-border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+.issue-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.issue-detail-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.issue-detail-close {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--caleo-text-secondary);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.issue-detail-close:hover {
+  color: var(--caleo-text);
+}
+
+.issue-detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.issue-detail-loading {
+  margin: 0;
+  font-size: 13px;
+  color: var(--caleo-text-secondary);
+}
+
+.issue-view-head {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.issue-view-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.issue-view-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--caleo-text);
+  line-height: 1.3;
+}
+
+.issue-view-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.issue-state-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  margin-left: 6px;
+  font-size: 11px;
+  border-radius: 999px;
+}
+
+.issue-state-chip.is-open {
+  color: #2da44e;
+  background: rgba(45, 164, 78, 0.15);
+}
+
+.issue-state-chip.is-closed {
+  color: #a371f7;
+  background: rgba(163, 113, 247, 0.15);
+}
+
+.issue-detail-assignees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.issue-body {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--caleo-text);
+  overflow-wrap: break-word;
+}
+
+.issue-body :deep(pre),
+.issue-comment-body :deep(pre) {
+  background: rgba(127, 127, 127, 0.1);
+  padding: 10px;
+  border-radius: 6px;
+  overflow: auto;
+}
+
+.issue-body :deep(code),
+.issue-comment-body :deep(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.issue-edit-btn {
+  margin-top: 14px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--caleo-text);
+  background: rgba(127, 127, 127, 0.1);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.issue-edit-btn:hover {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.issue-comments-title {
+  margin: 20px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.issue-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.issue-no-comments {
+  margin: 0;
+  font-size: 13px;
+  color: var(--caleo-text-secondary);
+}
+
+.issue-comment {
+  padding: 10px 12px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.issue-comment-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--caleo-text);
+}
+
+.issue-comment-date {
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.issue-comment-body {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--caleo-text-secondary);
+  overflow-wrap: break-word;
+}
+
+.issue-comment-box {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.issue-comment-input,
+.issue-edit-input {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--caleo-text);
+  background: var(--caleo-body-bg);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.issue-comment-input:focus,
+.issue-edit-input:focus {
+  outline: none;
+  border-color: var(--caleo-primary);
+}
+
+.issue-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.issue-comment-submit,
+.issue-edit-save {
+  padding: 5px 14px;
+  font-size: 13px;
+  color: #fff;
+  background: var(--caleo-primary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.issue-comment-submit:disabled,
+.issue-edit-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.issue-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.issue-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.issue-edit-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.issue-edit-label-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.issue-edit-label-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 13px;
+  color: var(--caleo-text);
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid var(--caleo-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.issue-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.issue-edit-cancel {
+  padding: 5px 14px;
+  font-size: 13px;
+  color: var(--caleo-text);
+  background: rgba(127, 127, 127, 0.1);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.issue-edit-cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 </style>
