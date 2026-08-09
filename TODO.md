@@ -85,6 +85,11 @@
     with Athena injecting entities/headers/chunks directly (no fork). Most controllable, solves all
     pain points. Haystack/LlamaIndex as modular-library reference (still need to build graph RAG).
   - Decision needed in M4: self-build vs keep LightRAG (accept its internal LLM passes).
+  - **Key reference found (2026-08-09): Neo4j official `neo4j-graphrag` Python lib** — highly matches
+    self-build. Provides HybridRetriever (vector+full-text fusion + rank), VectorRetriever, Text2Cypher
+    (LLM→Cypher), and **ToolsRetriever** (combine multiple retrievers, LLM picks — fits "fuse wiki +
+    topic + vector + graph" enhancement). SimpleKGPipeline builds KG (or inject Athena entities
+    directly). Vectors can be Neo4j-native or external; may need a custom retriever for pgvector.
   - Reclassify/re-topic existing docs into deeper sub-topic layers (e.g. `internal/events/sommerseminar`, `internal/events/cday`, `internal/events/oktoberfest`) once a topic dir grows large (e.g. events with 100 files).
   - `isValidTopic` already supports arbitrary-depth slash paths; the gap is a re-curation tool, not the schema.
   - **LightRAG does NOT need re-chunking/re-embedding.** Topic filtering is driven by the WIKI file frontmatter, not LightRAG internals: `buildTopicMap()` (retrieval.ts) reads `topic` from llm_wiki pages, then `filterGraphByTopic()` uses it to filter LightRAG graph nodes by file_path. So re-topic = edit the wiki md frontmatter `topic` (+ move file to the new `wiki/<topic>/` dir) and re-`listWikiPages`/rebuild index; the existing chunks + embeddings + entities stay valid.
