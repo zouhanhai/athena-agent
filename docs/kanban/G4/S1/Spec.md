@@ -89,6 +89,11 @@ quality)**. Output ≥ input (rewrite + extracted structured data), so usable in
   one global type/topic/entity pass. NOTE: chunked refinement loses cross-section entity/relation
   correlation, so single-read is preferred; chunking is a fallback strategy.
 
+**Measured reference (2026-08-09)**: the 827-page "Group Reporting SAP Doc.pdf" docling parse produced a
+**2.17 MB md (27,917 lines, 3,364 headers)**. That's ~55-65k tokens input + output inflation → near/over
+the 1M context. So **≥ ~1-2 MB md (≈ 500-1000 pages) MUST be chunked**; sub-1 MB docs are single-read
+safe. A heavy-image doc also grows md further (VLM descriptions add alt text).
+
 ### Downstream needs no LLM (decided 2026-08-09)
 
 - **llm_wiki**: only writes the page + frontmatter + rebuilds index → pure I/O, no LLM.
