@@ -255,6 +255,17 @@ watch(
                 @click="viewMode = 'preview'"
               >Preview</button>
             </span>
+            <button
+              type="button"
+              class="commits-toggle"
+              :aria-expanded="commitsCollapsed ? 'false' : 'true'"
+              :title="commitsCollapsed ? 'Show commit history' : 'Hide commit history'"
+              @click="commitsCollapsed = !commitsCollapsed"
+            >
+              <span v-if="commitsCollapsed" class="commits-caret">▸</span>
+              <span v-else class="commits-caret">▾</span>
+              {{ commitsCollapsed ? "Commits" : "Hide Commits" }}
+            </button>
             <span v-if="selectedFile" class="code-file-lang">{{ language }}</span>
           </header>
 
@@ -276,17 +287,6 @@ watch(
           <header class="commits-panel-header">
             <span class="commits-panel-title">Commits</span>
             <div class="commits-panel-actions">
-              <button
-                type="button"
-                class="commits-toggle"
-                :aria-expanded="commitsCollapsed ? 'false' : 'true'"
-                :title="commitsCollapsed ? 'Show commit history' : 'Hide commit history'"
-                @click="commitsCollapsed = !commitsCollapsed"
-              >
-                <span v-if="commitsCollapsed" class="commits-caret">▸</span>
-                <span v-else class="commits-caret">▾</span>
-                {{ commitsCollapsed ? "Show" : "Hide" }}
-              </button>
               <button
                 type="button"
                 class="commits-refresh"
