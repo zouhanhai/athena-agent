@@ -54,7 +54,7 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
         if (!credential) {
           return reply.code(400).send({ error: "no github credential registered" });
         }
-        const board = await scanRemoteBoard(github, credential, owner, repo);
+        const board = await scanRemoteBoard(github, credential, owner, repo, undefined, { includeBody: true });
         return toIndex(board);
       }
       return rescan ? await index.rescan() : await index.read();
