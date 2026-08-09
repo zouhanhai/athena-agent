@@ -139,6 +139,45 @@ export async function readIndexFile(root: string): Promise<KanbanIndex | null> {
   }
 }
 
+/** Remote repo read access for the remote fast path (structural subset of GitHubApi). */
+export interface RemoteIndexSource {
+  getFileContent(
+    credential: unknown,
+    owner: string,
+    repo: string,
+    path: string,
+    ref?: string,
+  ): Promise<{ content: string }>;
+}
+
+/**
+ * Fast path for a remote repo's board: read its committed `docs/kanban/kanban-index.json`
+ * via a single GitHub API call, instead of recursively scanning every board file.
+ * Returns null when the remote repo has no (valid) committed index, so the caller can
+ * fall back to the full remote scan.
+ */
+export async function readRemoteIndex(
+  github: RemoteIndexSource,
+  credential: unknown,
+  owner: string,
+  repo: string,
+  ref?: string,
+): Promise<KanbanIndex | null> {
+  try {
+    const file = await github.getFileContent(credential, owner, repo, `${BOARD_ROOT_REL}${INDEX_FILENAME}`, ref);
+    const parsed = JSON.parse(file.content) as Partial<KanbanIndex>;
+    if (parsed.version !== INDEX_VERSION || !Array.isArray(parsed.goals) || !Array.isArray(parsed.errors)) {
+      return null;
+    }
+    return parsed as KanbanIndex;
+  } catch {
+    return null;
+  }
+}
+
+// docs/kanban/ relative path (matches BOARD_ROOT in scan.ts) for the remote index read.
+const BOARD_ROOT_REL = "docs/kanban/";
+
 /** Abstraction the kanban route consumes, so it can be faked in tests. */
 export interface KanbanIndexService {
   /** Fast path: read the cached root index; falls back to a rescan when missing/invalid. */

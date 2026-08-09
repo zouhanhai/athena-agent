@@ -3,7 +3,7 @@ import type { AuthService } from "../employees/auth.js";
 import type { EmployeeRegistry } from "../employees/employees.js";
 import type { RemoteBoardSource } from "../kanban/scan.js";
 import { scanRemoteBoard } from "../kanban/scan.js";
-import { toIndex, type KanbanIndexService } from "../kanban/index-file.js";
+import { toIndex, readRemoteIndex, type KanbanIndexService } from "../kanban/index-file.js";
 import { GithubAuthError } from "../github/client.js";
 import { currentEmployee } from "./helpers.js";
 
@@ -54,6 +54,12 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
         if (!credential) {
           return reply.code(400).send({ error: "no github credential registered" });
         }
+        // Fast path: read the remote repo's committed kanban-index.json (single API call).
+        const remoteIndex = await readRemoteIndex(github, credential, owner, repo);
+        if (remoteIndex) {
+          return remoteIndex;
+        }
+        // Fallback: full remote scan (repo has no valid committed index).
         const board = await scanRemoteBoard(github, credential, owner, repo, undefined, { includeBody: true });
         return toIndex(board);
       }
