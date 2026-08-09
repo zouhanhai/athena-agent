@@ -129,6 +129,9 @@ def build_pipeline_options() -> PdfPipelineOptions:
             params={"model": PICTURE_DESCRIPTION_MODEL},
             timeout=60,
             concurrency=4,
+            # Describe small images too: default threshold is 5% of page area (0.05);
+            # lower to 1% so small figures/logos still get a VLM description (RAG-searchable).
+            picture_area_threshold=0.01,
         )
         log.info(
             "picture descriptions enabled via OpenRouter VLM (%s)",
