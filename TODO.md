@@ -68,9 +68,9 @@
 - [ ] **KB incremental re-curation (re-topic existing wiki + LightRAG)** — spec-level feature (2026-08-09)
   - Reclassify/re-topic existing docs into deeper sub-topic layers (e.g. `internal/events/sommerseminar`, `internal/events/cday`, `internal/events/oktoberfest`) once a topic dir grows large (e.g. events with 100 files).
   - `isValidTopic` already supports arbitrary-depth slash paths; the gap is a re-curation tool, not the schema.
-  - Mechanics per file: edit wiki md frontmatter `topic` → move file to the new `wiki/<topic>/` dir → DELETE the old LightRAG doc (`DELETE /documents/{id}`) → re-ingest with the new frontmatter (`POST /documents/text`; re-runs entity extraction + embedding, slow per doc).
+  - **LightRAG does NOT need re-chunking/re-embedding.** Topic filtering is driven by the WIKI file frontmatter, not LightRAG internals: `buildTopicMap()` (retrieval.ts) reads `topic` from llm_wiki pages, then `filterGraphByTopic()` uses it to filter LightRAG graph nodes by file_path. So re-topic = edit the wiki md frontmatter `topic` (+ move file to the new `wiki/<topic>/` dir) and re-`listWikiPages`/rebuild index; the existing chunks + embeddings + entities stay valid.
+  - Exception: if we ever want topic stored as LightRAG document metadata (not just wiki frontmatter) for doc-level filtering, that WOULD need a re-ingest. Decide scope in M4.
   - Sub-topic assignment source (decide): manual per-file, filename/title keyword rules, or re-run llm_wiki classification against an extended taxonomy tree (events→{sommerseminar,cday,oktoberfest}).
-  - LightRAG sync must keep frontmatter topic (stored in content_summary) consistent with the wiki file so topic filtering stays correct.
 
 ### M5 — Output Page (txt/blog/charts/pptx/html)
 - [ ] Generate txt/blog/charts from knowledge base + web sources
