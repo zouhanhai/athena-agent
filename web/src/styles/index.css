@@ -17,3 +17,29 @@ body {
   background: var(--caleo-body-bg, #f5f6f7);
   color: var(--caleo-text, #333);
 }
+
+/* Theme-aware scrollbars (adapt automatically to dark/light via --caleo-* vars). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--caleo-border, #c5c8d0) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--caleo-border, #c5c8d0);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--caleo-text-secondary, #9aa0aa);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
