@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-09T20:44:02.402Z",
+  "generated_at": "2026-08-09T20:52:19.082Z",
   "goals": [
     {
       "ref": "G1",
@@ -1756,8 +1756,9 @@
               "id": "t3",
               "title": "G4.S1.T3: big-output handling (pi-docparser pattern) + chunking for >1MB docs",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_g4s1_t3_opencode",
               "blocked_by": [],
               "acceptance_criteria": [
                 "Full re-leveled markdown + chunks land on disk/storage; tool returns small metadata (frontmatter/entities/keywords/quality/md_ref)",
