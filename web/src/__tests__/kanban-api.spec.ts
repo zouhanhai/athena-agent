@@ -75,6 +75,13 @@ describe("fetchBoard", () => {
     expect(result).toEqual(BOARD);
   });
 
+  it("GETs /api/kanban?repo=owner/repo when a repo is selected", async () => {
+    stubFetch(jsonResponse(BOARD));
+    await fetchBoard("tok_1", "acme/box");
+    const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban?repo=acme%2Fbox");
+  });
+
   it("throws the server error message on a non-ok response", async () => {
     stubFetch(jsonResponse({ error: "unauthorized" }, 401));
     await expect(fetchBoard("tok_1")).rejects.toThrow("unauthorized");

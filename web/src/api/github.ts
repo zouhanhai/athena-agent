@@ -44,6 +44,15 @@ export interface GithubIssue {
   assignees: string[];
 }
 
+export interface GithubCommit {
+  sha: string;
+  message: string;
+  author_name: string;
+  author_email: string | null;
+  date: string;
+  html_url: string;
+}
+
 export type GithubIssueState = "open" | "closed" | "all";
 
 async function request<T>(sessionToken: string, url: string): Promise<T> {
@@ -130,4 +139,23 @@ export async function fetchIssues(
     `/api/github/repos/${owner}/${repo}/issues?${params.toString()}`,
   );
   return data.issues;
+}
+
+/** GET /api/github/repos/:owner/:repo/commits?ref=... → recent commits of a repo/branch. */
+export async function fetchCommits(
+  sessionToken: string,
+  owner: string,
+  repo: string,
+  ref?: string,
+): Promise<GithubCommit[]> {
+  const params = new URLSearchParams();
+  if (ref) {
+    params.set("ref", ref);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const data = await request<{ commits: GithubCommit[] }>(
+    sessionToken,
+    `/api/github/repos/${owner}/${repo}/commits${suffix}`,
+  );
+  return data.commits;
 }

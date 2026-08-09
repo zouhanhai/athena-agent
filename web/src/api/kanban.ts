@@ -83,9 +83,14 @@ export interface KanbanBoard {
   errors: BoardError[];
 }
 
-/** GET /api/kanban → the docs-scanned board (Goals/Specs/Tickets + status). */
-export async function fetchBoard(sessionToken: string): Promise<KanbanBoard> {
-  const res = await fetch("/api/kanban", {
+/** GET /api/kanban (optionally ?repo=owner/repo) → the docs-scanned board. */
+export async function fetchBoard(sessionToken: string, repo?: string): Promise<KanbanBoard> {
+  const params = new URLSearchParams();
+  if (repo) {
+    params.set("repo", repo);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`/api/kanban${suffix}`, {
     headers: { Authorization: `Bearer ${sessionToken}` },
   });
   if (!res.ok) {

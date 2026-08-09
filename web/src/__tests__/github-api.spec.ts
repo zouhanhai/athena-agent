@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 
 import {
   fetchBranches,
+  fetchCommits,
   fetchFileContent,
   fetchIssues,
   fetchRepos,
@@ -117,5 +118,32 @@ describe("fetchIssues", () => {
     await fetchIssues("tok_1", "acme", "box", "closed");
     const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/github/repos/acme/box/issues?state=closed");
+  });
+});
+
+describe("fetchCommits", () => {
+  it("GETs the commits endpoint with the ref and returns commits", async () => {
+    const commits = [
+      {
+        sha: "c111111111111111111111111111111111111111",
+        message: "Fix login bug",
+        author_name: "Alice",
+        author_email: "alice@acme.com",
+        date: "2026-08-01T10:00:00Z",
+        html_url: "https://github.com/acme/box/commit/c111",
+      },
+    ];
+    stubFetch(jsonResponse({ commits }));
+    const result = await fetchCommits("tok_1", "acme", "box", "feature");
+    const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/github/repos/acme/box/commits?ref=feature");
+    expect(result).toEqual(commits);
+  });
+
+  it("omits the ref query param when not provided", async () => {
+    stubFetch(jsonResponse({ commits: [] }));
+    await fetchCommits("tok_1", "acme", "box");
+    const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/github/repos/acme/box/commits");
   });
 });
