@@ -71,6 +71,20 @@
     `#`/`##`/`###`), quality check (md vs source completeness), topic judgment (fold in existing
     llm_wiki classify). Chunking already paragraph_semantic (lightrag.ts:130). Fallback to docling
     output if the LLM step fails (never worse than today). Same model (deepseek-v4-flash-latest).
+  - **Context-efficiency**: fold ALL full-doc LLM passes into ONE Athena read (llm_wiki classify +
+    this step). LightRAG still runs its own per-chunk entity/keyword LLM internally (hardcoded,
+    no injection interface — needs fork to remove; spike in M4).
+- [ ] **RAG system selection: replace LightRAG?** (2026-08-09)
+  - Driver: LightRAG is a black box — entity extraction / keyword / chunk are hardcoded internal LLM
+    calls with no external-injection interface, so Athena can't drive them (needs fork). 
+  - Evaluated RAGFlow (86.9k★): deep doc parsing + GraphRAG + Docling support + custom chunker, BUT it
+    is a full platform on **ES/MinIO/MySQL** (NOT pgvector) and its GraphRAG is internal (not
+    injectable) — does not solve the "Athena injection" goal; heavy new infra. Not a match.
+  - Lean toward **self-built lightweight RAG** on the existing PG + pgvector 0.6 + a simple graph
+    (PG tables / NetworkX / Apache AGE): vector top-k (pgvector) + keyword + graph-neighbor fusion,
+    with Athena injecting entities/headers/chunks directly (no fork). Most controllable, solves all
+    pain points. Haystack/LlamaIndex as modular-library reference (still need to build graph RAG).
+  - Decision needed in M4: self-build vs keep LightRAG (accept its internal LLM passes).
   - Reclassify/re-topic existing docs into deeper sub-topic layers (e.g. `internal/events/sommerseminar`, `internal/events/cday`, `internal/events/oktoberfest`) once a topic dir grows large (e.g. events with 100 files).
   - `isValidTopic` already supports arbitrary-depth slash paths; the gap is a re-curation tool, not the schema.
   - **LightRAG does NOT need re-chunking/re-embedding.** Topic filtering is driven by the WIKI file frontmatter, not LightRAG internals: `buildTopicMap()` (retrieval.ts) reads `topic` from llm_wiki pages, then `filterGraphByTopic()` uses it to filter LightRAG graph nodes by file_path. So re-topic = edit the wiki md frontmatter `topic` (+ move file to the new `wiki/<topic>/` dir) and re-`listWikiPages`/rebuild index; the existing chunks + embeddings + entities stay valid.
