@@ -7,23 +7,26 @@ import "tdesign-vue-next/es/style/index.css";
 import CodeTab from "@/components/CodeTab.vue";
 import {
   fetchBranches,
+  fetchCommits,
   fetchFileContent,
   fetchRepos,
   fetchTree,
 } from "@/api/github";
-import type { GithubBranch, GithubRepo, GithubTreeEntry } from "@/api/github";
+import type { GithubBranch, GithubCommit, GithubRepo, GithubTreeEntry } from "@/api/github";
 
 vi.mock("@/api/github", () => ({
   fetchRepos: vi.fn(),
   fetchBranches: vi.fn(),
   fetchTree: vi.fn(),
   fetchFileContent: vi.fn(),
+  fetchCommits: vi.fn(),
 }));
 
 const fetchReposMock = fetchRepos as unknown as ReturnType<typeof vi.fn>;
 const fetchBranchesMock = fetchBranches as unknown as ReturnType<typeof vi.fn>;
 const fetchTreeMock = fetchTree as unknown as ReturnType<typeof vi.fn>;
 const fetchFileContentMock = fetchFileContent as unknown as ReturnType<typeof vi.fn>;
+const fetchCommitsMock = fetchCommits as unknown as ReturnType<typeof vi.fn>;
 
 const REPOS: GithubRepo[] = [
   {
@@ -33,6 +36,14 @@ const REPOS: GithubRepo[] = [
     description: "portal",
     private: false,
     default_branch: "master",
+  },
+  {
+    name: "other",
+    full_name: "zouhanhai/other",
+    html_url: "https://github.com/zouhanhai/other",
+    description: null,
+    private: true,
+    default_branch: "main",
   },
 ];
 
@@ -49,8 +60,28 @@ const TREE: GithubTreeEntry[] = [
 
 const FILE_CONTENT = "const x = 1;\nconsole.log(x);\n";
 
-async function mountCodeTab() {
+const COMMITS: GithubCommit[] = [
+  {
+    sha: "c111111111111111111111111111111111111111",
+    message: "Fix login bug",
+    author_name: "Alice",
+    author_email: "alice@acme.com",
+    date: "2026-08-01T10:00:00Z",
+    html_url: "https://github.com/zouhanhai/athena-agent/commit/c111",
+  },
+  {
+    sha: "c222222222222222222222222222222222222222",
+    message: "Add docs",
+    author_name: "Bob",
+    author_email: "bob@acme.com",
+    date: "2026-07-30T09:00:00Z",
+    html_url: "https://github.com/zouhanhai/athena-agent/commit/c222",
+  },
+];
+
+async function mountCodeTab(repo: GithubRepo | null = REPOS[0]) {
   const wrapper = mount(CodeTab, {
+    props: { repo },
     global: { plugins: [createPinia(), TDesign] },
   });
   await flushPromises();
@@ -59,21 +90,8 @@ async function mountCodeTab() {
 
 type Wrapper = Awaited<ReturnType<typeof mountCodeTab>>;
 
-function selects(wrapper: Wrapper) {
-  return wrapper.findAllComponents({ name: "TSelect" });
-}
-
-function repoSelect(wrapper: Wrapper) {
-  return selects(wrapper)[0];
-}
-
 function branchSelect(wrapper: Wrapper) {
-  return selects(wrapper)[1];
-}
-
-async function selectRepo(wrapper: Wrapper, fullName = "zouhanhai/athena-agent") {
-  await repoSelect(wrapper)!.vm.$emit("update:modelValue", fullName);
-  await flushPromises();
+  return wrapper.findAllComponents({ name: "TSelect" })[0];
 }
 
 async function selectBranch(wrapper: Wrapper, name = "feature") {
@@ -90,6 +108,7 @@ describe("CodeTab", () => {
     fetchBranchesMock.mockResolvedValue(BRANCHES);
     fetchTreeMock.mockResolvedValue(TREE);
     fetchFileContentMock.mockResolvedValue({ path: "src/index.ts", sha: "c1", size: 120, content: FILE_CONTENT });
+    fetchCommitsMock.mockResolvedValue(COMMITS);
   });
 
   afterEach(() => {
@@ -99,28 +118,28 @@ describe("CodeTab", () => {
   it("shows an empty state without a session token and makes no API calls", async () => {
     const wrapper = await mountCodeTab();
     expect(wrapper.find(".code-empty").exists()).toBe(true);
-    expect(fetchReposMock).not.toHaveBeenCalled();
+    expect(fetchBranchesMock).not.toHaveBeenCalled();
+    expect(fetchCommitsMock).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("loads repos on mount and renders the repo selector", async () => {
+  it("shows a placeholder when no repo is selected", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
-    const wrapper = await mountCodeTab();
-    expect(fetchReposMock).toHaveBeenCalledWith("tok_1");
-    expect(repoSelect(wrapper).exists()).toBe(true);
-    const options = repoSelect(wrapper).props("options") as { label: string; value: string }[];
-    expect(options.map((o) => o.value)).toContain("zouhanhai/athena-agent");
+    const wrapper = await mountCodeTab(null);
+    expect(wrapper.find(".code-empty-title").text()).toContain("Select a repository");
+    expect(fetchBranchesMock).not.toHaveBeenCalled();
+    expect(fetchCommitsMock).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("selecting a repo loads branches and the file tree at the default branch", async () => {
+  it("loads branches, the file tree and commits for the selected repo on mount", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountCodeTab();
-    await selectRepo(wrapper);
 
     expect(fetchBranchesMock).toHaveBeenCalledWith("tok_1", "zouhanhai", "athena-agent");
     expect(fetchTreeMock).toHaveBeenCalledTimes(1);
     expect(fetchTreeMock).toHaveBeenCalledWith("tok_1", "zouhanhai", "athena-agent", "master");
+    expect(fetchCommitsMock).toHaveBeenCalledWith("tok_1", "zouhanhai", "athena-agent", "master");
     expect(wrapper.findAll(".tree-node-tree").length).toBeGreaterThan(0);
     expect(wrapper.findAll(".tree-node-blob").length).toBeGreaterThan(0);
     expect(branchSelect(wrapper).exists()).toBe(true);
@@ -132,7 +151,6 @@ describe("CodeTab", () => {
   it("expanding a folder reveals its children and collapses on a second click", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountCodeTab();
-    await selectRepo(wrapper);
 
     const folder = wrapper.findAll(".tree-node-tree > .tree-row").at(-1)!;
     await folder.trigger("click");
@@ -149,7 +167,6 @@ describe("CodeTab", () => {
   it("clicking a file fetches content and renders line numbers with highlighted code", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountCodeTab();
-    await selectRepo(wrapper);
 
     await wrapper.findAll(".tree-node-tree > .tree-row").at(-1)!.trigger("click");
     await flushPromises();
@@ -167,18 +184,63 @@ describe("CodeTab", () => {
     wrapper.unmount();
   });
 
-  it("changing the branch reloads the tree for that branch", async () => {
+  it("changing the branch reloads the tree and commits for that branch", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountCodeTab();
-    await selectRepo(wrapper);
     await selectBranch(wrapper, "feature");
     expect(fetchTreeMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "athena-agent", "feature");
+    expect(fetchCommitsMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "athena-agent", "feature");
+    wrapper.unmount();
+  });
+
+  it("shows the branch HEAD commit in the code header", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountCodeTab();
+    const head = wrapper.find(".code-head");
+    expect(head.exists()).toBe(true);
+    expect(head.find(".code-head-sha").text()).toBe("c111111");
+    expect(head.find(".code-head-message").text()).toBe("Fix login bug");
+    wrapper.unmount();
+  });
+
+  it("renders the commit list with sha, message, author and date", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountCodeTab();
+    const rows = wrapper.findAll(".commit-row");
+    expect(rows.length).toBe(2);
+    expect(rows[0]!.text()).toContain("c111111");
+    expect(rows[0]!.text()).toContain("Fix login bug");
+    expect(rows[0]!.text()).toContain("Alice");
+    expect(rows[0]!.text()).toContain("2026-08-01");
+    wrapper.unmount();
+  });
+
+  it("refresh re-fetches commits on demand (manual, no polling)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountCodeTab();
+    const callsAfterMount = fetchCommitsMock.mock.calls.length;
+    await wrapper.find(".commits-refresh").trigger("click");
+    await flushPromises();
+    expect(fetchCommitsMock.mock.calls.length).toBe(callsAfterMount + 1);
+    expect(fetchCommitsMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "athena-agent", "master");
+    wrapper.unmount();
+  });
+
+  it("re-fetches tree and commits when the selected repo prop changes", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchBranchesMock.mockResolvedValue([{ name: "main", sha: "m000", protected: true }]);
+    const wrapper = await mountCodeTab(REPOS[0]);
+    await wrapper.setProps({ repo: REPOS[1] });
+    await flushPromises();
+    expect(fetchBranchesMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "other");
+    expect(fetchTreeMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "other", "main");
+    expect(fetchCommitsMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "other", "main");
     wrapper.unmount();
   });
 
   it("shows an error message when the GitHub API fails", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
-    fetchReposMock.mockRejectedValue(new Error("no github credential registered"));
+    fetchBranchesMock.mockRejectedValue(new Error("no github credential registered"));
     const wrapper = await mountCodeTab();
     expect(wrapper.find(".code-error").text()).toContain("no github credential registered");
     wrapper.unmount();

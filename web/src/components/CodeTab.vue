@@ -1,21 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import CodeTreeNode from "./CodeTreeNode.vue";
 import { useAuthStore } from "@/stores/auth";
 import {
   fetchBranches,
+  fetchCommits,
   fetchFileContent,
-  fetchRepos,
   fetchTree,
+  type GithubCommit,
   type GithubRepo,
 } from "@/api/github";
 import { buildTree, type TreeNode } from "@/github/tree";
 import { detectLanguage, renderCodeLines } from "@/github/highlight";
 
+const props = defineProps<{ repo: GithubRepo | null }>();
+
 const auth = useAuthStore();
 
-const repos = ref<GithubRepo[]>([]);
-const repoValue = ref("");
 const branches = ref<string[]>([]);
 const branch = ref("");
 const tree = ref<TreeNode[]>([]);
@@ -25,12 +26,16 @@ const language = ref("plaintext");
 const loading = ref(false);
 const error = ref("");
 
+const commits = ref<GithubCommit[]>([]);
+const commitsLoading = ref(false);
+const commitsError = ref("");
+
 const hasSession = computed(() => !!auth.sessionToken);
 
-const selectedRepo = computed(() => repos.value.find((repo) => repo.full_name === repoValue.value) ?? null);
-
-const repoOptions = computed(() => repos.value.map((repo) => ({ label: repo.name, value: repo.full_name })));
 const branchOptions = computed(() => branches.value.map((name) => ({ label: name, value: name })));
+
+/** The selected branch's HEAD commit (commits[0]); shown prominently in the code header. */
+const headCommit = computed(() => commits.value[0] ?? null);
 
 /** True while onRepoChange sets the branch programmatically (skip the branch watcher). */
 let syncingBranch = false;
@@ -40,23 +45,12 @@ function splitRepo(repo: GithubRepo): [string, string] {
   return [owner ?? "", name ?? repo.name];
 }
 
-function fail(err: unknown): void {
-  error.value = err instanceof Error ? err.message : String(err);
+function shortSha(sha: string): string {
+  return sha.slice(0, 7);
 }
 
-async function loadRepos(): Promise<void> {
-  if (!auth.sessionToken) {
-    return;
-  }
-  loading.value = true;
-  error.value = "";
-  try {
-    repos.value = await fetchRepos(auth.sessionToken);
-  } catch (err) {
-    fail(err);
-  } finally {
-    loading.value = false;
-  }
+function fail(err: unknown): void {
+  error.value = err instanceof Error ? err.message : String(err);
 }
 
 async function loadRepo(repo: GithubRepo, ref: string): Promise<void> {
@@ -80,36 +74,61 @@ async function loadRepo(repo: GithubRepo, ref: string): Promise<void> {
   }
 }
 
+async function loadCommits(repo: GithubRepo, ref: string): Promise<void> {
+  if (!auth.sessionToken) {
+    return;
+  }
+  const [owner, name] = splitRepo(repo);
+  commitsLoading.value = true;
+  commitsError.value = "";
+  try {
+    commits.value = await fetchCommits(auth.sessionToken, owner, name, ref);
+  } catch (err) {
+    commitsError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    commitsLoading.value = false;
+  }
+}
+
 async function onRepoChange(): Promise<void> {
   selectedFile.value = null;
   contentLines.value = [];
   branches.value = [];
   tree.value = [];
-  const repo = selectedRepo.value;
+  commits.value = [];
+  const repo = props.repo;
   if (!repo) {
     return;
   }
   syncingBranch = true;
   branch.value = repo.default_branch;
   syncingBranch = false;
-  await loadRepo(repo, branch.value);
+  await Promise.all([loadRepo(repo, branch.value), loadCommits(repo, branch.value)]);
   if (branches.value.length && !branches.value.includes(branch.value)) {
     branch.value = branches.value[0]!;
   }
 }
 
 async function onBranchChange(ref: string): Promise<void> {
-  const repo = selectedRepo.value;
+  const repo = props.repo;
   if (!repo || !ref) {
     return;
   }
   selectedFile.value = null;
   contentLines.value = [];
-  await loadRepo(repo, ref);
+  await Promise.all([loadRepo(repo, ref), loadCommits(repo, ref)]);
+}
+
+/** Manual refresh only — never poll, to avoid GitHub API cost/rate-limits. */
+async function refreshCommits(): Promise<void> {
+  if (!props.repo) {
+    return;
+  }
+  await loadCommits(props.repo, branch.value);
 }
 
 async function openFile(node: TreeNode): Promise<void> {
-  const repo = selectedRepo.value;
+  const repo = props.repo;
   if (!auth.sessionToken || !repo || node.type !== "blob") {
     return;
   }
@@ -129,13 +148,13 @@ async function openFile(node: TreeNode): Promise<void> {
   }
 }
 
-onMounted(() => {
-  void loadRepos();
-});
-
-watch(repoValue, () => {
-  void onRepoChange();
-});
+watch(
+  () => props.repo,
+  () => {
+    void onRepoChange();
+  },
+  { immediate: true },
+);
 
 watch(
   branch,
@@ -156,19 +175,16 @@ watch(
       <p class="code-empty-hint">Log in and register a GitHub credential to see your repositories.</p>
     </div>
 
+    <div v-else-if="!repo" class="code-empty">
+      <p class="code-empty-title">Select a repository</p>
+      <p class="code-empty-hint">Choose a repository from the Workbench header to browse its code.</p>
+    </div>
+
     <template v-else>
       <div v-if="error" class="code-error">{{ error }}</div>
 
       <div class="code-layout">
         <aside class="code-sidebar">
-          <t-select
-            class="repo-select"
-            v-model="repoValue"
-            :options="repoOptions"
-            :loading="loading"
-            placeholder="Select a repository"
-            size="small"
-          />
           <div v-if="branches.length" class="branch-row">
             <span class="branch-label">Branch</span>
             <t-select
@@ -179,7 +195,7 @@ watch(
             />
           </div>
           <nav class="code-tree" aria-label="Repository file tree">
-            <p v-if="!tree.length && !loading" class="tree-empty">No repositories loaded.</p>
+            <p v-if="!tree.length && !loading" class="tree-empty">No files loaded.</p>
             <CodeTreeNode
               v-for="node in tree"
               :key="node.path"
@@ -192,6 +208,15 @@ watch(
         <section class="code-view">
           <header class="code-view-header">
             <span class="code-file-path">{{ selectedFile?.path ?? "Select a file" }}</span>
+            <span v-if="headCommit" class="code-head">
+              <a
+                class="code-head-sha"
+                :href="headCommit.html_url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ shortSha(headCommit.sha) }}</a>
+              <span class="code-head-message" :title="headCommit.message">{{ headCommit.message }}</span>
+            </span>
             <span v-if="selectedFile" class="code-file-lang">{{ language }}</span>
           </header>
 
@@ -204,6 +229,36 @@ watch(
             </div>
           </div>
         </section>
+
+        <aside class="commits-panel" aria-label="Recent commits">
+          <header class="commits-panel-header">
+            <span class="commits-panel-title">Commits</span>
+            <button
+              type="button"
+              class="commits-refresh"
+              :disabled="commitsLoading"
+              @click="refreshCommits"
+            >Refresh</button>
+          </header>
+          <div v-if="commitsError" class="commits-error">{{ commitsError }}</div>
+          <p v-if="!commits.length && !commitsLoading && !commitsError" class="commits-empty">
+            No commits.
+          </p>
+          <div class="commits-list">
+            <article v-for="commit in commits" :key="commit.sha" class="commit-row">
+              <a
+                class="commit-sha"
+                :href="commit.html_url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ shortSha(commit.sha) }}</a>
+              <span class="commit-message" :title="commit.message">{{ commit.message }}</span>
+              <span class="commit-meta">
+                {{ commit.author_name || "unknown" }} · {{ commit.date.slice(0, 10) }}
+              </span>
+            </article>
+          </div>
+        </aside>
       </div>
     </template>
   </div>
@@ -252,7 +307,7 @@ watch(
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 12px;
+  gap: 0;
 }
 
 .code-sidebar {
@@ -312,6 +367,34 @@ watch(
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   color: var(--caleo-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.code-head-sha {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--caleo-primary);
+  text-decoration: none;
+}
+
+.code-head-message {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .code-file-lang {
@@ -386,6 +469,105 @@ watch(
 
 .code-line-content :deep(.tok-tag) {
   color: #7ee787;
+}
+
+.commits-panel {
+  width: 300px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--caleo-border);
+}
+
+.commits-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.commits-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.commits-refresh {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--caleo-text);
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.commits-refresh:hover:not(:disabled) {
+  border-color: var(--caleo-primary);
+  color: var(--caleo-primary);
+}
+
+.commits-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.commits-error {
+  margin: 8px 12px 0;
+  font-size: 12px;
+  color: var(--caleo-error);
+}
+
+.commits-empty {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.commits-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.commit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.commit-row:hover {
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.commit-sha {
+  align-self: flex-start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--caleo-primary);
+  text-decoration: none;
+}
+
+.commit-message {
+  font-size: 13px;
+  color: var(--caleo-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-meta {
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
 }
 
 .code-tab :deep(.tree-row) {
