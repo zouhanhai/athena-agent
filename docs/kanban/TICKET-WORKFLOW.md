@@ -10,9 +10,9 @@ If a ticket file lacks it, follow this file.
    - `status: in_progress`
    - `assignee: opencode`
    - `session_id: <your actual session id>`
-   - then `git add <ticket file>` + commit + push. This is the claim lock so no other worker takes it.
-   - After claiming, **regenerate the kanban index** (`cd server && npx tsx scripts/write-index.ts`) and
-     commit it with the claim so the board reflects `in_progress` immediately.
+   - Then regenerate the kanban index (`cd server && npx tsx scripts/write-index.ts`) and **commit the
+     claim + index together in ONE commit** (one logical change: "claim ticket X"), then push. This is the
+     claim lock so no other worker takes it, and the board reflects `in_progress` immediately.
 
 2. **Find context**: read this ticket's **parent Spec** (`docs/kanban/G<S>/S<#>/Spec.md`) and **Goal**
    (`docs/kanban/G<S>/Goal.md`) for the full design + acceptance criteria. The ticket is a task within
@@ -41,8 +41,8 @@ If a ticket file lacks it, follow this file.
 ## Worker Workflow (REQUIRED — follow in order)
 
 1. **Git claim-lock (FIRST)**: set `status: in_progress`, `assignee: opencode`,
-   `session_id: <your session id>` in the frontmatter, then commit + push. Claim lock.
-   After claiming, regenerate the kanban index (`cd server && npx tsx scripts/write-index.ts`) + commit it.
+   `session_id: <your session id>` in the frontmatter, then regenerate the kanban index
+   (`cd server && npx tsx scripts/write-index.ts`), and commit claim + index together in ONE commit, push.
 2. **Find context**: read this ticket's parent Spec (`docs/kanban/<G>/<S>/Spec.md`) + Goal
    (`docs/kanban/<G>/Goal.md`).
 3. **Use codegraph MCP**: `codegraph explore "<area>"` before editing.
