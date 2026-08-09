@@ -19,27 +19,16 @@ const profileError = ref("");
 const uploading = ref(false);
 const logoError = ref("");
 
-const logoOptions = computed(() => {
-  const options: { url: string; label: string; animal: string; color: string }[] = [];
-  // Always show the currently-selected logo (even if in use by another agent),
-  // so the picker never appears to have unselected the user's own choice.
-  if (
-    logoUrl.value &&
-    logoUrl.value !== DEFAULT_LOGO &&
-    !logos.value.some((l) => l.url === logoUrl.value)
-  ) {
-    options.push({ url: logoUrl.value, label: "current", animal: "", color: "" });
-  }
-  for (const logo of logos.value) {
-    options.push({
-      url: logo.url,
-      label: logo.name,
-      animal: logo.animal ?? "",
-      color: logo.color ?? "",
-    });
-  }
-  return options;
-});
+// Only show available logos (server already excludes in-use ones via
+// listLogos({excludeInUse})). The owl belongs to Athena so it is filtered out.
+const logoOptions = computed(() =>
+  logos.value.map((logo) => ({
+    url: logo.url,
+    label: logo.name,
+    animal: logo.animal ?? "",
+    color: logo.color ?? "",
+  })),
+);
 
 function selectLogo(url: string) {
   logoUrl.value = url;
