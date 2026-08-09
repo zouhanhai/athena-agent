@@ -42,8 +42,9 @@ md.use(taskLists, {
   labelAfter: true,
 });
 
-/** G3.S5.T5: stable slugified heading ids (duplicates get -2/-3) so anchors
- *  like `#section-2` resolve and TOC/permalink links can jump to a section. */
+/** G3.S5.T5: stable slugified heading ids (duplicates made unique, e.g.
+ *  `intro` → `intro-1`) so anchors like `#section-2` resolve and TOC/permalink
+ *  links can jump to a section. */
 md.use(markdownItAnchor, {
   level: [1, 2, 3],
   tabIndex: -1,

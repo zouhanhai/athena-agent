@@ -89,6 +89,9 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
     lightrag: new LightRagClient(),
     llmwiki: new LlmWikiClient(),
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
+    // Match the ingest side (defaultIngestService) so wiki image reads resolve
+    // against the same on-disk wiki dir (G3.S5.T5).
+    wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
   });
 }
 
