@@ -16,6 +16,10 @@ const logoUrl = ref(DEFAULT_LOGO);
 // The logo the user had when the page loaded — always shown in the picker
 // (even if in-use/excluded) so it never abruptly disappears when switching.
 const originalLogo = ref(DEFAULT_LOGO);
+const originalLogoSet = ref(false);
+// All logos the user has used/switched to this session — kept in the picker so
+// switching or saving never makes a previous logo abruptly disappear.
+const usedLogos = ref<string[]>([]);
 const githubValue = ref("");
 const githubEditing = ref(false);
 const saving = ref(false);
@@ -52,10 +56,9 @@ function blurGithub() {
   githubEditing.value = false;
 }
 
-// Available logos come from the server (in-use ones excluded). The employee's
-// CURRENT logo is always shown as well — even when the server excludes it as
-// in-use — so the user can see/keep what they already have. The current logo is
-// highlighted via the existing is-selected binding on logoUrl.
+// Available logos come from the server (in-use ones excluded). Every logo the
+// user has used/switched to this session stays in the picker so it never
+// abruptly disappears when switching or saving. Highlighted via is-selected.
 const logoOptions = computed(() => {
   const available = logos.value.map((logo) => ({
     url: logo.url,
@@ -63,23 +66,21 @@ const logoOptions = computed(() => {
     animal: logo.animal ?? "",
     color: logo.color ?? "",
   }));
-  // Always keep the CURRENT logo (loaded with the page) visible — even if it's
-  // in-use and excluded by the server — so it never abruptly disappears when
-  // switching to another option. Highlighted via is-selected when it's active.
-  const hasOriginal = available.some((logo) => logo.url === originalLogo.value);
-  if (!hasOriginal) {
-    available.unshift({
-      url: originalLogo.value,
-      label: "Current",
-      animal: "",
-      color: "",
-    });
+  // Keep every logo the user has used/switched to this session in the picker,
+  // so switching or saving never makes a previous logo abruptly disappear.
+  for (const url of usedLogos.value) {
+    if (!available.some((logo) => logo.url === url)) {
+      available.push({ url, label: "Current", animal: "", color: "" });
+    }
   }
   return available;
 });
 
 function selectLogo(url: string) {
   logoUrl.value = url;
+  if (!usedLogos.value.includes(url)) {
+    usedLogos.value.push(url);
+  }
 }
 
 async function loadLogos() {
@@ -118,7 +119,15 @@ watch(
     if (employee) {
       displayName.value = employee.display_name;
       logoUrl.value = employee.logo_url || DEFAULT_LOGO;
-      originalLogo.value = employee.logo_url || DEFAULT_LOGO;
+      // Remember the logo the user had when the page opened (first load only),
+      // so the picker always keeps it available even after switching/saving.
+      if (!originalLogoSet.value) {
+        originalLogoSet.value = true;
+        originalLogo.value = employee.logo_url || DEFAULT_LOGO;
+        if (!usedLogos.value.includes(originalLogo.value)) {
+          usedLogos.value.push(originalLogo.value);
+        }
+      }
     }
   },
   { immediate: true },
