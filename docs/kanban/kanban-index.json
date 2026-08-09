@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-09T15:21:21.590Z",
+  "generated_at": "2026-08-09T20:00:26.529Z",
   "goals": [
     {
       "ref": "G1",
@@ -906,7 +906,7 @@
       "id": "g3",
       "title": "G3: Multi-Agent Federation & Team Workbench",
       "owner": "consultant",
-      "status": "active",
+      "status": "done",
       "created_at": "2026-08-07",
       "milestone": "M3",
       "specs": [
@@ -1689,6 +1689,159 @@
               "started_at": "2026-08-08"
             }
           ]
+        }
+      ]
+    },
+    {
+      "ref": "G4",
+      "id": "g4",
+      "title": "G4: RAG Self-Build, KB Intelligence & Agent Collaboration",
+      "owner": "consultant",
+      "status": "active",
+      "created_at": "2026-08-09",
+      "milestone": "M4",
+      "specs": [
+        {
+          "ref": "G4.S1",
+          "id": "s1",
+          "title": "G4.S1: Post-docling Athena document refinement step",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": [
+            {
+              "ref": "G4.S1.T1",
+              "id": "t1",
+              "title": "G4.S1.T1: refine_document Pi custom tool (tool def + athena provider + models.json)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_017eee793ffe6GbmuHdTkByUMD",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Register `refine_document` as a Pi custom tool (ToolDefinition) in the athena agent",
+                "Use `constrainedSampling` (JSON schema) so the tool returns structured output, not free-text JSON",
+                "Uses the dedicated `athena` OpenRouter provider (independent key) + deepseek-v4-flash-latest, thinkingLevel high",
+                "Add `athena` provider to `~/.pi/agent/models.json` so getModel('athena', ...) resolves",
+                "Input = docling markdown; output = { markdown, frontmatter, chunks, entities, relations, keywords, quality }"
+              ],
+              "started_at": "2026-08-09",
+              "completed_at": "2026-08-09",
+              "progress_last_row": "refine_document tool + athena provider shipped; committed feature + marked done",
+              "progress_updated_at": "2026-08-09 19:40:00Z"
+            },
+            {
+              "ref": "G4.S1.T2",
+              "id": "t2",
+              "title": "G4.S1.T2: refine_document output contract + document-refinement skill + prompt",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Output contract schema defined: markdown / frontmatter(type,topic) / chunks / entities / relations / keywords / quality",
+                "Entity fields: name(title-case)/type/description; relation: source/target/keywords/description (binary); keyword: relationship+query",
+                "`document-refinement` SKILL.md created (header re-level rules + taxonomy ref + quality checklist + entity/relation extraction guidance)",
+                "Single prompt (or prompt template) produces all outputs in ONE full-doc LLM pass (constrained sampling)",
+                "Prompt uses docs/taxonomy.md for type/topic + cross-RAG extraction best practices (G4.S1 Spec)"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G4.S1.T3",
+              "id": "t3",
+              "title": "G4.S1.T3: big-output handling (pi-docparser pattern) + chunking for >1MB docs",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Full re-leveled markdown + chunks land on disk/storage; tool returns small metadata (frontmatter/entities/keywords/quality/md_ref)",
+                "Big-output pattern (pi-docparser reference): only short preview + refs in context, NOT full md",
+                "Chunking strategy for >1MB md (measured: 827pg SAP = 2.17MB must chunk): split by ## headers, refine each, merge + global type/topic/entity pass",
+                "Chunked path documented (loses cross-section entity/relation correlation) — single-read preferred sub-1MB"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G4.S1.T4",
+              "id": "t4",
+              "title": "G4.S1.T4: pipeline integration (refinement stage in tasks.ts + fold llm_wiki classify + downstream)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "New `refinement` stage in tasks.ts: parsing → refinement → ingesting_lightrag ‖ ingesting_llmwiki",
+                "llm_wiki `classify` folded into refinement (type/topic decided by Athena once)",
+                "Downstream consume Athena output: llm_wiki writes page+frontmatter+index (pure I/O, no LLM); RAG (S2) receives injected chunks/entities/keywords",
+                "DOCLING_OPENROUTER_KEY used by docling VLM (parse_doc.py) — separate from refinement",
+                "Progress/status surface for the refinement stage (Uploads page)"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G4.S1.T5",
+              "id": "t5",
+              "title": "G4.S1.T5: fallback + tests (LLM failure → raw docling; quality.review_required)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "refine_document failure → fallback to raw docling output (never worse than today)",
+                "quality.action=review_required → surfaced for operator review (log/Uploads flag)",
+                "Tests: tool output contract, header re-level, classification, entity/relation/keyword, chunking, fallback",
+                "All existing server/web tests stay green"
+              ],
+              "started_at": ""
+            }
+          ]
+        },
+        {
+          "ref": "G4.S2",
+          "id": "s2",
+          "title": "G4.S2: RAG self-build — replace LightRAG with Athena-driven Neo4j store",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": []
+        },
+        {
+          "ref": "G4.S3",
+          "id": "s3",
+          "title": "G4.S3: KB confidence & lifecycle + incremental re-curation + topic-scoped search",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": []
+        },
+        {
+          "ref": "G4.S4",
+          "id": "s4",
+          "title": "G4.S4: Worker progress tracking via ticket-file Progress Log",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": []
+        },
+        {
+          "ref": "G4.S5",
+          "id": "s5",
+          "title": "G4.S5: Kanban ↔ GitHub Issues bidirectional sync + planning feedback loop",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": []
+        },
+        {
+          "ref": "G4.S6",
+          "id": "s6",
+          "title": "G4.S6: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": []
         }
       ]
     }

@@ -53,6 +53,7 @@ export interface BoardScanner {
 
 const G_DIR = /^G(\d+)$/;
 const S_DIR = /^S(\d+)$/;
+const T_DIR = /^T(\d+)$/;
 const T_FILE = /^T(\d+)\.md$/;
 
 /** Board files live under docs/kanban/ in a repo. */
@@ -103,6 +104,36 @@ function isSpecDir(entry: Dirent): boolean {
 /** True for a ticket file name like T1.md. */
 function isTicketFile(entry: Dirent): boolean {
   return entry.isFile() && T_FILE.test(entry.name);
+}
+
+/** True for a ticket directory name like T1 (nested T1/T1.md layout). */
+function isTicketDir(entry: Dirent): boolean {
+  return entry.isDirectory() && T_DIR.test(entry.name);
+}
+
+/**
+ * List a spec dir's ticket markdown files as absolute paths. Supports both the
+ * flat layout (`G/S/T1.md`) and the nested layout (`G/S/T1/T1.md`).
+ */
+async function listTicketPaths(dir: string): Promise<string[]> {
+  const flat = await listEntries(dir, isTicketFile);
+  const paths = flat.map((name) => path.join(dir, name));
+  const nestedDirs = await listEntries(dir, isTicketDir);
+  for (const sub of nestedDirs) {
+    const candidate = path.join(dir, sub, `${sub}.md`);
+    if (await exists(candidate)) paths.push(candidate);
+  }
+  return paths.sort((a, b) => numericOrder(path.basename(a)) - numericOrder(path.basename(b)));
+}
+
+/** Async existence check (avoids readdir of a whole dir just to test one file). */
+async function exists(file: string): Promise<boolean> {
+  try {
+    await readFile(file, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Return the numeric board root pointing at the repo's docs/kanban. */
@@ -164,18 +195,18 @@ export async function scanBoard(root: string, options: ScanOptions = {}): Promis
 
       const tickets: BoardTicket[] = [];
       const ticketsPath = path.join(root, goalDir, specDir);
-      const ticketNames = await listEntries(ticketsPath, isTicketFile);
+      const ticketPaths = await listTicketPaths(ticketsPath);
 
-      for (const ticketFile of ticketNames) {
-        const ticketPath = path.join(root, goalDir, specDir, ticketFile);
+      for (const ticketPath of ticketPaths) {
         try {
           const content = await readFile(ticketPath, "utf8");
           const parsed = parseBoardFile(content);
           if (parsed.frontmatter.layer !== "T") {
             throw new Error(`expected layer: T`);
           }
+          const ticketName = path.basename(ticketPath, ".md");
           tickets.push({
-            ref: `${goalDir}.${specDir}.${ticketFile.slice(0, -3)}`,
+            ref: `${goalDir}.${specDir}.${ticketName}`,
             ticket: parsed.frontmatter as TicketFrontmatter,
             ...(options.includeBody ? { body: parsed.body } : {}),
           });
@@ -280,7 +311,19 @@ export async function scanRemoteBoard(
         .filter((entryPath) => {
           const rel = entryPath.slice(BOARD_ROOT.length);
           const parts = rel.split("/");
-          return parts.length === 3 && parts[0] === goalName && parts[1] === specName && T_FILE.test(parts[2]);
+          // Flat: G/S/T1.md ; nested: G/S/T1/T1.md
+          return (
+            parts.length === 3 &&
+            parts[0] === goalName &&
+            parts[1] === specName &&
+            T_FILE.test(parts[2])
+          ) || (
+            parts.length === 4 &&
+            parts[0] === goalName &&
+            parts[1] === specName &&
+            T_DIR.test(parts[2]) &&
+            parts[3] === `${parts[2]}.md`
+          );
         })
         .sort((a, b) => numericOrder(a.split("/").pop() ?? "") - numericOrder(b.split("/").pop() ?? ""));
 
@@ -293,8 +336,9 @@ export async function scanRemoteBoard(
           }
           const rel = ticketPath.slice(BOARD_ROOT.length);
           const parts = rel.split("/");
+          const ticketName = parts[2].replace(/\.md$/, ""); // "T1.md" → "T1"; nested dir "T1" already bare
           tickets.push({
-            ref: `${parts[0]}.${parts[1]}.${parts[2].slice(0, -3)}`,
+            ref: `${parts[0]}.${parts[1]}.${ticketName}`,
             ticket: parsed.frontmatter as TicketFrontmatter,
             ...(options.includeBody ? { body: parsed.body } : {}),
           });

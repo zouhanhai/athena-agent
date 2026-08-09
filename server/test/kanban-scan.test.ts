@@ -352,3 +352,77 @@ test("scanRemoteBoard sorts goals, specs and tickets numerically", async () => {
   assert.deepEqual(board.goals.map((g) => g.ref), ["G1", "G2", "G10"]);
   assert.deepEqual(board.goals[0].specs[0].tickets.map((t) => t.ref), ["G1.S1.T1", "G1.S1.T2", "G1.S1.T10"]);
 });
+
+test("scanBoard discovers the nested T1/T1.md ticket layout", async () => {
+  const root = await tempBoard();
+  try {
+    await mkdir(path.join(root, "G8", "S1", "T1"), { recursive: true });
+    await writeFile(path.join(root, "G8", "Goal.md"), renderBoardMd(goalFm("G8"), "# body\n"), "utf8");
+    await writeFile(path.join(root, "G8", "S1", "Spec.md"), renderBoardMd(specFm("G8.S1"), "# body\n"), "utf8");
+    await writeFile(
+      path.join(root, "G8", "S1", "T1", "T1.md"),
+      renderBoardMd(ticketFm("G8.S1.T1", { status: "done" }), "# body\n"),
+      "utf8",
+    );
+    const board = await scanBoard(root);
+    const spec = board.goals.find((g) => g.ref === "G8")?.specs.find((s) => s.ref === "G8.S1");
+    assert.ok(spec, "spec G8.S1 present");
+    assert.deepEqual(spec.tickets.map((t) => t.ref), ["G8.S1.T1"]);
+    assert.equal(spec.tickets[0].ticket.status, "done");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("scanBoard mixes flat + nested tickets in one spec, numerically sorted", async () => {
+  const root = await tempBoard();
+  try {
+    await mkdir(path.join(root, "G8", "S1", "T2"), { recursive: true });
+    await writeFile(path.join(root, "G8", "Goal.md"), renderBoardMd(goalFm("G8"), "# body\n"), "utf8");
+    await writeFile(path.join(root, "G8", "S1", "Spec.md"), renderBoardMd(specFm("G8.S1"), "# body\n"), "utf8");
+    await writeFile(path.join(root, "G8", "S1", "T1.md"), renderBoardMd(ticketFm("G8.S1.T1"), "# body\n"), "utf8");
+    await writeFile(
+      path.join(root, "G8", "S1", "T2", "T2.md"),
+      renderBoardMd(ticketFm("G8.S1.T2", { status: "in_progress" }), "# body\n"),
+      "utf8",
+    );
+    await writeFile(path.join(root, "G8", "S1", "T10.md"), renderBoardMd(ticketFm("G8.S1.T10"), "# body\n"), "utf8");
+    const board = await scanBoard(root);
+    const spec = board.goals.find((g) => g.ref === "G8")?.specs.find((s) => s.ref === "G8.S1");
+    assert.deepEqual(spec?.tickets.map((t) => t.ref), ["G8.S1.T1", "G8.S1.T2", "G8.S1.T10"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("scanRemoteBoard discovers the nested T1/T1.md ticket layout", async () => {
+  const tree = (type: string, path: string): GithubTreeEntry => ({
+    path,
+    type,
+    mode: "100644",
+    sha: path,
+    size: type === "blob" ? 12 : null,
+  });
+  const mk = (type: string, ...parts: string[]): GithubTreeEntry => tree(type, `docs/kanban/${parts.join("/")}`);
+  const source = new FakeRemoteSource(
+    [
+      mk("tree", "G8"),
+      mk("blob", "G8", "Goal.md"),
+      mk("tree", "G8", "S1"),
+      mk("blob", "G8", "S1", "Spec.md"),
+      mk("tree", "G8", "S1", "T1"),
+      mk("blob", "G8", "S1", "T1", "T1.md"),
+      mk("blob", "G8", "S1", "T2.md"),
+    ],
+    {
+      "docs/kanban/G8/Goal.md": renderBoardMd(goalFm("G8"), "# body\n"),
+      "docs/kanban/G8/S1/Spec.md": renderBoardMd(specFm("G8.S1"), "# body\n"),
+      "docs/kanban/G8/S1/T1/T1.md": renderBoardMd(ticketFm("G8.S1.T1", { status: "done" }), "# body\n"),
+      "docs/kanban/G8/S1/T2.md": renderBoardMd(ticketFm("G8.S1.T2", { status: "in_progress" }), "# body\n"),
+    },
+  );
+  const board = await scanRemoteBoard(source, CREDENTIAL, "acme", "box");
+  const spec = board.goals.find((g) => g.ref === "G8")?.specs.find((s) => s.ref === "G8.S1");
+  assert.deepEqual(spec?.tickets.map((t) => t.ref), ["G8.S1.T1", "G8.S1.T2"]);
+  assert.equal(spec?.tickets[0].ticket.status, "done");
+});
