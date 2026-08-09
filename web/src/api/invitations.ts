@@ -16,6 +16,11 @@ export interface EmployeeRecord {
   role: "admin" | "member";
   created_at: string;
   updated_at: string;
+  /** Whether the employee has a stored GitHub credential (never the value). */
+  github_has_credential?: boolean;
+  github_credential_type?: "ssh" | "token";
+  /** Partial mask (first + last 4 chars) of the stored credential, when present. */
+  github_credential_masked?: string;
 }
 
 export interface LoginVerification {

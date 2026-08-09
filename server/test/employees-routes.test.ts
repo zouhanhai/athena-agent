@@ -129,6 +129,57 @@ test("GET /api/me returns 401 without a session token", async () => {
   assert.equal(res.statusCode, 401);
 });
 
+test("GET /api/me reports github_has_credential false when none is stored", async () => {
+  const sessionToken = await login("admin@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.github_has_credential, false);
+  assert.equal(body.github_credential_type, undefined);
+  assert.equal(body.github_credential_masked, undefined);
+});
+
+test("GET /api/me reports github_has_credential + a partial mask, never the full token", async () => {
+  const sessionToken = await login("member@caleo.com");
+  const secret = "ghp_membermustneverleak";
+  await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { github_credential: { type: "token", value: secret } },
+  });
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.github_has_credential, true);
+  assert.equal(body.github_credential_type, "token");
+  assert.equal(body.github_credential_masked, "ghp_****leak");
+  assert.ok(!JSON.stringify(body).includes(secret), "must never leak the full token");
+});
+
+test("PUT /api/me response carries the github mask so the UI stays correct after saving", async () => {
+  const sessionToken = await login("member@caleo.com");
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { github_credential: { type: "token", value: "ghp_newcredvalue" } },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.github_has_credential, true);
+  assert.equal(body.github_credential_masked, "ghp_****alue");
+  assert.ok(!JSON.stringify(body).includes("ghp_newcredvalue"), "must never leak the full token");
+});
+
 test("admin can list employees (RBAC: employees.list)", async () => {
   const sessionToken = await login("admin@caleo.com");
   const res = await app.inject({

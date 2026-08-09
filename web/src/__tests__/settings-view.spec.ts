@@ -152,14 +152,89 @@ describe("SettingsView profile", () => {
     wrapper.unmount();
   });
 
-  it("only shows available logos — in-use ones are excluded by the server", async () => {
-    listLogosMock.mockResolvedValue([logos[1]]); // fox is in use; only wolf is available
+  it("always keeps the employee's current logo in the picker, selected, even when it is in-use", async () => {
+    listLogosMock.mockResolvedValue([logos[1]]); // fox (current) is in-use; only wolf is available
     const { wrapper } = await mountView();
 
     expect(listLogosMock).toHaveBeenCalledWith({ excludeInUse: true });
     const urls = wrapper.findAll(".logo-option").map((el) => el.attributes("data-url"));
-    expect(urls).not.toContain("/logos/fox-clean.png");
+    expect(urls).toContain("/logos/fox-clean.png"); // current logo is kept despite being in-use
     expect(urls).toContain("/logos/wolf-indigo.png");
+    const selected = wrapper.find(".logo-option.is-selected");
+    expect(selected.attributes("data-url")).toBe("/logos/fox-clean.png");
+    wrapper.unmount();
+  });
+
+  it("shows a partial github credential mask when a token is stored", async () => {
+    const withCred = {
+      ...employee,
+      github_has_credential: true,
+      github_credential_type: "token" as const,
+      github_credential_masked: "ghp_abcd****wxyz",
+    };
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const auth = useAuthStore();
+    auth.setSession({ session_token: "ses123", employee: withCred });
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, TDesign] } });
+    await flushPromises();
+
+    const valueInput = wrapper.find(".settings-github-value");
+    expect((valueInput.element as HTMLInputElement).value).toBe("ghp_abcd****wxyz");
+    wrapper.unmount();
+  });
+
+  it("replaces a stored credential when the user types a new token", async () => {
+    const withCred = {
+      ...employee,
+      github_has_credential: true,
+      github_credential_type: "token" as const,
+      github_credential_masked: "ghp_abcd****wxyz",
+    };
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const auth = useAuthStore();
+    auth.setSession({ session_token: "ses123", employee: withCred });
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, TDesign] } });
+    await flushPromises();
+    updateMeMock.mockResolvedValue(withCred);
+
+    await wrapper.find(".settings-github-value").setValue("ghp_freshnewtok");
+    await wrapper.find(".settings-save").trigger("click");
+    await flushPromises();
+
+    expect(updateMeMock).toHaveBeenCalledWith("ses123", {
+      display_name: "Carol",
+      logo_url: "/logos/fox-clean.png",
+      github_credential: { type: "token", value: "ghp_freshnewtok" },
+    });
+    wrapper.unmount();
+  });
+
+  it("does not overwrite a stored credential when the masked field is left untouched", async () => {
+    const withCred = {
+      ...employee,
+      github_has_credential: true,
+      github_credential_type: "token" as const,
+      github_credential_masked: "ghp_abcd****wxyz",
+    };
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const auth = useAuthStore();
+    auth.setSession({ session_token: "ses123", employee: withCred });
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, TDesign] } });
+    await flushPromises();
+    updateMeMock.mockResolvedValue(withCred);
+
+    await wrapper.find(".settings-name").setValue("Carol C.");
+    await wrapper.find(".settings-save").trigger("click");
+    await flushPromises();
+
+    expect(updateMeMock).toHaveBeenCalledWith("ses123", {
+      display_name: "Carol C.",
+      logo_url: "/logos/fox-clean.png",
+      github_credential: undefined,
+    });
     wrapper.unmount();
   });
 

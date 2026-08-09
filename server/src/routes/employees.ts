@@ -9,6 +9,7 @@ import {
   type EmployeeRegistry,
   type EmployeeUpdateInput,
   type GithubCredential,
+  type GithubCredentialType,
 } from "../employees/employees.js";
 import type { AgentRegistry } from "../agents/registry.js";
 import { roleHasPermission, type Permission } from "../employees/rbac.js";
@@ -24,6 +25,45 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function invalidString(value: unknown): boolean {
   return typeof value !== "string" || value.trim().length === 0;
+}
+
+/**
+ * Partial mask of a stored GitHub credential so the UI can show first + last 4
+ * chars for the user to compare with GitHub — never the full secret.
+ */
+export function maskGithubCredential(value: string): string {
+  if (value.length <= 8) {
+    return "****";
+  }
+  return `${value.slice(0, 4)}****${value.slice(-4)}`;
+}
+
+/** Employee record enriched with GitHub credential presence (never the value). */
+export type MeEmployee = EmployeeRecord & {
+  github_has_credential: boolean;
+  github_credential_type?: GithubCredentialType;
+  github_credential_masked?: string;
+};
+
+/**
+ * Enrich an employee record with GitHub credential presence + a partial mask.
+ * Used by GET /api/me and PUT /api/me so the frontend can show the mask —
+ * including right after a save.
+ */
+async function withGithubPresence(
+  employees: EmployeeRegistry,
+  record: EmployeeRecord,
+): Promise<MeEmployee> {
+  const credential = await employees.getGithubCredential(record.email);
+  if (!credential) {
+    return { ...record, github_has_credential: false };
+  }
+  return {
+    ...record,
+    github_has_credential: true,
+    github_credential_type: credential.type,
+    github_credential_masked: maskGithubCredential(credential.value),
+  };
 }
 
 function isRole(value: unknown): value is "admin" | "member" {
@@ -110,7 +150,7 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
       if (!employee) {
         return reply.code(401).send({ error: "unauthorized" });
       }
-      return employee;
+      return withGithubPresence(employees, employee);
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -153,7 +193,7 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
         return reply.code(401).send({ error: "unauthorized" });
       }
       const record = await employees.updateByEmail(employee.email, patch);
-      return record;
+      return withGithubPresence(employees, record);
     } catch (err) {
       const mapped = mapEmployeeError(err);
       if (mapped) {

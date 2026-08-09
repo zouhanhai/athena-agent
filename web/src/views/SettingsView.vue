@@ -14,21 +14,63 @@ const logos = ref<LogoRecord[]>([]);
 const displayName = ref("");
 const logoUrl = ref(DEFAULT_LOGO);
 const githubValue = ref("");
+const githubEditing = ref(false);
 const saving = ref(false);
 const profileError = ref("");
 const uploading = ref(false);
 const logoError = ref("");
 
-// Only show available logos (server already excludes in-use ones via
-// listLogos({excludeInUse})). The owl belongs to Athena so it is filtered out.
-const logoOptions = computed(() =>
-  logos.value.map((logo) => ({
+// When a GitHub credential is stored, the field is pre-filled with the backend
+// mask (first + last 4 chars) so the user can compare it with GitHub — never
+// the full secret. Focusing the field clears it so a real token can be typed;
+// only a freshly typed value is ever submitted.
+const githubMask = computed(() => auth.employee?.github_credential_masked ?? "");
+
+const githubDisplay = computed({
+  get: () => {
+    if (!githubEditing.value && githubValue.value.length === 0) {
+      return githubMask.value;
+    }
+    return githubValue.value;
+  },
+  set: (value: string) => {
+    githubValue.value = value;
+  },
+});
+
+function focusGithub() {
+  if (!githubEditing.value) {
+    githubEditing.value = true;
+    githubValue.value = "";
+  }
+}
+
+function blurGithub() {
+  githubEditing.value = false;
+}
+
+// Available logos come from the server (in-use ones excluded). The employee's
+// CURRENT logo is always shown as well — even when the server excludes it as
+// in-use — so the user can see/keep what they already have. The current logo is
+// highlighted via the existing is-selected binding on logoUrl.
+const logoOptions = computed(() => {
+  const available = logos.value.map((logo) => ({
     url: logo.url,
     label: logo.name,
     animal: logo.animal ?? "",
     color: logo.color ?? "",
-  })),
-);
+  }));
+  const hasCurrent = available.some((logo) => logo.url === logoUrl.value);
+  if (!hasCurrent) {
+    available.unshift({
+      url: logoUrl.value,
+      label: "Current",
+      animal: "",
+      color: "",
+    });
+  }
+  return available;
+});
 
 function selectLogo(url: string) {
   logoUrl.value = url;
@@ -98,6 +140,7 @@ async function saveProfile() {
     });
     auth.setEmployee(updated);
     githubValue.value = "";
+    githubEditing.value = false;
     MessagePlugin.success("Profile saved");
   } catch (err) {
     profileError.value = err instanceof Error ? err.message : String(err);
@@ -174,10 +217,16 @@ async function saveProfile() {
             <div class="settings-github">
               <input
                 class="settings-github-value"
-                v-model="githubValue"
+                v-model="githubDisplay"
                 type="password"
-                placeholder="ghp_… or github_pat_…"
+                :placeholder="
+                  auth.employee?.github_has_credential
+                    ? 'Type a new token to replace the stored one'
+                    : 'ghp_… or github_pat_…'
+                "
                 aria-label="GitHub personal access token"
+                @focus="focusGithub"
+                @blur="blurGithub"
               />
             </div>
             <p class="settings-hint">
