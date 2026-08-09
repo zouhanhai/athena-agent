@@ -75,12 +75,29 @@ Implications:
 - This is a **docling architecture constraint** (`WordFormatOption` /
   `PowerpointFormatOption` / `ExcelFormatOption` → `SimplePipeline`), not a bug
   in our ingestion.
-- Small images are skipped even in PDF/IMAGE (default `picture_area_threshold =
-  0.05`, fraction of page area), so logos/decoration become placeholders —
-  intended behavior to save VLM calls.
+- Small images: `picture_area_threshold` was lowered from 0.05 → **0.01** (fraction of
+  page area) in `server/scripts/parse_doc.py` (2026-08-08), so images down to 1% of the page
+  now get a VLM description (not just 5%+). Logos/decoration below 1% still become placeholders.
 - **Possible future work** (not scoped): to get picture descriptions for
   DOCX/PPTX, convert to PDF first (e.g. LibreOffice headless) and re-run the
   PDF pipeline; or extract embedded images and describe them separately.
+
+### 2.1.2 Image preservation in llm_wiki pages (G3.S5.T5)
+
+Goal: when reading a wiki `.md` page in llm_wiki (WikiView), show **both the text AND the original
+document images** (at the same relative position as the source), while **LightRAG stays pure text**.
+
+- `parse_doc.py` supports `--images-dir <dir>` → `export_to_markdown(image_export_dir=...)` writes
+  extracted images to disk and references them in the markdown as `![<VLM alt>](images/<name>.png)`.
+- Ingest split is naturally correct:
+  - `ingestLlmWiki` writes the **full markdown** (with image refs) to `wiki/<topic>/<name>.md`; the
+    image files are **copied beside it** (`wiki/<topic>/images/`) so the reader renders them.
+  - `ingestLightRag` sends the **same markdown** to LightRAG, which stores **text only** (image refs
+    collapse to the alt-text = VLM description) — chunking is unaffected.
+- Frontend: `GET /api/kb/wiki/image?path=` serves image bytes (guarded like `readWikiPage`);
+  `WikiView` rewrites `<img src="images/...">` → served URL.
+- Implements the "view the source as Markdown, with images" experience without polluting LightRAG.
+
 
 
 **Key points:**
