@@ -44,6 +44,23 @@ export interface GithubIssue {
   assignees: string[];
 }
 
+/** A comment on an issue (issue detail thread). */
+export interface GithubIssueComment {
+  id: number;
+  user_login: string | null;
+  body: string;
+  created_at: string;
+  html_url: string;
+}
+
+/** Payload for updating an issue (all fields optional). */
+export interface UpdateIssueInput {
+  title?: string;
+  body?: string;
+  state?: "open" | "closed";
+  labels?: string[];
+}
+
 export interface GithubCommit {
   sha: string;
   message: string;
@@ -55,9 +72,14 @@ export interface GithubCommit {
 
 export type GithubIssueState = "open" | "closed" | "all";
 
-async function request<T>(sessionToken: string, url: string): Promise<T> {
+async function request<T>(sessionToken: string, url: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${sessionToken}` },
+    ...init,
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
@@ -139,6 +161,60 @@ export async function fetchIssues(
     `/api/github/repos/${owner}/${repo}/issues?${params.toString()}`,
   );
   return data.issues;
+}
+
+/** GET /api/github/repos/:owner/:repo/issues/:number → issue detail + comment thread. */
+export async function fetchIssueDetail(
+  sessionToken: string,
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<{ issue: GithubIssue; comments: GithubIssueComment[] }> {
+  return request<{ issue: GithubIssue; comments: GithubIssueComment[] }>(
+    sessionToken,
+    `/api/github/repos/${owner}/${repo}/issues/${number}`,
+  );
+}
+
+/** PATCH /api/github/repos/:owner/:repo/issues/:number → update an issue and return it. */
+export async function updateIssue(
+  sessionToken: string,
+  owner: string,
+  repo: string,
+  number: number,
+  input: UpdateIssueInput,
+): Promise<GithubIssue> {
+  const data = await request<{ issue: GithubIssue }>(
+    sessionToken,
+    `/api/github/repos/${owner}/${repo}/issues/${number}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+  return data.issue;
+}
+
+/** POST /api/github/repos/:owner/:repo/issues/:number/comments → add a comment. */
+export async function addIssueComment(
+  sessionToken: string,
+  owner: string,
+  repo: string,
+  number: number,
+  body: string,
+): Promise<GithubIssueComment> {
+  const data = await request<{ comment: GithubIssueComment }>(
+    sessionToken,
+    `/api/github/repos/${owner}/${repo}/issues/${number}/comments`,
+    { method: "POST", body: JSON.stringify({ body }) },
+  );
+  return data.comment;
+}
+
+/** GET /api/github/repos/:owner/:repo/labels → repo label names (for the edit picker). */
+export async function fetchLabels(sessionToken: string, owner: string, repo: string): Promise<string[]> {
+  const data = await request<{ labels: string[] }>(
+    sessionToken,
+    `/api/github/repos/${owner}/${repo}/labels`,
+  );
+  return data.labels;
 }
 
 /** GET /api/github/repos/:owner/:repo/commits?ref=... → recent commits of a repo/branch. */

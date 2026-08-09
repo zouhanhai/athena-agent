@@ -1,12 +1,16 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
 import {
+  addIssueComment,
   fetchBranches,
   fetchCommits,
   fetchFileContent,
+  fetchIssueDetail,
   fetchIssues,
+  fetchLabels,
   fetchRepos,
   fetchTree,
+  updateIssue,
 } from "@/api/github";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -118,6 +122,79 @@ describe("fetchIssues", () => {
     await fetchIssues("tok_1", "acme", "box", "closed");
     const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/github/repos/acme/box/issues?state=closed");
+  });
+});
+
+const ISSUE = {
+  number: 2,
+  title: "Bug",
+  state: "open",
+  html_url: "https://github.com/acme/box/issues/2",
+  user_login: "bob",
+  body: "Details",
+  labels: ["bug"],
+  assignees: ["alice"],
+};
+
+const COMMENT = {
+  id: 100,
+  user_login: "bob",
+  body: "I'll take a look",
+  created_at: "2026-08-01T10:00:00Z",
+  html_url: "https://github.com/acme/box/issues/2#issuecomment-100",
+};
+
+describe("fetchIssueDetail", () => {
+  it("GETs the issue detail endpoint and returns issue + comments", async () => {
+    stubFetch(jsonResponse({ issue: ISSUE, comments: [COMMENT] }));
+    const result = await fetchIssueDetail("tok_1", "acme", "box", 2);
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/github/repos/acme/box/issues/2");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok_1");
+    expect(result).toEqual({ issue: ISSUE, comments: [COMMENT] });
+  });
+});
+
+describe("updateIssue", () => {
+  it("PATCHes the issue endpoint with the update payload", async () => {
+    stubFetch(jsonResponse({ issue: { ...ISSUE, title: "Bug (renamed)" } }));
+    const result = await updateIssue("tok_1", "acme", "box", 2, {
+      title: "Bug (renamed)",
+      state: "closed",
+      labels: ["bug"],
+    });
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/github/repos/acme/box/issues/2");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(String(init.body))).toEqual({ title: "Bug (renamed)", state: "closed", labels: ["bug"] });
+    expect(result.title).toBe("Bug (renamed)");
+  });
+
+  it("throws the server error message on a non-ok response", async () => {
+    stubFetch(jsonResponse({ error: "nothing to update" }, 400));
+    await expect(updateIssue("tok_1", "acme", "box", 2, {})).rejects.toThrow("nothing to update");
+  });
+});
+
+describe("addIssueComment", () => {
+  it("POSTs the comment body to the comments endpoint", async () => {
+    stubFetch(jsonResponse({ comment: COMMENT }, 201));
+    const result = await addIssueComment("tok_1", "acme", "box", 2, "I'll take a look");
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/github/repos/acme/box/issues/2/comments");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ body: "I'll take a look" });
+    expect(result).toEqual(COMMENT);
+  });
+});
+
+describe("fetchLabels", () => {
+  it("GETs the labels endpoint and returns label names", async () => {
+    stubFetch(jsonResponse({ labels: ["bug", "p1"] }));
+    const result = await fetchLabels("tok_1", "acme", "box");
+    const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/github/repos/acme/box/labels");
+    expect(result).toEqual(["bug", "p1"]);
   });
 });
 
