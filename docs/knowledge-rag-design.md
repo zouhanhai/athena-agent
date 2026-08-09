@@ -228,6 +228,27 @@ response — unification happens here at the orchestration layer, not at the sto
 | Comprehensive comparison / complex reasoning | multi-source hybrid | Query all, Pi fuses |
 | Simple / chit-chat                   | No retrieval      | -                |
 
+### Role of topic in retrieval / agentic RAG (2026-08-09)
+
+Topic (the hierarchical slash path from the wiki frontmatter, e.g. `internal/events/sommerseminar`)
+is a **navigation/organization dimension, NOT a semantic-search accelerator**:
+
+- **Graph browsing** (`GET /api/kb/graph?topic=…`): topic filters graph nodes. The filter is
+  driven by `buildTopicMap()` which reads `topic` from **wiki page frontmatter**, then
+  `filterGraphByTopic()` keeps nodes whose file_path maps to that topic (or a sub-topic).
+  LightRAG's chunks/embeddings/entities are **never re-run** when a topic changes — only the wiki
+  frontmatter + file location change (see M4 incremental re-curation).
+- **Semantic search** (`POST /api/kb/search`): currently **topic-agnostic** — LightRAG hybrid query
+  is over the whole corpus; llm_wiki keyword search too. topic does not narrow the search.
+- **Agentic RAG (Athena)**: topic is a **knowledge-navigation tool for the agent**. Athena judges
+  intent → picks a topic → uses it to focus graph exploration / scope which docs to read → then
+  fuses LightRAG (semantic recall) + llm_wiki (keyword/topic map) into the answer. So topic guides
+  *where to look*; LightRAG does the *semantic recall*; they are complementary.
+
+**Enhancement (M4, topic-scoped search)**: optionally let a query search **within** a topic domain
+(e.g. "only docs under `sap/`"), by pre-filtering candidate docs/chunks by their wiki frontmatter
+topic before semantic scoring. Currently not supported — full-corpus search only.
+
 ## 5. Tool Descriptions (Helping Pi Decide)
 
 ```

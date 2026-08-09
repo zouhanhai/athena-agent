@@ -71,6 +71,12 @@
   - **LightRAG does NOT need re-chunking/re-embedding.** Topic filtering is driven by the WIKI file frontmatter, not LightRAG internals: `buildTopicMap()` (retrieval.ts) reads `topic` from llm_wiki pages, then `filterGraphByTopic()` uses it to filter LightRAG graph nodes by file_path. So re-topic = edit the wiki md frontmatter `topic` (+ move file to the new `wiki/<topic>/` dir) and re-`listWikiPages`/rebuild index; the existing chunks + embeddings + entities stay valid.
   - Exception: if we ever want topic stored as LightRAG document metadata (not just wiki frontmatter) for doc-level filtering, that WOULD need a re-ingest. Decide scope in M4.
   - Sub-topic assignment source (decide): manual per-file, filename/title keyword rules, or re-run llm_wiki classification against an extended taxonomy tree (events→{sommerseminar,cday,oktoberfest}).
+- [ ] **Topic-scoped semantic search** (search within a topic domain) — enhancement (2026-08-09)
+  - Let a query search only within a topic subtree (e.g. "docs under `sap/`"), by pre-filtering
+    candidate docs/chunks by their wiki frontmatter topic before semantic scoring. Currently
+    `/api/kb/search` is full-corpus (topic-agnostic). Useful for agentic RAG scoping + precision on
+    large corpora. See design note "Role of topic in retrieval / agentic RAG" in
+    `docs/knowledge-rag-design.md`.
 
 ### M5 — Output Page (txt/blog/charts/pptx/html)
 - [ ] Generate txt/blog/charts from knowledge base + web sources
