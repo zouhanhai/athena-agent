@@ -65,7 +65,12 @@
   - Platform wraps `KnowledgeRetrievalService` (LightRAG + llm_wiki + semantic search) into an MCP server (run on the server), auth'd; each local agent adds one `mcpServers` entry pointing at it over Tailscale.
   - Bonus: also wrap Workbench GitHub + kanban ops as MCP tools so agents can operate GitHub/kanban directly (AgentIDE vision).
   - **A2A (agent-to-agent) deferred** — put in M6 with "agents chat with each other / with Athena as a peer", not in M4. MCP-first for KB access.
-- [ ] **KB incremental re-curation (re-topic existing wiki + LightRAG)** — spec-level feature (2026-08-09)
+- [ ] **Post-docling LLM document refinement step** — spec `docs/spec-m4-docling-refinement.md` (2026-08-09)
+  - docling uses a fixed ML layout model (not LLM) → PDFs can come out flat (e.g. Sommerseminar = 16× h2).
+  - Insert an LLM pass between docling parse and the parallel stages doing: header re-level (semantic
+    `#`/`##`/`###`), quality check (md vs source completeness), topic judgment (fold in existing
+    llm_wiki classify). Chunking already paragraph_semantic (lightrag.ts:130). Fallback to docling
+    output if the LLM step fails (never worse than today). Same model (deepseek-v4-flash-latest).
   - Reclassify/re-topic existing docs into deeper sub-topic layers (e.g. `internal/events/sommerseminar`, `internal/events/cday`, `internal/events/oktoberfest`) once a topic dir grows large (e.g. events with 100 files).
   - `isValidTopic` already supports arbitrary-depth slash paths; the gap is a re-curation tool, not the schema.
   - **LightRAG does NOT need re-chunking/re-embedding.** Topic filtering is driven by the WIKI file frontmatter, not LightRAG internals: `buildTopicMap()` (retrieval.ts) reads `topic` from llm_wiki pages, then `filterGraphByTopic()` uses it to filter LightRAG graph nodes by file_path. So re-topic = edit the wiki md frontmatter `topic` (+ move file to the new `wiki/<topic>/` dir) and re-`listWikiPages`/rebuild index; the existing chunks + embeddings + entities stay valid.
