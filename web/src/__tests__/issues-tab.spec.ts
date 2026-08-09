@@ -50,8 +50,9 @@ const ISSUES: GithubIssue[] = [
   },
 ];
 
-async function mountIssuesTab() {
+async function mountIssuesTab(repo: GithubRepo | null = REPOS[0]) {
   const wrapper = mount(IssuesTab, {
+    props: { repo },
     global: { plugins: [createPinia(), TDesign] },
   });
   await flushPromises();
@@ -59,19 +60,6 @@ async function mountIssuesTab() {
 }
 
 type Wrapper = Awaited<ReturnType<typeof mountIssuesTab>>;
-
-function selects(wrapper: Wrapper) {
-  return wrapper.findAllComponents({ name: "TSelect" });
-}
-
-function repoSelect(wrapper: Wrapper) {
-  return selects(wrapper)[0];
-}
-
-async function selectRepo(wrapper: Wrapper, fullName = "zouhanhai/athena-agent") {
-  await repoSelect(wrapper)!.vm.$emit("update:modelValue", fullName);
-  await flushPromises();
-}
 
 async function setState(wrapper: Wrapper, state: "open" | "closed") {
   const buttons = wrapper.findAll(".issues-state-filter button");
@@ -102,24 +90,21 @@ describe("IssuesTab", () => {
   it("shows an empty state without a session token and makes no API calls", async () => {
     const wrapper = await mountIssuesTab();
     expect(wrapper.find(".issues-empty").exists()).toBe(true);
-    expect(fetchReposMock).not.toHaveBeenCalled();
+    expect(fetchIssuesMock).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("loads repos on mount and renders the repo selector", async () => {
+  it("shows a placeholder when no repo is selected", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
-    const wrapper = await mountIssuesTab();
-    expect(fetchReposMock).toHaveBeenCalledWith("tok_1");
-    expect(repoSelect(wrapper).exists()).toBe(true);
-    const options = repoSelect(wrapper).props("options") as { label: string; value: string }[];
-    expect(options.map((o) => o.value)).toContain("zouhanhai/athena-agent");
+    const wrapper = await mountIssuesTab(null);
+    expect(wrapper.find(".issues-empty-title").text()).toContain("Select a repository");
+    expect(fetchIssuesMock).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
-  it("selecting a repo loads issues with the default open state", async () => {
+  it("loads issues for the selected repo with the default open state", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountIssuesTab();
-    await selectRepo(wrapper);
 
     expect(fetchIssuesMock).toHaveBeenCalledWith("tok_1", "zouhanhai", "athena-agent", "open");
     expect(wrapper.findAll(".issue-row").length).toBe(1);
@@ -130,7 +115,6 @@ describe("IssuesTab", () => {
   it("renders labels and assignees per issue", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountIssuesTab();
-    await selectRepo(wrapper);
 
     const row = wrapper.find(".issue-row");
     expect(row.text()).toContain("bug");
@@ -143,7 +127,6 @@ describe("IssuesTab", () => {
   it("switching the state filter to closed reloads issues", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountIssuesTab();
-    await selectRepo(wrapper);
 
     await setState(wrapper, "closed");
     expect(fetchIssuesMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "athena-agent", "closed");
@@ -156,14 +139,22 @@ describe("IssuesTab", () => {
     localStorage.setItem("athena.session_token", "tok_1");
     fetchIssuesMock.mockResolvedValue([]);
     const wrapper = await mountIssuesTab();
-    await selectRepo(wrapper);
     expect(wrapper.find(".issues-none").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("re-fetches issues when the selected repo prop changes", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountIssuesTab(REPOS[0]);
+    await wrapper.setProps({ repo: { ...REPOS[0], full_name: "zouhanhai/other" } });
+    await flushPromises();
+    expect(fetchIssuesMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "other", "open");
     wrapper.unmount();
   });
 
   it("shows an error message when the GitHub API fails", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
-    fetchReposMock.mockRejectedValue(new Error("no github credential registered"));
+    fetchIssuesMock.mockRejectedValue(new Error("no github credential registered"));
     const wrapper = await mountIssuesTab();
     expect(wrapper.find(".issues-error").text()).toContain("no github credential registered");
     wrapper.unmount();

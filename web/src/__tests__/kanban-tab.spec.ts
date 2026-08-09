@@ -86,8 +86,18 @@ const BOARD: KanbanBoard = {
   errors: [],
 };
 
-async function mountKanbanTab() {
+const REPO = {
+  name: "athena-agent",
+  full_name: "zouhanhai/athena-agent",
+  html_url: "https://github.com/zouhanhai/athena-agent",
+  description: "portal",
+  private: false,
+  default_branch: "master",
+};
+
+async function mountKanbanTab(repo: typeof REPO | null = null) {
   const wrapper = mount(KanbanTab, {
+    props: { repo },
     global: { plugins: [createPinia(), TDesign] },
   });
   await flushPromises();
@@ -123,16 +133,32 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("loads the board on mount and renders one column per ticket status", async () => {
+  it("loads the local board on mount when no repo is selected", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab();
 
-    expect(fetchBoardMock).toHaveBeenCalledWith("tok_1");
+    expect(fetchBoardMock).toHaveBeenCalledWith("tok_1", undefined);
     expect(columns(wrapper).length).toBeGreaterThan(0);
     const labels = columns(wrapper).map((c) => c.find(".kanban-column-title").text());
     for (const status of ["backlog", "in_progress", "done", "in_review", "approved", "rejected"]) {
       expect(labels.some((l) => l.includes(status.replace("_", " ")))).toBe(true);
     }
+    wrapper.unmount();
+  });
+
+  it("loads the selected repo's board when a repo is passed", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    expect(fetchBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent");
+    expect(wrapper.find(".kanban-source").text()).toContain("zouhanhai/athena-agent");
+    wrapper.unmount();
+  });
+
+  it("labels the source as the local athena repo when none is selected", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab();
+    expect(wrapper.find(".kanban-source").text()).toContain("local");
     wrapper.unmount();
   });
 
@@ -150,15 +176,15 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("renders the G.S.T ref and assignee on each ticket card", async () => {
+  it("shows the live status, assignee and session_id on each ticket card", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab();
 
-    const done = columnByStatus(wrapper, "done");
-    const card = done!.find(".kanban-card");
-    expect(card!.text()).toContain("G1.S1.T1");
-    expect(card!.text()).toContain("Login flow");
+    const inProgress = columnByStatus(wrapper, "in_progress");
+    const card = inProgress!.find(".kanban-card");
+    expect(card!.text()).toContain("in progress");
     expect(card!.text()).toContain("opencode");
+    expect(card!.text()).toContain("ses_1");
     wrapper.unmount();
   });
 
@@ -181,6 +207,26 @@ describe("KanbanTab", () => {
     const review = columnByStatus(wrapper, "in_review");
     expect(review!.exists()).toBe(true);
     expect(review!.find(".kanban-card").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("the refresh button re-fetches the board", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+    const callsAfterMount = fetchBoardMock.mock.calls.length;
+    await wrapper.find(".kanban-refresh").trigger("click");
+    await flushPromises();
+    expect(fetchBoardMock.mock.calls.length).toBe(callsAfterMount + 1);
+    expect(fetchBoardMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai/athena-agent");
+    wrapper.unmount();
+  });
+
+  it("re-fetches when the selected repo prop changes", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(null);
+    await wrapper.setProps({ repo: REPO });
+    await flushPromises();
+    expect(fetchBoardMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai/athena-agent");
     wrapper.unmount();
   });
 

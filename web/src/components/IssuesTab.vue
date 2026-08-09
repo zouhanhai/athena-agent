@@ -1,28 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
 import {
   fetchIssues,
-  fetchRepos,
   type GithubIssue,
   type GithubIssueState,
   type GithubRepo,
 } from "@/api/github";
 
+const props = defineProps<{ repo: GithubRepo | null }>();
+
 const auth = useAuthStore();
 
-const repos = ref<GithubRepo[]>([]);
-const repoValue = ref("");
 const state = ref<GithubIssueState>("open");
 const issues = ref<GithubIssue[]>([]);
 const loading = ref(false);
 const error = ref("");
 
 const hasSession = computed(() => !!auth.sessionToken);
-
-const selectedRepo = computed(() => repos.value.find((repo) => repo.full_name === repoValue.value) ?? null);
-
-const repoOptions = computed(() => repos.value.map((repo) => ({ label: repo.name, value: repo.full_name })));
 
 const stateFilters: { value: GithubIssueState; label: string }[] = [
   { value: "open", label: "Open" },
@@ -39,23 +34,8 @@ function fail(err: unknown): void {
   error.value = err instanceof Error ? err.message : String(err);
 }
 
-async function loadRepos(): Promise<void> {
-  if (!auth.sessionToken) {
-    return;
-  }
-  loading.value = true;
-  error.value = "";
-  try {
-    repos.value = await fetchRepos(auth.sessionToken);
-  } catch (err) {
-    fail(err);
-  } finally {
-    loading.value = false;
-  }
-}
-
 async function loadIssues(): Promise<void> {
-  const repo = selectedRepo.value;
+  const repo = props.repo;
   if (!auth.sessionToken || !repo) {
     return;
   }
@@ -73,26 +53,26 @@ async function loadIssues(): Promise<void> {
 
 async function onRepoChange(): Promise<void> {
   issues.value = [];
-  if (!selectedRepo.value) {
+  if (!props.repo) {
     return;
   }
   await loadIssues();
 }
 
 async function onStateChange(): Promise<void> {
-  if (!selectedRepo.value) {
+  if (!props.repo) {
     return;
   }
   await loadIssues();
 }
 
-onMounted(() => {
-  void loadRepos();
-});
-
-watch(repoValue, () => {
-  void onRepoChange();
-});
+watch(
+  () => props.repo,
+  () => {
+    void onRepoChange();
+  },
+  { immediate: true },
+);
 
 watch(state, () => {
   void onStateChange();
@@ -106,19 +86,16 @@ watch(state, () => {
       <p class="issues-empty-hint">Log in and register a GitHub credential to see issues from your repositories.</p>
     </div>
 
+    <div v-else-if="!props.repo" class="issues-empty">
+      <p class="issues-empty-title">Select a repository</p>
+      <p class="issues-empty-hint">Choose a repository from the Workbench header to view its issues.</p>
+    </div>
+
     <template v-else>
       <div v-if="error" class="issues-error">{{ error }}</div>
 
       <div class="issues-header">
-        <t-select
-          class="repo-select"
-          v-model="repoValue"
-          :options="repoOptions"
-          :loading="loading"
-          placeholder="Select a repository"
-          size="small"
-        />
-        <div v-if="selectedRepo" class="issues-state-filter" role="group" aria-label="Filter issues by state">
+        <div class="issues-state-filter" role="group" aria-label="Filter issues by state">
           <button
             v-for="filter in stateFilters"
             :key="filter.value"
@@ -134,7 +111,7 @@ watch(state, () => {
         </div>
       </div>
 
-      <div v-if="selectedRepo" class="issues-list">
+      <div class="issues-list">
         <p v-if="!issues.length && !loading" class="issues-none">No issues here. Try a different state filter.</p>
         <article v-for="issue in issues" :key="issue.number" class="issue-row">
           <span class="issue-state-icon" :class="`is-${issue.state}`" :aria-label="`${issue.state} issue`">
@@ -168,8 +145,6 @@ watch(state, () => {
           </div>
         </article>
       </div>
-
-      <p v-if="!selectedRepo" class="issues-placeholder">Select a repository to view its issues</p>
     </template>
   </div>
 </template>
@@ -219,10 +194,6 @@ watch(state, () => {
   gap: 16px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--caleo-border);
-}
-
-.repo-select {
-  width: 260px;
 }
 
 .issues-state-filter {

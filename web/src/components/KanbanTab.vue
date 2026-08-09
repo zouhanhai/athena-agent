@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
+import type { GithubRepo } from "@/api/github";
 import {
   fetchBoard,
   TICKET_STATUSES,
@@ -9,12 +10,18 @@ import {
   type TicketStatus,
 } from "@/api/kanban";
 
+const props = defineProps<{ repo: GithubRepo | null }>();
+
 const auth = useAuthStore();
 
 const board = ref<KanbanBoard | null>(null);
+const loading = ref(false);
 const error = ref("");
 
 const hasSession = computed(() => !!auth.sessionToken);
+
+/** Where the board comes from: the selected repo, or the local athena repo when none is chosen. */
+const boardSource = computed(() => (props.repo ? props.repo.full_name : "athena-agent (local)"));
 
 interface BoardCard {
   ref: string;
@@ -50,17 +57,24 @@ async function loadBoard(): Promise<void> {
   if (!auth.sessionToken) {
     return;
   }
+  loading.value = true;
   error.value = "";
   try {
-    board.value = await fetchBoard(auth.sessionToken);
+    board.value = await fetchBoard(auth.sessionToken, props.repo?.full_name);
   } catch (err) {
     fail(err);
+  } finally {
+    loading.value = false;
   }
 }
 
-onMounted(() => {
-  void loadBoard();
-});
+watch(
+  () => props.repo,
+  () => {
+    void loadBoard();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -71,6 +85,16 @@ onMounted(() => {
     </div>
 
     <template v-else>
+      <div class="kanban-toolbar">
+        <span class="kanban-source">{{ boardSource }}</span>
+        <button
+          type="button"
+          class="kanban-refresh"
+          :disabled="loading"
+          @click="loadBoard"
+        >Refresh</button>
+      </div>
+
       <div v-if="error" class="kanban-error">{{ error }}</div>
 
       <template v-if="board">
@@ -104,7 +128,15 @@ onMounted(() => {
                 <span class="kanban-card-ref">{{ card.ref }}</span>
                 <span class="kanban-card-title">{{ card.ticket.title }}</span>
                 <span class="kanban-card-spec">{{ card.specRef }}</span>
-                <span v-if="card.ticket.assignee" class="kanban-card-assignee">{{ card.ticket.assignee }}</span>
+                <span class="kanban-card-status" :class="`kanban-card-status-${card.ticket.status}`">
+                  {{ statusLabel(card.ticket.status) }}
+                </span>
+                <span v-if="card.ticket.assignee" class="kanban-card-assignee">
+                  {{ card.ticket.assignee }}
+                </span>
+                <span v-if="card.ticket.session_id" class="kanban-card-session">
+                  {{ card.ticket.session_id }}
+                </span>
               </article>
             </div>
           </section>
@@ -155,6 +187,42 @@ onMounted(() => {
   background: rgba(213, 73, 65, 0.08);
   border: 1px solid rgba(213, 73, 65, 0.3);
   border-radius: 6px;
+}
+
+.kanban-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.kanban-source {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.kanban-refresh {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--caleo-text);
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.kanban-refresh:hover:not(:disabled) {
+  border-color: var(--caleo-primary);
+  color: var(--caleo-primary);
+}
+
+.kanban-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .kanban-tree {
@@ -283,6 +351,52 @@ onMounted(() => {
   font-size: 11px;
   color: var(--caleo-text-secondary);
   background: rgba(127, 127, 127, 0.1);
+  border-radius: 999px;
+}
+
+.kanban-card-status {
+  align-self: flex-start;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 999px;
+}
+
+.kanban-card-status-in_progress {
+  color: #1f2328;
+  background: #d4a72c;
+}
+
+.kanban-card-status-done {
+  color: #1f2328;
+  background: #2da44e;
+}
+
+.kanban-card-status-in_review {
+  color: #1f2328;
+  background: #a371f7;
+}
+
+.kanban-card-status-approved {
+  color: #1f2328;
+  background: #2da44e;
+}
+
+.kanban-card-status-rejected {
+  color: #fff;
+  background: #cf222e;
+}
+
+.kanban-card-session {
+  align-self: flex-start;
+  padding: 1px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.08);
   border-radius: 999px;
 }
 
