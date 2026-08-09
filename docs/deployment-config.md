@@ -8,6 +8,8 @@ Where every environment secret lives, so it can be re-provisioned on a new serve
 |--------|----------|-----------------|-------|
 | `RESEND_API_KEY` | `server/.env.local` (git-ignored) | `scripts/start-all.sh` does `set -a; . server/.env.local; set +a` | Resend email for magic-link + invitations. **Domain `caleo.com` must be verified in Resend, else 403.** |
 | `OPENROUTER_API_KEY` | `~/.bashrc` (base64-encoded command) | `scripts/start-all.sh` `load_openrouter_key()` decodes it | Used by athena-back for docling VLM descriptions + llm_wiki classify |
+| `ATHENA_OPENROUTER_KEY` | `server/.env.local` (git-ignored) | `scripts/start-all.sh` loads `.env.local` | **Dedicated** OpenRouter key for the Athena document-refinement LLM pass (G4.S1) — separate from Pi/other flows so cache/cost are independently controllable |
+| `EMBEDDING_OPENROUTER_KEY` | `server/.env.local` (git-ignored) | `scripts/start-all.sh` loads `.env.local` | **Dedicated** OpenRouter key for the embedding step (G4.S1) — independent of refinement + other flows |
 | `DATABASE_URL` | `scripts/start-all.sh` (server block) | `export` in start-all.sh | `postgres://hh:<pass>@127.0.0.1:5432/athena` |
 | `ADMIN_EMAIL` | `scripts/start-all.sh` | `export` | Seeds first admin: `zouha108@caleo.com` |
 | `APP_BASE_URL` | `scripts/start-all.sh` | `export` | `http://192.168.178.30:5173` |
@@ -21,6 +23,8 @@ After cloning on a new machine:
 1. Create `server/.env.local`:
    ```bash
    RESEND_API_KEY=re_xxxx
+   ATHENA_OPENROUTER_KEY=sk-or-v1-xxxx   # dedicated Athena refinement key (G4.S1)
+   EMBEDDING_OPENROUTER_KEY=sk-or-v1-xxxx  # dedicated embedding key (G4.S1)
    ```
 2. Ensure `OPENROUTER_API_KEY` is exported in `~/.bashrc` (or the shell that launches start-all.sh).
 3. Set `DATABASE_URL`, `ADMIN_EMAIL`, `APP_BASE_URL` in `scripts/start-all.sh` (edit the export block) — or override in the environment.

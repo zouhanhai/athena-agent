@@ -98,6 +98,14 @@ quality)**. Output ≥ input (rewrite + extracted structured data), so usable in
   internal entity/keyword/chunk LLM passes (which had no injection interface).
 - **embedding**: the only remaining non-LLM transform (vector encoding), kept.
 
+### Dedicated OpenRouter keys for Athena refinement + embedding (decided 2026-08-09)
+
+Athena's document-refinement LLM pass uses a **dedicated OpenRouter API key** (`ATHENA_OPENROUTER_KEY`),
+and the embedding step uses its own (`EMBEDDING_OPENROUTER_KEY`) — both stored in `server/.env.local`
+(git-ignored) and set on 6900XT, **separate from the Pi/other flows** so cache-hit-rate and cost are
+independently observable/controllable, and Athena/embedding context+cost don't mix with other work.
+`refine_document` reads `ATHENA_OPENROUTER_KEY`; the embedding step reads `EMBEDDING_OPENROUTER_KEY`.
+
 ## Full design (original spec reference)
 
 See `docs/spec-m4-docling-refinement.md` for the original problem statement + context-efficiency
