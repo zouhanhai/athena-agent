@@ -9,6 +9,7 @@ import {
 import { createKnowledgeTools, type KnowledgeToolServices } from "../kb/tools.js";
 import { LightRagClient } from "../kb/lightrag.js";
 import { LlmWikiClient } from "../kb/llmwiki.js";
+import { createRefineDocumentTool } from "./refine-document.js";
 
 export interface CreateAgentOptions {
   /** Provider id. Default: "openrouter" */
@@ -23,6 +24,8 @@ export interface CreateAgentOptions {
   sessionManager?: SessionManager;
   /** Register the 5 knowledge tools (Agentic RAG routing). Default: true. */
   knowledgeTools?: boolean;
+  /** Register the `refine_document` Athena refinement tool. Default: true. */
+  refineDocumentTool?: boolean;
   /** Services backing the knowledge tools. Default: live LightRAG + llm_wiki clients. */
   knowledgeToolServices?: KnowledgeToolServices;
   /** Additional custom tools registered on the session. */
@@ -83,6 +86,10 @@ export async function createAgent(options: CreateAgentOptions = {}): Promise<Age
     );
   }
   customTools.push(...(options.customTools ?? []));
+
+  if (options.refineDocumentTool !== false) {
+    customTools.push(createRefineDocumentTool(modelRuntime));
+  }
 
   const { session, extensionsResult } = await createAgentSession({
     model,

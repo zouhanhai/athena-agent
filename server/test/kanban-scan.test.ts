@@ -202,7 +202,7 @@ test("scanBoard parses the live repo board", async () => {
   const g3 = board.goals.find((g) => g.ref === "G3");
   assert.ok(g3, "G3 must be present");
   assert.equal(g3.goal.title, "G3: Multi-Agent Federation & Team Workbench");
-  assert.equal(g3.goal.status, "active");
+  assert.equal(g3.goal.status, "done");
 
   const s6 = g3.specs.find((s) => s.ref === "G3.S6");
   assert.ok(s6, "G3.S6 must be present");
