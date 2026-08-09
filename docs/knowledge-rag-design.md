@@ -278,7 +278,51 @@ wiki_graph: "Traverse wiki page wikilinks graph (suitable for: which pages link 
 4. Pi routes deterministically based on intent + capabilities + cost
 5. Simple questions go through a single knowledge source first; complex questions go multi-source
 
-## 8. To Be Verified
+## 8. RAG System Selection & Self-Build Direction (M4 research, 2026-08-09)
+
+### 8.1 Problem: LightRAG is a black box
+
+LightRAG's entity extraction / keyword extraction / paragraph-semantic chunking are **hardcoded internal
+LLM calls** (`extract_entities` in operate.py) with **no external-injection interface**. So Athena can't
+drive them (would need a fork). Its storage, however, already uses PG + pgvector 0.6 + a graph (NetworkX)
+— the pieces we'd build on.
+
+### 8.2 Evaluated options
+
+| System | Verdict |
+|--------|---------|
+| **RAGFlow** (86.9k★) | Not a match: full platform on ES/MinIO/MySQL (NOT pgvector); its GraphRAG is internal (not injectable); heavy new infra. |
+| **Haystack / LlamaIndex** | Modular libs, injectable + pgvector, but still need to build GraphRAG ourselves. |
+| **Neo4j `neo4j-graphrag` (official)** | **Strong fit.** HybridRetriever (vector+full-text fusion), VectorRetriever, Text2Cypher, **ToolsRetriever** (combine retrievers, LLM picks — fits "fuse wiki+topic+vector+graph"). SimpleKGPipeline builds KG (or inject Athena entities). |
+| **Self-build** | Most controllable; Athena injection natural; pgvector already present. |
+
+### 8.3 Neo4j has a native vector index (confirmed)
+
+- `CREATE VECTOR INDEX` / `db.index.vector.createNodeIndex` — HNSW (Lucene), cosine + euclidean.
+- **Cypher `SEARCH` clause** (2026.01+) and **vector search with in-index filters** (`SEARCH…WHERE`,
+  GA 2026.02) — applies topic/tenant predicates inside the index. **Community Edition supports these.**
+- Native `VECTOR` data type (block format) is Enterprise/Aura; **Community uses `LIST<INTEGER|FLOAT>`
+  properties** (functionally equivalent for indexing).
+- So **Neo4j 2026 Community (Docker) is enough** — no pgvector needed. 6900XT (Docker 29, 31GB) fits.
+
+### 8.4 Self-build architecture (lean toward single-store Neo4j)
+
+- **Neo4j** holds: `Chunk` nodes (embedding LIST property + topic + text), `Entity`/`Relation` graph,
+  `Document`/`WikiPage`. One store for vector + graph + topic.
+- **Athena** pre-computes: re-leveled markdown (headers), topic, chunk segments, entity/relation
+  extraction — injected directly into Neo4j (no LightRAG fork).
+- **Retrieval** via `neo4j-graphrag`: HybridRetriever (vector+full-text) + graph traversal
+  (Text2Cypher / VectorCypherRetriever) + **ToolsRetriever** to fuse wiki + topic + vector + graph.
+- **topic-scoped search** = in-index filter (`SEARCH…WHERE` on chunk.topic) — M4 enhancement.
+
+### 8.5 Open items for M4
+
+- Deployment spike: run Neo4j 2026 Community in Docker on 6900XT, verify vector index + SEARCH + filters.
+- Decide: single Neo4j store (option B) vs PG+pgvector (vector) + Neo4j (graph) (option A).
+- Wiki integration: how `buildTopicMap` / wiki frontmatter topic maps onto Neo4j chunk.topic.
+- Keep llm_wiki for page storage + TOC; LightRAG either replaced (self-build) or kept (accept internal LLM).
+
+## 9. To Be Verified
 
 - Whether llm_wiki's MCP exposes retrieval tools (wiki_search equivalent)
 - LightRAG's MCP/API retrieval capability confirmation

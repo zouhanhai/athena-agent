@@ -90,6 +90,13 @@
     (LLM→Cypher), and **ToolsRetriever** (combine multiple retrievers, LLM picks — fits "fuse wiki +
     topic + vector + graph" enhancement). SimpleKGPipeline builds KG (or inject Athena entities
     directly). Vectors can be Neo4j-native or external; may need a custom retriever for pgvector.
+  - **Neo4j has native vector index (confirmed)**: `CREATE VECTOR INDEX` (HNSW, cosine/euclidean), Cypher
+    `SEARCH` clause (2026.01+) + in-index filters (`SEARCH…WHERE`, GA 2026.02) — **Community Edition OK**;
+    native VECTOR type is Enterprise but Community uses LIST properties (equivalent for indexing). So
+    **Neo4j 2026 Community (Docker) suffices — no pgvector needed**. See design §8.
+  - **M4 open items**: deployment spike (run Neo4j 2026 Community in Docker on 6900XT, verify vector+SEARCH+filters);
+    decide single Neo4j store (B) vs PG+pgvector+Neo4j (A); wiki frontmatter topic → Neo4j chunk.topic.
+    Keep llm_wiki (pages/TOC); LightRAG replaced (self-build) or kept.
   - Reclassify/re-topic existing docs into deeper sub-topic layers (e.g. `internal/events/sommerseminar`, `internal/events/cday`, `internal/events/oktoberfest`) once a topic dir grows large (e.g. events with 100 files).
   - `isValidTopic` already supports arbitrary-depth slash paths; the gap is a re-curation tool, not the schema.
   - **LightRAG does NOT need re-chunking/re-embedding.** Topic filtering is driven by the WIKI file frontmatter, not LightRAG internals: `buildTopicMap()` (retrieval.ts) reads `topic` from llm_wiki pages, then `filterGraphByTopic()` uses it to filter LightRAG graph nodes by file_path. So re-topic = edit the wiki md frontmatter `topic` (+ move file to the new `wiki/<topic>/` dir) and re-`listWikiPages`/rebuild index; the existing chunks + embeddings + entities stay valid.
