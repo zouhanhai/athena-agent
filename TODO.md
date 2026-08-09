@@ -54,7 +54,7 @@
   - Tailscale the 6900XT, then set `APP_BASE_URL` to the Tailscale IP so remote colleagues can reach the portal + open invite/magic-link URLs (currently LAN-only 192.168.178.30; remote access blocked until this is done — see `docs/deployment-config.md`)
 - [ ] Auth (Resend magic link) functional
   - Requires verifying `caleo.com` domain in Resend (user lacks DNS today → 403 on send; meanwhile ConsoleMailer logs the invite/login links to `~/.athena-tmp/athena-server.log`)
-- [ ] **Normalize G3.TFIX → G3/S4/T6.md** (after the TFIX worker completes): TFIX.md was created at `docs/kanban/G3/TFIX.md` but the kanban scanner only reads `Gx/Sx/T<num>.md`, so it's an orphan (not scanned/displayed). Move it to `docs/kanban/G3/S4/T6.md` once the worker marks it done. (S4 = Workbench; the TFIX UX items are Workbench-related.)
+- [x] **Normalize G3.TFIX → G3/S4/T6.md** (DONE 2026-08-09): moved from `docs/kanban/G3/TFIX.md` to `docs/kanban/G3/S4/T6.md`, frontmatter id→t6 / parent→G3.S4. (Was an orphan at G3 root the scanner didn't read.)
 - [ ] **KB confidence & lifecycle in wiki frontmatter** — spec `docs/spec-m4-kb-confidence-lifecycle.md` (2026-08-09)
   - Add to each wiki md frontmatter: `read_count` (times Athena/retrieval read it), `last_reviewed`
     (last Athena re-eval), `confidence` (0..1: source count, recency, contradictions; decays), and
