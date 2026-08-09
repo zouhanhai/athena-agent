@@ -147,6 +147,27 @@ reference. This informs `refine_document`'s output contract:
 ALL entities/relations with **global consistent naming** and **retains cross-chunk relations** that
 LightRAG's map-reduce can miss (each chunk only sees its local slice). This is core value of G4.S1.
 
+## Cross-RAG extraction mechanism comparison (reference, 2026-08-09)
+
+Studied 5 RAG projects' extraction approaches to inform `refine_document`:
+
+| Project | Chunking | Entity | Relation | Keyword | Notable |
+|---------|----------|--------|----------|----------|---------|
+| LightRAG (ours) | paragraph_semantic, ~1200tok, heading path | name(title-case)+type+desc | binary src/tgt/keywords/desc | relationship + query kw | per-chunk map→reduce |
+| Microsoft GraphRAG | text units | entity+desc | entity rel + desc | - | **Leiden community detection** → hierarchical community reports for global queries |
+| neo4j-graphrag | FixedSize (500,overlap100) | `LLMEntityRelationExtractor`, **`use_structured_output=True`** (JSON-schema enforced) | same extractor, schema: node_types+relationship_types+patterns | - | **structured-output constraint** — validates our Pi `constrainedSampling` approach |
+| RAGFlow | **template-based per doc type** (pdf/table/slide/code) | GraphRAG or LightRAG prompt | same | - | doc-type-aware chunk templates |
+| LlamaIndex | chunk+embed | `extract_triplets` → (subject,predicate,object) | same triplets | - | max_triplets/chunk limit; simple triplet form |
+
+**Key takeaways for `refine_document`**:
+1. **Structured output constraint** (neo4j-graphrag `use_structured_output`, GraphRAG/others) — confirms
+   using Pi tool `constrainedSampling` (JSON schema) instead of relying on LLM free-text JSON.
+2. **Community detection** (GraphRAG Leiden) — future option for G4.S2 graph (hierarchical clusters for
+   global queries).
+3. **Entity name normalization** (LightRAG title-case) + **binary relations** (LightRAG) + **triplet form**
+   (LlamaIndex) are the common denominator — adopt these.
+4. **Template-based chunking** (RAGFlow) — could reuse for doc-type-aware chunk segmentation.
+
 ## Full design (original spec reference)
 
 See `docs/spec-m4-docling-refinement.md` for the original problem statement + context-efficiency
