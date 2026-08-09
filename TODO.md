@@ -79,6 +79,12 @@
 - [ ] **Agent connection SDK / HTTP protocol**: define a standard spec + SDK so any agent
       (Hermes/Claude/Codex/Pi) can connect to athena, register itself, and operate —
       local HTTP-shell setup guide (see Connection Protocol in design doc)
+- [ ] **A2A (agent-to-agent) + multi-agent chat collaboration** (deferred here from M4, 2026-08-09)
+  - MCP covers KB access for M4; A2A lives here for agents collaborating / chatting with each other.
+  - Agents converse with each other and with Athena as peers (A2A protocol), not just calling KB tools.
+  - Multi-agent chat in the Chat panel: multiple agents in one conversation cooperating on a task
+    (e.g. local Hermes plans → remote OpenCode implements → Athena pulls KB context), coordinating
+    via the platform as the control plane (HTTP + SSE from M4).
 
 ## Naming Convention (Agent identity in the federation)
 
