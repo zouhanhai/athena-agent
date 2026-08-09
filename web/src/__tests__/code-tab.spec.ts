@@ -250,6 +250,24 @@ describe("CodeTab", () => {
     wrapper.unmount();
   });
 
+  it("collapsing the commits panel flags the WHOLE column (CSS hides it, not just the list)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountCodeTab();
+
+    const panel = wrapper.find(".commits-panel");
+    expect(panel.classes()).not.toContain("is-collapsed");
+
+    await wrapper.find(".commits-toggle").trigger("click");
+    await flushPromises();
+
+    expect(panel.classes()).toContain("is-collapsed");
+
+    await wrapper.find(".commits-toggle").trigger("click");
+    await flushPromises();
+    expect(panel.classes()).not.toContain("is-collapsed");
+    wrapper.unmount();
+  });
+
   it("shows a Code/Preview toggle for .md files and renders the markdown preview", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     fetchFileContentMock.mockResolvedValue({

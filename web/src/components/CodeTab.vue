@@ -670,6 +670,10 @@ watch(
   border-left: 1px solid var(--caleo-border);
 }
 
+.commits-panel.is-collapsed {
+  display: none;
+}
+
 .commits-panel-header {
   display: flex;
   align-items: center;
