@@ -10,7 +10,13 @@ import {
 import { createSecretCipher } from "../src/employees/crypto.js";
 import { MemoryEmployeeRegistry, type GithubCredential } from "../src/employees/employees.js";
 import { renderBoardMd } from "../src/kanban/frontmatter.js";
-import type { KanbanBoard, BoardScanner, RemoteBoardSource } from "../src/kanban/scan.js";
+import type { RemoteBoardSource } from "../src/kanban/scan.js";
+import {
+  FileKanbanIndex,
+  defaultBoardRoot,
+  type KanbanIndex,
+  type KanbanIndexService,
+} from "../src/kanban/index-file.js";
 import type { GithubFileContent, GithubTreeEntry, GitHubApi } from "../src/github/client.js";
 
 const TEST_CIPHER = createSecretCipher("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
@@ -26,47 +32,38 @@ function tokenFromUrl(url: string): string {
   return decodeURIComponent(match[1]);
 }
 
-const BOARD_SAMPLE: KanbanBoard = {
+const INDEX_SAMPLE: KanbanIndex = {
+  version: 1,
+  generated_at: "2026-08-09T16:00:00Z",
   goals: [
     {
       ref: "G1",
-      goal: {
-        id: "g1",
-        title: "G1: goal",
-        layer: "G",
-        owner: "consultant",
-        status: "active",
-        milestone: "M3",
-        acceptance_criteria: ["done"],
-      },
+      id: "g1",
+      title: "G1: goal",
+      owner: "consultant",
+      status: "active",
+      milestone: "M3",
       specs: [
         {
           ref: "G1.S1",
-          spec: {
-            id: "g1_s1",
-            title: "G1.S1: spec",
-            layer: "S",
-            parent: "G1",
-            owner: "pm",
-            status: "active",
-            milestone: "M3",
-            acceptance_criteria: ["done"],
-          },
+          id: "g1_s1",
+          title: "G1.S1: spec",
+          owner: "pm",
+          status: "active",
+          milestone: "M3",
           tickets: [
             {
               ref: "G1.S1.T1",
-              ticket: {
-                id: "t1",
-                title: "G1.S1.T1: ticket",
-                layer: "T",
-                parent: "G1.S1",
-                owner: "eng-director",
-                status: "done",
-                assignee: "opencode",
-                session_id: "ses_x",
-                blocked_by: [],
-                acceptance_criteria: ["works"],
-              },
+              id: "t1",
+              title: "G1.S1.T1: ticket",
+              owner: "eng-director",
+              status: "done",
+              assignee: "opencode",
+              session_id: "ses_x",
+              blocked_by: [],
+              acceptance_criteria: ["works"],
+              progress_last_row: "Implemented the board",
+              progress_updated_at: "2026-08-09T15:50:00Z",
             },
           ],
         },
@@ -76,11 +73,19 @@ const BOARD_SAMPLE: KanbanBoard = {
   errors: [],
 };
 
-class FakeBoardScanner implements BoardScanner {
-  readonly calls: number[] = [];
-  constructor(private readonly result: KanbanBoard | Error) {}
-  async scan(): Promise<KanbanBoard> {
-    this.calls.push(1);
+class FakeKanbanIndex implements KanbanIndexService {
+  readonly reads: number[] = [];
+  readonly rescans: number[] = [];
+  constructor(private readonly result: KanbanIndex | Error) {}
+  async read(): Promise<KanbanIndex> {
+    this.reads.push(1);
+    if (this.result instanceof Error) {
+      throw this.result;
+    }
+    return this.result;
+  }
+  async rescan(): Promise<KanbanIndex> {
+    this.rescans.push(1);
     if (this.result instanceof Error) {
       throw this.result;
     }
@@ -92,7 +97,11 @@ let app: FastifyInstance;
 let sent: SentMail[];
 
 /** Build a fresh app with its own registry/auth so closing one never affects another. */
-function makeApp(board?: BoardScanner, github?: GitHubApi, employees?: MemoryEmployeeRegistry): FastifyInstance {
+function makeApp(
+  index?: KanbanIndexService,
+  github?: GitHubApi,
+  employees?: MemoryEmployeeRegistry,
+): FastifyInstance {
   const registry =
     employees ??
     new MemoryEmployeeRegistry(
@@ -113,7 +122,7 @@ function makeApp(board?: BoardScanner, github?: GitHubApi, employees?: MemoryEmp
     tokens: new MemoryAuthTokenStore(),
     appBaseUrl: "http://localhost:5173",
   });
-  return buildApp({ employees: registry, auth, board, github });
+  return buildApp({ employees: registry, auth, index, github });
 }
 
 beforeEach(async () => {
@@ -144,20 +153,38 @@ test("GET /api/kanban requires authentication", async () => {
   assert.equal(res.statusCode, 401);
 });
 
-test("GET /api/kanban returns the scanned board", async () => {
-  const board = new FakeBoardScanner(BOARD_SAMPLE);
+test("GET /api/kanban serves the root index without scanning", async () => {
+  const index = new FakeKanbanIndex(INDEX_SAMPLE);
   await app.close();
-  app = makeApp(board);
+  app = makeApp(index);
   const sessionToken = await login("alice@caleo.com");
 
   const res = await app.inject({ method: "GET", url: "/api/kanban", headers: bearer(sessionToken) });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), BOARD_SAMPLE);
-  assert.equal(board.calls.length, 1, "the board must be produced by the scanner");
+  assert.deepEqual(res.json(), INDEX_SAMPLE);
+  assert.equal(index.reads.length, 1, "the fast path must read the index");
+  assert.equal(index.rescans.length, 0, "a plain GET must not rescan");
 });
 
-test("GET /api/kanban surfaces a scanner failure as 500", async () => {
-  const failing = new FakeBoardScanner(new Error("disk read failed"));
+test("GET /api/kanban?rescan=1 forces a rescan and rebuilds the index", async () => {
+  const index = new FakeKanbanIndex(INDEX_SAMPLE);
+  await app.close();
+  app = makeApp(index);
+  const sessionToken = await login("alice@caleo.com");
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban?rescan=1",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), INDEX_SAMPLE);
+  assert.equal(index.rescans.length, 1, "rescan=1 must rebuild the index");
+  assert.equal(index.reads.length, 0);
+});
+
+test("GET /api/kanban surfaces an index read failure as 500", async () => {
+  const failing = new FakeKanbanIndex(new Error("disk read failed"));
   await app.close();
   app = makeApp(failing);
   const sessionToken = await login("alice@caleo.com");
@@ -167,15 +194,17 @@ test("GET /api/kanban surfaces a scanner failure as 500", async () => {
   assert.match(res.json().error, /disk read failed/);
 });
 
-test("GET /api/kanban with the default scanner reads the real repo board", async () => {
+test("GET /api/kanban with the default index reads the real repo board", async () => {
   await app.close();
-  app = makeApp();
+  app = makeApp(new FileKanbanIndex(defaultBoardRoot()));
   const sessionToken = await login("alice@caleo.com");
 
   const res = await app.inject({ method: "GET", url: "/api/kanban", headers: bearer(sessionToken) });
   assert.equal(res.statusCode, 200);
-  const body = res.json() as KanbanBoard;
-  assert.ok(body.goals.some((g) => g.ref === "G3"), "default scanner should surface G3");
+  const body = res.json() as KanbanIndex;
+  assert.equal(body.version, 1);
+  assert.ok(body.generated_at, "the index must carry a generated_at timestamp");
+  assert.ok(body.goals.some((g) => g.ref === "G3"), "default index should surface G3");
   const s6 = body.goals.find((g) => g.ref === "G3")?.specs.find((s) => s.ref === "G3.S6");
   assert.ok(s6, "G3.S6 must appear");
 });
@@ -260,7 +289,7 @@ function remoteContents(): Record<string, string> {
   };
 }
 
-test("GET /api/kanban?repo=owner/repo scans the selected repo via the user's credential", async () => {
+test("GET /api/kanban?repo=owner/repo scans the selected repo and serves it as an index", async () => {
   const remote = new FakeRemoteGithub(remoteTree(), remoteContents());
   const employees = new MemoryEmployeeRegistry(
     [{ email: "alice@caleo.com", display_name: "Alice", role: "member", github_credential: { type: "token", value: "ghp_alice" } }],
@@ -276,14 +305,16 @@ test("GET /api/kanban?repo=owner/repo scans the selected repo via the user's cre
     headers: bearer(sessionToken),
   });
   assert.equal(res.statusCode, 200);
-  const body = res.json() as KanbanBoard;
+  const body = res.json() as KanbanIndex;
+  assert.equal(body.version, 1);
+  assert.ok(body.generated_at, "remote boards are served in the index shape with a timestamp");
   assert.equal(body.goals.length, 1);
   assert.equal(body.goals[0].ref, "G1");
   const ticket = body.goals[0].specs[0].tickets[0];
   assert.equal(ticket.ref, "G1.S1.T1");
-  assert.equal(ticket.ticket.status, "in_progress");
-  assert.equal(ticket.ticket.assignee, "opencode");
-  assert.equal(ticket.ticket.session_id, "ses_remote");
+  assert.equal(ticket.status, "in_progress");
+  assert.equal(ticket.assignee, "opencode");
+  assert.equal(ticket.session_id, "ses_remote");
   assert.equal(remote.treeFetches.length, 1);
   assert.equal(remote.treeFetches[0].value, "ghp_alice", "the board must use the employee's credential");
 });

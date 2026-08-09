@@ -15,7 +15,8 @@ import { registerInvitationRoutes } from "./routes/invitations.js";
 import { createSecretCipher, type SecretCipher } from "./employees/crypto.js";
 import { GithubRestClient, type GitHubApi } from "./github/client.js";
 import { MemoryGithubOpStore, type GithubOpStore } from "./github/ops.js";
-import { FileBoardScanner, defaultBoardRoot, type BoardScanner } from "./kanban/scan.js";
+import { defaultBoardRoot } from "./kanban/scan.js";
+import { FileKanbanIndex, type KanbanIndexService } from "./kanban/index-file.js";
 import {
   MemoryAgentRegistry,
   PostgresAgentRegistry,
@@ -68,7 +69,8 @@ export interface BuildAppOptions {
   auth?: AuthService;
   github?: GitHubApi;
   ops?: GithubOpStore;
-  board?: BoardScanner;
+  /** Kanban root index service (fast read + rescan/rebuild). Default: FileKanbanIndex. */
+  index?: KanbanIndexService;
   cipher?: SecretCipher;
   invitations?: InvitationService;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
@@ -141,9 +143,9 @@ export function defaultGithubClient(): GitHubApi {
   return new GithubRestClient();
 }
 
-/** Default board scanner: reads the repo's own docs/kanban directory. */
-export function defaultBoardScanner(): BoardScanner {
-  return new FileBoardScanner(defaultBoardRoot());
+/** Default kanban root index: reads/rebuilds docs/kanban/kanban-index.json. */
+export function defaultKanbanIndex(): KanbanIndexService {
+  return new FileKanbanIndex(defaultBoardRoot());
 }
 
 /** Default auth token store: Postgres when DATABASE_URL is set, else in-memory. */
@@ -219,7 +221,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const auth = options.auth ?? defaultAuthService(employees, tokens);
   const github = options.github ?? defaultGithubClient();
   const ops = options.ops ?? new MemoryGithubOpStore();
-  const board = options.board ?? defaultBoardScanner();
+  const index = options.index ?? defaultKanbanIndex();
   const invitations = options.invitations ?? defaultInvitationService(employees, tokens!);
 
   app.register(multipart, {
@@ -257,7 +259,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerChatRoutes(app, { manager });
   registerEmployeeRoutes(app, { employees, auth, agents: registry });
   registerGithubRoutes(app, { employees, auth, github, ops });
-  registerKanbanRoutes(app, { board, auth, employees, github });
+  registerKanbanRoutes(app, { index, auth, employees, github });
   registerInvitationRoutes(app, { invitations, auth });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),

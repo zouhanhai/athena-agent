@@ -10,6 +10,7 @@
     "start": "tsx src/index.ts",
     "verify": "tsx src/agents/verify-agent.ts",
     "logos:generate": "tsx scripts/generate-logos.ts",
+    "kanban:index": "tsx scripts/write-index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test --test-force-exit \"test/**/*.test.ts\"",

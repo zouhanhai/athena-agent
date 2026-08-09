@@ -16,6 +16,8 @@ import type { GithubFileContent, GithubTreeEntry } from "../github/client.js";
 export interface BoardTicket {
   ref: string; // "G1.S1.T1"
   ticket: TicketFrontmatter;
+  /** The ticket body (after frontmatter) when the scan asked for it — e.g. for Progress Log parsing. */
+  body?: string;
 }
 
 /** A scanned spec node, with its child tickets. */
@@ -109,11 +111,16 @@ export function defaultBoardRoot(): string {
   return path.join(repoRoot, "docs", "kanban");
 }
 
+export interface ScanOptions {
+  /** Include each ticket's markdown body (e.g. for Progress Log parsing). */
+  includeBody?: boolean;
+}
+
 /**
  * Walk a board root directory and construct the board. Files that exist but
  * fail to parse are collected in `errors`; the rest of the board still loads.
  */
-export async function scanBoard(root: string): Promise<KanbanBoard> {
+export async function scanBoard(root: string, options: ScanOptions = {}): Promise<KanbanBoard> {
   const errors: BoardError[] = [];
   const goals: BoardGoal[] = [];
 
@@ -170,6 +177,7 @@ export async function scanBoard(root: string): Promise<KanbanBoard> {
           tickets.push({
             ref: `${goalDir}.${specDir}.${ticketFile.slice(0, -3)}`,
             ticket: parsed.frontmatter as TicketFrontmatter,
+            ...(options.includeBody ? { body: parsed.body } : {}),
           });
         } catch (err) {
           errors.push({ file: ticketPath, error: err instanceof Error ? err.message : String(err) });
@@ -205,6 +213,7 @@ export async function scanRemoteBoard(
   owner: string,
   repo: string,
   ref?: string,
+  options: ScanOptions = {},
 ): Promise<KanbanBoard> {
   const tree = await github.listTree(credential, owner, repo, ref);
   const entries = new Map<string, GithubTreeEntry>();
@@ -287,6 +296,7 @@ export async function scanRemoteBoard(
           tickets.push({
             ref: `${parts[0]}.${parts[1]}.${parts[2].slice(0, -3)}`,
             ticket: parsed.frontmatter as TicketFrontmatter,
+            ...(options.includeBody ? { body: parsed.body } : {}),
           });
         } catch (err) {
           errors.push({ file: ticketPath, error: err instanceof Error ? err.message : String(err) });
