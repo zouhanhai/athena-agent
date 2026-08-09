@@ -54,6 +54,13 @@
   - Tailscale the 6900XT, then set `APP_BASE_URL` to the Tailscale IP so remote colleagues can reach the portal + open invite/magic-link URLs (currently LAN-only 192.168.178.30; remote access blocked until this is done — see `docs/deployment-config.md`)
 - [ ] Auth (Resend magic link) functional
   - Requires verifying `caleo.com` domain in Resend (user lacks DNS today → 403 on send; meanwhile ConsoleMailer logs the invite/login links to `~/.athena-tmp/athena-server.log`)
+- [ ] **Worker progress tracking via ticket-file Progress Log** — spec `docs/spec-m4-worker-progress.md` (2026-08-09)
+  - Pain: OpenCode workers don't update their ticket file → can't see progress/stuck without manually
+    polling the session. Make progress readable directly from the ticket md file.
+  - Design: a **Progress Log table at the bottom of each ticket file** (UTC timestamp + status + one-line
+    progress, ~1 row/min). **Written by an OpenCode plugin** (`tool.execute.after` + `session.status`),
+    NOT an AGENTS.md instruction (LLM may forget). Kanban parser reads the log → `KanbanTab` shows last
+    row + "updated Xs ago" + flags **stalled** (old last_updated while in_progress). Refresh button re-scans.
 - [ ] **Remote Agent Federation (HTTP/SSE + Tailscale)**
   - Architecture (decided 2026-08-09): agents stay LOCAL (tools run on each employee's machine); the platform is a control plane. Users send commands via the platform → forwarded to the right local agent → agent works locally → streams the process + result back. **Communication is HTTP + SSE, NOT WebSocket** (SSE covers real-time push; HTTP covers command send). Tailscale provides the encrypted tunnel so the server can reach every local agent across regions.
   - Each local agent (Hermes API Server `/api/sessions/{id}/chat/stream` SSE, OpenCode serve `/global/event`, etc.) already exposes an HTTP+SSE remote-control surface — no new protocol needed.
