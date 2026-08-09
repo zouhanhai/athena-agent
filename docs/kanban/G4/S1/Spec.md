@@ -111,6 +111,10 @@ git-ignored; also on 6900XT). This is consumed by the **G4.S2 self-built RAG int
 part of the RAG engine, not the Pi agent) — the self-built interface reads it; it's not used by the Pi
 agent.
 
+**Impl note (S1)**: `~/.pi/agent/models.json` `providers` must also gain an **`athena`** entry (same
+model set as `openrouter`, e.g. `~deepseek/deepseek-v4-flash-latest`) so `ModelRuntime.getModel("athena",
+"~deepseek/deepseek-v4-flash-latest")` resolves. Register when implementing `refine_document`.
+
 ## Full design (original spec reference)
 
 See `docs/spec-m4-docling-refinement.md` for the original problem statement + context-efficiency
