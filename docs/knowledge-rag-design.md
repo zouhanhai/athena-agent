@@ -97,6 +97,9 @@ document images** (at the same relative position as the source), while **LightRA
 - Frontend: `GET /api/kb/wiki/image?path=` serves image bytes (guarded like `readWikiPage`);
   `WikiView` rewrites `<img src="images/...">` → served URL.
 - Implements the "view the source as Markdown, with images" experience without polluting LightRAG.
+- **Long docs**: the renderer also adds heading anchors (`markdown-it-anchor`) + a table of contents
+  (`markdown-it-table-of-contents`) so a large multi-section page can jump directly to a fixed chapter
+  via `#id` links / a TOC list at the top. Pure renderer change — LightRAG + stored markdown untouched.
 
 
 

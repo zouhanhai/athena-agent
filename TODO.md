@@ -34,7 +34,7 @@
 - [ ] G3.S3 Global Chat panel (right-side fixed, single shared context, agent cards + add agent/employee)
 - [ ] G3.S4 Workbench (GitHub-style Code / Issues / Kanban tabs, per-user credential)
 - [ ] G3.S5 Uploads page (detailed per-system ingest stages + chunk progress, real LightRAG status)
-  - S5.T5: show source images in llm_wiki pages (export via --images-dir + copy beside page + serve to frontend); LightRAG stays pure text. docling `picture_area_threshold` lowered to 0.01 (small images get VLM desc) — see docs/knowledge-rag-design.md §2.1.2
+  - S5.T5: show source images in llm_wiki pages (export via --images-dir + copy beside page + serve to frontend); LightRAG stays pure text. docling `picture_area_threshold` lowered to 0.01 (small images get VLM desc). Long docs get heading anchors + table of contents (markdown-it-anchor / markdown-it-table-of-contents) — see docs/knowledge-rag-design.md §2.1.2
 - [ ] G3.S6 Git-Driven Development (worker-agnostic protocol + 6-role lifecycle + GitHub full ops)
 
 ## Planned
