@@ -37,18 +37,19 @@ Upload file / URL
        parsed = parser.parse(input)     # docling → Markdown string
        markdown = parsed.markdown        # in-memory string
        (also written to shared input-dir ~/athena-data/input as artifact)
-    ② LightRAG ingesting:
-       ingestLightRag(markdown, fileName)
+    ② classify FIRST (shared by both systems, G3.S8.T2):
+       prepareForIngest → llm_wiki built-in agent classifies doc against the
+         CALEO taxonomy (docs/taxonomy.md): 13 kinds of `type` + hierarchical `topic`
+         (e.g. internal/events) → { category, topic, frontmatter }
+    ③ LightRAG ‖ llm_wiki run IN PARALLEL (Promise.all):
+       ingestLightRag(frontmatterContent, fileName)
          → lightrag.ingestText(content)  # LightRAG native /documents/text
-           # chunking → embedding (qwen3-embedding-8b) → vector (pgvector) + entity graph (NetworkX)
-    ③ llm_wiki ingesting:
-       ingestLlmWiki(fileName, markdown)
-         → classify({title, content})    # llm_wiki built-in agent classifies doc
-           # prompt: "classify into entity/concept/source/query/comparison/synthesis"
-           # → { category, pagePath: "wiki/{category}/{file}.md" }
-         → write wiki/{category}/{file}.md
+           # chunking (paragraph_semantic) → embedding (qwen3-embedding-8b) → vector (pgvector) + entity graph
+           # frontmatter (type+topic) carried in content_summary for topic filtering
+       ingestLlmWiki(fileName, markdown, preclassified)
+         → write wiki/<topic>/<file>.md (frontmatter type + topic)
          → rebuild wiki/index.md (pages grouped by type)
-    ④ any system ok → task status=done, progress 100
+    ④ any system ok → task status=done, progress 100 (recomputed from both stages)
 ```
 
 ### 2.1.1 docling Picture-Description Limitation (known, 2026-08-07)
@@ -113,25 +114,25 @@ document images** (at the same relative position as the source), while **LightRA
 - **Independent pipelines**: changing llm_wiki ingest (e.g. classification) does NOT affect
   LightRAG ingest (`ingestLightRag` is separate from `ingestLlmWiki`).
 
-### 2.2 Wiki auto-hierarchy (llm_wiki built-in agent)
+### 2.2 Wiki auto-hierarchy (llm_wiki built-in agent, CALEO taxonomy)
 
-llm_wiki's built-in agent classifies each ingested doc into one category dir:
+llm_wiki's built-in agent classifies each ingested doc against the CALEO taxonomy
+(`docs/taxonomy.md`): a `type` (13 kinds) and a hierarchical `topic` (slash path). The wiki page
+is written to `wiki/<topic>/<file>.md`; `index.md` groups pages by type. Examples:
 
 ```
-wiki/entities/       Named things (models, companies, people, datasets)
-wiki/concepts/       Ideas, techniques, phenomena
-wiki/sources/        Papers, articles, talks, blog posts
-wiki/queries/        Open questions under investigation
-wiki/comparisons/    Side-by-side analysis of related entities
-wiki/synthesis/      Cross-cutting summaries and conclusions
-wiki/index.md        All pages grouped by type
-wiki/log.md          Research activity log
+wiki/internal/events/Sommerseminar-Mallorca-2023.pdf.md   (type: event, topic: internal/events)
+wiki/sap/consolidation/GroupReporting.pdf.md              (type: report, topic: sap/consolidation)
 ```
 
-- Classification prompt uses the **llm_wiki built-in agent** (its own LLM, OpenRouter `deepseek-v4-flash`).
-- Fallback: a local heuristic `localClassify` if the agent fails.
-- Note: single-category per doc at ingest; cross-page wikilinks ([[]]) relationships are built by
-  llm_wiki's graph index later (not in this ingest step).
+- `type` = 13 kinds: report / minute / spec / manual / proposal / contract / policy / presentation /
+  event / source / person / entity / concept (disambiguation in docs/taxonomy.md).
+- `topic` = hierarchical slash path (e.g. `sap/s4hana/consolidation`), `isValidTopic` supports
+  arbitrary depth. Reuses existing topics for consistency.
+- Classification prompt uses the **llm_wiki built-in agent** (OpenRouter `~deepseek/deepseek-v4-flash-latest`).
+- Fallback: local heuristic `localClassify` (also taxonomy-based) if the agent fails.
+- WikiView has **topic view** and **type view**; no flat "All" view.
+- Cross-page wikilinks ([[ ]]) relationships are built by llm_wiki's graph index later (not in ingest).
 
 ### 2.3 Model unification (all systems on OpenRouter, auto-follow latest)
 
