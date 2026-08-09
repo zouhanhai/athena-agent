@@ -1,6 +1,7 @@
 /**
- * Frontend API layer for the kanban docs-scan board (G3.S6.T6 + G3.S4.T4).
- * Types mirror the server board schema (server/src/kanban/schema.ts + scan.ts).
+ * Frontend API layer for the kanban board (G3.S6.T6 + G3.S4.T4 + G3.S4.T7).
+ * Types mirror the server root index schema (server/src/kanban/index-file.ts),
+ * which /api/kanban serves from a single kanban-index.json (fast refresh).
  * Scoped to the signed-in employee via their session token.
  */
 
@@ -23,71 +24,75 @@ export const TICKET_STATUSES: TicketStatus[] = [
   "rejected",
 ];
 
-interface BoardFrontmatterBase {
+/** A cached ticket: every field the Workbench needs, incl. live Progress Log state. */
+export interface KanbanIndexTicket {
+  ref: string;
+  id: string;
+  title: string;
+  owner: string;
+  status: TicketStatus;
+  assignee: string;
+  session_id?: string;
+  blocked_by: string[];
+  acceptance_criteria: string[];
+  started_at?: string;
+  completed_at?: string;
+  progress_last_row?: string;
+  progress_updated_at?: string;
+}
+
+/** A cached spec with its child tickets. */
+export interface KanbanIndexSpec {
+  ref: string;
   id: string;
   title: string;
   owner: string;
   status: string;
+  milestone?: string;
+  tickets: KanbanIndexTicket[];
 }
 
-export interface GoalFrontmatter extends BoardFrontmatterBase {
-  layer: "G";
+/** A cached goal with its child specs. */
+export interface KanbanIndexGoal {
+  ref: string;
+  id: string;
+  title: string;
+  owner: string;
+  status: string;
   created_at?: string;
   milestone?: string;
-  acceptance_criteria: string[];
+  specs: KanbanIndexSpec[];
 }
 
-export interface SpecFrontmatter extends BoardFrontmatterBase {
-  layer: "S";
-  parent: string;
-  milestone?: string;
-  acceptance_criteria: string[];
-}
-
-export interface TicketFrontmatter extends BoardFrontmatterBase {
-  layer: "T";
-  parent: string;
-  status: TicketStatus;
-  assignee: string;
-  session_id?: string;
-  started_at?: string;
-  completed_at?: string;
-  blocked_by: string[];
-  acceptance_criteria: string[];
-}
-
-export interface BoardTicket {
-  ref: string;
-  ticket: TicketFrontmatter;
-}
-
-export interface BoardSpec {
-  ref: string;
-  spec: SpecFrontmatter;
-  tickets: BoardTicket[];
-}
-
-export interface BoardGoal {
-  ref: string;
-  goal: GoalFrontmatter;
-  specs: BoardSpec[];
-}
-
-export interface BoardError {
+export interface KanbanIndexError {
   file: string;
   error: string;
 }
 
-export interface KanbanBoard {
-  goals: BoardGoal[];
-  errors: BoardError[];
+/** The root index document served by GET /api/kanban. */
+export interface KanbanIndex {
+  version: number;
+  generated_at: string;
+  goals: KanbanIndexGoal[];
+  errors: KanbanIndexError[];
 }
 
-/** GET /api/kanban (optionally ?repo=owner/repo) → the docs-scanned board. */
-export async function fetchBoard(sessionToken: string, repo?: string): Promise<KanbanBoard> {
+/**
+ * GET /api/kanban → the board served from the root index file (fast).
+ * `repo` selects a remote repo's board (via the employee's credential);
+ * `rescan=true` forces the server to re-scan the md files and rebuild the index.
+ */
+export async function fetchBoard(
+  sessionToken: string,
+  repo?: string,
+  rescan?: boolean,
+): Promise<KanbanIndex> {
   const params = new URLSearchParams();
   if (repo) {
     params.set("repo", repo);
+  }
+  if (rescan) {
+    params.set("rescan", "1");
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   const res = await fetch(`/api/kanban${suffix}`, {
@@ -101,5 +106,5 @@ export async function fetchBoard(sessionToken: string, repo?: string): Promise<K
         : `Request failed with status ${res.status}`;
     throw new Error(message);
   }
-  return (await res.json()) as KanbanBoard;
+  return (await res.json()) as KanbanIndex;
 }

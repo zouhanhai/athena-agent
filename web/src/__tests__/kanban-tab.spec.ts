@@ -6,7 +6,7 @@ import "tdesign-vue-next/es/style/index.css";
 
 import KanbanTab from "@/components/KanbanTab.vue";
 import { fetchBoard } from "@/api/kanban";
-import type { KanbanBoard } from "@/api/kanban";
+import type { KanbanIndex } from "@/api/kanban";
 
 vi.mock("@/api/kanban", () => ({
   fetchBoard: vi.fn(),
@@ -22,61 +22,48 @@ vi.mock("@/api/kanban", () => ({
 
 const fetchBoardMock = fetchBoard as unknown as ReturnType<typeof vi.fn>;
 
-const BOARD: KanbanBoard = {
+const BOARD: KanbanIndex = {
+  version: 1,
+  generated_at: "2026-08-09T16:00:00Z",
   goals: [
     {
       ref: "G1",
-      goal: {
-        id: "g1",
-        title: "G1: Foundation",
-        layer: "G",
-        owner: "consultant",
-        status: "active",
-        milestone: "M1",
-        acceptance_criteria: ["done"],
-      },
+      id: "g1",
+      title: "G1: Foundation",
+      owner: "consultant",
+      status: "active",
+      milestone: "M1",
       specs: [
         {
           ref: "G1.S1",
-          spec: {
-            id: "g1_s1",
-            title: "G1.S1: Auth",
-            layer: "S",
-            parent: "G1",
-            owner: "pm",
-            status: "active",
-            acceptance_criteria: ["done"],
-          },
+          id: "g1_s1",
+          title: "G1.S1: Auth",
+          owner: "pm",
+          status: "active",
           tickets: [
             {
               ref: "G1.S1.T1",
-              ticket: {
-                id: "t1",
-                title: "G1.S1.T1: Login flow",
-                layer: "T",
-                parent: "G1.S1",
-                owner: "eng-director",
-                status: "done",
-                assignee: "opencode",
-                blocked_by: [],
-                acceptance_criteria: ["works"],
-              },
+              id: "t1",
+              title: "G1.S1.T1: Login flow",
+              owner: "eng-director",
+              status: "done",
+              assignee: "opencode",
+              blocked_by: [],
+              acceptance_criteria: ["works"],
             },
             {
               ref: "G1.S1.T2",
-              ticket: {
-                id: "t2",
-                title: "G1.S1.T2: Session expiry",
-                layer: "T",
-                parent: "G1.S1",
-                owner: "eng-director",
-                status: "in_progress",
-                assignee: "opencode",
-                session_id: "ses_1",
-                started_at: "2026-08-01",
-                blocked_by: [],
-                acceptance_criteria: ["expires"],
-              },
+              id: "t2",
+              title: "G1.S1.T2: Session expiry",
+              owner: "eng-director",
+              status: "in_progress",
+              assignee: "opencode",
+              session_id: "ses_1",
+              started_at: "2026-08-01",
+              progress_last_row: "Implementing session expiry",
+              progress_updated_at: "2026-08-09T15:50:00Z",
+              blocked_by: [],
+              acceptance_criteria: ["expires"],
             },
           ],
         },
@@ -137,7 +124,7 @@ describe("KanbanTab", () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab();
 
-    expect(fetchBoardMock).toHaveBeenCalledWith("tok_1", undefined);
+    expect(fetchBoardMock).toHaveBeenCalledWith("tok_1", undefined, false);
     expect(columns(wrapper).length).toBeGreaterThan(0);
     const labels = columns(wrapper).map((c) => c.find(".kanban-column-title").text());
     for (const status of ["backlog", "in_progress", "done", "in_review", "approved", "rejected"]) {
@@ -150,7 +137,7 @@ describe("KanbanTab", () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab(REPO);
 
-    expect(fetchBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent");
+    expect(fetchBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", false);
     expect(wrapper.find(".kanban-source").text()).toContain("zouhanhai/athena-agent");
     wrapper.unmount();
   });
@@ -176,7 +163,7 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("shows the live status, assignee and session_id on each ticket card", async () => {
+  it("shows the live status, assignee, session_id and progress row on each ticket card", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab();
 
@@ -185,6 +172,7 @@ describe("KanbanTab", () => {
     expect(card!.text()).toContain("in progress");
     expect(card!.text()).toContain("opencode");
     expect(card!.text()).toContain("ses_1");
+    expect(card!.find(".kanban-card-progress").text()).toContain("Implementing session expiry");
     wrapper.unmount();
   });
 
@@ -196,7 +184,30 @@ describe("KanbanTab", () => {
     expect(text).toContain("G1");
     expect(text).toContain("G1.S1");
     expect(text).toContain("G1: Foundation");
-    expect(text).toContain("G1.S1: Auth");
+    expect(text).toContain("Auth");
+    wrapper.unmount();
+  });
+
+  it("renders spec badges as a two-part layout: ref shown once + title without the ref prefix", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab();
+
+    const spec = wrapper.find(".kanban-spec");
+    expect(spec.exists()).toBe(true);
+    expect(spec.find(".kanban-spec-ref").text()).toBe("G1.S1");
+    expect(spec.find(".kanban-spec-title").text()).toBe("Auth");
+    expect(spec.text()).not.toMatch(/G1\.S1 · G1\.S1/);
+    wrapper.unmount();
+  });
+
+  it("lays each goal row out as a two-part row (left ref+title, right spec badges)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab();
+
+    const goal = wrapper.find(".kanban-goal");
+    expect(goal.find(".kanban-goal-main .kanban-goal-ref").text()).toBe("G1");
+    expect(goal.find(".kanban-goal-main .kanban-goal-title").text()).toBe("G1: Foundation");
+    expect(goal.find(".kanban-goal-specs .kanban-spec").exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -210,14 +221,14 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("the refresh button re-fetches the board", async () => {
+  it("the refresh button re-fetches the board with rescan=1 (rebuild the index)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab(REPO);
     const callsAfterMount = fetchBoardMock.mock.calls.length;
     await wrapper.find(".kanban-refresh").trigger("click");
     await flushPromises();
     expect(fetchBoardMock.mock.calls.length).toBe(callsAfterMount + 1);
-    expect(fetchBoardMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai/athena-agent");
+    expect(fetchBoardMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai/athena-agent", true);
     wrapper.unmount();
   });
 
@@ -226,7 +237,14 @@ describe("KanbanTab", () => {
     const wrapper = await mountKanbanTab(null);
     await wrapper.setProps({ repo: REPO });
     await flushPromises();
-    expect(fetchBoardMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai/athena-agent");
+    expect(fetchBoardMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai/athena-agent", false);
+    wrapper.unmount();
+  });
+
+  it("shows the index generated_at as the refreshed timestamp", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab();
+    expect(wrapper.find(".kanban-refreshed").text()).toContain("Refreshed");
     wrapper.unmount();
   });
 
@@ -240,10 +258,10 @@ describe("KanbanTab", () => {
 
   it("shows scan-progress feedback while the board refreshes", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
-    let resolveFetch!: (board: KanbanBoard) => void;
+    let resolveFetch!: (board: KanbanIndex) => void;
     fetchBoardMock.mockImplementation(
       () =>
-        new Promise<KanbanBoard>((resolve) => {
+        new Promise<KanbanIndex>((resolve) => {
           resolveFetch = resolve;
         }),
     );
@@ -265,6 +283,8 @@ describe("KanbanTab", () => {
   it("surfaces the number of files that failed to scan after a refresh", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     fetchBoardMock.mockResolvedValue({
+      version: 1,
+      generated_at: "2026-08-09T16:00:00Z",
       goals: BOARD.goals,
       errors: [{ file: "docs/kanban/G1/S1/T9.md", error: "boom" }],
     });

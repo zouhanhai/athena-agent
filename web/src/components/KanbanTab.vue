@@ -5,8 +5,9 @@ import type { GithubRepo } from "@/api/github";
 import {
   fetchBoard,
   TICKET_STATUSES,
-  type KanbanBoard,
-  type TicketFrontmatter,
+  type KanbanIndex,
+  type KanbanIndexSpec,
+  type KanbanIndexTicket,
   type TicketStatus,
 } from "@/api/kanban";
 
@@ -14,7 +15,7 @@ const props = defineProps<{ repo: GithubRepo | null }>();
 
 const auth = useAuthStore();
 
-const board = ref<KanbanBoard | null>(null);
+const board = ref<KanbanIndex | null>(null);
 const loading = ref(false);
 const error = ref("");
 const lastRefresh = ref("");
@@ -27,7 +28,7 @@ const boardSource = computed(() => (props.repo ? props.repo.full_name : "athena-
 interface BoardCard {
   ref: string;
   specRef: string;
-  ticket: TicketFrontmatter;
+  ticket: KanbanIndexTicket;
 }
 
 const cards = computed<BoardCard[]>(() => {
@@ -35,7 +36,7 @@ const cards = computed<BoardCard[]>(() => {
   for (const goal of board.value?.goals ?? []) {
     for (const spec of goal.specs) {
       for (const ticket of spec.tickets) {
-        out.push({ ref: ticket.ref, specRef: spec.ref, ticket: ticket.ticket });
+        out.push({ ref: ticket.ref, specRef: spec.ref, ticket });
       }
     }
   }
@@ -50,19 +51,27 @@ function cardsFor(status: TicketStatus): BoardCard[] {
   return cards.value.filter((card) => card.ticket.status === status);
 }
 
+/** Spec titles carry their own "G1.S1: " ref prefix in the md files; the badge already shows the ref. */
+function specTitle(spec: KanbanIndexSpec): string {
+  const prefix = `${spec.ref}:`;
+  return spec.title.startsWith(prefix) ? spec.title.slice(prefix.length).trim() : spec.title;
+}
+
 function fail(err: unknown): void {
   error.value = err instanceof Error ? err.message : String(err);
 }
 
-async function loadBoard(): Promise<void> {
+async function loadBoard(rescan = false): Promise<void> {
   if (!auth.sessionToken) {
     return;
   }
   loading.value = true;
   error.value = "";
   try {
-    board.value = await fetchBoard(auth.sessionToken, props.repo?.full_name);
-    lastRefresh.value = new Date().toLocaleTimeString();
+    board.value = await fetchBoard(auth.sessionToken, props.repo?.full_name, rescan);
+    lastRefresh.value = board.value.generated_at
+      ? new Date(board.value.generated_at).toLocaleTimeString()
+      : new Date().toLocaleTimeString();
   } catch (err) {
     fail(err);
   } finally {
@@ -102,7 +111,7 @@ watch(
           type="button"
           class="kanban-refresh"
           :disabled="loading"
-          @click="loadBoard"
+          @click="loadBoard(true)"
         >
           <span v-if="loading" class="kanban-spinner kanban-spinner-inline" aria-hidden="true" />
           {{ loading ? "Scanning…" : "Refresh" }}
@@ -114,14 +123,15 @@ watch(
       <template v-if="board">
         <div class="kanban-tree" aria-label="Goals and Specs">
           <div v-for="goal in board.goals" :key="goal.ref" class="kanban-goal">
-            <span class="kanban-goal-ref">{{ goal.ref }}</span>
-            <span class="kanban-goal-title">{{ goal.goal.title }}</span>
+            <div class="kanban-goal-main">
+              <span class="kanban-goal-ref">{{ goal.ref }}</span>
+              <span class="kanban-goal-title" :title="goal.title">{{ goal.title }}</span>
+            </div>
             <div class="kanban-goal-specs">
-              <span
-                v-for="spec in goal.specs"
-                :key="spec.ref"
-                class="kanban-spec"
-              >{{ spec.ref }} · {{ spec.spec.title }}</span>
+              <span v-for="spec in goal.specs" :key="spec.ref" class="kanban-spec">
+                <span class="kanban-spec-ref">{{ spec.ref }}</span>
+                <span class="kanban-spec-title" :title="specTitle(spec)">{{ specTitle(spec) }}</span>
+              </span>
             </div>
           </div>
         </div>
@@ -142,6 +152,9 @@ watch(
                 <span class="kanban-card-ref">{{ card.ref }}</span>
                 <span class="kanban-card-title">{{ card.ticket.title }}</span>
                 <span class="kanban-card-spec">{{ card.specRef }}</span>
+                <span v-if="card.ticket.progress_last_row" class="kanban-card-progress">
+                  {{ card.ticket.progress_last_row }}
+                </span>
                 <span class="kanban-card-status" :class="`kanban-card-status-${card.ticket.status}`">
                   {{ statusLabel(card.ticket.status) }}
                 </span>
@@ -291,11 +304,22 @@ watch(
   border-bottom: 1px solid var(--caleo-border);
 }
 
+/* Each goal is a clean two-part row: fixed/narrow left (ref + title) and a
+   wrapping spec-badge area on the right, so columns align and long titles no
+   longer stretch the row or strand dead whitespace. */
 .kanban-goal {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.kanban-goal-main {
+  flex: 0 0 320px;
+  min-width: 0;
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 13px;
 }
 
 .kanban-goal-ref {
@@ -305,23 +329,47 @@ watch(
 }
 
 .kanban-goal-title {
+  min-width: 0;
   font-weight: 600;
   color: var(--caleo-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .kanban-goal-specs {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-left: auto;
 }
 
 .kanban-spec {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
   padding: 1px 8px;
   font-size: 12px;
   color: var(--caleo-text-secondary);
   background: rgba(127, 127, 127, 0.08);
   border-radius: 999px;
+}
+
+.kanban-spec-ref {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--caleo-primary);
+}
+
+/* Long spec titles truncate instead of stretching the row. */
+.kanban-spec-title {
+  min-width: 0;
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .kanban-columns {
@@ -401,6 +449,15 @@ watch(
 .kanban-card-spec {
   font-size: 11px;
   color: var(--caleo-text-secondary);
+}
+
+.kanban-card-progress {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.08);
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 
 .kanban-card-assignee {

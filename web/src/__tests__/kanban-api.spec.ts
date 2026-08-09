@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
-import { fetchBoard, type KanbanBoard } from "@/api/kanban";
+import { fetchBoard, type KanbanIndex } from "@/api/kanban";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
@@ -18,44 +18,33 @@ function fetchMock(): ReturnType<typeof vi.fn> {
   return fetch as unknown as ReturnType<typeof vi.fn>;
 }
 
-const BOARD: KanbanBoard = {
+const BOARD: KanbanIndex = {
+  version: 1,
+  generated_at: "2026-08-09T16:00:00Z",
   goals: [
     {
       ref: "G1",
-      goal: {
-        id: "g1",
-        title: "G1: goal",
-        layer: "G",
-        owner: "consultant",
-        status: "active",
-        acceptance_criteria: ["done"],
-      },
+      id: "g1",
+      title: "G1: goal",
+      owner: "consultant",
+      status: "active",
       specs: [
         {
           ref: "G1.S1",
-          spec: {
-            id: "g1_s1",
-            title: "G1.S1: spec",
-            layer: "S",
-            parent: "G1",
-            owner: "pm",
-            status: "active",
-            acceptance_criteria: ["done"],
-          },
+          id: "g1_s1",
+          title: "G1.S1: spec",
+          owner: "pm",
+          status: "active",
           tickets: [
             {
               ref: "G1.S1.T1",
-              ticket: {
-                id: "t1",
-                title: "G1.S1.T1: ticket",
-                layer: "T",
-                parent: "G1.S1",
-                owner: "eng-director",
-                status: "backlog",
-                assignee: "",
-                blocked_by: [],
-                acceptance_criteria: ["works"],
-              },
+              id: "t1",
+              title: "G1.S1.T1: ticket",
+              owner: "eng-director",
+              status: "backlog",
+              assignee: "",
+              blocked_by: [],
+              acceptance_criteria: ["works"],
             },
           ],
         },
@@ -66,7 +55,7 @@ const BOARD: KanbanBoard = {
 };
 
 describe("fetchBoard", () => {
-  it("GETs /api/kanban with the Bearer token and returns the board", async () => {
+  it("GETs /api/kanban with the Bearer token and returns the root index", async () => {
     stubFetch(jsonResponse(BOARD));
     const result = await fetchBoard("tok_1");
     const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
@@ -80,6 +69,20 @@ describe("fetchBoard", () => {
     await fetchBoard("tok_1", "acme/box");
     const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/kanban?repo=acme%2Fbox");
+  });
+
+  it("GETs /api/kanban?rescan=1 when a rescan is requested", async () => {
+    stubFetch(jsonResponse(BOARD));
+    await fetchBoard("tok_1", undefined, true);
+    const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban?rescan=1");
+  });
+
+  it("combines repo and rescan query params", async () => {
+    stubFetch(jsonResponse(BOARD));
+    await fetchBoard("tok_1", "acme/box", true);
+    const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban?repo=acme%2Fbox&rescan=1");
   });
 
   it("throws the server error message on a non-ok response", async () => {
