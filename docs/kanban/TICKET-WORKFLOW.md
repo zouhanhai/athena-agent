@@ -11,6 +11,8 @@ If a ticket file lacks it, follow this file.
    - `assignee: opencode`
    - `session_id: <your actual session id>`
    - then `git add <ticket file>` + commit + push. This is the claim lock so no other worker takes it.
+   - After claiming, **regenerate the kanban index** (`cd server && npx tsx scripts/write-index.ts`) and
+     commit it with the claim so the board reflects `in_progress` immediately.
 
 2. **Find context**: read this ticket's **parent Spec** (`docs/kanban/G<S>/S<#>/Spec.md`) and **Goal**
    (`docs/kanban/G<S>/Goal.md`) for the full design + acceptance criteria. The ticket is a task within
@@ -30,7 +32,8 @@ If a ticket file lacks it, follow this file.
    After changes run `codegraph sync` so OpenCode sees the updated codebase.
 
 7. **Verify + mark done**: run the relevant tests (server/web) and keep them green, then set
-   `status: done` + update the Progress Log, commit + push.
+   `status: done` + update the Progress Log, **regenerate the kanban index** (`npx tsx
+   scripts/write-index.ts`) so the board shows `done`, then commit + push.
 
 ## Template section (embed at top of each ticket body)
 
@@ -39,13 +42,15 @@ If a ticket file lacks it, follow this file.
 
 1. **Git claim-lock (FIRST)**: set `status: in_progress`, `assignee: opencode`,
    `session_id: <your session id>` in the frontmatter, then commit + push. Claim lock.
+   After claiming, regenerate the kanban index (`cd server && npx tsx scripts/write-index.ts`) + commit it.
 2. **Find context**: read this ticket's parent Spec (`docs/kanban/<G>/<S>/Spec.md`) + Goal
    (`docs/kanban/<G>/Goal.md`).
 3. **Use codegraph MCP**: `codegraph explore "<area>"` before editing.
 4. **Use `implement` + `tdd` skills**: TDD (RED-GREEN-REFACTOR), write failing test first.
 5. **Report progress**: append a row to the Progress Log table at the bottom on each real change.
 6. **Commit convention**: feature-level English commits; `codegraph sync` after.
-7. **Verify + mark done**: tests green → `status: done` + Progress Log update → commit + push.
+7. **Verify + mark done**: tests green → `status: done` + Progress Log update +
+   **regenerate kanban index** (`npx tsx scripts/write-index.ts`) → commit + push.
 
 Full: `docs/kanban/TICKET-WORKFLOW.md`
 ```
