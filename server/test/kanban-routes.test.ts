@@ -8,8 +8,10 @@ import {
   type MagicLinkMailer,
 } from "../src/employees/auth.js";
 import { createSecretCipher } from "../src/employees/crypto.js";
-import { MemoryEmployeeRegistry } from "../src/employees/employees.js";
-import type { KanbanBoard, BoardScanner } from "../src/kanban/scan.js";
+import { MemoryEmployeeRegistry, type GithubCredential } from "../src/employees/employees.js";
+import { renderBoardMd } from "../src/kanban/frontmatter.js";
+import type { KanbanBoard, BoardScanner, RemoteBoardSource } from "../src/kanban/scan.js";
+import type { GithubFileContent, GithubTreeEntry, GitHubApi } from "../src/github/client.js";
 
 const TEST_CIPHER = createSecretCipher("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
 
@@ -90,14 +92,16 @@ let app: FastifyInstance;
 let sent: SentMail[];
 
 /** Build a fresh app with its own registry/auth so closing one never affects another. */
-function makeApp(board?: BoardScanner): FastifyInstance {
-  const registry = new MemoryEmployeeRegistry(
-    [
-      { email: "alice@caleo.com", display_name: "Alice", role: "member" },
-      { email: "admin@caleo.com", display_name: "Admin", role: "admin" },
-    ],
-    { cipher: TEST_CIPHER },
-  );
+function makeApp(board?: BoardScanner, github?: GitHubApi, employees?: MemoryEmployeeRegistry): FastifyInstance {
+  const registry =
+    employees ??
+    new MemoryEmployeeRegistry(
+      [
+        { email: "alice@caleo.com", display_name: "Alice", role: "member" },
+        { email: "admin@caleo.com", display_name: "Admin", role: "admin" },
+      ],
+      { cipher: TEST_CIPHER },
+    );
   const mailer: MagicLinkMailer = {
     async sendLoginLink(input) {
       sent.push(input);
@@ -109,7 +113,7 @@ function makeApp(board?: BoardScanner): FastifyInstance {
     tokens: new MemoryAuthTokenStore(),
     appBaseUrl: "http://localhost:5173",
   });
-  return buildApp({ employees: registry, auth, board });
+  return buildApp({ employees: registry, auth, board, github });
 }
 
 beforeEach(async () => {
@@ -174,4 +178,146 @@ test("GET /api/kanban with the default scanner reads the real repo board", async
   assert.ok(body.goals.some((g) => g.ref === "G3"), "default scanner should surface G3");
   const s6 = body.goals.find((g) => g.ref === "G3")?.specs.find((s) => s.ref === "G3.S6");
   assert.ok(s6, "G3.S6 must appear");
+});
+
+/** Remote board source backed by an in-memory docs/kanban tree + contents. */
+class FakeRemoteGithub implements RemoteBoardSource {
+  readonly treeFetches: GithubCredential[] = [];
+  constructor(
+    private readonly tree: GithubTreeEntry[],
+    private readonly contents: Record<string, string>,
+  ) {}
+  async listTree(
+    credential: GithubCredential,
+    _owner: string,
+    _repo: string,
+    _ref?: string,
+  ): Promise<GithubTreeEntry[]> {
+    this.treeFetches.push(credential);
+    return this.tree;
+  }
+  async getFileContent(
+    _credential: GithubCredential,
+    _owner: string,
+    _repo: string,
+    p: string,
+    _ref?: string,
+  ): Promise<GithubFileContent> {
+    const content = this.contents[p];
+    return { path: p, sha: "sss", size: content.length, content };
+  }
+}
+
+function remoteTree(): GithubTreeEntry[] {
+  const tree = (type: string, path: string): GithubTreeEntry => ({
+    path,
+    type,
+    mode: "100644",
+    sha: path,
+    size: type === "blob" ? 12 : null,
+  });
+  return [
+    tree("tree", "docs/kanban"),
+    tree("tree", "docs/kanban/G1"),
+    tree("blob", "docs/kanban/G1/Goal.md"),
+    tree("tree", "docs/kanban/G1/S1"),
+    tree("blob", "docs/kanban/G1/S1/Spec.md"),
+    tree("blob", "docs/kanban/G1/S1/T1.md"),
+  ];
+}
+
+function remoteContents(): Record<string, string> {
+  return {
+    "docs/kanban/G1/Goal.md": renderBoardMd({
+      id: "g1",
+      title: "G1: goal",
+      layer: "G",
+      owner: "consultant",
+      status: "active",
+      acceptance_criteria: ["done"],
+    }, "# body\n"),
+    "docs/kanban/G1/S1/Spec.md": renderBoardMd({
+      id: "g1_s1",
+      title: "G1.S1: spec",
+      layer: "S",
+      parent: "G1",
+      owner: "pm",
+      status: "active",
+      acceptance_criteria: ["done"],
+    }, "# body\n"),
+    "docs/kanban/G1/S1/T1.md": renderBoardMd({
+      id: "t1",
+      title: "G1.S1.T1: ticket",
+      layer: "T",
+      parent: "G1.S1",
+      owner: "eng-director",
+      status: "in_progress",
+      assignee: "opencode",
+      session_id: "ses_remote",
+      blocked_by: [],
+      acceptance_criteria: ["works"],
+    }, "# body\n"),
+  };
+}
+
+test("GET /api/kanban?repo=owner/repo scans the selected repo via the user's credential", async () => {
+  const remote = new FakeRemoteGithub(remoteTree(), remoteContents());
+  const employees = new MemoryEmployeeRegistry(
+    [{ email: "alice@caleo.com", display_name: "Alice", role: "member", github_credential: { type: "token", value: "ghp_alice" } }],
+    { cipher: TEST_CIPHER },
+  );
+  await app.close();
+  app = makeApp(undefined, remote as unknown as GitHubApi, employees);
+  const sessionToken = await login("alice@caleo.com");
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban?repo=acme/box",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as KanbanBoard;
+  assert.equal(body.goals.length, 1);
+  assert.equal(body.goals[0].ref, "G1");
+  const ticket = body.goals[0].specs[0].tickets[0];
+  assert.equal(ticket.ref, "G1.S1.T1");
+  assert.equal(ticket.ticket.status, "in_progress");
+  assert.equal(ticket.ticket.assignee, "opencode");
+  assert.equal(ticket.ticket.session_id, "ses_remote");
+  assert.equal(remote.treeFetches.length, 1);
+  assert.equal(remote.treeFetches[0].value, "ghp_alice", "the board must use the employee's credential");
+});
+
+test("GET /api/kanban?repo=owner/repo returns 400 when the user has no credential", async () => {
+  const employees = new MemoryEmployeeRegistry(
+    [{ email: "admin@caleo.com", display_name: "Admin", role: "admin" }],
+    { cipher: TEST_CIPHER },
+  );
+  await app.close();
+  app = makeApp(undefined, new FakeRemoteGithub(remoteTree(), remoteContents()) as unknown as GitHubApi, employees);
+  const sessionToken = await login("admin@caleo.com");
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban?repo=acme/box",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().error, /no github credential/i);
+});
+
+test("GET /api/kanban?repo=invalid rejects a malformed repo", async () => {
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban?repo=notarepo",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().error, /owner\/repo/);
+});
+
+test("GET /api/kanban?repo=owner/repo requires authentication", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/kanban?repo=acme/box" });
+  assert.equal(res.statusCode, 401);
 });

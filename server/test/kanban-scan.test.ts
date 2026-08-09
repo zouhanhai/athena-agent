@@ -5,7 +5,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { renderBoardMd } from "../src/kanban/frontmatter.js";
 import { refToPath } from "../src/kanban/board.js";
-import { scanBoard, defaultBoardRoot, type KanbanBoard } from "../src/kanban/scan.js";
+import {
+  scanBoard,
+  scanRemoteBoard,
+  defaultBoardRoot,
+  type KanbanBoard,
+  type RemoteBoardSource,
+} from "../src/kanban/scan.js";
+import type { GithubFileContent, GithubTreeEntry } from "../src/github/client.js";
+import type { GithubCredential } from "../src/employees/employees.js";
 
 /** Write a board document at its ref-derived path under root. */
 async function writeDoc(
@@ -203,4 +211,144 @@ test("scanBoard parses the live repo board", async () => {
   assert.ok(ticketRefs.includes("G3.S6.T6"), "T6 should be scanned");
   const t1 = s6.tickets.find((t) => t.ref === "G3.S6.T1");
   assert.equal(t1?.ticket.status, "done");
+});
+
+class FakeRemoteSource implements RemoteBoardSource {
+  readonly fetched: string[] = [];
+  readonly treeFetched = 0;
+  constructor(
+    private readonly tree: GithubTreeEntry[],
+    private readonly contents: Record<string, string>,
+  ) {}
+  async listTree(
+    _credential: GithubCredential,
+    _owner: string,
+    _repo: string,
+    _ref?: string,
+  ): Promise<GithubTreeEntry[]> {
+    return this.tree;
+  }
+  async getFileContent(
+    _credential: GithubCredential,
+    _owner: string,
+    _repo: string,
+    p: string,
+    _ref?: string,
+  ): Promise<GithubFileContent> {
+    this.fetched.push(p);
+    const content = this.contents[p];
+    if (content === undefined) {
+      const err = new Error(`GitHub API error 404: ${p}`);
+      Object.assign(err, { status: 404 });
+      throw err;
+    }
+    return { path: p, sha: "sss", size: content.length, content };
+  }
+}
+
+const CREDENTIAL: GithubCredential = { type: "token", value: "ghp_test" };
+
+function remoteTree(): GithubTreeEntry[] {
+  const tree = (
+    type: string,
+    path: string,
+  ): GithubTreeEntry => ({ path, type, mode: "100644", sha: path, size: type === "blob" ? 12 : null });
+  return [
+    tree("tree", "docs"),
+    tree("tree", "docs/kanban"),
+    tree("tree", "docs/kanban/G1"),
+    tree("blob", "docs/kanban/G1/Goal.md"),
+    tree("tree", "docs/kanban/G1/S1"),
+    tree("blob", "docs/kanban/G1/S1/Spec.md"),
+    tree("blob", "docs/kanban/G1/S1/T1.md"),
+    tree("blob", "docs/kanban/G1/S1/T2.md"),
+    tree("blob", "README.md"),
+  ];
+}
+
+function remoteContents(): Record<string, string> {
+  return {
+    "docs/kanban/G1/Goal.md": renderBoardMd(goalFm("G1"), "# body\n"),
+    "docs/kanban/G1/S1/Spec.md": renderBoardMd(specFm("G1.S1"), "# body\n"),
+    "docs/kanban/G1/S1/T1.md": renderBoardMd(
+      ticketFm("G1.S1.T1", { status: "done", assignee: "opencode", session_id: "ses_remote" }),
+      "# body\n",
+    ),
+    "docs/kanban/G1/S1/T2.md": renderBoardMd(ticketFm("G1.S1.T2", { status: "in_progress", assignee: "bob" }), "# body\n"),
+  };
+}
+
+test("scanRemoteBoard scans a repo's docs/kanban via GitHub with live ticket status", async () => {
+  const source = new FakeRemoteSource(remoteTree(), remoteContents());
+  const board = await scanRemoteBoard(source, CREDENTIAL, "acme", "box");
+
+  assert.equal(board.errors.length, 0);
+  assert.equal(board.goals.length, 1);
+  assert.equal(board.goals[0].ref, "G1");
+  assert.equal(board.goals[0].goal.status, "active");
+
+  const spec = board.goals[0].specs[0];
+  assert.equal(spec.ref, "G1.S1");
+  assert.equal(spec.tickets.length, 2);
+  assert.equal(spec.tickets[0].ref, "G1.S1.T1");
+  assert.equal(spec.tickets[0].ticket.status, "done");
+  assert.equal(spec.tickets[0].ticket.assignee, "opencode");
+  assert.equal(spec.tickets[0].ticket.session_id, "ses_remote");
+  assert.equal(spec.tickets[1].ref, "G1.S1.T2");
+  assert.equal(spec.tickets[1].ticket.status, "in_progress");
+
+  const expected = [
+    "docs/kanban/G1/Goal.md",
+    "docs/kanban/G1/S1/Spec.md",
+    "docs/kanban/G1/S1/T1.md",
+    "docs/kanban/G1/S1/T2.md",
+  ];
+  assert.deepEqual([...source.fetched].sort(), expected);
+});
+
+test("scanRemoteBoard records parse errors but keeps valid items", async () => {
+  const contents = remoteContents();
+  contents["docs/kanban/G1/S1/T2.md"] = "---\nid: t2\ntitle: bad\nowner: eng\n---\n\nno status\n";
+  const source = new FakeRemoteSource(remoteTree(), contents);
+  const board = await scanRemoteBoard(source, CREDENTIAL, "acme", "box");
+
+  assert.equal(board.goals[0].ref, "G1");
+  assert.deepEqual(board.goals[0].specs[0].tickets.map((t) => t.ref), ["G1.S1.T1"]);
+  assert.equal(board.errors.length, 1);
+  assert.ok(board.errors[0].file.endsWith("T2.md"));
+});
+
+test("scanRemoteBoard sorts goals, specs and tickets numerically", async () => {
+  const tree = (
+    type: string,
+    path: string,
+  ): GithubTreeEntry => ({ path, type, mode: "100644", sha: path, size: type === "blob" ? 12 : null });
+  const mk = (type: string, ...parts: string[]): GithubTreeEntry => tree(type, `docs/kanban/${parts.join("/")}`);
+  const source = new FakeRemoteSource(
+    [
+      mk("tree", "G1"),
+      mk("blob", "G1", "Goal.md"),
+      mk("tree", "G1", "S1"),
+      mk("blob", "G1", "S1", "Spec.md"),
+      mk("blob", "G1", "S1", "T10.md"),
+      mk("blob", "G1", "S1", "T2.md"),
+      mk("blob", "G1", "S1", "T1.md"),
+      mk("tree", "G10"),
+      mk("blob", "G10", "Goal.md"),
+      mk("tree", "G2"),
+      mk("blob", "G2", "Goal.md"),
+    ],
+    {
+      "docs/kanban/G1/Goal.md": renderBoardMd(goalFm("G1"), "# body\n"),
+      "docs/kanban/G1/S1/Spec.md": renderBoardMd(specFm("G1.S1"), "# body\n"),
+      "docs/kanban/G1/S1/T10.md": renderBoardMd(ticketFm("G1.S1.T10"), "# body\n"),
+      "docs/kanban/G1/S1/T2.md": renderBoardMd(ticketFm("G1.S1.T2"), "# body\n"),
+      "docs/kanban/G1/S1/T1.md": renderBoardMd(ticketFm("G1.S1.T1"), "# body\n"),
+      "docs/kanban/G10/Goal.md": renderBoardMd(goalFm("G10"), "# body\n"),
+      "docs/kanban/G2/Goal.md": renderBoardMd(goalFm("G2"), "# body\n"),
+    },
+  );
+  const board = await scanRemoteBoard(source, CREDENTIAL, "acme", "box");
+  assert.deepEqual(board.goals.map((g) => g.ref), ["G1", "G2", "G10"]);
+  assert.deepEqual(board.goals[0].specs[0].tickets.map((t) => t.ref), ["G1.S1.T1", "G1.S1.T2", "G1.S1.T10"]);
 });
