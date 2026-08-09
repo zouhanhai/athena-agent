@@ -13,6 +13,9 @@ const DEFAULT_LOGO = "/athena-logo-ai.png";
 const logos = ref<LogoRecord[]>([]);
 const displayName = ref("");
 const logoUrl = ref(DEFAULT_LOGO);
+// The logo the user had when the page loaded — always shown in the picker
+// (even if in-use/excluded) so it never abruptly disappears when switching.
+const originalLogo = ref(DEFAULT_LOGO);
 const githubValue = ref("");
 const githubEditing = ref(false);
 const saving = ref(false);
@@ -60,10 +63,13 @@ const logoOptions = computed(() => {
     animal: logo.animal ?? "",
     color: logo.color ?? "",
   }));
-  const hasCurrent = available.some((logo) => logo.url === logoUrl.value);
-  if (!hasCurrent) {
+  // Always keep the CURRENT logo (loaded with the page) visible — even if it's
+  // in-use and excluded by the server — so it never abruptly disappears when
+  // switching to another option. Highlighted via is-selected when it's active.
+  const hasOriginal = available.some((logo) => logo.url === originalLogo.value);
+  if (!hasOriginal) {
     available.unshift({
-      url: logoUrl.value,
+      url: originalLogo.value,
       label: "Current",
       animal: "",
       color: "",
@@ -112,6 +118,7 @@ watch(
     if (employee) {
       displayName.value = employee.display_name;
       logoUrl.value = employee.logo_url || DEFAULT_LOGO;
+      originalLogo.value = employee.logo_url || DEFAULT_LOGO;
     }
   },
   { immediate: true },
@@ -218,7 +225,11 @@ async function saveProfile() {
               <input
                 class="settings-github-value"
                 v-model="githubDisplay"
-                type="password"
+                :type="
+                  !githubEditing && githubValue.length === 0 && auth.employee?.github_has_credential
+                    ? 'text'
+                    : 'password'
+                "
                 :placeholder="
                   auth.employee?.github_has_credential
                     ? 'Type a new token to replace the stored one'
