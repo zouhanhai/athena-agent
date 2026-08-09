@@ -54,6 +54,16 @@
   - Tailscale the 6900XT, then set `APP_BASE_URL` to the Tailscale IP so remote colleagues can reach the portal + open invite/magic-link URLs (currently LAN-only 192.168.178.30; remote access blocked until this is done — see `docs/deployment-config.md`)
 - [ ] Auth (Resend magic link) functional
   - Requires verifying `caleo.com` domain in Resend (user lacks DNS today → 403 on send; meanwhile ConsoleMailer logs the invite/login links to `~/.athena-tmp/athena-server.log`)
+- [ ] **Remote Agent Federation (HTTP/SSE + Tailscale)**
+  - Architecture (decided 2026-08-09): agents stay LOCAL (tools run on each employee's machine); the platform is a control plane. Users send commands via the platform → forwarded to the right local agent → agent works locally → streams the process + result back. **Communication is HTTP + SSE, NOT WebSocket** (SSE covers real-time push; HTTP covers command send). Tailscale provides the encrypted tunnel so the server can reach every local agent across regions.
+  - Each local agent (Hermes API Server `/api/sessions/{id}/chat/stream` SSE, OpenCode serve `/global/event`, etc.) already exposes an HTTP+SSE remote-control surface — no new protocol needed.
+  - Invitation-based agent onboarding (like employee invites): admin generates `{agent_id, api_url, token}` invite → hand to the agent → agent registers with the platform (auth'd, so the platform knows which agent is where and how to reach it).
+  - Platform Chat panel → route to a selected remote agent's API Server, streaming tool progress (tool.started / tool.completed) into the panel.
+- [ ] **Knowledge base as MCP server (agents retrieve company KB)**
+  - Decision (2026-08-09): expose the knowledge base as an **MCP server** (primary path) — the KB is a tool/resource for agents (`search_knowledge`, `get_wiki_page`, `get_graph`), and MCP is the semantically-correct + mature protocol (OpenCode/Claude Code/Codex/Hermes all speak MCP client).
+  - Platform wraps `KnowledgeRetrievalService` (LightRAG + llm_wiki + semantic search) into an MCP server (run on the server), auth'd; each local agent adds one `mcpServers` entry pointing at it over Tailscale.
+  - Bonus: also wrap Workbench GitHub + kanban ops as MCP tools so agents can operate GitHub/kanban directly (AgentIDE vision).
+  - **A2A (agent-to-agent) deferred** — put in M6 with "agents chat with each other / with Athena as a peer", not in M4. MCP-first for KB access.
 
 ### M5 — Output Page (txt/blog/charts/pptx/html)
 - [ ] Generate txt/blog/charts from knowledge base + web sources
