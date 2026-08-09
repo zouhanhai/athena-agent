@@ -22,6 +22,7 @@ test("TICKET_STATUSES follows the state machine", () => {
     "in_review",
     "approved",
     "rejected",
+    "canceled",
   ]);
 });
 

@@ -18,6 +18,7 @@ export const STATE_MACHINE: Record<TicketStatus, readonly TicketStatus[]> = {
   in_review: ["approved", "rejected"],
   approved: [],
   rejected: [],
+  canceled: [],
 };
 
 /** Named transitions of the state machine. */
