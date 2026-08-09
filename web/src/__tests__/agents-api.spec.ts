@@ -6,6 +6,7 @@ import {
   registerDeclaration,
   listAgents,
   listLogos,
+  uploadLogo,
 } from "@/api/agents";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -99,6 +100,43 @@ describe("listLogos", () => {
     const result = await listLogos();
     expect(fetchMock()).toHaveBeenCalledWith("/api/logos", undefined);
     expect(result).toEqual(logos);
+  });
+});
+
+describe("listLogos exclude-in-use", () => {
+  it("requests only available logos when excludeInUse is set", async () => {
+    stubFetch(jsonResponse({ logos: [] }));
+    await listLogos({ excludeInUse: true });
+    expect(fetchMock()).toHaveBeenCalledWith("/api/logos?exclude-in-use=1", undefined);
+  });
+});
+
+describe("uploadLogo", () => {
+  it("POSTs the file as multipart form data and returns the created logo", async () => {
+    const logo = {
+      id: "u1",
+      name: "custom",
+      url: "/logos/uploads/1-custom.png",
+      filename: "1-custom.png",
+      source: "upload" as const,
+      created_at: "x",
+    };
+    stubFetch(jsonResponse({ logo }, 201));
+    const file = new File([new Uint8Array([1, 2, 3])], "custom.png", { type: "image/png" });
+    const result = await uploadLogo(file);
+
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit | undefined];
+    expect(url).toBe("/api/logos");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBeInstanceOf(FormData);
+    expect((init?.body as FormData).get("file")).toBe(file);
+    expect(result).toEqual(logo);
+  });
+
+  it("throws with the status when the upload is rejected", async () => {
+    stubFetch(jsonResponse({ error: "file is empty" }, 400));
+    const file = new File([new Uint8Array([0])], "empty.png", { type: "image/png" });
+    await expect(uploadLogo(file)).rejects.toThrow("400");
   });
 });
 

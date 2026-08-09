@@ -253,7 +253,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   registerAgentRoutes(app, { registry });
-  registerLogoRoutes(app, { logoStore: logos, registry });
+  registerLogoRoutes(app, { logoStore: logos, registry, employees });
   registerChatRoutes(app, { manager });
   registerEmployeeRoutes(app, { employees, auth, agents: registry });
   registerGithubRoutes(app, { employees, auth, github, ops });

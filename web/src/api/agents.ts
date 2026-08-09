@@ -95,8 +95,26 @@ export async function listAgents(): Promise<AgentRecord[]> {
   return data.agents;
 }
 
+export interface ListLogosOptions {
+  /** Server-side filter: drop logos already used by an agent or employee. */
+  excludeInUse?: boolean;
+}
+
 /** GET /api/logos → the generated animal logo set + self-uploads for the employee to pick from. */
-export async function listLogos(): Promise<LogoRecord[]> {
-  const data = await request<{ logos: LogoRecord[] }>("/api/logos");
+export async function listLogos(options?: ListLogosOptions): Promise<LogoRecord[]> {
+  const url = options?.excludeInUse ? "/api/logos?exclude-in-use=1" : "/api/logos";
+  const data = await request<{ logos: LogoRecord[] }>(url);
   return data.logos;
+}
+
+/** POST /api/logos (multipart `file`) → upload a custom logo image; appears in the picker after refresh. */
+export async function uploadLogo(file: File): Promise<LogoRecord> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/logos", { method: "POST", body: form });
+  if (!res.ok) {
+    throw new Error(`Request failed with status ${res.status}`);
+  }
+  const data = (await res.json()) as { logo: LogoRecord };
+  return data.logo;
 }

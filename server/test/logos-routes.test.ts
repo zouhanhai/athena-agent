@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildApp } from "../src/app.js";
 import { MemoryAgentRegistry } from "../src/agents/registry.js";
+import { MemoryEmployeeRegistry } from "../src/employees/employees.js";
 import {
   FileLogoStore,
   ANIMAL_LOGO_SET,
@@ -79,6 +80,59 @@ test("GET /api/logos lists the generated animal logo set", async () => {
   assert.ok(logos.every((logo: { source: string }) => logo.source === "generated"));
   const animals = new Set(logos.map((logo: { animal?: string }) => logo.animal));
   assert.equal(animals.size, ANIMAL_LOGO_SET.length, "every animal logo present");
+});
+
+test("GET /api/logos?exclude-in-use=1 hides logos already used by an agent or employee", async () => {
+  const boundary = "----t3boundary2";
+  const upload = async (filename: string): Promise<string> => {
+    const payload = multipartBody(
+      { file: { value: PNG_BYTES.toString("latin1"), type: "image/png", filename } },
+      boundary,
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/logos",
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201);
+    return res.json().logo.url as string;
+  };
+  const agentLogoUrl = await upload("agent-logo.png");
+  const employeeLogoUrl = await upload("employee-logo.png");
+
+  const agentRegistry = new MemoryAgentRegistry([
+    {
+      alias: "Hermes",
+      owner_employee_id: "zhang.wei",
+      logo_url: agentLogoUrl,
+      capabilities: { system: "hermes", mcp: [], tools: [], skills: [], specialty: "integration" },
+    },
+  ]);
+  const employees = new MemoryEmployeeRegistry([
+    { email: "carol@caleo.com", display_name: "Carol", logo_url: employeeLogoUrl },
+  ]);
+  const filteredApp = buildApp({ registry: agentRegistry, logos: store, employees });
+  const res = await filteredApp.inject({ method: "GET", url: "/api/logos?exclude-in-use=1" });
+  assert.equal(res.statusCode, 200);
+  const { logos } = res.json();
+  assert.ok(
+    !logos.some((logo: { url: string }) => logo.url === agentLogoUrl),
+    "agent-used logo should be excluded",
+  );
+  assert.ok(
+    !logos.some((logo: { url: string }) => logo.url === employeeLogoUrl),
+    "employee-used logo should be excluded",
+  );
+  assert.equal(logos.length, ANIMAL_LOGO_SET.length + 0, "only the uploads were filtered out");
+  await filteredApp.close();
+});
+
+test("GET /api/logos without exclude-in-use still lists every logo", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/logos?exclude-in-use=0" });
+  assert.equal(res.statusCode, 200);
+  const { logos } = res.json();
+  assert.equal(logos.length, ANIMAL_LOGO_SET.length);
 });
 
 test("POST /api/logos uploads a logo image and returns its record", async () => {

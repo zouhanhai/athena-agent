@@ -1,10 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { AgentNotFoundError, type AgentRegistry } from "../agents/registry.js";
 import type { LogoStore } from "../agents/logos.js";
+import type { EmployeeRegistry } from "../employees/employees.js";
 
 export interface LogoRouteOptions {
   logoStore: LogoStore;
   registry?: AgentRegistry;
+  /** Employees whose logo_url counts as "in use" for the exclude-in-use filter. */
+  employees?: EmployeeRegistry;
   /** Max logo upload size (bytes). Default: 10 MiB. */
   maxFileSize?: number;
 }
@@ -41,14 +44,36 @@ function isValidImage(mimetype: string, data: Buffer): boolean {
 
 /**
  * Logo endpoints:
- * - GET /api/logos → list generated + uploaded logos
+ * - GET /api/logos → list generated + uploaded logos; with `?exclude-in-use=1`
+ *   logos already picked by an agent or employee are filtered out server-side,
+ *   so the picker only ever receives logos that are available to claim.
  * - POST /api/logos (multipart `file`, optional `alias`) → self-upload a logo;
  *   when `alias` is provided the agent's logo_url is set to the upload.
  */
 export function registerLogoRoutes(app: FastifyInstance, options: LogoRouteOptions): void {
-  app.get("/api/logos", async (_request, reply) => {
+  app.get("/api/logos", async (request, reply) => {
     try {
-      const logos = await options.logoStore.list();
+      let logos = await options.logoStore.list();
+      const query = request.query as { "exclude-in-use"?: unknown };
+      const excludeInUse = ["1", "true", true].includes(query["exclude-in-use"] as string | boolean);
+      if (excludeInUse) {
+        const inUse = new Set<string>();
+        const agents = options.registry ? await options.registry.list() : [];
+        for (const agent of agents) {
+          if (agent.logo_url) {
+            inUse.add(agent.logo_url);
+          }
+        }
+        const employees = options.employees ? await options.employees.list() : [];
+        for (const employee of employees) {
+          if (employee.logo_url) {
+            inUse.add(employee.logo_url);
+          }
+        }
+        if (inUse.size > 0) {
+          logos = logos.filter((logo) => !inUse.has(logo.url));
+        }
+      }
       return { logos };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });

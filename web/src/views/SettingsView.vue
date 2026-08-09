@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { MessagePlugin } from "tdesign-vue-next";
 import { useAuthStore } from "@/stores/auth";
 import { updateMe } from "@/api/invitations";
-import { listLogos, type LogoRecord } from "@/api/agents";
+import { listLogos, uploadLogo, type LogoRecord } from "@/api/agents";
 import AgentManagement from "@/components/AgentManagement.vue";
 
 const auth = useAuthStore();
@@ -13,10 +13,11 @@ const DEFAULT_LOGO = "/athena-logo-ai.png";
 const logos = ref<LogoRecord[]>([]);
 const displayName = ref("");
 const logoUrl = ref(DEFAULT_LOGO);
-const githubType = ref<"ssh" | "token">("token");
 const githubValue = ref("");
 const saving = ref(false);
 const profileError = ref("");
+const uploading = ref(false);
+const logoError = ref("");
 
 const logoOptions = computed(() => [
   { url: DEFAULT_LOGO, label: "Owl", animal: "owl", color: "athena" },
@@ -34,9 +35,29 @@ function selectLogo(url: string) {
 
 async function loadLogos() {
   try {
-    logos.value = await listLogos();
+    logos.value = await listLogos({ excludeInUse: true });
   } catch {
     logos.value = [];
+  }
+}
+
+async function onUpload(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) {
+    return;
+  }
+  uploading.value = true;
+  logoError.value = "";
+  try {
+    const logo = await uploadLogo(file);
+    await loadLogos();
+    logoUrl.value = logo.url;
+  } catch (err) {
+    logoError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    uploading.value = false;
   }
 }
 
@@ -71,7 +92,7 @@ async function saveProfile() {
       logo_url: logoUrl.value,
       github_credential:
         githubValue.value.trim().length > 0
-          ? { type: githubType.value, value: githubValue.value.trim() }
+          ? { type: "token", value: githubValue.value.trim() }
           : undefined,
     });
     auth.setEmployee(updated);
@@ -126,33 +147,44 @@ async function saveProfile() {
               >
                 <img :src="logo.url" :alt="logo.label" />
               </button>
+              <label
+                class="logo-upload"
+                :class="{ 'is-uploading': uploading }"
+                title="Upload a custom logo (png/jpg/webp)"
+              >
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  class="logo-upload-input"
+                  :disabled="uploading"
+                  @change="onUpload"
+                />
+                {{ uploading ? "Uploading…" : "Upload" }}
+              </label>
             </div>
+            <p v-if="logoError" class="settings-error">{{ logoError }}</p>
+            <p v-else class="settings-hint">
+              Logos already used by another agent or employee are not shown.
+            </p>
           </div>
 
           <div class="settings-field">
             <span class="settings-field-label">GitHub credential</span>
             <div class="settings-github">
-              <select
-                class="settings-github-type"
-                v-model="githubType"
-                aria-label="Credential type"
-              >
-                <option value="token">Personal access token</option>
-                <option value="ssh">SSH key</option>
-              </select>
               <input
                 class="settings-github-value"
                 v-model="githubValue"
-                :type="githubType === 'token' ? 'password' : 'text'"
-                :placeholder="
-                  githubType === 'token'
-                    ? 'ghp_…'
-                    : 'ssh-ed25519 AAAA…'
-                "
+                type="password"
+                placeholder="ghp_… or github_pat_…"
+                aria-label="GitHub personal access token"
               />
             </div>
             <p class="settings-hint">
-              Stored encrypted at rest; leave empty to keep your existing credential.
+              GitHub REST is token-only (SSH keys cannot authenticate the API).
+              Use a Classic PAT with the <code>repo</code> scope or a
+              Fine-grained PAT with repo-level Contents, Issues and Pull requests
+              read access. Stored encrypted at rest; leave empty to keep your
+              existing credential.
             </p>
           </div>
 
@@ -249,8 +281,7 @@ async function saveProfile() {
 }
 
 .settings-name,
-.settings-github-value,
-.settings-github-type {
+.settings-github-value {
   padding: 8px;
   border: 1px solid var(--caleo-border);
   border-radius: 6px;
@@ -259,17 +290,13 @@ async function saveProfile() {
   color: var(--caleo-text);
 }
 
+.settings-github-value {
+  width: 100%;
+}
+
 .settings-github {
   display: flex;
   gap: 8px;
-}
-
-.settings-github-type {
-  flex-shrink: 0;
-}
-
-.settings-github-value {
-  flex: 1;
 }
 
 .settings-hint {
@@ -300,6 +327,29 @@ async function saveProfile() {
 
 .logo-option.is-selected {
   border-color: var(--caleo-primary);
+}
+
+.logo-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 4px 10px;
+  border: 1px dashed var(--caleo-border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  cursor: pointer;
+}
+
+.logo-upload.is-uploading {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.logo-upload-input {
+  display: none;
 }
 
 .settings-error {

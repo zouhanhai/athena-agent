@@ -17,7 +17,10 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [decls, logoList] = await Promise.all([listDeclarations(), listLogos()]);
+    const [decls, logoList] = await Promise.all([
+      listDeclarations(),
+      listLogos({ excludeInUse: true }),
+    ]);
     declarations.value = decls;
     logos.value = logoList;
   } catch (err) {

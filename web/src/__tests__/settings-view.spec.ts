@@ -6,7 +6,7 @@ import "tdesign-vue-next/es/style/index.css";
 
 import SettingsView from "@/views/SettingsView.vue";
 import { updateMe } from "@/api/invitations";
-import { listLogos, listDeclarations, registerDeclaration } from "@/api/agents";
+import { listLogos, listDeclarations, registerDeclaration, uploadLogo } from "@/api/agents";
 import { useAuthStore } from "@/stores/auth";
 
 vi.mock("@/api/invitations", () => ({
@@ -16,12 +16,14 @@ vi.mock("@/api/agents", () => ({
   listLogos: vi.fn(),
   listDeclarations: vi.fn(),
   registerDeclaration: vi.fn(),
+  uploadLogo: vi.fn(),
 }));
 
 const updateMeMock = updateMe as unknown as ReturnType<typeof vi.fn>;
 const listLogosMock = listLogos as unknown as ReturnType<typeof vi.fn>;
 const listDeclarationsMock = listDeclarations as unknown as ReturnType<typeof vi.fn>;
 const registerDeclarationMock = registerDeclaration as unknown as ReturnType<typeof vi.fn>;
+const uploadLogoMock = uploadLogo as unknown as ReturnType<typeof vi.fn>;
 
 const employee = {
   id: "e1",
@@ -69,6 +71,7 @@ beforeEach(() => {
   listDeclarationsMock.mockReset().mockResolvedValue([]);
   updateMeMock.mockReset();
   registerDeclarationMock.mockReset();
+  uploadLogoMock.mockReset();
 });
 
 afterEach(() => {
@@ -135,6 +138,56 @@ describe("SettingsView profile", () => {
     });
     expect(auth.employee?.display_name).toBe("Carol C.");
     expect(auth.employee?.logo_url).toBe("/logos/wolf-indigo.png");
+    wrapper.unmount();
+  });
+
+  it("offers only a personal access token for GitHub (no SSH option)", async () => {
+    const { wrapper } = await mountView();
+
+    expect(wrapper.find(".settings-github-type").exists()).toBe(false);
+    expect(wrapper.findAll('option[value="ssh"]')).toHaveLength(0);
+    const valueInput = wrapper.find(".settings-github-value");
+    expect(valueInput.exists()).toBe(true);
+    expect(valueInput.attributes("type")).toBe("password");
+    wrapper.unmount();
+  });
+
+  it("only shows available logos — in-use ones are excluded by the server", async () => {
+    listLogosMock.mockResolvedValue([logos[1]]); // fox is in use; only wolf is available
+    const { wrapper } = await mountView();
+
+    expect(listLogosMock).toHaveBeenCalledWith({ excludeInUse: true });
+    const urls = wrapper.findAll(".logo-option").map((el) => el.attributes("data-url"));
+    expect(urls).not.toContain("/logos/fox-clean.png");
+    expect(urls).toContain("/logos/wolf-indigo.png");
+    wrapper.unmount();
+  });
+
+  it("uploads a custom logo via POST /api/logos and refreshes the picker", async () => {
+    const newLogo = {
+      id: "u1",
+      name: "hermes",
+      url: "/logos/uploads/1-hermes.png",
+      filename: "1-hermes.png",
+      source: "upload" as const,
+      created_at: "x",
+    };
+    uploadLogoMock.mockResolvedValue(newLogo);
+    const { wrapper } = await mountView();
+    listLogosMock.mockResolvedValue([...logos, newLogo]);
+
+    const input = wrapper.find("input.logo-upload-input");
+    const file = new File([new Uint8Array([137, 80, 78, 71])], "hermes.png", {
+      type: "image/png",
+    });
+    Object.defineProperty(input.element, "files", { value: [file] });
+    await input.trigger("change");
+    await flushPromises();
+
+    expect(uploadLogoMock).toHaveBeenCalledWith(file);
+    expect(listLogosMock).toHaveBeenLastCalledWith({ excludeInUse: true });
+    const urls = wrapper.findAll(".logo-option").map((el) => el.attributes("data-url"));
+    expect(urls).toContain("/logos/uploads/1-hermes.png");
     wrapper.unmount();
   });
 
