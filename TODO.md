@@ -55,6 +55,14 @@
 - [ ] Auth (Resend magic link) functional
   - Requires verifying `caleo.com` domain in Resend (user lacks DNS today → 403 on send; meanwhile ConsoleMailer logs the invite/login links to `~/.athena-tmp/athena-server.log`)
 - [ ] **Normalize G3.TFIX → G3/S4/T6.md** (after the TFIX worker completes): TFIX.md was created at `docs/kanban/G3/TFIX.md` but the kanban scanner only reads `Gx/Sx/T<num>.md`, so it's an orphan (not scanned/displayed). Move it to `docs/kanban/G3/S4/T6.md` once the worker marks it done. (S4 = Workbench; the TFIX UX items are Workbench-related.)
+- [ ] **KB confidence & lifecycle in wiki frontmatter** — spec `docs/spec-m4-kb-confidence-lifecycle.md` (2026-08-09)
+  - Add to each wiki md frontmatter: `read_count` (times Athena/retrieval read it), `last_reviewed`
+    (last Athena re-eval), `confidence` (0..1: source count, recency, contradictions; decays), and
+    `topic_history` (ordered past topics = migration audit trail). `created`/`updated` already exist.
+  - **Athena KB review** (ties into incremental re-curation + post-docling refinement): on schedule/on
+    demand scan frontmatter → decide re-topic / re-classify / deprecate(fade) / reinforce. `read_count` +
+    `last_reviewed` show what's used vs rotting. No LightRAG re-chunk needed (fields live in wiki md only).
+  - Source: LLM Wiki v2 gist (confidence, supersession, forgetting, consolidation).
 - [ ] **Worker progress tracking via ticket-file Progress Log** — spec `docs/spec-m4-worker-progress.md` (2026-08-09)
   - Pain: OpenCode workers don't update their ticket file → can't see progress/stuck without manually
     polling the session. Make progress readable directly from the ticket md file.
