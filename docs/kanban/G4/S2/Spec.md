@@ -39,6 +39,15 @@ RAG-selection item in `TODO.md`. Key points:
   **embeds + indexes** — no LLM extraction here.
 - **Retrieval**: `neo4j-graphrag` (HybridRetriever = vector+full-text fusion, Text2Cypher, ToolsRetriever to
   fuse wiki + topic + vector + graph). Keyword search can use Athena's injected keywords.
+- **Retrieval is hybrid + agentic + BM25 (confirmed 2026-08-09)** — mirrors the current
+  `KnowledgeRetrievalService.search` (LightRAG semantic + llm_wiki keyword via Promise.allSettled):
+  - **BM25**: llm_wiki's keyword search is BM25; in the self-build it's Neo4j FULLTEXT index / Cypher
+    BM25 scoring (or keep llm_wiki as the BM25 source over the wiki pages).
+  - **Vector**: Neo4j vector index (HNSW, cosine) over Athena-chunk embeddings.
+  - **Graph**: entity/relation traversal (Text2Cypher) — agentic RAG uses topic as Athena's knowledge
+    navigation (determine topic → converge document domain → fuse).
+  - **Fusion**: HybridRetriever / RRF fuses vector + BM25 + graph; ToolsRetriever lets the LLM pick the
+    best retriever per query.
 - **Case-insensitive** node lookup (LightRAG's `caleo`/`CALEO` bug must not recur).
 - A2A deferred to M6; MCP-first for KB access (G4.S6).
 
