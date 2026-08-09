@@ -62,7 +62,7 @@ const metaTree: WikiTreeNode[] = [
   },
 ];
 
-async function mountView(query: Record<string, string> = {}) {
+async function mountView(query: Record<string, string> = {}, mountOptions: Parameters<typeof mount>[1] = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: "/wiki", component: WikiView }],
@@ -70,7 +70,9 @@ async function mountView(query: Record<string, string> = {}) {
   await router.push({ path: "/wiki", query });
   await router.isReady();
   const wrapper = mount(WikiView, {
+    ...mountOptions,
     global: {
+      ...(mountOptions.global ?? {}),
       plugins: [createPinia(), TDesign, router],
     },
   });
@@ -98,7 +100,7 @@ afterEach(() => {
 describe("renderMarkdown", () => {
   it("renders markdown to HTML", () => {
     const html = renderMarkdown("# Title\n\nSome **bold** text.");
-    expect(html).toContain("<h1>Title</h1>");
+    expect(html).toContain('<h1 id="title"');
     expect(html).toContain("<strong>bold</strong>");
   });
 });
@@ -131,7 +133,7 @@ describe("WikiView", () => {
     expect(readWikiPageMock).toHaveBeenCalledWith("docs/runbook.md");
     const content = wrapper.find('[data-testid="wiki-content"]');
     expect(content.exists()).toBe(true);
-    expect(content.html()).toContain("<h1>Runbook</h1>");
+    expect(content.html()).toContain('<h1 id="runbook"');
     expect(content.html()).toContain("Steps here.");
     wrapper.unmount();
   });
@@ -290,5 +292,62 @@ describe("WikiView", () => {
     expect(deleteWikiDocMock).toHaveBeenCalledWith("release-notes.md");
     expect(getWikiTreeMock).toHaveBeenCalledTimes(2);
     wrapper.unmount();
+  });
+
+  it("renders a TOC and serves source images for a long page (G3.S5.T5)", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue(
+      "# Runbook\n\n## Setup\n\n![Diagram](images/runbook.pdf/diagram_001.png)\n\n## Recovery",
+    );
+    const { wrapper } = await mountView({ path: "docs/runbook.md" });
+    await flushPromises();
+
+    const content = wrapper.find('[data-testid="wiki-content"]');
+    expect(content.html()).toContain("wiki-toc");
+    expect(content.html()).toContain('href="#setup"');
+    expect(content.html()).toContain('href="#recovery"');
+    // image ref rewritten to the served wiki-image URL, resolved to the page dir
+    expect(content.html()).toContain(
+      'src="/api/kb/wiki/image?path=docs%2Fimages%2Frunbook.pdf%2Fdiagram_001.png"',
+    );
+    wrapper.unmount();
+  });
+
+  it("does not render a TOC when the page has no headings", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("Plain body without headings.");
+    const { wrapper } = await mountView({ path: "docs/runbook.md" });
+    await flushPromises();
+
+    const content = wrapper.find('[data-testid="wiki-content"]');
+    expect(content.html()).not.toContain("wiki-toc");
+    wrapper.unmount();
+  });
+
+  it("scrolls to a heading when a TOC entry is clicked (G3.S5.T5)", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Title\n\n## Setup\n\nBody.");
+    const scrollSpy = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      value: scrollSpy,
+      writable: true,
+      configurable: true,
+    });
+    try {
+      const { wrapper } = await mountView({ path: "docs/runbook.md" }, { attachTo: document.body });
+      await flushPromises();
+      const tocLink = wrapper.find('[data-testid="wiki-content"] a[href="#setup"]');
+      expect(tocLink.exists()).toBe(true);
+      await tocLink.trigger("click");
+      expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+      wrapper.unmount();
+    } finally {
+      if (original) {
+        Object.defineProperty(Element.prototype, "scrollIntoView", { value: original, writable: true });
+      } else {
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+      }
+    }
   });
 });

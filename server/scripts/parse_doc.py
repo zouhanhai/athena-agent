@@ -229,7 +229,7 @@ def parse_document(
         # markdown file's own directory (images/<stem>/image_xxx.png), so the
         # produced markdown is portable: copy the images beside the page and the
         # refs resolve. An absolute dir would embed absolute paths instead.
-        rel_artifacts = os.path.relpath(images_dir, output_dir)
+        rel_artifacts = Path(os.path.relpath(images_dir, output_dir))
         result.document.save_as_markdown(
             out_path,
             artifacts_dir=rel_artifacts,

@@ -6,7 +6,7 @@ import type { TreeNodeModel } from "tdesign-vue-next/es/tree/type";
 
 import { deleteWikiDoc, getWikiTree, readWikiPage } from "@/api/kb";
 import type { WikiTreeNode } from "@/api/kb";
-import { renderMarkdown } from "@/kb/markdown";
+import { hasWikiHeadings, renderMarkdown } from "@/kb/markdown";
 import { buildViewTree, flattenPages } from "@/kb/wiki-tree";
 import type { WikiView } from "@/kb/wiki-tree";
 import { useThemeStore } from "@/stores/theme";
@@ -32,7 +32,29 @@ const deleteError = ref("");
 
 const treeKeys = { value: "path", label: "name", children: "children" };
 
-const renderedContent = computed(() => renderMarkdown(content.value));
+const renderedContent = computed(() =>
+  renderMarkdown(content.value, {
+    pagePath: activePath.value || undefined,
+    toc: hasWikiHeadings(content.value),
+  }),
+);
+
+/**
+ * Intercept TOC/permalink anchor clicks and scroll the content pane to the
+ * heading. The pane (not the window) is the scroll container, so native
+ * `#fragment` navigation would scroll nothing; scrollIntoView handles nested
+ * scroll containers correctly (G3.S5.T5).
+ */
+function onContentClick(event: MouseEvent): void {
+  const target = (event.target as HTMLElement | null)?.closest?.("a");
+  if (!target) return;
+  const href = target.getAttribute("href");
+  if (!href || !href.startsWith("#") || href.length < 2) return;
+  const el = document.getElementById(href.slice(1));
+  if (!el) return;
+  event.preventDefault();
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 /** Tree shown in the sidebar for the active view (no file duplication). */
 const displayTree = computed(() =>
@@ -211,6 +233,7 @@ watch(
           class="wiki-content"
           data-testid="wiki-content"
           v-html="renderedContent"
+          @click="onContentClick"
         />
       </div>
     </div>
@@ -473,6 +496,58 @@ watch(
 .wiki-content :deep(ul.contains-task-list),
 .wiki-content :deep(ol.contains-task-list) {
   padding-left: 0.4em;
+}
+
+/* G3.S5.T5: long-document table of contents (rendered at the top of the body) */
+.wiki-content :deep(.wiki-toc) {
+  margin: 0 0 1.5em;
+  padding: 12px 16px;
+  background: var(--caleo-surface-hover);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.wiki-content :deep(.wiki-toc ul) {
+  margin: 0;
+  padding-left: 1.25em;
+  list-style: none;
+}
+
+.wiki-content :deep(.wiki-toc > ul) {
+  padding-left: 0;
+}
+
+.wiki-content :deep(.wiki-toc li) {
+  margin: 0.2em 0;
+}
+
+.wiki-content :deep(.wiki-toc a) {
+  color: var(--caleo-sky);
+  text-decoration: none;
+}
+
+.wiki-content :deep(.wiki-toc a:hover) {
+  text-decoration: underline;
+  color: var(--caleo-primary);
+}
+
+/* G3.S5.T5: subtle heading permalink (anchored #) */
+.wiki-content :deep(.wiki-heading-anchor) {
+  margin-left: 0.35em;
+  color: var(--caleo-text-secondary);
+  text-decoration: none;
+  font-size: 0.85em;
+}
+
+.wiki-content :deep(.wiki-heading-anchor:hover) {
+  color: var(--caleo-primary);
+}
+
+.wiki-content :deep(h1[id]),
+.wiki-content :deep(h2[id]),
+.wiki-content :deep(h3[id]) {
+  scroll-margin-top: 12px;
 }
 
 /* Inline images: responsive + rounded + subtle border */

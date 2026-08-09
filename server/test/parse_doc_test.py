@@ -143,7 +143,7 @@ class ParseDocumentTest(unittest.TestCase):
                 "/tmp/report.pdf", self.output_dir, images_dir, "report.pdf"
             )
         self.assertEqual(fake.saved_kwargs["image_mode"], parse_doc.ImageRefMode.REFERENCED)
-        self.assertEqual(fake.saved_kwargs["artifacts_dir"], "images/report.pdf")
+        self.assertEqual(str(fake.saved_kwargs["artifacts_dir"]), "images/report.pdf")
         self.assertIn("![Image](images/report.pdf/image_000000_abc123.png)", md)
 
 

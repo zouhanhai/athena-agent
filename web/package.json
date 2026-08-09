@@ -20,6 +20,8 @@
     "d3-force": "^3.0.0",
     "highlight.js": "^11.11.1",
     "markdown-it": "^15.0.0",
+    "markdown-it-anchor": "^9.2.1",
+    "markdown-it-table-of-contents": "^1.2.0",
     "markdown-it-task-lists": "^2.1.1",
     "pinia": "^3.0.3",
     "tdesign-icons-vue-next": "^0.4.7",
