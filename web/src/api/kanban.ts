@@ -12,7 +12,8 @@ export type TicketStatus =
   | "done"
   | "in_review"
   | "approved"
-  | "rejected";
+  | "rejected"
+  | "canceled";
 
 /** The six ticket status columns in kanban order. */
 export const TICKET_STATUSES: TicketStatus[] = [
@@ -22,6 +23,7 @@ export const TICKET_STATUSES: TicketStatus[] = [
   "in_review",
   "approved",
   "rejected",
+  "canceled",
 ];
 
 /** A cached ticket: every field the Workbench needs, incl. live Progress Log state. */

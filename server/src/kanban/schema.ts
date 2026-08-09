@@ -12,8 +12,8 @@ import type { FrontmatterMap } from "./frontmatter.js";
 export const LAYERS = ["G", "S", "T"] as const;
 export type BoardLayer = (typeof LAYERS)[number];
 
-/** Ticket statuses follow the state machine: backlog→in_progress→done→in_review→approved, or →rejected. */
-export const TICKET_STATUSES = ["backlog", "in_progress", "done", "in_review", "approved", "rejected"] as const;
+/** Ticket statuses follow the state machine: backlog→in_progress→done→in_review→approved, or →rejected/canceled. */
+export const TICKET_STATUSES = ["backlog", "in_progress", "done", "in_review", "approved", "rejected", "canceled"] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
 /** Thrown when frontmatter does not conform to the G.S.T schema. */

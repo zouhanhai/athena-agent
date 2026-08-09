@@ -34,6 +34,7 @@ interface BoardCard {
 const cards = computed<BoardCard[]>(() => {
   const out: BoardCard[] = [];
   for (const goal of board.value?.goals ?? []) {
+    if (hiddenGoals.value.has(goal.ref)) continue; // user unchecked this goal → hide its tickets
     for (const spec of goal.specs) {
       for (const ticket of spec.tickets) {
         out.push({ ref: ticket.ref, specRef: spec.ref, ticket });
@@ -42,6 +43,16 @@ const cards = computed<BoardCard[]>(() => {
   }
   return out;
 });
+
+/** Goals the user has unchecked (their tickets are hidden from the board below). */
+const hiddenGoals = ref<Set<string>>(new Set());
+
+function toggleGoal(ref: string): void {
+  const next = new Set(hiddenGoals.value);
+  if (next.has(ref)) next.delete(ref);
+  else next.add(ref);
+  hiddenGoals.value = next;
+}
 
 function statusLabel(status: TicketStatus): string {
   return status.replace("_", " ");
@@ -123,6 +134,13 @@ watch(
       <template v-if="board">
         <div class="kanban-tree" aria-label="Goals and Specs">
           <div v-for="goal in board.goals" :key="goal.ref" class="kanban-goal">
+            <label class="kanban-goal-check" :title="hiddenGoals.has(goal.ref) ? 'Show this goal\\'s tickets' : 'Hide this goal\\'s tickets'">
+              <input
+                type="checkbox"
+                :checked="!hiddenGoals.has(goal.ref)"
+                @change="toggleGoal(goal.ref)"
+              />
+            </label>
             <div class="kanban-goal-main">
               <span class="kanban-goal-ref">{{ goal.ref }}</span>
               <span class="kanban-goal-title" :title="goal.title">{{ goal.title }}</span>
@@ -302,6 +320,25 @@ watch(
   gap: 8px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--caleo-border);
+  /* As goals accumulate, cap the area and scroll vertically so it never blows
+     out the tab layout or starves the ticket board below. */
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.kanban-goal-check {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
+  cursor: pointer;
+  color: var(--caleo-text-secondary);
+}
+.kanban-goal-check input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--caleo-primary);
+  cursor: pointer;
 }
 
 /* Each goal is a clean two-part row: fixed/narrow left (ref + title) and a
