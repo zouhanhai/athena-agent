@@ -222,6 +222,27 @@ export class IngestTaskQueue {
     task.updatedAt = Date.now();
   }
 
+  /**
+   * Recompute the overall 0-100 progress from the two parallel ingest stages so
+   * it never jumps to 100 while LightRAG (the slow one) is still running. One
+   * stage done + the other still running sits partway, not at 100.
+   */
+  private updateProgress(id: string): void {
+    this.patch(id, (t) => {
+      const p = t.stages.parsing.status;
+      const lr = t.stages.ingesting_lightrag.status;
+      const lw = t.stages.ingesting_llmwiki.status;
+      if (p !== "done") { t.progress = p === "failed" ? 100 : 15; return; }
+      const lrDone = lr === "done", lwDone = lw === "done";
+      const lrFail = lr === "failed", lwFail = lw === "failed";
+      if (lrDone && lwDone) { t.progress = 100; return; }
+      if (lrDone) { t.progress = lwFail ? 100 : 88; return; } // LightRAG done, waiting on llm_wiki
+      if (lwDone) { t.progress = lrFail ? 100 : 72; return; } // llm_wiki done, waiting on LightRAG
+      if (lrFail || lwFail) { t.progress = 100; return; }
+      t.progress = 50; // both still running
+    });
+  }
+
   /** Set every sub-step of a stage to the given status (optionally with an error).
    *  A completed ("done") sub-step is never downgraded to failed — only the
    *  pending/running remainder of a failed stage becomes failed. */
@@ -368,8 +389,8 @@ export class IngestTaskQueue {
           console.error(`[tasks:${id}] lightrag submit FAILED: ${message}`);
           this.patch(id, (t) => {
             t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "failed", error: message, steps: t.stages.ingesting_lightrag.steps };
-            t.progress = 72;
           });
+          this.updateProgress(id);
           this.markStageSteps(id, "ingesting_lightrag", "failed", message);
           return;
         }
@@ -385,9 +406,9 @@ export class IngestTaskQueue {
         this.patch(id, (t) => {
           const done = outcome.state === "done";
           t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: done ? "done" : "failed", ...(done ? {} : { error: outcome.error }), steps: t.stages.ingesting_lightrag.steps };
-          t.progress = 72;
           t.lightrag = { ...t.lightrag, ...(outcome.error ? { error: outcome.error } : {}) };
         });
+        this.updateProgress(id);
         this.markStageSteps(id, "ingesting_lightrag", outcome.state === "done" ? "done" : "failed", outcome.error);
       })(),
       (async () => {
@@ -405,8 +426,8 @@ export class IngestTaskQueue {
         console.log(`[tasks:${id}] llm_wiki ingest: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}`);
         this.patch(id, (t) => {
           t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: res.ok ? "done" : "failed", ...(res.ok ? {} : { error: res.error }), steps: t.stages.ingesting_llmwiki.steps };
-          t.progress = 100;
         });
+        this.updateProgress(id);
         this.markStageSteps(id, "ingesting_llmwiki", res.ok ? "done" : "failed", res.error);
       })(),
     ]);
