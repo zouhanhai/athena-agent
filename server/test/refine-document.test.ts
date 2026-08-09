@@ -11,11 +11,16 @@ import {
 const sampleRefined: RefinedDocument = {
   markdown: "# Sommerseminar\n\n## Workshops\n\nDetails about the workshops.",
   frontmatter: { type: "event", topic: "internal/events" },
-  chunks: [
-    { id: "c1", text: "Details about the workshops.", start: 0, end: 400, topic: "internal/events" },
-  ],
+  chunks: [{ id: "c1", text: "Details about the workshops.", heading_path: "Sommerseminar / Workshops" }],
   entities: [{ name: "CALEO", type: "org", description: "An organization" }],
-  relations: [{ from: "CALEO", to: "Sommerseminar", type: "hosts" }],
+  relations: [
+    {
+      source: "CALEO",
+      target: "Sommerseminar",
+      keywords: ["hosts"],
+      description: "CALEO hosts the Sommerseminar.",
+    },
+  ],
   keywords: ["sommerseminar", "workshop"],
   quality: { complete: true, confidence: 0.85, issues: [], action: "auto_accept" },
 };
@@ -107,7 +112,12 @@ test("execute returns the structured output contract from the constrained emit t
   assert.deepEqual(parsed.frontmatter, { type: "event", topic: "internal/events" });
   assert.equal(parsed.chunks.length, 1);
   assert.equal(parsed.entities[0].name, "CALEO");
-  assert.deepEqual(parsed.relations[0], { from: "CALEO", to: "Sommerseminar", type: "hosts" });
+  assert.deepEqual(parsed.relations[0], {
+    source: "CALEO",
+    target: "Sommerseminar",
+    keywords: ["hosts"],
+    description: "CALEO hosts the Sommerseminar.",
+  });
   assert.ok(Array.isArray(parsed.keywords));
   assert.equal(parsed.quality.action, "auto_accept");
 });

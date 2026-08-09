@@ -13,8 +13,11 @@
  *
  * Big-output handling (full md + chunks to storage) and the two-stage path for >1MB docs are G4.S1.T3.
  */
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT } from "../kb/taxonomy.js";
 
 export const ATHENA_PROVIDER = "athena";
 export const ATHENA_MODEL = "~deepseek/deepseek-v4-flash-latest";
@@ -25,30 +28,41 @@ export type AthenaThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh
 /** Name of the constrained emit tool the refinement LLM must call with the output contract. */
 export const EMIT_REFINED_DOCUMENT_TOOL = "emit_refined_document";
 
-// --- Athena refinement output contract (G4.S1 Spec) ---
+/** Name of the `document-refinement` Pi skill backing this pass (G4.S1.T2). */
+export const DOCUMENT_REFINEMENT_SKILL_NAME = "document-refinement";
+
+/** Absolute path to the `document-refinement` SKILL.md (server/.pi/skills, Pi project-skill layout). */
+export const DOCUMENT_REFINEMENT_SKILL_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../.pi/skills/document-refinement/SKILL.md",
+);
+
+// --- Athena refinement output contract (G4.S1.T2 — authoritative; refines the Spec block) ---
 export interface RefinementFrontmatter {
   type: string;
   topic: string;
 }
 
+/** Paragraph-semantic chunk (~1200 tokens), carrying its re-leveled heading path. */
 export interface RefinementChunk {
   id: string;
   text: string;
-  start: number;
-  end: number;
-  topic?: string;
+  heading_path: string;
 }
 
+/** Knowledge-graph node. `name` is title-case for consistent naming ("CALEO", not "caleo"). */
 export interface RefinementEntity {
   name: string;
   type: string;
   description: string;
 }
 
+/** Binary knowledge-graph edge (source -> target). `keywords` = relationship keywords. */
 export interface RefinementRelation {
-  from: string;
-  to: string;
-  type: string;
+  source: string;
+  target: string;
+  keywords: string[];
+  description: string;
 }
 
 export interface RefinementQuality {
@@ -79,9 +93,7 @@ export const REFINED_DOCUMENT_SCHEMA = Type.Object({
     Type.Object({
       id: Type.String(),
       text: Type.String(),
-      start: Type.Number(),
-      end: Type.Number(),
-      topic: Type.Optional(Type.String()),
+      heading_path: Type.String(),
     }),
   ),
   entities: Type.Array(
@@ -93,9 +105,10 @@ export const REFINED_DOCUMENT_SCHEMA = Type.Object({
   ),
   relations: Type.Array(
     Type.Object({
-      from: Type.String(),
-      to: Type.String(),
-      type: Type.String(),
+      source: Type.String(),
+      target: Type.String(),
+      keywords: Type.Array(Type.String()),
+      description: Type.String(),
     }),
   ),
   keywords: Type.Array(Type.String()),
@@ -126,28 +139,73 @@ export interface RefineDocumentOptions {
 }
 
 /**
- * Default refinement system prompt. The detailed document-refinement skill + prompt are G4.S1.T2;
- * this is the working single-pass instruction set.
+ * The `document-refinement` skill (G4.S1.T2) — full guidance for the refinement pass. Its content is
+ * embedded in the refinement system prompt (REFINE_DOCUMENT_SYSTEM_PROMPT) so the LLM pass is
+ * self-contained and works in ONE full-document read. A copy also ships as
+ * server/.pi/skills/document-refinement/SKILL.md for Pi-skill discovery.
  */
+export const DOCUMENT_REFINEMENT_SKILL_GUIDANCE = `# document-refinement — Athena refinement pass (G4.S1)
+
+You are the SINGLE full-document LLM pass of the athena ingest pipeline. You read the whole docling
+markdown once and emit everything downstream needs — re-leveled markdown, frontmatter(type+topic),
+chunks, entities, relations, keywords, quality — in ONE read. No other LLM re-reads the document.
+
+## 1. Header re-level (semantic hierarchy)
+Restore a semantic # / ## / ### hierarchy from document structure, not the raw docling levels.
+docling often emits FLAT headers (e.g. everything is h2 — a Sommerseminar doc came out with 16x h2).
+Decide levels by section meaning: exactly one # title, ## major sections, ### subsections. Promote or
+demote so the tree is coherent. Do NOT invent heading levels that the document does not imply.
+
+## 2. Classification (type + topic) — from docs/taxonomy.md
+Pick EXACTLY ONE type and ONE hierarchical topic per the CALEO taxonomy (docs/taxonomy.md is
+authoritative; the criteria below are embedded for you).
+
+${TYPE_CRITERIA_PROMPT}
+
+${TOPIC_TREE_PROMPT}
+
+## 3. Chunking (paragraph-semantic)
+Segment the re-leveled markdown into paragraph-semantic chunks (~1200 tokens, ~100 token overlap —
+LightRAG paragraph_semantic style). Prefer whole paragraphs / semantically complete sections over fixed
+token windows. Each chunk: stable id ("c1", "c2", ...), its text, and heading_path = the heading path
+of the section it belongs to (e.g. "Sommerseminar / Workshops") so downstream knows the context.
+
+## 4. Entity extraction (knowledge-graph nodes)
+Extract the entities that are actually named in the document. For each:
+- name: TITLE-CASE, consistent naming — "CALEO", not "caleo"/"CALEO" variants (one canonical form).
+- type: org | person | product | event | location | concept | other (preset types; else "other").
+- description: one concise sentence stating what it is in this document's context.
+Only direct, clearly-stated entities. Do not invent.
+
+## 5. Relation extraction (binary edges)
+Extract BINARY relations only: source -> target. For each:
+- source / target: must match an emitted entity name exactly (consistent naming).
+- keywords: relationship keywords (the verbs/phrases expressing the edge).
+- description: one concise sentence.
+Decompose multi-entity statements into individual binary edges. Include ONLY direct, clearly-stated,
+meaningful relations (GraphRAG/LightRAG best practice) — skip speculative ones.
+
+## 6. Keywords (relationship + query)
+Emit retrieval keywords: relationship keywords (edge vocabulary, e.g. "hosts", "part of") AND query
+keywords, high-level + low-level (e.g. "sommerseminar", "schedule", "workshop").
+
+## 7. Quality checklist
+- completeness: did the refined markdown capture the whole source (all sections, tables, figures)?
+- tables/figures: note any table split across pages or figure caption dropped.
+- garbled text: flag OCR/layout garbage, encoding issues.
+- confidence: 0..1 how sure you are.
+- issues: concrete list (e.g. "table on p3 split", "image caption missing").
+- action: auto_accept (clean) or review_required (any doubt).
+
+## Output
+Call the emit_refined_document tool with the COMPLETE refined document — its JSON schema constrains
+your output. Emit the ENTIRE re-leveled markdown and every chunk; do not truncate.`;
+
+/** Default refinement system prompt — the single full-doc-pass prompt template (G4.S1.T2). */
 export const REFINE_DOCUMENT_SYSTEM_PROMPT = `You are Athena, the document-refinement pass of the athena ingest pipeline.
 You receive the RAW docling markdown of one document and produce its refined form in ONE full read.
 
-Tasks, in one pass:
-1. HEADER RE-LEVELING — restore a semantic header hierarchy (# title, ## section, ### subsection).
-   docling often emits flat headers (e.g. everything is h2); fix that from the document structure.
-2. CLASSIFICATION — set frontmatter.type (document kind) and frontmatter.topic (hierarchical topic path).
-3. CHUNKING — segment the re-leveled markdown into paragraph-semantic chunks (~1200 tokens, ~100 token
-   overlap), each with a stable id, character start/end, and its section topic.
-4. ENTITY EXTRACTION — knowledge-graph nodes: name (title-case, consistent naming — avoid "CALEO"/"caleo"
-   variants), type (org/person/product/event/location/other), description.
-5. RELATION EXTRACTION — binary edges only (from -> to -> type). Only direct, clearly-stated, meaningful
-   relations; decompose multi-entity statements into binary edges.
-6. KEYWORDS — retrieval keywords (high-level + low-level) for search.
-7. QUALITY — report completeness vs the source, confidence, concrete issues (tables split, garbled text,
-   missing figures), and an action: auto_accept or review_required.
-
-Respond by calling the emit_refined_document tool with the COMPLETE refined document. Its JSON schema
-constrains your output. Emit the entire re-leveled markdown and every chunk; do not truncate.`;
+${DOCUMENT_REFINEMENT_SKILL_GUIDANCE}`;
 
 export interface RefineDocumentTool extends ToolDefinition {}
 
@@ -225,9 +283,7 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
     ? args.chunks.filter(isRecord).map((c) => ({
         id: String(c.id ?? ""),
         text: String(c.text ?? ""),
-        start: typeof c.start === "number" ? c.start : 0,
-        end: typeof c.end === "number" ? c.end : 0,
-        ...(typeof c.topic === "string" ? { topic: c.topic } : {}),
+        heading_path: String(c.heading_path ?? c.topic ?? ""),
       }))
     : [];
   const entities = Array.isArray(args.entities)
@@ -239,9 +295,10 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
     : [];
   const relations = Array.isArray(args.relations)
     ? args.relations.filter(isRecord).map((r) => ({
-        from: String(r.from ?? ""),
-        to: String(r.to ?? ""),
-        type: String(r.type ?? "related_to"),
+        source: String(r.source ?? r.from ?? ""),
+        target: String(r.target ?? r.to ?? ""),
+        keywords: asStringArray(r.keywords) ?? [],
+        description: String(r.description ?? ""),
       }))
     : [];
   const keywords = asStringArray(args.keywords) ?? [];
