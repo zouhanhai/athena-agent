@@ -128,6 +128,11 @@
   - **M4 open items**: deployment spike (run Neo4j 2026 Community in Docker on 6900XT, verify vector+SEARCH+filters);
     decide single Neo4j store (B) vs PG+pgvector+Neo4j (A); wiki frontmatter topic → Neo4j chunk.topic.
     Keep llm_wiki (pages/TOC); LightRAG replaced (self-build) or kept.
+  - **Known LightRAG bug (2026-08-09, record for self-build, do NOT patch LightRAG):** node search in
+    Knowledge graph is **case-sensitive** — LightRAG's NetworkX `get_knowledge_graph` does an exact
+    `node_label not in graph` match (networkx_impl.py:536), so querying "caleo" fails while "CALEO" works.
+    Since M4 will replace LightRAG with a self-built RAG (Neo4j), don't fork-patch LightRAG for this; the
+    self-build MUST do case-insensitive node/label matching in its graph lookup.
   - Reclassify/re-topic existing docs into deeper sub-topic layers (e.g. `internal/events/sommerseminar`, `internal/events/cday`, `internal/events/oktoberfest`) once a topic dir grows large (e.g. events with 100 files).
   - `isValidTopic` already supports arbitrary-depth slash paths; the gap is a re-curation tool, not the schema.
   - **LightRAG does NOT need re-chunking/re-embedding.** Topic filtering is driven by the WIKI file frontmatter, not LightRAG internals: `buildTopicMap()` (retrieval.ts) reads `topic` from llm_wiki pages, then `filterGraphByTopic()` uses it to filter LightRAG graph nodes by file_path. So re-topic = edit the wiki md frontmatter `topic` (+ move file to the new `wiki/<topic>/` dir) and re-`listWikiPages`/rebuild index; the existing chunks + embeddings + entities stay valid.
