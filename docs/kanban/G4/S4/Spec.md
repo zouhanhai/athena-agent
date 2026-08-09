@@ -28,6 +28,11 @@ See `docs/spec-m4-worker-progress.md`. Key points:
 - **Written by an OpenCode plugin** (`tool.execute.after` + `session.status`), NOT an AGENTS.md instruction
   (LLM may forget). Append a row ONLY on a real change (a tool ran / status moved) — not a fixed tick; a stale
   last-row timestamp IS the stalled signal.
+- **REAL timestamps from the plugin — critical (2026-08-09 observed)**: LLM workers writing the Progress Log
+  by hand **fabricate timestamps** — e.g. T1/T2 logs show perfectly regular 5-10-min whole-hour timestamps
+  that don't match the actual commit times (T2 done commit 22:44 vs log "21:05 done"). This makes the log
+  useless for real monitoring. The plugin MUST stamp the actual wall-clock time at each tool execute, so the
+  last-row timestamp genuinely reflects when work last happened.
 - **Git strategy**: Progress Log lives in `ticket.md`, written locally (minute-level) + read by the plan agent,
   but NOT committed during work; pushed only with the ticket on completion (keeps history clean).
 - **Kanban reads it**: `KanbanTab` shows last row + updated-ago + stalled flag.
