@@ -75,6 +75,20 @@ So `refine_document` returns the **small metadata** (frontmatter, entities, keyw
 into context; the **full markdown + chunks** land on disk/storage for downstream to read by reference.
 This keeps the large re-leveled markdown OUT of the LLM context of subsequent steps.
 
+### Single-read size budget (decided 2026-08-09 — exact threshold set by test at impl time)
+
+One Athena call's context = **input (full md) + output (re-leveled md + chunks + entities + keywords +
+quality)**. Output ≥ input (rewrite + extracted structured data), so usable input is roughly half the
+1M context. Rough guidance, exact threshold to be measured during implementation:
+
+- **English**: 1M token ≈ ~4M chars → safe single read ≈ 2-3 MB md.
+- **Chinese**: 1M token ≈ ~1-1.5M chars → safe single read ≈ 1-1.5 MB md.
+- **Conservative recommended cap ≈ 500 KB – 1 MB md** per single read (leaves room for output inflation
+  and reasoning). Current docs (largest ≈ 12 KB Sommerseminar) are far below this — single read fine.
+- **Above the cap**: split by `##` headers into section blocks, refine each independently, then merge +
+  one global type/topic/entity pass. NOTE: chunked refinement loses cross-section entity/relation
+  correlation, so single-read is preferred; chunking is a fallback strategy.
+
 ### Downstream needs no LLM (decided 2026-08-09)
 
 - **llm_wiki**: only writes the page + frontmatter + rebuilds index → pure I/O, no LLM.
