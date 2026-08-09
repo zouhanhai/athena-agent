@@ -134,7 +134,10 @@ watch(
       <template v-if="board">
         <div class="kanban-tree" aria-label="Goals and Specs">
           <div v-for="goal in board.goals" :key="goal.ref" class="kanban-goal">
-            <label class="kanban-goal-check" :title="hiddenGoals.has(goal.ref) ? 'Show this goal\\'s tickets' : 'Hide this goal\\'s tickets'">
+            <label
+              class="kanban-goal-check"
+              :title="hiddenGoals.has(goal.ref) ? &quot;Show this goal's tickets&quot; : &quot;Hide this goal's tickets&quot;"
+            >
               <input
                 type="checkbox"
                 :checked="!hiddenGoals.has(goal.ref)"
