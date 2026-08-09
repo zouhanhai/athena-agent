@@ -1,26 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { storeToRefs } from "pinia";
-import { SettingIcon } from "tdesign-icons-vue-next";
+import { computed, onMounted, ref, watch } from "vue";
 import { MessagePlugin } from "tdesign-vue-next";
-import { useThemeStore } from "@/stores/theme";
 import { useAuthStore } from "@/stores/auth";
 import { updateMe } from "@/api/invitations";
 import { listLogos, type LogoRecord } from "@/api/agents";
 import AgentManagement from "@/components/AgentManagement.vue";
-import type { ThemeMode } from "@/theme";
 
-const theme = useThemeStore();
-const { mode } = storeToRefs(theme);
 const auth = useAuthStore();
-
-const visible = ref(false);
-const panelRef = ref<HTMLElement | null>(null);
-
-const themeOptions: { value: ThemeMode; label: string }[] = [
-  { value: "dark", label: "Dark" },
-  { value: "light", label: "Light" },
-];
 
 // Profile form (display name / logo / GitHub credential)
 const DEFAULT_LOGO = "/athena-logo-ai.png";
@@ -54,9 +40,20 @@ async function loadLogos() {
   }
 }
 
-function attachToPanel() {
-  return panelRef.value;
-}
+// Full-page view: prefill the profile from the signed-in employee as soon as
+// they are known (login bootstrap or session restore).
+watch(
+  () => auth.employee,
+  (employee) => {
+    if (employee) {
+      displayName.value = employee.display_name;
+      logoUrl.value = employee.logo_url || DEFAULT_LOGO;
+    }
+  },
+  { immediate: true },
+);
+
+onMounted(loadLogos);
 
 async function saveProfile() {
   if (!auth.isAuthenticated || !auth.sessionToken) {
@@ -86,42 +83,23 @@ async function saveProfile() {
     saving.value = false;
   }
 }
-
-function open() {
-  visible.value = true;
-  profileError.value = "";
-  githubValue.value = "";
-  if (auth.employee) {
-    displayName.value = auth.employee.display_name;
-    logoUrl.value = auth.employee.logo_url || DEFAULT_LOGO;
-  }
-  loadLogos();
-}
 </script>
 
 <template>
-  <div ref="panelRef" class="settings-panel">
-    <t-button
-      class="settings-trigger"
-      variant="text"
-      theme="default"
-      @click="open"
-    >
-      <template #icon><SettingIcon /></template>
-      Settings
-    </t-button>
+  <section class="settings-page">
+    <header class="settings-header">
+      <h2 class="settings-title">Settings</h2>
+      <span class="settings-meta">
+        Profile and agent management for your workspace
+      </span>
+    </header>
 
-    <t-dialog
-      v-model:visible="visible"
-      class="settings-dialog"
-      header="Settings"
-      :footer="false"
-      :destroy-on-close="true"
-      :attach="attachToPanel"
-      width="560px"
-    >
-      <div v-if="auth.isAuthenticated && auth.employee" class="settings-section">
-        <h4 class="settings-title">Profile</h4>
+    <div class="settings-body">
+      <div
+        v-if="auth.isAuthenticated && auth.employee"
+        class="settings-section profile"
+      >
+        <h3 class="section-title">Profile</h3>
         <div class="profile-form">
           <div class="settings-field">
             <label for="settings-name">Display name</label>
@@ -190,76 +168,67 @@ function open() {
         </div>
       </div>
 
-      <div class="settings-section">
-        <h4 class="settings-title">Agents</h4>
+      <div class="settings-section agents">
+        <h3 class="section-title">Agents</h3>
         <AgentManagement />
       </div>
-
-      <div class="settings-section">
-        <h4 class="settings-title">Theme</h4>
-        <div class="theme-options">
-          <button
-            v-for="opt in themeOptions"
-            :key="opt.value"
-            type="button"
-            class="theme-option"
-            :class="{ active: mode === opt.value }"
-            @click="theme.setMode(opt.value)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-      </div>
-    </t-dialog>
-  </div>
+    </div>
+  </section>
 </template>
 
 <style scoped>
-.settings-trigger {
-  width: 100%;
-  justify-content: flex-start;
-  color: var(--caleo-sidebar-sub) !important;
-  background: transparent !important;
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 48px);
+  height: calc(100dvh - 48px);
+  padding: 24px;
+  gap: 16px;
+  overflow-y: auto;
 }
-.settings-trigger:hover {
-  color: var(--caleo-primary) !important;
-  background: var(--caleo-sidebar-hover) !important;
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
 }
 
 .settings-title {
-  margin: 0 0 12px;
-  font-size: 14px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--caleo-text);
+}
+
+.settings-meta {
+  font-size: 13px;
   color: var(--caleo-text-secondary);
 }
 
-.theme-options {
+.settings-body {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.theme-option {
-  flex: 1;
-  padding: 10px 12px;
+.settings-section {
+  padding: 16px;
+  background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
-  background: var(--caleo-surface);
+  box-shadow: var(--caleo-shadow);
+}
+
+.section-title {
+  margin: 0 0 12px;
+  font-size: 15px;
   color: var(--caleo-text);
-  font-size: 14px;
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    color 0.15s;
-}
-
-.theme-option:hover {
-  border-color: var(--caleo-primary);
-  background: var(--caleo-surface-hover);
-}
-
-.theme-option.active {
-  border-color: var(--caleo-primary);
-  color: var(--caleo-primary);
-  font-weight: 600;
 }
 
 .profile-form,
@@ -352,26 +321,5 @@ function open() {
 .settings-save:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.settings-section + .settings-section {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--caleo-border);
-}
-</style>
-
-<style>
-.settings-dialog .t-dialog {
-  background: var(--caleo-surface);
-  border: 1px solid var(--caleo-border);
-}
-
-.settings-dialog .t-dialog__header {
-  border-bottom: 1px solid var(--caleo-border);
-}
-
-.settings-dialog .t-dialog .title {
-  color: var(--caleo-text);
 }
 </style>

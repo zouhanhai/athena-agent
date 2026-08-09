@@ -6,10 +6,11 @@ import {
   BookIcon,
   FolderOpenIcon,
   TerminalIcon,
+  FileIcon,
   UploadIcon,
+  SettingIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
-import SettingsPanel from "@/components/SettingsPanel.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import { useThemeStore } from "@/stores/theme";
 
@@ -28,9 +29,11 @@ const menuTheme = computed(() => (mode.value === "dark" ? "dark" : "light"));
 
 const navItems: NavItem[] = [
   { label: "Knowledge", path: "/knowledge", icon: BookIcon },
-  { label: "Workbench", path: "/workbench", icon: TerminalIcon },
-  { label: "Uploads", path: "/uploads", icon: UploadIcon },
   { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
+  { label: "Workbench", path: "/workbench", icon: TerminalIcon },
+  { label: "Output", path: "/output", icon: FileIcon },
+  { label: "Uploads", path: "/uploads", icon: UploadIcon },
+  { label: "Settings", path: "/settings", icon: SettingIcon },
 ];
 
 const sidebarTopOffset = "24px";
@@ -74,7 +77,6 @@ const sidebarTopOffset = "24px";
       </t-menu-item>
     </t-menu>
     <footer class="app-footer">
-      <SettingsPanel />
       <ThemeToggle />
     </footer>
   </t-aside>

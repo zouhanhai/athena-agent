@@ -44,12 +44,17 @@ function navItemByText(wrapper: AppWrapper, label: string) {
 }
 
 describe("portal sidebar navigation", () => {
-  it("renders the sidebar with Knowledge / Workbench / Uploads / Wiki and no Chat / Agents", async () => {
+  it("renders the 6 nav items in exact order and no Chat / Agents", async () => {
     const wrapper = await mountApp();
-    const labels = navItems(wrapper).map((item) => item.text());
-    for (const label of ["Knowledge", "Workbench", "Uploads", "Wiki"]) {
-      expect(labels.some((text) => text.includes(label))).toBe(true);
-    }
+    const labels = navItems(wrapper).map((item) => item.text().trim());
+    expect(labels).toEqual([
+      "Knowledge",
+      "Wiki",
+      "Workbench",
+      "Output",
+      "Uploads",
+      "Settings",
+    ]);
     expect(labels.some((text) => text.includes("Chat"))).toBe(false);
     expect(labels.some((text) => text.includes("Agents"))).toBe(false);
     wrapper.unmount();
@@ -131,31 +136,22 @@ describe("portal sidebar navigation", () => {
     wrapper.unmount();
   });
 
-  it("pins the Settings button to the very bottom of the sidebar", async () => {
+  it("pins the footer to the very bottom of the sidebar", async () => {
     const wrapper = await mountApp();
     const aside = wrapper.find(".app-aside");
     const children = Array.from(aside.element.children);
     const last = children[children.length - 1];
     expect(last.classList.contains("app-footer")).toBe(true);
-    expect(wrapper.find(".app-footer .settings-trigger").exists()).toBe(true);
+    expect(wrapper.find(".app-footer .theme-toggle").exists()).toBe(true);
     wrapper.unmount();
   });
 
-  it("places the animated theme toggle slider under the Settings button", async () => {
+  it("removes the SettingsPanel dialog trigger from the footer (only ThemeToggle remains)", async () => {
     const wrapper = await mountApp();
     const footer = wrapper.find(".app-footer");
-    const toggle = footer.find(".theme-toggle");
-    expect(toggle.exists()).toBe(true);
-
-    const footerChildren = Array.from(footer.element.children);
-    const settingsIdx = footerChildren.findIndex((el) =>
-      el.classList.contains("settings-panel"),
-    );
-    const toggleIdx = footerChildren.findIndex((el) =>
-      el.classList.contains("theme-toggle"),
-    );
-    expect(settingsIdx).toBeGreaterThanOrEqual(0);
-    expect(toggleIdx).toBeGreaterThan(settingsIdx);
+    expect(footer.find(".theme-toggle").exists()).toBe(true);
+    expect(footer.find(".settings-trigger").exists()).toBe(false);
+    expect(footer.find(".settings-panel").exists()).toBe(false);
     wrapper.unmount();
   });
 });
@@ -255,39 +251,33 @@ describe("CALEO theme", () => {
   });
 });
 
-describe("theme settings panel", () => {
-  function themeOptions(wrapper: AppWrapper) {
-    return wrapper.findAll(".theme-option");
-  }
-
-  it("renders a settings button at the sidebar bottom", async () => {
+describe("settings + output navigation", () => {
+  it("navigates to /settings when the Settings nav item is clicked", async () => {
     const wrapper = await mountApp();
-    expect(wrapper.find(".settings-trigger").exists()).toBe(true);
+    const settings = navItemByText(wrapper, "Settings");
+    expect(settings).toBeDefined();
+    await settings!.trigger("click");
+    await waitForRoute("/settings");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Profile");
+    expect(wrapper.text()).toContain("Agents");
     wrapper.unmount();
   });
 
-  it("opens a dialog with dark and light theme options", async () => {
+  it("navigates to /output and renders the M5 placeholder", async () => {
     const wrapper = await mountApp();
-    await wrapper.find(".settings-trigger").trigger("click");
+    const output = navItemByText(wrapper, "Output");
+    expect(output).toBeDefined();
+    await output!.trigger("click");
+    await waitForRoute("/output");
     await flushPromises();
-
-    const options = themeOptions(wrapper);
-    const labels = options.map((el) => el.text());
-    expect(options).toHaveLength(2);
-    expect(labels.some((t) => t.includes("Dark"))).toBe(true);
-    expect(labels.some((t) => t.includes("Light"))).toBe(true);
+    expect(wrapper.text()).toContain("Output — coming in M5");
     wrapper.unmount();
   });
 
-  it("switches to light theme globally and persists the choice", async () => {
+  it("switches to light theme globally via the footer toggle and persists the choice", async () => {
     const wrapper = await mountApp();
-    await wrapper.find(".settings-trigger").trigger("click");
-    await flushPromises();
-
-    const light = themeOptions(wrapper).find((el) =>
-      el.text().includes("Light"),
-    );
-    await light!.trigger("click");
+    await wrapper.find(".app-footer .theme-toggle").trigger("click");
     await flushPromises();
 
     expect(useThemeStore().mode).toBe("light");

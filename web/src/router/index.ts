@@ -46,6 +46,16 @@ const routes: RouteRecordRaw[] = [
     name: "uploads",
     component: () => import("../views/UploadsView.vue"),
   },
+  {
+    path: "/output",
+    name: "output",
+    component: () => import("../views/OutputView.vue"),
+  },
+  {
+    path: "/settings",
+    name: "settings",
+    component: () => import("../views/SettingsView.vue"),
+  },
 ];
 
 export default createRouter({

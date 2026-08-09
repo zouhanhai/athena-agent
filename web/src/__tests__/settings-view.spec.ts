@@ -1,10 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
-import SettingsPanel from "@/components/SettingsPanel.vue";
+import SettingsView from "@/views/SettingsView.vue";
 import { updateMe } from "@/api/invitations";
 import { listLogos, listDeclarations, registerDeclaration } from "@/api/agents";
 import { useAuthStore } from "@/stores/auth";
@@ -52,20 +52,16 @@ const declaration = {
   declared_at: "2026-08-08T00:00:00.000Z",
 };
 
-async function mountPanel() {
+async function mountView() {
   const pinia = createPinia();
   setActivePinia(pinia);
   const auth = useAuthStore();
   auth.setSession({ session_token: "ses123", employee });
-  const wrapper = mount(SettingsPanel, {
+  const wrapper = mount(SettingsView, {
     global: { plugins: [pinia, TDesign] },
   });
-  return { wrapper, auth };
-}
-
-async function openDialog(wrapper: VueWrapper) {
-  await wrapper.find(".settings-trigger").trigger("click");
   await flushPromises();
+  return { wrapper, auth };
 }
 
 beforeEach(() => {
@@ -79,10 +75,33 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("SettingsPanel profile", () => {
+describe("SettingsView page", () => {
+  it("renders a full page with Profile and Agents sections and no Theme section", async () => {
+    const { wrapper } = await mountView();
+
+    expect(wrapper.find(".settings-page").exists()).toBe(true);
+    expect(wrapper.find(".settings-header").exists()).toBe(true);
+    expect(wrapper.find(".settings-title").text()).toBe("Settings");
+    expect(wrapper.find(".settings-section.profile").exists()).toBe(true);
+    expect(wrapper.find(".settings-section.agents").exists()).toBe(true);
+    // Theme settings live only in the sidebar ThemeToggle — never on the Settings page.
+    expect(wrapper.find(".theme-option").exists()).toBe(false);
+    expect(wrapper.find(".theme-options").exists()).toBe(false);
+    // The page is not a dialog — no trigger button.
+    expect(wrapper.find(".settings-trigger").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("does not render a dialog wrapper", async () => {
+    const { wrapper } = await mountView();
+    expect(wrapper.find(".t-dialog").exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe("SettingsView profile", () => {
   it("pre-fills the display name and selected logo from the signed-in employee", async () => {
-    const { wrapper } = await mountPanel();
-    await openDialog(wrapper);
+    const { wrapper } = await mountView();
 
     expect(
       (wrapper.find(".settings-name").element as HTMLInputElement).value,
@@ -93,8 +112,7 @@ describe("SettingsPanel profile", () => {
   });
 
   it("saves display name, logo and github credential via updateMe and refreshes the auth store", async () => {
-    const { wrapper, auth } = await mountPanel();
-    await openDialog(wrapper);
+    const { wrapper, auth } = await mountView();
     updateMeMock.mockResolvedValue({
       ...employee,
       display_name: "Carol C.",
@@ -121,8 +139,7 @@ describe("SettingsPanel profile", () => {
   });
 
   it("keeps the existing github credential when the field is left empty", async () => {
-    const { wrapper } = await mountPanel();
-    await openDialog(wrapper);
+    const { wrapper } = await mountView();
     updateMeMock.mockResolvedValue(employee);
 
     await wrapper.find(".settings-name").setValue("Carol C.");
@@ -138,8 +155,7 @@ describe("SettingsPanel profile", () => {
   });
 
   it("validates that a display name is required", async () => {
-    const { wrapper } = await mountPanel();
-    await openDialog(wrapper);
+    const { wrapper } = await mountView();
 
     await wrapper.find(".settings-name").setValue("   ");
     await wrapper.find(".settings-save").trigger("click");
@@ -151,8 +167,7 @@ describe("SettingsPanel profile", () => {
   });
 
   it("surfaces the backend error when saving fails", async () => {
-    const { wrapper } = await mountPanel();
-    await openDialog(wrapper);
+    const { wrapper } = await mountView();
     updateMeMock.mockRejectedValue(new Error("server down"));
 
     await wrapper.find(".settings-name").setValue("Carol C.");
@@ -166,23 +181,22 @@ describe("SettingsPanel profile", () => {
   it("hides the Profile section when there is no signed-in employee", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
-    const wrapper = mount(SettingsPanel, {
+    const wrapper = mount(SettingsView, {
       global: { plugins: [pinia, TDesign] },
     });
-    await openDialog(wrapper);
+    await flushPromises();
 
     expect(wrapper.find(".settings-name").exists()).toBe(false);
-    expect(wrapper.find(".theme-option").exists()).toBe(true);
+    expect(wrapper.find(".settings-section.profile").exists()).toBe(false);
     expect(wrapper.find(".agent-management").exists()).toBe(true);
     wrapper.unmount();
   });
 });
 
-describe("SettingsPanel agents", () => {
-  it("renders pending agent declarations inside the settings dialog", async () => {
+describe("SettingsView agents", () => {
+  it("renders pending agent declarations on the settings page", async () => {
     listDeclarationsMock.mockResolvedValue([declaration]);
-    const { wrapper } = await mountPanel();
-    await openDialog(wrapper);
+    const { wrapper } = await mountView();
 
     expect(listDeclarationsMock).toHaveBeenCalled();
     expect(wrapper.find(".declaration-card").exists()).toBe(true);
@@ -194,8 +208,7 @@ describe("SettingsPanel agents", () => {
   it("confirms a declaration registration from settings, removing the card", async () => {
     listDeclarationsMock.mockResolvedValue([declaration]);
     registerDeclarationMock.mockResolvedValue({ id: "a1" });
-    const { wrapper } = await mountPanel();
-    await openDialog(wrapper);
+    const { wrapper } = await mountView();
 
     await wrapper.find(".decl-alias").setValue("Hermes");
     const fox = wrapper
