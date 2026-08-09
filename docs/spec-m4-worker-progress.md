@@ -39,7 +39,11 @@ Each ticket md (`docs/kanban/G*/S*/T*.md`) gets an auto-updated **Progress Log**
   (e.g. which file was edited / command run) and append a row to the active ticket's Progress Log.
 - Hook **`session.status` / `session.idle` / `message.*`**: update status (e.g. idle → maybe blocked,
   new assistant message → progressing).
-- Rate-limit to ~1 row/minute so it doesn't spam the table.
+- **Append a row ONLY when there's a real change** (a tool ran / status moved / a milestone happened) —
+  NOT a fixed every-minute tick. This keeps the table meaningful: each row = a unit of actual progress.
+  If nothing happened, nothing is appended (and the LAST row's timestamp staying stale is exactly the
+  "stalled" signal Kanban uses).
+- Rate-limit to ~1 row per N seconds so a rapid burst of tool calls doesn't spam the table.
 - The plugin knows which ticket it's working on (from the claim in AGENTS.md / the dispatch prompt).
 
 ## Read mechanism (Kanban)
