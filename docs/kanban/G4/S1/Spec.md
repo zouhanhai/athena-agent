@@ -20,28 +20,94 @@ acceptance_criteria:
 
 docling uses a fixed ML layout model (not LLM) — PDFs can come out flat (e.g. Sommerseminar = 16× h2)
 and extraction quality varies. Relying on it alone means heading hierarchy, completeness, and topic
-decisions are locked to that deterministic model.
+decisions are all locked to that deterministic model.
 
-## Full design
+## Athena is the SINGLE full-document LLM pass (decided 2026-08-09)
 
-See `docs/spec-m4-docling-refinement.md` — it is the authoritative spec for this goal. Key points:
+**Architecture decision:** Athena is the **only** full-document LLM pass in the ingest chain. It reads the
+whole document once and emits everything downstream needs, so NO other LLM re-processes the document
+(except the final embedding, which is vector encoding, not reasoning):
 
-- **One Athena LLM pass** after docling reads the full document once and emits:
-  1. re-leveled markdown (header hierarchy),
-  2. quality check (md vs source completeness),
-  3. topic/type judgment (fold in the existing llm_wiki classify),
-  4. chunk segmentation (paragraph-semantic, already the policy).
+```
+docling parse (ML layout model, no LLM)
+  → [Athena refinement — ONE full-doc LLM pass]
+       reads:  docling markdown (full doc)
+       emits:  { re-leveled markdown, frontmatter(type+topic), chunk segmentation,
+                 entity extraction, keyword extraction, quality report }
+  → re-leveled markdown + chunks + entities + keywords land on disk/storage
+     (NOT passed through further LLM context — refs instead, pi-docparser pattern)
+  → downstream consume by reference:
+       llm_wiki:  write page + frontmatter + rebuild index (pure I/O, no LLM)
+       RAG (G4.S2 self-build): receive Athena-injected chunks/entities/keywords,
+                               only embed + index + retrieve (no LLM)
+```
+
+### Athena refinement output contract
+
+```jsonc
+{
+  "markdown": "# ... \n\n## ...",       // re-leveled markdown (header hierarchy fixed)
+  "frontmatter": { "type": "event", "topic": "internal/events" },   // classification (folds in llm_wiki classify)
+  "chunks": [                          // paragraph-semantic segmentation
+    { "id": "c1", "text": "...", "start": 0, "end": 400, "topic": "internal/events" }
+  ],
+  "entities": [                        // knowledge-graph nodes (was LightRAG internal)
+    { "name": "CALEO", "type": "org", "description": "..." }
+  ],
+  "relations": [                       // knowledge-graph edges (was LightRAG internal)
+    { "from": "CALEO", "to": "Sommerseminar", "type": "hosts" }
+  ],
+  "keywords": [                        // retrieval keywords (was LightRAG internal)
+    "sommerseminar", "schedule", "workshop"
+  ],
+  "quality": {
+    "complete": true, "confidence": 0.85,
+    "issues": ["table on p3 split"], "action": "auto_accept"   // auto_accept | review_required
+  }
+}
+```
+
+### Big-output handling (pi-docparser pattern, decided 2026-08-09)
+
+Reference: `pi-docparser` (pi.dev) demonstrates the correct pattern for large doc output — the full
+`markdown` + `chunks` go to a temp file / storage, and the tool returns only a short preview + refs.
+So `refine_document` returns the **small metadata** (frontmatter, entities, keywords, quality, md ref)
+into context; the **full markdown + chunks** land on disk/storage for downstream to read by reference.
+This keeps the large re-leveled markdown OUT of the LLM context of subsequent steps.
+
+### Downstream needs no LLM (decided 2026-08-09)
+
+- **llm_wiki**: only writes the page + frontmatter + rebuilds index → pure I/O, no LLM.
+  The `classify` step is folded into Athena refinement (type+topic already decided).
+- **RAG (G4.S2)**: receives Athena-injected chunks/entities/keywords, only embeds + indexes + retrieves →
+  no LLM. This solves the LightRAG black-box problem: we no longer depend on LightRAG's hardcoded
+  internal entity/keyword/chunk LLM passes (which had no injection interface).
+- **embedding**: the only remaining non-LLM transform (vector encoding), kept.
+
+## Full design (original spec reference)
+
+See `docs/spec-m4-docling-refinement.md` for the original problem statement + context-efficiency
+analysis. Key original points:
+
+- **One Athena LLM pass** after docling: re-header, quality, topic, chunk.
 - **Context-efficiency**: folds ALL full-doc LLM passes (llm_wiki classify + this step) into one read.
-- **Output contract** feeds G4.S2 — this is why S1 precedes S2.
 - **Fallback**: if the LLM step fails, use the raw docling output (no regression).
+
+## Where it fits
+
+Current pipeline (tasks.ts): `parsing (docling)` → `ingesting_lightrag ‖ ingesting_llmwiki`.
+New: `parsing (docling)` → **`refinement (Athena: re-header + quality + topic + entity + keyword)`** → parallel stages.
 
 ## Dependencies
 
-- G4.S2 (RAG self-build) consumes this step's output contract.
+- G4.S2 (RAG self-build) consumes this step's output contract (chunks/entities/keywords/topic).
+  This is why S1 precedes S2 — the refinement output contract is decided here first.
 
 ## Deliverables
 
-- Server refinement step in the ingest pipeline (tasks.ts).
-- Prompt + model wiring (OpenRouter deepseek-v4-flash-latest).
-- Output contract schema (entities/chunk/topic/header/quality).
-- Fallback path + tests.
+- Server refinement step in the ingest pipeline (tasks.ts) — new `refinement` stage.
+- `refine_document` as a Pi custom tool (customTools + skill + constrainedSampling), model
+  deepseek-v4-flash-latest, thinkingLevel high.
+- Output contract schema (markdown/frontmatter/chunks/entities/relations/keywords/quality).
+- Big-output handling (full md + chunks to storage; small metadata + refs in context).
+- Fallback path (raw docling on LLM failure) + tests.

@@ -27,14 +27,18 @@ Its storage already uses PG + pgvector + a graph.
 See `docs/knowledge-rag-design.md` §8 (RAG system selection & self-build direction) and the M4
 RAG-selection item in `TODO.md`. Key points:
 
+- **Athena is the single full-doc LLM pass (see G4.S1)** — Athena injects chunk/entity/keyword/topic/header
+  from its refinement output. This RAG is a **pure store + retrieve** (no LLM beyond embedding), which solves
+  the LightRAG black-box problem: we no longer depend on LightRAG's hardcoded entity/keyword/chunk LLM passes.
 - **Spike first**: run Neo4j 2026 Community in Docker on 6900XT; verify vector index (`CREATE VECTOR INDEX`),
   Cypher `SEARCH` clause, and in-index filters (`SEARCH…WHERE`). Community Edition suffices (LIST properties,
   no pgvector needed).
-- **Single Neo4j store (option B, lean)**: `Chunk` nodes (embedding + topic + text), `Entity`/`Relation`
-  graph, `Document`/`WikiPage`. One store for vector + graph + topic.
-- **Athena injection**: entities/chunk/topic/headers come from G4.S1's output contract.
+- **Single Neo4j store (option B, lean)**: `Chunk` nodes (embedding + topic + text, Athena-provided),
+  `Entity`/`Relation` graph (Athena-provided), `Document`/`WikiPage`. One store for vector + graph + topic.
+- **Ingest**: receives G4.S1's output (chunks + entities + relations + keywords + topic) and only
+  **embeds + indexes** — no LLM extraction here.
 - **Retrieval**: `neo4j-graphrag` (HybridRetriever = vector+full-text fusion, Text2Cypher, ToolsRetriever to
-  fuse wiki + topic + vector + graph).
+  fuse wiki + topic + vector + graph). Keyword search can use Athena's injected keywords.
 - **Case-insensitive** node lookup (LightRAG's `caleo`/`CALEO` bug must not recur).
 - A2A deferred to M6; MCP-first for KB access (G4.S6).
 
