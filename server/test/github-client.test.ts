@@ -258,6 +258,145 @@ test("listIssues with state=all requests both states", async () => {
   assert.deepEqual(issues, []);
 });
 
+const COMMENT_BODY = [
+  {
+    id: 100,
+    user: { login: "bob" },
+    body: "I'll take a look",
+    created_at: "2026-08-01T10:00:00Z",
+    html_url: "https://github.com/acme/box/issues/2#issuecomment-100",
+  },
+];
+
+const COMMENT_MAPPED = [
+  {
+    id: 100,
+    user_login: "bob",
+    body: "I'll take a look",
+    created_at: "2026-08-01T10:00:00Z",
+    html_url: "https://github.com/acme/box/issues/2#issuecomment-100",
+  },
+];
+
+test("getIssue fetches a single issue by number and maps it", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: ISSUE_BODY };
+    }),
+  });
+  const issue = await client.getIssue(tokenCredential, "acme", "box", 2);
+  assert.equal(calledUrl, "https://api.github.test/repos/acme/box/issues/2");
+  assert.deepEqual(issue, {
+    number: 2,
+    title: "Bug",
+    state: "open",
+    html_url: "https://github.com/acme/box/issues/2",
+    user_login: "bob",
+    body: "Details",
+    labels: ["bug", "p1"],
+    assignees: ["alice", "carol"],
+  });
+});
+
+test("getIssue rejects an ssh credential", async () => {
+  const client = new GithubRestClient({ fetchImpl: mockFetch(async () => ({ status: 200, body: {} })) });
+  await assert.rejects(
+    client.getIssue({ type: "ssh", value: "ssh-ed25519 key" }, "acme", "box", 2),
+    GithubCredentialUnsupportedError,
+  );
+});
+
+test("getIssueComments fetches the comments endpoint and maps author/body/date", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: COMMENT_BODY };
+    }),
+  });
+  const comments = await client.getIssueComments(tokenCredential, "acme", "box", 2);
+  assert.match(calledUrl, /\/repos\/acme\/box\/issues\/2\/comments/);
+  assert.deepEqual(comments, COMMENT_MAPPED);
+});
+
+test("updateIssue PATCHes title/body/state/labels and maps the updated issue", async () => {
+  let calledUrl = "";
+  let sentBody: unknown;
+  let method = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url, init) => {
+      calledUrl = String(url);
+      method = String(init.method ?? "GET");
+      sentBody = JSON.parse(String(init.body));
+      return { status: 200, body: { ...ISSUE_BODY, title: "Bug (renamed)", state: "closed", labels: [{ name: "bug" }] } };
+    }),
+  });
+  const issue = await client.updateIssue(tokenCredential, "acme", "box", 2, {
+    title: "Bug (renamed)",
+    body: "New body",
+    state: "closed",
+    labels: ["bug"],
+  });
+  assert.equal(calledUrl, "https://api.github.test/repos/acme/box/issues/2");
+  assert.equal(method, "PATCH");
+  assert.deepEqual(sentBody, { title: "Bug (renamed)", body: "New body", state: "closed", labels: ["bug"] });
+  assert.equal(issue.title, "Bug (renamed)");
+  assert.equal(issue.state, "closed");
+  assert.deepEqual(issue.labels, ["bug"]);
+});
+
+test("updateIssue omits fields that are not provided", async () => {
+  let sentBody: unknown;
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (_url, init) => {
+      sentBody = JSON.parse(String(init.body));
+      return { status: 200, body: ISSUE_BODY };
+    }),
+  });
+  await client.updateIssue(tokenCredential, "acme", "box", 2, { state: "closed" });
+  assert.deepEqual(sentBody, { state: "closed" });
+});
+
+test("createIssueComment POSTs the body and maps the created comment", async () => {
+  let calledUrl = "";
+  let method = "";
+  let sentBody: unknown;
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url, init) => {
+      calledUrl = String(url);
+      method = String(init.method ?? "GET");
+      sentBody = JSON.parse(String(init.body));
+      return { status: 201, body: COMMENT_BODY[0] };
+    }),
+  });
+  const comment = await client.createIssueComment(tokenCredential, "acme", "box", 2, "I'll take a look");
+  assert.equal(calledUrl, "https://api.github.test/repos/acme/box/issues/2/comments");
+  assert.equal(method, "POST");
+  assert.deepEqual(sentBody, { body: "I'll take a look" });
+  assert.deepEqual(comment, COMMENT_MAPPED[0]);
+});
+
+test("listLabels fetches the labels endpoint and maps label names", async () => {
+  let calledUrl = "";
+  const client = new GithubRestClient({
+    baseUrl: "https://api.github.test",
+    fetchImpl: mockFetch(async (url) => {
+      calledUrl = String(url);
+      return { status: 200, body: [{ name: "bug", color: "d73a4a" }, { name: "p1", color: "d4a72c" }] };
+    }),
+  });
+  const labels = await client.listLabels(tokenCredential, "acme", "box");
+  assert.match(calledUrl, /\/repos\/acme\/box\/labels/);
+  assert.deepEqual(labels, ["bug", "p1"]);
+});
+
 test("openPull POSTs the pull payload and maps the created PR", async () => {
   let calledUrl = "";
   let sentBody: unknown;

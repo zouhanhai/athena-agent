@@ -17,11 +17,13 @@ import type {
   GithubCommitEntry,
   GithubFileContent,
   GithubIssue,
+  GithubIssueComment,
   GithubMergeResult,
   GithubPull,
   GithubRepo,
   GithubTreeEntry,
   OpenPullInput,
+  UpdateIssueInput,
 } from "../src/github/client.js";
 import { MemoryGithubOpStore } from "../src/github/ops.js";
 
@@ -111,6 +113,48 @@ class FakeGitHubApi implements GitHubApi {
     this.record("mergePull", credential, [owner, repo, number]);
     return { merged: true, message: "merged", sha: "m000" };
   }
+  async getIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<GithubIssue> {
+    this.record("getIssue", credential, [owner, repo, number]);
+    return { ...ISSUE_SAMPLE[0], number };
+  }
+  async getIssueComments(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<GithubIssueComment[]> {
+    this.record("getIssueComments", credential, [owner, repo, number]);
+    return COMMENT_SAMPLE;
+  }
+  async updateIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+    input: UpdateIssueInput,
+  ): Promise<GithubIssue> {
+    this.record("updateIssue", credential, [owner, repo, number, input]);
+    return { ...ISSUE_SAMPLE[0], number, ...input };
+  }
+  async createIssueComment(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+    body: string,
+  ): Promise<GithubIssueComment> {
+    this.record("createIssueComment", credential, [owner, repo, number, body]);
+    return { id: 200, user_login: "bob", body, created_at: "2026-08-01T10:00:00Z", html_url: "https://github.com/acme/box/issues/2#issuecomment-200" };
+  }
+  async listLabels(credential: GithubCredential, owner: string, repo: string): Promise<string[]> {
+    this.record("listLabels", credential, [owner, repo]);
+    return ["bug", "p1"];
+  }
 }
 
 let app: FastifyInstance;
@@ -162,6 +206,16 @@ const ISSUE_SAMPLE: GithubIssue[] = [
     body: "Details",
     labels: ["bug"],
     assignees: ["alice"],
+  },
+];
+
+const COMMENT_SAMPLE: GithubIssueComment[] = [
+  {
+    id: 100,
+    user_login: "bob",
+    body: "I'll take a look",
+    created_at: "2026-08-01T10:00:00Z",
+    html_url: "https://github.com/acme/box/issues/2#issuecomment-100",
   },
 ];
 
@@ -426,6 +480,147 @@ test("GET /api/github/repos/:owner/:repo/issues passes the state filter through"
 test("GET /api/github/repos/:owner/:repo/issues requires authentication", async () => {
   const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues" });
   assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/github/repos/:owner/:repo/issues/:number returns detail and comments scoped to the user's credential", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues/2", headers: bearer(aliceToken) });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().issue, { ...ISSUE_SAMPLE[0], number: 2 });
+  assert.deepEqual(res.json().comments, COMMENT_SAMPLE);
+  const calls = github.calls.slice(-2);
+  assert.equal(calls[0]?.method, "getIssue");
+  assert.equal(calls[0]?.credential.value, "ghp_alice");
+  assert.deepEqual(calls[0]?.args, ["acme", "box", 2]);
+  assert.equal(calls[1]?.method, "getIssueComments");
+  assert.deepEqual(calls[1]?.args, ["acme", "box", 2]);
+});
+
+test("GET /api/github/repos/:owner/:repo/issues/:number validates the number param", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues/abc", headers: bearer(aliceToken) });
+  assert.equal(res.statusCode, 400);
+  const zeroRes = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues/0", headers: bearer(aliceToken) });
+  assert.equal(zeroRes.statusCode, 400);
+});
+
+test("GET /api/github/repos/:owner/:repo/issues/:number requires authentication", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/issues/2" });
+  assert.equal(res.statusCode, 401);
+});
+
+test("PATCH /api/github/repos/:owner/:repo/issues/:number updates the issue via the user's credential", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "PATCH",
+    url: "/api/github/repos/acme/box/issues/2",
+    headers: bearer(aliceToken),
+    payload: { title: "Bug (renamed)", state: "closed", labels: ["bug"] },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().issue.title, "Bug (renamed)");
+  assert.equal(res.json().issue.state, "closed");
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "updateIssue");
+  assert.equal(call?.credential.value, "ghp_alice");
+  assert.deepEqual(call?.args, ["acme", "box", 2, { title: "Bug (renamed)", state: "closed", labels: ["bug"] }]);
+});
+
+test("PATCH issue rejects an empty body with nothing to update", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "PATCH",
+    url: "/api/github/repos/acme/box/issues/2",
+    headers: bearer(aliceToken),
+    payload: {},
+  });
+  assert.equal(res.statusCode, 400);
+});
+
+test("PATCH issue rejects an invalid state", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "PATCH",
+    url: "/api/github/repos/acme/box/issues/2",
+    headers: bearer(aliceToken),
+    payload: { state: "wip" },
+  });
+  assert.equal(res.statusCode, 400);
+});
+
+test("PATCH issue rejects non-array labels", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "PATCH",
+    url: "/api/github/repos/acme/box/issues/2",
+    headers: bearer(aliceToken),
+    payload: { labels: "bug" },
+  });
+  assert.equal(res.statusCode, 400);
+});
+
+test("PATCH issue requires authentication", async () => {
+  const res = await app.inject({
+    method: "PATCH",
+    url: "/api/github/repos/acme/box/issues/2",
+    payload: { title: "t" },
+  });
+  assert.equal(res.statusCode, 401);
+});
+
+test("POST /api/github/repos/:owner/:repo/issues/:number/comments adds a comment via the user's credential", async () => {
+  const bobToken = await login("bob@caleo.com");
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/github/repos/acme/box/issues/2/comments",
+    headers: bearer(bobToken),
+    payload: { body: "I'll take a look" },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().comment.id, 200);
+  assert.equal(res.json().comment.body, "I'll take a look");
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "createIssueComment");
+  assert.equal(call?.credential.value, "ghp_bob");
+  assert.deepEqual(call?.args, ["acme", "box", 2, "I'll take a look"]);
+});
+
+test("POST comment rejects a missing or empty body", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const empty = await app.inject({
+    method: "POST",
+    url: "/api/github/repos/acme/box/issues/2/comments",
+    headers: bearer(aliceToken),
+    payload: { body: "   " },
+  });
+  assert.equal(empty.statusCode, 400);
+  const missing = await app.inject({
+    method: "POST",
+    url: "/api/github/repos/acme/box/issues/2/comments",
+    headers: bearer(aliceToken),
+    payload: {},
+  });
+  assert.equal(missing.statusCode, 400);
+});
+
+test("POST comment requires authentication", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/github/repos/acme/box/issues/2/comments",
+    payload: { body: "hi" },
+  });
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/github/repos/:owner/:repo/labels returns repo labels scoped to the user's credential", async () => {
+  const aliceToken = await login("alice@caleo.com");
+  const res = await app.inject({ method: "GET", url: "/api/github/repos/acme/box/labels", headers: bearer(aliceToken) });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().labels, ["bug", "p1"]);
+  const call = github.calls.at(-1);
+  assert.equal(call?.method, "listLabels");
+  assert.equal(call?.credential.value, "ghp_alice");
+  assert.deepEqual(call?.args, ["acme", "box"]);
 });
 
 test("GET /api/github/repos/:owner/:repo/commits returns commits scoped to the user's credential", async () => {

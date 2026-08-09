@@ -79,6 +79,23 @@ export interface ListCommitsOptions {
 /** Issue state filter for listIssues (GitHub API `state` query param). */
 export type GithubIssueState = "open" | "closed" | "all";
 
+/** A comment on an issue, as returned to the issue-detail API. */
+export interface GithubIssueComment {
+  id: number;
+  user_login: string | null;
+  body: string;
+  created_at: string;
+  html_url: string;
+}
+
+/** Input for updating an issue via PATCH (all fields optional). */
+export interface UpdateIssueInput {
+  title?: string;
+  body?: string;
+  state?: "open" | "closed";
+  labels?: string[];
+}
+
 /** Input for opening a pull request. */
 export interface OpenPullInput {
   title: string;
@@ -141,6 +158,33 @@ export interface GitHubApi {
     repo: string,
     state?: GithubIssueState,
   ): Promise<GithubIssue[]>;
+  /** Fetch a single issue by number (title, body, state, labels, assignees). */
+  getIssue(credential: GithubCredential, owner: string, repo: string, number: number): Promise<GithubIssue>;
+  /** Fetch the comment thread of an issue. */
+  getIssueComments(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<GithubIssueComment[]>;
+  /** Update an issue (title, body, state, labels) and return the updated issue. */
+  updateIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+    input: UpdateIssueInput,
+  ): Promise<GithubIssue>;
+  /** Add a comment to an issue and return the created comment. */
+  createIssueComment(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+    body: string,
+  ): Promise<GithubIssueComment>;
+  /** List the repo's labels (names), for the issue edit label picker. */
+  listLabels(credential: GithubCredential, owner: string, repo: string): Promise<string[]>;
   /** Open a pull request. */
   openPull(credential: GithubCredential, owner: string, repo: string, input: OpenPullInput): Promise<GithubPull>;
   /** Edit (PUT) a file's contents. */
@@ -426,6 +470,43 @@ export class GithubRestClient implements GitHubApi {
     return mapped;
   }
 
+  private async toIssue(value: unknown): Promise<GithubIssue | null> {
+    if (typeof value !== "object" || value === null) {
+      return null;
+    }
+    const issue = value as Record<string, unknown>;
+    const user = issue.user as Record<string, unknown> | null;
+    const labels = Array.isArray(issue.labels) ? issue.labels : [];
+    const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
+    return {
+      number: this.positiveInt(issue.number) ?? 0,
+      title: this.string(issue.title),
+      state: this.string(issue.state),
+      html_url: this.string(issue.html_url),
+      user_login: this.maybeString(user?.login),
+      body: this.maybeString(issue.body),
+      labels: labels.map((label) => String((label as Record<string, unknown>)?.name ?? label)),
+      assignees: assignees.map((assignee) =>
+        String((assignee as Record<string, unknown>)?.login ?? assignee),
+      ),
+    };
+  }
+
+  private async toComment(value: unknown): Promise<GithubIssueComment | null> {
+    if (typeof value !== "object" || value === null) {
+      return null;
+    }
+    const comment = value as Record<string, unknown>;
+    const user = comment.user as Record<string, unknown> | null;
+    return {
+      id: this.positiveInt(comment.id) ?? 0,
+      user_login: this.maybeString(user?.login),
+      body: this.string(comment.body),
+      created_at: this.string(comment.created_at),
+      html_url: this.string(comment.html_url),
+    };
+  }
+
   async listIssues(
     credential: GithubCredential,
     owner: string,
@@ -435,24 +516,84 @@ export class GithubRestClient implements GitHubApi {
     const items = await this.listCollection(credential, owner, repo, "issues", state);
     const mapped: GithubIssue[] = [];
     for (const item of items) {
-      const issue = item as Record<string, unknown>;
-      const user = issue.user as Record<string, unknown> | null;
-      const labels = Array.isArray(issue.labels) ? issue.labels : [];
-      const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
-      mapped.push({
-        number: this.positiveInt(issue.number) ?? 0,
-        title: this.string(issue.title),
-        state: this.string(issue.state),
-        html_url: this.string(issue.html_url),
-        user_login: this.maybeString(user?.login),
-        body: this.maybeString(issue.body),
-        labels: labels.map((label) => String((label as Record<string, unknown>)?.name ?? label)),
-        assignees: assignees.map((assignee) =>
-          String((assignee as Record<string, unknown>)?.login ?? assignee),
-        ),
-      });
+      const issue = await this.toIssue(item);
+      if (issue) {
+        mapped.push(issue);
+      }
     }
     return mapped;
+  }
+
+  async getIssue(credential: GithubCredential, owner: string, repo: string, number: number): Promise<GithubIssue> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/issues/${number}`);
+    return (await this.toIssue(await this.json(response)))!;
+  }
+
+  async getIssueComments(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<GithubIssueComment[]> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/issues/${number}/comments?per_page=100`);
+    const data = await this.json(response);
+    const items = Array.isArray(data) ? data : [];
+    const mapped: GithubIssueComment[] = [];
+    for (const item of items) {
+      const comment = await this.toComment(item);
+      if (comment) {
+        mapped.push(comment);
+      }
+    }
+    return mapped;
+  }
+
+  async updateIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+    input: UpdateIssueInput,
+  ): Promise<GithubIssue> {
+    const body: Record<string, unknown> = {};
+    if (input.title !== undefined) {
+      body.title = input.title;
+    }
+    if (input.body !== undefined) {
+      body.body = input.body;
+    }
+    if (input.state !== undefined) {
+      body.state = input.state;
+    }
+    if (input.labels !== undefined) {
+      body.labels = input.labels;
+    }
+    const response = await this.request(credential, `/repos/${owner}/${repo}/issues/${number}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    return (await this.toIssue(await this.json(response)))!;
+  }
+
+  async createIssueComment(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    number: number,
+    body: string,
+  ): Promise<GithubIssueComment> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/issues/${number}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+    return (await this.toComment(await this.json(response)))!;
+  }
+
+  async listLabels(credential: GithubCredential, owner: string, repo: string): Promise<string[]> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/labels?per_page=100`);
+    const data = await this.json(response);
+    const items = Array.isArray(data) ? data : [];
+    return items.map((item) => String((item as Record<string, unknown>)?.name ?? item));
   }
 
   async openPull(

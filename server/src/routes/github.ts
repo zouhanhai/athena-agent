@@ -12,6 +12,7 @@ import {
   GithubCredentialUnsupportedError,
   type GitHubApi,
   type GithubIssueState,
+  type UpdateIssueInput,
 } from "../github/client.js";
 import {
   GITHUB_OP_KINDS,
@@ -50,6 +51,15 @@ function issueState(value: unknown): GithubIssueState | null {
 
 function optionalInt(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/** Validate a positive integer path param (e.g. an issue/PR number). */
+function numberParam(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
+    return undefined;
+  }
+  const n = Number(value);
+  return Number.isSafeInteger(n) ? n : undefined;
 }
 
 function mapGithubError(
@@ -276,6 +286,87 @@ export function registerGithubRoutes(app: FastifyInstance, options: GithubRouteO
     return withCredential(request, reply, async (credential) => {
       const issues = await github.listIssues(credential, owner, repo, state);
       return { issues };
+    });
+  });
+
+  app.get("/api/github/repos/:owner/:repo/issues/:number", async (request, reply) => {
+    const { owner, repo } = repoParams(request);
+    const number = numberParam((request.params as { number?: unknown }).number);
+    if (!owner || !repo || number === undefined) {
+      return reply.code(400).send({ error: "owner, repo and a positive number are required" });
+    }
+    return withCredential(request, reply, async (credential) => {
+      const issue = await github.getIssue(credential, owner, repo, number);
+      const comments = await github.getIssueComments(credential, owner, repo, number);
+      return { issue, comments };
+    });
+  });
+
+  app.patch("/api/github/repos/:owner/:repo/issues/:number", async (request, reply) => {
+    const { owner, repo } = repoParams(request);
+    const number = numberParam((request.params as { number?: unknown }).number);
+    if (!owner || !repo || number === undefined) {
+      return reply.code(400).send({ error: "owner, repo and a positive number are required" });
+    }
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const input: UpdateIssueInput = {};
+    if (body.title !== undefined) {
+      if (typeof body.title !== "string") {
+        return reply.code(400).send({ error: "title must be a string" });
+      }
+      input.title = body.title;
+    }
+    if (body.body !== undefined) {
+      if (typeof body.body !== "string") {
+        return reply.code(400).send({ error: "body must be a string" });
+      }
+      input.body = body.body;
+    }
+    if (body.state !== undefined) {
+      if (body.state !== "open" && body.state !== "closed") {
+        return reply.code(400).send({ error: "state must be one of: open, closed" });
+      }
+      input.state = body.state;
+    }
+    if (body.labels !== undefined) {
+      if (!Array.isArray(body.labels) || body.labels.some((label) => typeof label !== "string")) {
+        return reply.code(400).send({ error: "labels must be an array of strings" });
+      }
+      input.labels = body.labels;
+    }
+    if (Object.keys(input).length === 0) {
+      return reply.code(400).send({ error: "nothing to update" });
+    }
+    return withCredential(request, reply, async (credential) => {
+      const issue = await github.updateIssue(credential, owner, repo, number, input);
+      return { issue };
+    });
+  });
+
+  app.post("/api/github/repos/:owner/:repo/issues/:number/comments", async (request, reply) => {
+    const { owner, repo } = repoParams(request);
+    const number = numberParam((request.params as { number?: unknown }).number);
+    if (!owner || !repo || number === undefined) {
+      return reply.code(400).send({ error: "owner, repo and a positive number are required" });
+    }
+    const commentBody = requiredString((request.body as { body?: unknown } | null | undefined)?.body);
+    if (!commentBody) {
+      return reply.code(400).send({ error: "body is required" });
+    }
+    return withCredential(request, reply, async (credential) => {
+      const comment = await github.createIssueComment(credential, owner, repo, number, commentBody);
+      return reply.code(201).send({ comment });
+    });
+  });
+
+  app.get("/api/github/repos/:owner/:repo/labels", async (request, reply) => {
+    const { owner, repo } = repoParams(request);
+    if (!owner || !repo) {
+      return reply.code(400).send({ error: "owner and repo are required" });
+    }
+    return withCredential(request, reply, async (credential) => {
+      const labels = await github.listLabels(credential, owner, repo);
+      return { labels };
     });
   });
 
