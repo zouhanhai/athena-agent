@@ -25,8 +25,9 @@ plan agent reads the issue's new info  →  new/updated tickets, even a new spec
 ## Bidirectional flow
 
 ### md → GitHub (projection)
-- Each **Spec** → one GitHub Issue (title = spec title, body = description + `## Sub-tasks` checklist
-  mirroring its tickets, linked back to `docs/kanban/<ref>.md`).
+- Each **Spec** → one GitHub Issue. **Issue title = `Gx.Sx <spec title>`** (e.g. `G3.S4 Workbench`), so the
+  title itself traces back to the md file (`docs/kanban/Gx/Sx/Spec.md`). Body = description + `## Sub-tasks`
+  checklist mirroring its tickets, with a link to `docs/kanban/<ref>.md`.
 - Ticket **state-machine changes** (backlog → in_progress → done / in_review / …) and assignee/session
   sync to the issue (move sub-task checkbox / status).
 - **Progress Log detail is NOT pushed** — GitHub shows current status only; the minute-level Progress
