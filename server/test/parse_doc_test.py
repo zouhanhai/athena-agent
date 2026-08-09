@@ -5,6 +5,7 @@ Run: ~/docling-venv/bin/python test/parse_doc_test.py
 import base64
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -47,6 +48,11 @@ class BuildPipelineOptionsTest(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("OPENROUTER_API_KEY", None)
 
+    def test_generate_picture_images_always_on(self):
+        # G3.S5.T5: picture images must be retained so --images-dir can export them.
+        options = parse_doc.build_pipeline_options()
+        self.assertTrue(options.generate_picture_images)
+
     def test_disabled_without_api_key(self):
         os.environ.pop("OPENROUTER_API_KEY", None)
         options = parse_doc.build_pipeline_options()
@@ -84,8 +90,61 @@ class BuildConverterTest(unittest.TestCase):
 
 
 class SanitizeStemTest(unittest.TestCase):
-    def test_derive_stem_for_pdf(self):
-        self.assertEqual(parse_doc.derive_stem("/tmp/My Report.pdf"), "My-Report")
+    def test_derive_stem_for_pdf_keeps_extension(self):
+        # G2.S5.T14: the extension is kept so same-name files of different
+        # formats get distinct stems (no LightRAG 409).
+        self.assertEqual(parse_doc.derive_stem("/tmp/My Report.pdf"), "My-Report.pdf")
+
+
+class FakeDocument:
+    """Minimal fake DoclingDocument capturing save_as_markdown kwargs."""
+
+    def __init__(self, out_path):
+        self.out_path = Path(out_path)
+        self.saved_kwargs = None
+
+    def export_to_markdown(self):
+        return "# No images\n\nplain text"
+
+    def save_as_markdown(self, filename, artifacts_dir=None, image_mode=None):
+        self.saved_kwargs = {
+            "filename": Path(filename),
+            "artifacts_dir": artifacts_dir,
+            "image_mode": image_mode,
+        }
+        self.out_path.write_text(
+            f"![Image]({artifacts_dir}/image_000000_abc123.png)", encoding="utf-8"
+        )
+
+
+class ParseDocumentTest(unittest.TestCase):
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: os.path.normpath(self.work) and None)
+        self.output_dir = self.work / "input"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def test_parse_document_uses_plain_export_without_images_dir(self):
+        with mock.patch.object(parse_doc, "build_converter") as build:
+            conv = build.return_value
+            conv.convert.return_value.document.export_to_markdown.return_value = (
+                "# Plain\n\nbody"
+            )
+            md = parse_doc.parse_document("/tmp/report.pdf", self.output_dir, None, "report.pdf")
+        self.assertEqual(md, "# Plain\n\nbody")
+
+    def test_parse_document_exports_images_with_relative_refs(self):
+        images_dir = self.output_dir / "images" / "report.pdf"
+        with mock.patch.object(parse_doc, "build_converter") as build:
+            conv = build.return_value
+            fake = FakeDocument(self.output_dir / "report.pdf.md")
+            conv.convert.return_value.document = fake
+            md = parse_doc.parse_document(
+                "/tmp/report.pdf", self.output_dir, images_dir, "report.pdf"
+            )
+        self.assertEqual(fake.saved_kwargs["image_mode"], parse_doc.ImageRefMode.REFERENCED)
+        self.assertEqual(fake.saved_kwargs["artifacts_dir"], "images/report.pdf")
+        self.assertIn("![Image](images/report.pdf/image_000000_abc123.png)", md)
 
 
 if __name__ == "__main__":

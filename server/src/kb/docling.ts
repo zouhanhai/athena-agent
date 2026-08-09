@@ -27,6 +27,12 @@ export interface DoclingParseResult {
   outputPath: string;
   /** File stem (basename without .md) of the produced Markdown. */
   stem: string;
+  /**
+   * Absolute directory where parse_doc.py exported the extracted picture
+   * images (G3.S5.T5). Always present when --images-dir is passed; the dir may
+   * not exist (or be empty) when the document has no images.
+   */
+  imagesDir: string;
 }
 
 export interface DoclingParserOptions {
@@ -59,6 +65,33 @@ export function defaultSharedInputDir(): string {
   return process.env.SHARED_INPUT_DIR ?? join(homedir(), "athena-data", "input");
 }
 
+/**
+ * Best-effort mirror of parse_doc.py `derive_stem()` (G3.S5.T5). Only used to
+ * build a stable per-document image export dir (`<outputDir>/images/<stem>`);
+ * parse_doc.py uses the dir exactly as passed, so TS and Python need not agree
+ * byte-for-byte.
+ */
+function deriveStemHint(input: string): string {
+  let raw: string;
+  if (/^https?:\/\//.test(input)) {
+    try {
+      const u = new URL(input);
+      const path = u.pathname && u.pathname !== "/" ? u.pathname : "/index";
+      raw = `${u.host}${path}`;
+      if (u.search) raw += `-${u.search.slice(1, 33)}`;
+    } catch {
+      raw = "url";
+    }
+  } else {
+    raw = input.split(/[\\/]/).pop() ?? "document";
+  }
+  const sanitized = raw
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+  return sanitized || "document";
+}
+
 export class DoclingParser {
   private readonly pythonBin: string;
   private readonly scriptPath: string;
@@ -84,7 +117,14 @@ export class DoclingParser {
    */
   async parse(input: string): Promise<DoclingParseResult> {
     await this.mkdirImpl(this.outputDir);
-    const { stdout } = await this.execFileImpl(this.pythonBin, [this.scriptPath, input, this.outputDir]);
+    const imagesDir = join(this.outputDir, "images", deriveStemHint(input));
+    const { stdout } = await this.execFileImpl(this.pythonBin, [
+      this.scriptPath,
+      input,
+      this.outputDir,
+      "--images-dir",
+      imagesDir,
+    ]);
     const outputPath = stdout.trim().split(/\r?\n/).filter(Boolean).pop();
     if (!outputPath) {
       throw new Error(`docling produced no output path for ${input}`);
@@ -95,6 +135,7 @@ export class DoclingParser {
       markdown,
       outputPath: resolved,
       stem: resolved.replace(/\.md$/i, "").split("/").pop() ?? "document",
+      imagesDir,
     };
   }
 }

@@ -7,7 +7,7 @@
  *   - llm_wiki: write the Markdown directly into the project's wiki dir, then
  *     rescan so Source Watch picks it up as a searchable wiki page.
  */
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LightRagClient, LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
@@ -63,6 +63,10 @@ export interface KnowledgeIngestOptions {
   projectId?: string;
   writeFile?: (path: string, content: string) => Promise<void>;
   mkdir?: (path: string) => Promise<void>;
+  /** Override listing a directory for image copying (tests). */
+  readdir?: (path: string) => Promise<WikiIndexEntry[]>;
+  /** Override copying one image file (tests). */
+  copyFile?: (src: string, dest: string) => Promise<void>;
   /**
    * Override the wiki-page classifier. Defaults to the llm_wiki agent
    * (`LlmWikiClient.classify`) with a local heuristic fallback.
@@ -278,6 +282,38 @@ export interface WikiIndexEntry {
   isDir: boolean;
 }
 
+/** File-system surface needed to copy docling-extracted images (G3.S5.T5). */
+export interface WikiImagesFs {
+  readDir: (path: string) => Promise<WikiIndexEntry[]>;
+  copyFile: (src: string, dest: string) => Promise<void>;
+  mkdir: (path: string) => Promise<void>;
+}
+
+/**
+ * Recursively copy the docling-extracted images from `sourceDir` into
+ * `targetDir`, preserving the relative layout so the markdown refs
+ * (`images/<stem>/image_x.png`) resolve unchanged relative to the wiki page
+ * (G3.S5.T5). Throws on a missing source dir (no images for this document).
+ */
+export async function copyExtractedImages(
+  sourceDir: string,
+  targetDir: string,
+  fs: WikiImagesFs,
+): Promise<void> {
+  const entries = await fs.readDir(sourceDir);
+  await fs.mkdir(targetDir);
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const src = join(sourceDir, entry.name);
+    const dest = join(targetDir, entry.name);
+    if (entry.isDir) {
+      await copyExtractedImages(src, dest, fs);
+    } else {
+      await fs.copyFile(src, dest);
+    }
+  }
+}
+
 export interface WikiIndexFs {
   readDir: (path: string) => Promise<WikiIndexEntry[]>;
   readFile: (path: string) => Promise<string>;
@@ -327,6 +363,8 @@ export class KnowledgeIngestService {
   private readonly projectId?: string;
   private readonly writeFile: (path: string, content: string) => Promise<void>;
   private readonly mkdir: (path: string) => Promise<void>;
+  private readonly readdir: (path: string) => Promise<WikiIndexEntry[]>;
+  private readonly copyFile: (src: string, dest: string) => Promise<void>;
   private readonly classify: (input: { title: string; content: string }) => Promise<WikiClassification>;
   private readonly rebuildIndex: (wikiDir: string) => Promise<void>;
   private resolved?: ResolvedProject;
@@ -340,6 +378,11 @@ export class KnowledgeIngestService {
     this.mkdir = options.mkdir ?? (async (path: string) => {
       await mkdir(path, { recursive: true });
     });
+    this.readdir = options.readdir ?? (async (path: string) => {
+      const entries = await readdir(path, { withFileTypes: true });
+      return entries.map((e) => ({ name: e.name, isDir: e.isDirectory() }));
+    });
+    this.copyFile = options.copyFile ?? copyFile;
     this.classify = options.classify ?? ((input) => this.classifyWithAgent(input));
     this.rebuildIndex = options.rebuildIndex ?? ((dir: string) => this.rebuildIndexDefault(dir));
   }
@@ -462,12 +505,19 @@ export class KnowledgeIngestService {
    * doc — e.g. ingestMarkdown/task queue, to feed LightRAG the frontmatter),
    * the classification is REUSED instead of calling the agent again, so both
    * systems carry the exact same type + topic.
+   * G3.S5.T5: when `images` is given, the docling-extracted image files are
+   * copied beside the page (wiki/<topic>/images/<stem>/...) so the markdown
+   * refs `images/<stem>/image_x.png` resolve relative to the page. The refs
+   * themselves are NOT rewritten — the copy preserves the relative layout the
+   * refs already use. LightRAG is unaffected: it ingests the same markdown
+   * text only, never the image bytes.
    */
   async ingestLlmWiki(
     fileName: string,
     content: string,
     onStep?: LlmWikiProgress,
     preclassified?: WikiClassification,
+    images?: { sourceDir: string; relativeDir: string },
   ): Promise<SystemIngestStatus> {
     try {
       const { id, wikiDir } = await this.resolveProject();
@@ -484,6 +534,9 @@ export class KnowledgeIngestService {
       onStep?.("write_page", "running");
       await this.mkdir(targetDir);
       await this.writeFile(join(targetDir, fileName), withFrontmatter(category, title, content, topic));
+      if (images) {
+        await this.copyPageImages(images.sourceDir, join(targetDir, images.relativeDir));
+      }
       onStep?.("write_page", "done");
       onStep?.("rebuild_index", "running");
       await this.rebuildIndex(wikiDir);
@@ -578,6 +631,22 @@ export class KnowledgeIngestService {
       lightrag: lightragOutcome,
       llmwiki: llmwikiOutcome,
     };
+  }
+
+  /** Copy the docling-extracted images beside the wiki page (G3.S5.T5).
+   *  A missing source dir means the document has no images — skip. Other
+   *  failures propagate so the write_page step surfaces them. */
+  private async copyPageImages(sourceDir: string, destDir: string): Promise<void> {
+    try {
+      await copyExtractedImages(sourceDir, destDir, {
+        readDir: this.readdir,
+        copyFile: this.copyFile,
+        mkdir: this.mkdir,
+      });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return;
+      throw err;
+    }
   }
 
   /** Classify via the llm_wiki agent, falling back to a local heuristic. */

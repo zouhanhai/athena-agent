@@ -7,11 +7,14 @@ HTML / EPUB / CSV / Markdown / LaTeX ... or a URL) to Markdown and write it
 to the shared input-dir consumed by the dual-pipeline (LightRAG + llm_wiki).
 
 Usage:
-    parse_doc.py <input> <output-dir>
+    parse_doc.py <input> <output-dir> [--images-dir <dir>]
 
     <input>      File path or URL.
     <output-dir> Directory to write the resulting Markdown into
                  (e.g. ~/athena-data/input, the shared input-dir).
+    --images-dir Optional absolute dir to export extracted picture images into.
+                 When set, the markdown references them with RELATIVE URIs
+                 (relative to the Markdown file), e.g. `![Image](images/x.png)`.
 
 Exit codes: 0 = ok, 1 = parse/IO failure.
 """
@@ -56,6 +59,7 @@ from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
     PictureDescriptionApiOptions,
 )
+from docling_core.types.doc import ImageRefMode
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,6 +123,9 @@ def build_pipeline_options() -> PdfPipelineOptions:
     works.
     """
     options = PdfPipelineOptions()
+    # G3.S5.T5: keep extracted picture images in the document so they can be
+    # exported to disk (save_as_markdown REFERENCED) and shown in llm_wiki.
+    options.generate_picture_images = True
     api_key = resolve_openrouter_key()
     if api_key:
         options.enable_remote_services = True
@@ -204,17 +211,32 @@ def derive_stem(source: str) -> str:
     return sanitize_stem(Path(name).name)
 
 
-def parse_document(source: str, output_dir: Path, image_export_dir: Path | None) -> str:
-    """Run docling conversion and return the markdown content."""
+def parse_document(
+    source: str, output_dir: Path, images_dir: Path | None, stem: str
+) -> str:
+    """Run docling conversion and return the markdown content.
+
+    When ``images_dir`` is given (G3.S5.T5), the extracted picture images are
+    exported to disk and the markdown references them via relative URIs so the
+    refs resolve unchanged when the images are copied beside a wiki page.
+    """
     converter = build_converter()
     log.info("converting %s", source)
     result = converter.convert(source)
-    markdown = result.document.export_to_markdown(
-        image_export_dir=image_export_dir
-    ) if image_export_dir else result.document.export_to_markdown()
-    if not markdown.strip():
-        raise ValueError("docling produced empty markdown output")
-    return markdown
+    if images_dir is not None:
+        out_path = output_dir / f"{stem}.md"
+        # A RELATIVE artifacts dir makes docling write refs relative to the
+        # markdown file's own directory (images/<stem>/image_xxx.png), so the
+        # produced markdown is portable: copy the images beside the page and the
+        # refs resolve. An absolute dir would embed absolute paths instead.
+        rel_artifacts = os.path.relpath(images_dir, output_dir)
+        result.document.save_as_markdown(
+            out_path,
+            artifacts_dir=rel_artifacts,
+            image_mode=ImageRefMode.REFERENCED,
+        )
+        return out_path.read_text(encoding="utf-8")
+    return result.document.export_to_markdown()
 
 
 def main(argv: list[str]) -> int:
@@ -254,13 +276,17 @@ def main(argv: list[str]) -> int:
     if image_export_dir:
         image_export_dir.mkdir(parents=True, exist_ok=True)
 
+    stem = derive_stem(source)
     try:
-        markdown = parse_document(source, output_dir, image_export_dir)
+        markdown = parse_document(source, output_dir, image_export_dir, stem)
     except Exception as err:  # docling raises a variety of backend errors
         log.error("parse failed: %s", err)
         return 1
 
-    stem = derive_stem(source)
+    if not markdown.strip():
+        log.error("docling produced empty markdown output")
+        return 1
+
     out_path = output_dir / f"{stem}.md"
     out_path.write_text(markdown, encoding="utf-8")
     log.info("wrote %s (%d chars)", out_path, len(markdown))

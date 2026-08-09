@@ -498,6 +498,109 @@ test("ingestMarkdown classifies FIRST and feeds LightRAG the topic via frontmatt
   assert.match(write?.args[1] as string, /^---\ntype: event\ntitle: Sommerseminar 2026\ntopic: internal\/events\n/);
 });
 
+test("ingestLlmWiki copies docling-extracted images beside the wiki page (G3.S5.T5)", async () => {
+  const copied: [string, string][] = [];
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    lightrag: fakes.lightrag,
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+    readdir: async (path) => {
+      if (path === "/shared/input/images/report.pdf") {
+        return [{ name: "image_000000_abc.png", isDir: false }];
+      }
+      return [];
+    },
+    copyFile: async (src, dest) => {
+      copied.push([src, dest]);
+    },
+  });
+
+  const result = await service.ingestLlmWiki(
+    "report.md",
+    "# Report\n\n![A revenue chart](images/report.pdf/image_000000_abc.png)",
+    undefined,
+    { category: "concept", pagePath: "wiki/concepts/report.md", topic: "sommerseminar" },
+    { sourceDir: "/shared/input/images/report.pdf", relativeDir: "images/report.pdf" },
+  );
+
+  assert.equal(result.ok, true);
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  assert.equal(write?.args[0], "/data/wiki/sommerseminar/report.md");
+  // images copied beside the page, preserving the relative layout the refs use
+  assert.deepEqual(copied, [
+    [
+      "/shared/input/images/report.pdf/image_000000_abc.png",
+      "/data/wiki/sommerseminar/images/report.pdf/image_000000_abc.png",
+    ],
+  ]);
+  // the wiki page keeps the relative image refs unchanged (no rewriting)
+  assert.match(write?.args[1] as string, /!\[A revenue chart\]\(images\/report\.pdf\/image_000000_abc\.png\)/);
+});
+
+test("ingestLlmWiki skips image copying when the doc has no images (missing source dir)", async () => {
+  let copied = 0;
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    lightrag: fakes.lightrag,
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+    readdir: async () => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    },
+    copyFile: async () => {
+      copied += 1;
+    },
+  });
+
+  const result = await service.ingestLlmWiki(
+    "plain.md",
+    "# Plain\n\nNo images.",
+    undefined,
+    { category: "concept", pagePath: "wiki/concepts/plain.md", topic: "sommerseminar" },
+    { sourceDir: "/shared/input/images/plain.pdf", relativeDir: "images/plain.pdf" },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(copied, 0);
+});
+
+test("LightRAG receives pure text (no served image URLs/bytes) while the wiki page keeps image refs (G3.S5.T5)", async () => {
+  const content =
+    "# Report\n\nText.\n\n![A revenue chart](images/report.pdf/image_000000_abc.png)";
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    lightrag: fakes.lightrag,
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  await service.ingestMarkdown({ title: "Report", content, source: "report.md" });
+
+  const ingest = fakes.calls.find((c) => c.kind === "lightrag.ingestText");
+  const lightragContent = ingest?.args[0] as string;
+  // image bytes / served URLs never reach LightRAG
+  assert.ok(!lightragContent.includes("/api/kb/wiki/image"));
+  assert.ok(!/data:image\//.test(lightragContent));
+  // the alt-text (VLM description) stays RAG-searchable
+  assert.match(lightragContent, /A revenue chart/);
+
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  const wikiContent = write?.args[1] as string;
+  assert.match(wikiContent, /!\[A revenue chart\]\(images\/report\.pdf\/image_000000_abc\.png\)/);
+});
+
 test("buildWikiIndex groups pages by frontmatter type", () => {
   const index = buildWikiIndex([
     { type: "entity", title: "Acme", target: "entities/acme" },

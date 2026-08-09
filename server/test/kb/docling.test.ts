@@ -27,7 +27,7 @@ function makeParser(opts: {
   return { parser, execCalls, readCalls };
 }
 
-test("parse invokes python parse_doc.py with input + shared input-dir and returns markdown", async () => {
+test("parse invokes python parse_doc.py with input + shared input-dir + --images-dir and returns markdown", async () => {
   const { parser, execCalls, readCalls } = makeParser({
     stdout: "/shared/input/report.md\n",
     markdown: "# Report\n\nBody",
@@ -35,12 +35,31 @@ test("parse invokes python parse_doc.py with input + shared input-dir and return
   const result = await parser.parse("/tmp/report.pdf");
 
   assert.deepEqual(execCalls, [
-    ["/opt/docling/bin/python", ["/opt/parse_doc.py", "/tmp/report.pdf", "/shared/input"]],
+    [
+      "/opt/docling/bin/python",
+      [
+        "/opt/parse_doc.py",
+        "/tmp/report.pdf",
+        "/shared/input",
+        "--images-dir",
+        "/shared/input/images/report.pdf",
+      ],
+    ],
   ]);
   assert.deepEqual(readCalls, ["/shared/input/report.md"]);
   assert.equal(result.markdown, "# Report\n\nBody");
   assert.equal(result.outputPath, "/shared/input/report.md");
   assert.equal(result.stem, "report");
+  assert.equal(result.imagesDir, "/shared/input/images/report.pdf");
+});
+
+test("parse returns the images dir for URL inputs (host-path stem)", async () => {
+  const { parser } = makeParser({
+    stdout: "log line one\n/shared/input/example.com-index.md\n",
+    markdown: "# Example Domain",
+  });
+  const result = await parser.parse("https://example.com/");
+  assert.equal(result.imagesDir, "/shared/input/images/example.com-index");
 });
 
 test("parse uses the last stdout line as output path (URL produces host-path stem)", async () => {

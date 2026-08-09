@@ -7,6 +7,9 @@
  *   - llm_wiki: /api/kb/wiki (page tree), /api/kb/wiki/page (markdown), /api/kb/search (keyword)
  */
 
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import type { LightRagClient, LightRagGraphResult } from "./lightrag.js";
 import type { LlmWikiClient, LlmWikiFileNode, LlmWikiSearchResult } from "./llmwiki.js";
 
@@ -17,6 +20,11 @@ export interface KnowledgeRetrievalOptions {
   projectId?: string;
   /** Default label for the LightRAG graph export. Default: "*" (full graph). */
   lightragLabel?: string;
+  /** llm_wiki wiki pages directory (project.path/wiki). When omitted, it is
+   *  resolved from the project path returned by listProjects(). */
+  wikiDir?: string;
+  /** Override reading image bytes from disk (tests). */
+  readFile?: (path: string) => Promise<Buffer>;
 }
 
 export interface KnowledgeGraphNode {
@@ -67,6 +75,8 @@ export interface KnowledgeSearchResponse {
 
 interface ResolvedProject {
   id: string;
+  /** Local wiki pages dir (project.path/wiki) for image byte reads. */
+  wikiDir?: string;
 }
 
 export class KnowledgeRetrievalService {
@@ -74,6 +84,8 @@ export class KnowledgeRetrievalService {
   private readonly llmwiki: LlmWikiClient;
   private readonly projectId?: string;
   private readonly lightragLabel: string;
+  private readonly wikiDir?: string;
+  private readonly readFile: (path: string) => Promise<Buffer>;
   private resolved?: ResolvedProject;
 
   constructor(options: KnowledgeRetrievalOptions) {
@@ -81,6 +93,8 @@ export class KnowledgeRetrievalService {
     this.llmwiki = options.llmwiki;
     this.projectId = options.projectId;
     this.lightragLabel = options.lightragLabel ?? "*";
+    this.wikiDir = options.wikiDir;
+    this.readFile = options.readFile ?? readFile;
   }
 
   /** GET /api/kb/graph → LightRAG entity-relation graph, normalized for the
@@ -124,6 +138,23 @@ export class KnowledgeRetrievalService {
     return this.llmwiki.readFile(id, path);
   }
 
+  /** GET /api/kb/wiki/image?path= → the wiki page's source image bytes.
+   *  `path` is a project-relative wiki path (e.g. "wiki/sommerseminar/images/
+   *  report.pdf/image_000000_x.png") already validated by the route guard; the
+   *  file is resolved against the on-disk wiki dir (G3.S5.T5). */
+  async readWikiImage(path: string): Promise<{ data: Buffer; contentType: string }> {
+    const { wikiDir } = await this.resolveProject();
+    if (!wikiDir) {
+      throw new Error("llm_wiki wiki dir could not be resolved");
+    }
+    const relative = path.startsWith("wiki/") ? path.slice("wiki/".length) : path;
+    if (relative.includes("..") || relative.includes("\\") || relative.startsWith("/")) {
+      throw new Error("invalid wiki image path");
+    }
+    const data = await this.readFile(join(wikiDir, relative));
+    return { data, contentType: contentTypeForImage(relative) };
+  }
+
   /** POST /api/kb/search → fused results from LightRAG (semantic) + llm_wiki (keyword). */
   async search(query: string): Promise<KnowledgeSearchResponse> {
     const results: KnowledgeSearchResult[] = [];
@@ -159,7 +190,8 @@ export class KnowledgeRetrievalService {
       throw new Error("No llm_wiki project found");
     }
     const id = this.projectId ?? project.id;
-    this.resolved = { id };
+    const wikiDir = this.wikiDir ?? (project.path ? join(project.path, "wiki") : undefined);
+    this.resolved = { id, ...(wikiDir ? { wikiDir } : {}) };
     return this.resolved;
   }
 
@@ -184,6 +216,26 @@ function basename(path: string): string {
   const cleaned = path.replace(/\\/g, "/");
   const parts = cleaned.split("/");
   return parts[parts.length - 1] ?? path;
+}
+
+/** Content-type for a served wiki image based on its extension (G3.S5.T5). */
+function contentTypeForImage(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    default:
+      return "application/octet-stream";
+  }
 }
 
 /** Keep only nodes whose source file maps to `topic` (or a sub-topic of it,

@@ -26,6 +26,8 @@ function makeFakes(opts: {
     existingSource?: string;
   };
   nearDuplicate?: string;
+  /** Docling-extracted images dir returned by the fake parser (G3.S5.T5). */
+  imagesDir?: string;
   /** Injectable poller sleep so tests can gate/avoid real timer delays. */
   sleep?: (ms: number) => Promise<void>;
   /** LightRAG poll loop timeout (ms). */
@@ -44,7 +46,12 @@ function makeFakes(opts: {
     async parse(input: string) {
       calls.push({ kind: "parser.parse", args: [input] });
       if (flags.parseError) throw flags.parseError;
-      return { markdown: opts.markdown ?? "# Doc", outputPath: "/shared/input/doc.md", stem: "doc" };
+      return {
+        markdown: opts.markdown ?? "# Doc",
+        outputPath: "/shared/input/doc.md",
+        stem: "doc",
+        ...(opts.imagesDir ? { imagesDir: opts.imagesDir } : {}),
+      };
     },
   };
   const lightragStatuses = opts.lightragTrack?.statuses ?? ["processed"];
@@ -85,8 +92,8 @@ function makeFakes(opts: {
     async getLightRagPipelineStatus() {
       return { history_messages: opts.lightragTrack?.historyMessages ?? [] };
     },
-    async ingestLlmWiki(fileName: string, markdown: string, onStep?: (step: string, status: "running" | "done") => void) {
-      calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown] });
+    async ingestLlmWiki(fileName: string, markdown: string, onStep?: (step: string, status: "running" | "done") => void, preclassified?: unknown, images?: unknown) {
+      calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown, onStep, preclassified, images] });
       if (flags.llmwikiGate) await flags.llmwikiGate;
       if (!onStep) return flags.llmwikiOk ? { ok: true } : { ok: false, error: "wiki down" };
       onStep("classify", "running");
@@ -158,14 +165,12 @@ test("createTask seeds per-system sub-steps (docling/LightRAG/llm_wiki) each pen
       ["parse_ocr_image_desc", "pending"],
     ],
   );
-  // LightRAG sub-steps
+  // LightRAG sub-steps (G3.S5.T4: chunking already includes entity extraction
+  // + embedding upsert inline per chunk → one combined step)
   assert.deepEqual(
     task.stages.ingesting_lightrag.steps.map((s) => [s.name, s.status]),
     [
-      ["chunking", "pending"],
-      ["entity_extraction", "pending"],
-      ["graph_build", "pending"],
-      ["embedding", "pending"],
+      ["chunking_embedding", "pending"],
     ],
   );
   // llm_wiki sub-steps
@@ -483,7 +488,7 @@ test("task stays ingesting (not done) while LightRAG reports processing; chunk t
   const mid = queue.getTask(taskId)!;
   assert.equal(mid.status, "ingesting", "task must not be done while LightRAG processes");
   assert.equal(mid.stages.ingesting_lightrag.status, "running");
-  assert.equal(mid.stages.ingesting_lightrag.steps.find((s) => s.name === "chunking")!.status, "done", "chunking is done once the chunk total is known");
+  assert.equal(mid.stages.ingesting_lightrag.steps.find((s) => s.name === "chunking_embedding")!.status, "done", "chunking is done once the chunk total is known");
   assert.equal(mid.lightrag!.backendStatus, "processing");
   assert.equal(mid.lightrag!.chunksCount, 182);
   assert.equal(mid.lightrag!.chunksProcessed, 0);
@@ -523,6 +528,50 @@ test("chunk progress (N/M) is surfaced from the LightRAG pipeline log while proc
   release();
   await untilDone(queue, taskId);
   assert.equal(queue.getTask(taskId)!.lightrag!.chunksProcessed, 182);
+});
+
+test("task passes docling-extracted images to the llm_wiki stage (G3.S5.T5)", async () => {
+  const { queue, calls } = makeFakes({
+    markdown: "# Doc\n\n![img](images/doc.pdf/image_x.png)",
+    imagesDir: "/shared/input/images/doc.pdf",
+  });
+  const { taskId } = queue.submitFile("/tmp/doc.pdf", "doc.pdf");
+  await untilDone(queue, taskId);
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.deepEqual(task.images, {
+    sourceDir: "/shared/input/images/doc.pdf",
+    relativeDir: "images/doc.pdf",
+  });
+  const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+  assert.deepEqual(llmwiki!.args[4], {
+    sourceDir: "/shared/input/images/doc.pdf",
+    relativeDir: "images/doc.pdf",
+  });
+});
+
+test("retry of the llm_wiki stage still passes the stored images (G3.S5.T5)", async () => {
+  const { queue, calls, flags } = makeFakes({
+    markdown: "# Doc",
+    imagesDir: "/shared/input/images/doc.pdf",
+    llmwikiOk: false,
+  });
+  const { taskId } = queue.submitFile("/tmp/doc.pdf", "doc.pdf");
+  await untilDone(queue, taskId);
+  assert.equal(queue.getTask(taskId)!.stages.ingesting_llmwiki.status, "failed");
+
+  flags.llmwikiOk = true;
+  queue.retry(taskId);
+  await untilDone(queue, taskId);
+  assert.equal(queue.getTask(taskId)!.stages.ingesting_llmwiki.status, "done");
+  const llmwikiCalls = calls.filter((c) => c.kind === "ingest.llmwiki");
+  assert.equal(llmwikiCalls.length, 2);
+  for (const c of llmwikiCalls) {
+    assert.deepEqual(c.args[4], {
+      sourceDir: "/shared/input/images/doc.pdf",
+      relativeDir: "images/doc.pdf",
+    });
+  }
 });
 
 test("task reflects the real LightRAG backend failure (stage failed, backend error surfaced)", async () => {

@@ -293,6 +293,58 @@ test("readWikiPage returns the markdown content for a path", async () => {
   assert.equal(page.content, "# Title\nbody");
 });
 
+test("readWikiImage resolves the image against the on-disk wiki dir and returns bytes + content-type (G3.S5.T5)", async () => {
+  const readPaths: string[] = [];
+  const service = new KnowledgeRetrievalService({
+    lightrag: stubLightrag(),
+    llmwiki: stubLlmwiki({
+      listProjects: async () => ({
+        projects: [{ id: "proj1", name: "P1", path: "/data/wiki", current: false }],
+        currentProject: null,
+      }),
+    }),
+    readFile: async (path) => {
+      readPaths.push(path);
+      return Buffer.from("PNG-BYTES");
+    },
+  });
+
+  const { data, contentType } = await service.readWikiImage(
+    "wiki/sommerseminar/images/report.pdf/image_000000_abc.png",
+  );
+  assert.equal(data.toString(), "PNG-BYTES");
+  assert.equal(contentType, "image/png");
+  assert.deepEqual(readPaths, [
+    "/data/wiki/wiki/sommerseminar/images/report.pdf/image_000000_abc.png",
+  ]);
+});
+
+test("readWikiImage uses the configured wikiDir and rejects traversal paths", async () => {
+  const readPaths: string[] = [];
+  const service = new KnowledgeRetrievalService({
+    lightrag: stubLightrag(),
+    llmwiki: stubLlmwiki(),
+    wikiDir: "/data/wiki",
+    readFile: async (path) => {
+      readPaths.push(path);
+      return Buffer.from("x");
+    },
+  });
+
+  const { contentType } = await service.readWikiImage("wiki/concepts/images/a.png");
+  assert.equal(contentType, "image/png");
+  assert.deepEqual(readPaths, ["/data/wiki/concepts/images/a.png"]);
+
+  await assert.rejects(
+    () => service.readWikiImage("wiki/../etc/passwd"),
+    /invalid wiki image path/,
+  );
+  await assert.rejects(
+    () => service.readWikiImage("wiki/concepts/images/..%2fsecret.png"),
+    /invalid wiki image path/,
+  );
+});
+
 test("search fuses LightRAG answer and llm_wiki hits with source tags", async () => {
   const lightrag = stubLightrag({
     query: async () => ({

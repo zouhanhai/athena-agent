@@ -15,6 +15,10 @@ function stubRetrieval(
     }),
     getWikiTree: async () => [{ name: "runbook.md", path: "runbook.md", isDir: false }],
     readWikiPage: async (path: string) => ({ path, content: "# Runbook\nbody" }),
+    readWikiImage: async (path: string) => ({
+      data: Buffer.from(`bytes-of:${path}`),
+      contentType: "image/png",
+    }),
     search: async (query: string) => ({
       query,
       results: [{ source: "llmwiki", title: "Runbook", snippet: "Incident handling" }],
@@ -133,6 +137,69 @@ test("GET /api/kb/wiki/page returns markdown content", async () => {
     const body = res.json();
     assert.equal(body.path, "runbook.md");
     assert.match(body.content, /^# Runbook/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/wiki/image streams image bytes with the right content-type (G3.S5.T5)", async () => {
+  let seenPath: string | undefined;
+  const app = await appWith(
+    stubRetrieval({
+      readWikiImage: async (path: string) => {
+        seenPath = path;
+        return { data: Buffer.from("PNG-BYTES"), contentType: "image/png" };
+      },
+    }),
+  );
+  try {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/kb/wiki/image?path=wiki/sommerseminar/images/report.pdf/image_000000_abc.png",
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers["content-type"], "image/png");
+    assert.equal(res.rawPayload.toString(), "PNG-BYTES");
+    assert.equal(seenPath, "wiki/sommerseminar/images/report.pdf/image_000000_abc.png");
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/wiki/image rejects missing and unsafe paths", async () => {
+  const app = await appWith(stubRetrieval());
+  try {
+    const missing = await app.inject({ method: "GET", url: "/api/kb/wiki/image" });
+    assert.equal(missing.statusCode, 400);
+    for (const path of ["", "foo.png", "wiki/../etc/passwd", "/etc/passwd", "sommerseminar/images/a.png"]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/kb/wiki/image?path=${encodeURIComponent(path)}`,
+      });
+      assert.equal(res.statusCode, 400, `path=${path}`);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/wiki/image returns 404 when the image file is missing", async () => {
+  const app = await appWith(
+    stubRetrieval({
+      readWikiImage: async () => {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      },
+    }),
+  );
+  try {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/kb/wiki/image?path=wiki/concepts/images/missing.png",
+    });
+    assert.equal(res.statusCode, 404);
+    assert.match(res.json().error ?? "", /not found/);
   } finally {
     await app.close();
   }

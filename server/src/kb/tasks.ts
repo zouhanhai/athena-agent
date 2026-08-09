@@ -7,6 +7,7 @@
  * LightRAG ok but llm_wiki failed (and vice versa).
  */
 import { randomUUID } from "node:crypto";
+import { dirname, relative } from "node:path";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
@@ -79,6 +80,11 @@ export interface IngestTask {
   markdown?: string;
   /** Derived ingest filename (`<documentId>.md`) retained for retry. */
   fileName?: string;
+  /** Docling-extracted image files (G3.S5.T5), retained so retry can re-copy
+   *  them beside the wiki page when the llm_wiki stage is re-run. `sourceDir`
+   *  is the absolute export dir; `relativeDir` is the layout relative to the
+   *  markdown file (`images/<stem>`), which the page refs already use. */
+  images?: { sourceDir: string; relativeDir: string };
   status: TaskStatus;
   /** Overall progress 0-100. */
   progress: number;
@@ -291,6 +297,12 @@ export class IngestTaskQueue {
           t.documentId = parsed.stem || documentIdFrom(source, source);
           t.markdown = markdown;
           t.fileName = fileName;
+          t.images = parsed.imagesDir
+            ? {
+                sourceDir: parsed.imagesDir,
+                relativeDir: relative(dirname(parsed.outputPath), parsed.imagesDir),
+              }
+            : undefined;
           t.progress = 35;
         });
         this.setStep(id, "parsing", "read_file", "done");
@@ -388,7 +400,7 @@ export class IngestTaskQueue {
         const res = await this.safeIngest(() =>
           this.ingest.ingestLlmWiki(fileName!, markdown!, (step, status) => {
             this.setStep(id, "ingesting_llmwiki", step, status);
-          }, preclassified),
+          }, preclassified, task.images),
         );
         console.log(`[tasks:${id}] llm_wiki ingest: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}`);
         this.patch(id, (t) => {

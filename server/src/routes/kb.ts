@@ -60,6 +60,13 @@ function isSafeWikiPath(value: string): boolean {
   return true;
 }
 
+/** Validate a wiki image path like "wiki/concepts/images/foo.png" (no traversal). */
+function isSafeWikiImagePath(value: string): boolean {
+  if (!value.startsWith("wiki/")) return false;
+  if (value.includes("..") || value.includes("\\")) return false;
+  return true;
+}
+
 /**
  * Knowledge ingestion endpoints:
  * - POST /api/kb/ingest (JSON { title, content, source? }) → dual-pipeline ingest
@@ -235,6 +242,27 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     try {
       return await options.retrieval!.readWikiPage(path);
     } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** GET /api/kb/wiki/image?path= → stream a wiki page's source image bytes
+   *  so WikiView can render <img src="/api/kb/wiki/image?path=..."> (G3.S5.T5).
+   *  The path is validated with the same isSafeWikiPath-style guard. */
+  app.get("/api/kb/wiki/image", async (request, reply) => {
+    const { path } = request.query as { path?: unknown };
+    if (typeof path !== "string" || path.trim().length === 0 || !isSafeWikiImagePath(path.trim())) {
+      return reply.code(400).send({ error: "a valid wiki image path (wiki/**/*) is required" });
+    }
+    try {
+      const { data, contentType } = await options.retrieval!.readWikiImage(path.trim());
+      return reply.type(contentType).send(data);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+        return reply.code(404).send({ error: "image not found" });
+      }
       return reply
         .code(500)
         .send({ error: err instanceof Error ? err.message : String(err) });
