@@ -50,6 +50,14 @@ RAG-selection item in `TODO.md`. Key points:
     best retriever per query.
 - **Case-insensitive** node lookup (LightRAG's `caleo`/`CALEO` bug must not recur).
 - A2A deferred to M6; MCP-first for KB access (G4.S6).
+- **Leiden community detection (optional enhancement, decided 2026-08-09)**: our `topic` classification is
+  **document-level, human-defined** (taxonomy tree); Leiden is **entity-level, automatic** (data-driven
+  clustering of densely-connected entity nodes). They are complementary, NOT the same:
+  - topic = "which bucket does this doc belong to" (per-doc, curated tree).
+  - Leiden = "which entities are densely related" (per-graph, auto-discovered clusters).
+  - **Value**: Leiden auto-discovers topic clusters the taxonomy didn't anticipate → can **feedback into
+    the taxonomy** (spot subtopics needing split/new topics) + enable GraphRAG-style global queries
+    (community summaries). Tracked as optional enhancement; not required for S2 core.
 
 ## Dependencies
 
