@@ -100,11 +100,16 @@ quality)**. Output ≥ input (rewrite + extracted structured data), so usable in
 
 ### Dedicated OpenRouter keys for Athena refinement + embedding (decided 2026-08-09)
 
-Athena's document-refinement LLM pass uses a **dedicated OpenRouter API key** (`ATHENA_OPENROUTER_KEY`),
-and the embedding step uses its own (`EMBEDDING_OPENROUTER_KEY`) — both stored in `server/.env.local`
-(git-ignored) and set on 6900XT, **separate from the Pi/other flows** so cache-hit-rate and cost are
-independently observable/controllable, and Athena/embedding context+cost don't mix with other work.
-`refine_document` reads `ATHENA_OPENROUTER_KEY`; the embedding step reads `EMBEDDING_OPENROUTER_KEY`.
+Athena's document-refinement LLM pass uses a **dedicated OpenRouter key** registered as an **`athena`
+provider in the Pi `auth.json`** (6900XT `~/.pi/agent/auth.json`), separate from the shared `openrouter`
+provider — so refinement cache-hit-rate and cost are independently observable/controllable, and Athena
+refinement context/cost doesn't mix with other work. `refine_document` (a Pi custom tool) uses
+`modelRuntime.getModel("athena", "~deepseek/deepseek-v4-flash-latest")`.
+
+The **embedding** step uses its own `EMBEDDING_OPENROUTER_KEY` (stored in `server/.env.local`,
+git-ignored; also on 6900XT). This is consumed by the **G4.S2 self-built RAG interface** (embedding is
+part of the RAG engine, not the Pi agent) — the self-built interface reads it; it's not used by the Pi
+agent.
 
 ## Full design (original spec reference)
 
