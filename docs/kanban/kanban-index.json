@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-09T20:35:40.977Z",
+  "generated_at": "2026-08-09T20:44:02.402Z",
   "goals": [
     {
       "ref": "G1",
@@ -1735,7 +1735,7 @@
               "id": "t2",
               "title": "G4.S1.T2: refine_document output contract + document-refinement skill + prompt",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_g4s1_t2_opencode",
               "blocked_by": [],
@@ -1747,7 +1747,9 @@
                 "Prompt uses docs/taxonomy.md for type/topic + cross-RAG extraction best practices (G4.S1 Spec)"
               ],
               "started_at": "2026-08-09",
-              "completed_at": ""
+              "completed_at": "2026-08-09",
+              "progress_last_row": "T2 done: contract schema + SKILL.md + one-pass prompt shipped; 623/623 server tests green; regenerated kanban index",
+              "progress_updated_at": "2026-08-09 21:05:00Z"
             },
             {
               "ref": "G4.S1.T3",
