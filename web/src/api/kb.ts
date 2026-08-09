@@ -32,6 +32,12 @@ export interface WikiTreeNode {
   type?: string;
   /** Frontmatter `topic` of a wiki page (may be a slash path, e.g. "sap/fiori"). */
   topic?: string;
+  /** True for heading-outline entries under a selected wiki file (G3.S5.T6). */
+  isHeading?: boolean;
+  /** Heading level (1..3) of a heading-outline entry (G3.S5.T6). */
+  level?: number;
+  /** Slugified heading id a heading-outline entry scrolls to (G3.S5.T6). */
+  anchorId?: string;
   children?: WikiTreeNode[];
 }
 

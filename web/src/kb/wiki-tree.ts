@@ -9,6 +9,9 @@
  *   - "type":  pages grouped by frontmatter type (concepts/, entities/, ...)
  */
 import type { WikiTreeNode } from "@/api/kb";
+import type { WikiHeading } from "@/kb/markdown";
+
+export type { WikiHeading };
 
 export type WikiView = "topic" | "type";
 
@@ -134,4 +137,39 @@ function buildTypeTree(pages: WikiPage[]): WikiTreeNode[] {
 /** Build the view tree for the active view from a flat page list. */
 export function buildViewTree(pages: WikiPage[], view: WikiView): WikiTreeNode[] {
   return view === "topic" ? buildTopicTree(pages) : buildTypeTree(pages);
+}
+
+/**
+ * Extend a freshly-built view tree with the selected file's internal heading
+ * outline (G3.S5.T6): the active file node gains `isHeading` children, each
+ * clickable to scroll the content pane to that section. Non-matching files and
+ * folders are left untouched.
+ */
+export function attachHeadings(
+  tree: WikiTreeNode[],
+  filePath: string,
+  headings: WikiHeading[],
+): WikiTreeNode[] {
+  if (!filePath || headings.length === 0) return tree;
+  const next = structuredClone(tree);
+  const walk = (nodes: WikiTreeNode[]): boolean => {
+    for (const node of nodes) {
+      if (node.isDir) {
+        if (walk(node.children ?? [])) return true;
+      } else if (node.path === filePath) {
+        node.children = headings.map((h) => ({
+          name: h.text,
+          path: `${filePath}#${h.id}`,
+          isDir: false,
+          isHeading: true,
+          level: h.level,
+          anchorId: h.id,
+        }));
+        return true;
+      }
+    }
+    return false;
+  };
+  walk(next);
+  return next;
 }

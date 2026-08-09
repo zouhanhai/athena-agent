@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { flattenPages, buildViewTree } from "@/kb/wiki-tree";
-import type { WikiPage } from "@/kb/wiki-tree";
+import { flattenPages, buildViewTree, attachHeadings } from "@/kb/wiki-tree";
+import type { WikiHeading, WikiPage } from "@/kb/wiki-tree";
 import type { WikiTreeNode } from "@/api/kb";
 
 const physicalTree: WikiTreeNode[] = [
@@ -100,5 +100,45 @@ describe("buildViewTree type view", () => {
   it("buckets unknown types under Other", () => {
     const tree = buildViewTree([{ path: "x.md", name: "x.md" }], "type");
     expect(tree.map((n) => n.name)).toEqual(["Other"]);
+  });
+});
+
+describe("attachHeadings (G3.S5.T6)", () => {
+  const base = () => buildViewTree(flat, "topic");
+
+  it("adds heading children under the active file node", () => {
+    const headings: WikiHeading[] = [
+      { level: 1, id: "title", text: "Title" },
+      { level: 2, id: "setup", text: "Setup" },
+      { level: 3, id: "sub", text: "Sub" },
+    ];
+    const tree = attachHeadings(base(), "sap/f1.md", headings);
+    const sap = tree.find((n) => n.name === "sap")!;
+    const fiori = sap.children!.find((n) => n.name === "fiori")!;
+    const f1 = fiori.children!.find((n) => n.name === "f1.md")!;
+    expect(f1.children).toEqual([
+      { name: "Title", path: "sap/f1.md#title", isDir: false, isHeading: true, level: 1, anchorId: "title" },
+      { name: "Setup", path: "sap/f1.md#setup", isDir: false, isHeading: true, level: 2, anchorId: "setup" },
+      { name: "Sub", path: "sap/f1.md#sub", isDir: false, isHeading: true, level: 3, anchorId: "sub" },
+    ]);
+  });
+
+  it("does not touch other files or folders", () => {
+    const tree = attachHeadings(base(), "sap/f1.md", [{ level: 1, id: "x", text: "X" }]);
+    const sap = tree.find((n) => n.name === "sap")!;
+    const s4hana = sap.children!.find((n) => n.name === "s4hana")!;
+    const h1 = s4hana.children!.find((n) => n.name === "h1.md")!;
+    expect(h1.children).toBeUndefined();
+    expect(h1).toEqual({ name: "h1.md", path: "sap/h1.md", isDir: false });
+  });
+
+  it("leaves the tree unchanged when there are no headings", () => {
+    const tree = attachHeadings(base(), "sap/f1.md", []);
+    expect(tree).toEqual(buildViewTree(flat, "topic"));
+  });
+
+  it("leaves the tree unchanged when the active file is not in the tree", () => {
+    const tree = attachHeadings(base(), "missing.md", [{ level: 1, id: "x", text: "X" }]);
+    expect(tree).toEqual(buildViewTree(flat, "topic"));
   });
 });

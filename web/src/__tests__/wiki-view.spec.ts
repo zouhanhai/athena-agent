@@ -324,6 +324,76 @@ describe("WikiView", () => {
     wrapper.unmount();
   });
 
+  it("adds collapsible toggles to TOC items with children; leaves still link to anchors (G3.S5.T6)", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Title\n\n## Setup\n\n### Sub\n\n## Recovery");
+    const { wrapper } = await mountView({ path: "docs/runbook.md" });
+    await flushPromises();
+
+    const content = wrapper.find('[data-testid="wiki-content"]');
+
+    // "Title" and "Setup" have children → get a toggle; "Recovery" is a leaf → none.
+    const toggles = content.findAll(".wiki-toc-toggle");
+    expect(toggles.length).toBe(2);
+
+    // Default: top levels expanded, deeper levels collapsed (h3 list hidden).
+    expect(toggles[0].classes()).not.toContain("is-collapsed");
+    expect(toggles[1].classes()).toContain("is-collapsed");
+    expect(content.find("ul.wiki-toc-collapsed a[href='#sub']").exists()).toBe(true);
+
+    // Click the collapsed "Setup" toggle → its child <ul> (Sub) is revealed.
+    await toggles[1].trigger("click");
+    await flushPromises();
+    expect(content.find("ul.wiki-toc-collapsed").exists()).toBe(false);
+    expect(toggles[1].classes()).not.toContain("is-collapsed");
+    expect(toggles[1].attributes("aria-expanded")).toBe("true");
+
+    // Click again → re-collapses.
+    await toggles[1].trigger("click");
+    expect(content.find("ul.wiki-toc-collapsed a[href='#sub']").exists()).toBe(true);
+
+    // Click the expanded "Title" toggle → its h2 list collapses too.
+    await toggles[0].trigger("click");
+    expect(content.find("ul.wiki-toc-collapsed a[href='#setup']").exists()).toBe(true);
+
+    // A leaf TOC entry remains a working anchor link.
+    expect(content.find('a[href="#recovery"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the selected file's headings in the left tree and scrolls on click (G3.S5.T6)", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Title\n\n## Setup\n\n### Sub");
+    const scrollSpy = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      value: scrollSpy,
+      writable: true,
+      configurable: true,
+    });
+    try {
+      const { wrapper } = await mountView({ path: "docs/runbook.md" }, { attachTo: document.body });
+      await flushPromises();
+      await expandFolder(wrapper, "Untagged");
+      await flushPromises();
+
+      const headingItem = wrapper
+        .findAll(".t-tree__item")
+        .find((i) => i.text().includes("Setup"));
+      expect(headingItem).toBeDefined();
+      await headingItem!.trigger("click");
+      await flushPromises();
+      expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+      wrapper.unmount();
+    } finally {
+      if (original) {
+        Object.defineProperty(Element.prototype, "scrollIntoView", { value: original, writable: true });
+      } else {
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+      }
+    }
+  });
+
   it("scrolls to a heading when a TOC entry is clicked (G3.S5.T5)", async () => {
     getWikiTreeMock.mockResolvedValue(sampleTree);
     readWikiPageMock.mockResolvedValue("# Title\n\n## Setup\n\nBody.");

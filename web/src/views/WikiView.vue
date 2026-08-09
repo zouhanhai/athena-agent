@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import type { TreeNodeModel } from "tdesign-vue-next/es/tree/type";
 
 import { deleteWikiDoc, getWikiTree, readWikiPage } from "@/api/kb";
 import type { WikiTreeNode } from "@/api/kb";
-import { hasWikiHeadings, renderMarkdown } from "@/kb/markdown";
-import { buildViewTree, flattenPages } from "@/kb/wiki-tree";
+import { extractWikiHeadings, hasWikiHeadings, renderMarkdown } from "@/kb/markdown";
+import { attachHeadings, buildViewTree, flattenPages } from "@/kb/wiki-tree";
 import type { WikiView } from "@/kb/wiki-tree";
 import { useThemeStore } from "@/stores/theme";
 
@@ -32,6 +32,15 @@ const deleteError = ref("");
 
 const treeKeys = { value: "path", label: "name", children: "children" };
 
+const contentPane = ref<HTMLElement | null>(null);
+
+/** Minimal surface of the TDesign tree used to auto-expand the active file. */
+interface WikiTreeHandle {
+  setExpanded: (value: string | number, isExpanded: boolean) => void;
+  getItem: (value: string | number) => unknown;
+}
+const treeRef = ref<WikiTreeHandle | null>(null);
+
 const renderedContent = computed(() =>
   renderMarkdown(content.value, {
     pagePath: activePath.value || undefined,
@@ -39,14 +48,34 @@ const renderedContent = computed(() =>
   }),
 );
 
+/** The active page's internal heading outline (h1/h2/h3) for the left tree. */
+const headings = computed(() => extractWikiHeadings(content.value));
+
 /**
  * Intercept TOC/permalink anchor clicks and scroll the content pane to the
  * heading. The pane (not the window) is the scroll container, so native
  * `#fragment` navigation would scroll nothing; scrollIntoView handles nested
  * scroll containers correctly (G3.S5.T5).
+ *
+ * Also handles the G3.S5.T6 accordion: clicking a `.wiki-toc-toggle` folds or
+ * unfolds that TOC level's child list instead of navigating.
  */
 function onContentClick(event: MouseEvent): void {
-  const target = (event.target as HTMLElement | null)?.closest?.("a");
+  const rawTarget = event.target as HTMLElement | null;
+  const toggle = rawTarget?.closest?.(".wiki-toc-toggle");
+  if (toggle instanceof HTMLButtonElement) {
+    const li = toggle.closest("li");
+    const childList = li?.querySelector(":scope > ul");
+    if (li && childList) {
+      event.preventDefault();
+      const collapsed = childList.classList.toggle("wiki-toc-collapsed");
+      toggle.classList.toggle("is-collapsed", collapsed);
+      toggle.textContent = collapsed ? "▸" : "▾";
+      toggle.setAttribute("aria-expanded", String(!collapsed));
+    }
+    return;
+  }
+  const target = rawTarget?.closest?.("a");
   if (!target) return;
   const href = target.getAttribute("href");
   if (!href || !href.startsWith("#") || href.length < 2) return;
@@ -56,10 +85,63 @@ function onContentClick(event: MouseEvent): void {
   el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/** Tree shown in the sidebar for the active view (no file duplication). */
+/**
+ * Walk the nested `.wiki-toc` list and add an accordion toggle to every `li`
+ * that has a child list. Default state (G3.S5.T6): the two outermost levels
+ * stay expanded; deeper levels (h3 and beyond) start collapsed so long docs
+ * are not a wall of text. Re-injected after each content render — `v-html`
+ * wipes the injected DOM on every re-render.
+ */
+function initTocAccordion(): void {
+  const toc = contentPane.value?.querySelector(".wiki-toc");
+  const rootList = toc?.querySelector(":scope > ul");
+  if (!rootList) return;
+  walkTocLevel(rootList, 0);
+}
+
+function walkTocLevel(ul: Element, depth: number): void {
+  for (const child of Array.from(ul.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    const childList = child.querySelector(":scope > ul");
+    if (!childList) continue;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "wiki-toc-toggle";
+    const collapsed = depth >= 1;
+    toggle.classList.toggle("is-collapsed", collapsed);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute("aria-label", "Expand or collapse this section");
+    toggle.textContent = collapsed ? "▸" : "▾";
+    child.insertBefore(toggle, child.firstChild);
+    childList.classList.toggle("wiki-toc-collapsed", collapsed);
+    walkTocLevel(childList, depth + 1);
+  }
+}
+
+/** Re-arm the TOC accordion once the freshly-rendered content is in the DOM. */
+watch(renderedContent, () => {
+  void nextTick(initTocAccordion);
+});
+
+/** Tree shown in the sidebar for the active view (no file duplication),
+ *  extended with the active file's heading outline (G3.S5.T6). */
 const displayTree = computed(() =>
-  buildViewTree(flattenPages(tree.value), view.value),
+  attachHeadings(
+    buildViewTree(flattenPages(tree.value), view.value),
+    activePath.value,
+    headings.value,
+  ),
 );
+
+/** Auto-expand the selected file node so its heading outline is visible. */
+watch(displayTree, async () => {
+  await nextTick();
+  const path = activePath.value;
+  if (!path || headings.value.length === 0) return;
+  if (treeRef.value?.getItem?.(path)) {
+    treeRef.value.setExpanded(path, true);
+  }
+});
 
 /** The selected wiki page path (only for file nodes). */
 const selectedFile = computed(() =>
@@ -132,8 +214,17 @@ function isFileNode(node: WikiTreeNode): boolean {
   return !node.isDir;
 }
 
+/** Scroll the content pane to the section a left-tree heading node targets. */
+function scrollToHeading(id: string): void {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function onTreeClick(context: { node: TreeNodeModel<WikiTreeNode> }) {
   const node = context.node.data;
+  if (node.isHeading && node.anchorId) {
+    scrollToHeading(node.anchorId);
+    return;
+  }
   if (isFileNode(node)) void openPage(node.path);
 }
 
@@ -210,6 +301,7 @@ watch(
         </p>
         <t-tree
           v-else
+          ref="treeRef"
           :data="displayTree"
           :keys="treeKeys"
           :activable="true"
@@ -219,7 +311,17 @@ watch(
           :hover="true"
           class="wiki-tree"
           @click="onTreeClick"
-        />
+        >
+          <template #label="{ node }">
+            <span
+              v-if="node.data.isHeading"
+              :class="`wiki-heading-node wiki-heading-node-${node.data.level ?? 1}`"
+            >
+              {{ node.data.name }}
+            </span>
+            <span v-else>{{ node.data.name }}</span>
+          </template>
+        </t-tree>
       </aside>
 
       <div class="wiki-content-pane">
@@ -230,6 +332,7 @@ watch(
         </p>
         <div
           v-else
+          ref="contentPane"
           class="wiki-content"
           data-testid="wiki-content"
           v-html="renderedContent"
@@ -360,6 +463,29 @@ watch(
 
 .wiki-tree :deep(.t-tree__label) {
   font-size: 13px;
+}
+
+/* G3.S5.T6: heading-outline entries under the active file in the left tree —
+   indented by heading level so the outline reads like the doc structure. */
+.wiki-tree :deep(.wiki-heading-node) {
+  color: var(--caleo-text-secondary);
+  font-size: 12px;
+}
+
+.wiki-tree :deep(.wiki-heading-node:hover) {
+  color: var(--caleo-primary);
+}
+
+.wiki-tree :deep(.wiki-heading-node-1) {
+  padding-left: 0;
+}
+
+.wiki-tree :deep(.wiki-heading-node-2) {
+  padding-left: 12px;
+}
+
+.wiki-tree :deep(.wiki-heading-node-3) {
+  padding-left: 24px;
 }
 
 .wiki-error {
@@ -522,6 +648,11 @@ watch(
   margin: 0.2em 0;
 }
 
+/* G3.S5.T6: collapsed TOC sub-levels are hidden; the toggle reveals them. */
+.wiki-content :deep(.wiki-toc ul.wiki-toc-collapsed) {
+  display: none;
+}
+
 .wiki-content :deep(.wiki-toc a) {
   color: var(--caleo-sky);
   text-decoration: none;
@@ -529,6 +660,24 @@ watch(
 
 .wiki-content :deep(.wiki-toc a:hover) {
   text-decoration: underline;
+  color: var(--caleo-primary);
+}
+
+/* Accordion caret injected by initTocAccordion (G3.S5.T6). */
+.wiki-content :deep(.wiki-toc-toggle) {
+  margin-right: 6px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--caleo-text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.wiki-content :deep(.wiki-toc-toggle:hover) {
+  background: var(--caleo-surface-hover);
   color: var(--caleo-primary);
 }
 

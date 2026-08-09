@@ -93,6 +93,43 @@ export function hasWikiHeadings(source: string): boolean {
   return /^#{1,3}\s+/m.test(source);
 }
 
+export interface WikiHeading {
+  /** Heading level (1..3, matching the TOC includeLevel). */
+  level: number;
+  /** Stable slugified heading id — identical to the rendered heading anchor
+   *  (markdown-it-anchor dedup included), so scrolling via `getElementById`
+   *  resolves to the same section the TOC jumps to (G3.S5.T6). */
+  id: string;
+  /** Plain heading text (inline formatting stripped). */
+  text: string;
+}
+
+/** Extract the h1/h2/h3 outline of a page for the left wiki tree (G3.S5.T6).
+ *  Uses the same `md.parse` pipeline as `renderMarkdown` (incl. the anchor core
+ *  rule), so each returned `id` is byte-for-byte the rendered heading's id. */
+export function extractWikiHeadings(source: string): WikiHeading[] {
+  const tokens = md.parse(source, {});
+  const headings: WikiHeading[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (token.type !== "heading_open") continue;
+    const level = Number(token.tag.slice(1));
+    if (level < 1 || level > 3) continue;
+    const id = token.attrGet("id");
+    const inline = tokens[i + 1];
+    const text =
+      inline && inline.type === "inline"
+        ? (inline.children ?? [])
+            .filter((t) => t.type === "text" || t.type === "code_inline")
+            .map((t) => t.content)
+            .join("")
+            .trim()
+        : "";
+    headings.push({ level, id: id == null ? "" : String(id), text });
+  }
+  return headings;
+}
+
 export interface RenderMarkdownOptions {
   /** Project-relative path of the page being rendered (e.g. "wiki/concepts/foo.md").
    *  When set, relative `<img src="images/...">` refs are rewritten to the
