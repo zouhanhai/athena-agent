@@ -136,7 +136,7 @@ watch(
           <div v-for="goal in board.goals" :key="goal.ref" class="kanban-goal">
             <label
               class="kanban-goal-check"
-              :title="hiddenGoals.has(goal.ref) ? &quot;Show this goal's tickets&quot; : &quot;Hide this goal's tickets&quot;"
+              :title="hiddenGoals.has(goal.ref) ? 'Show this goal\'s tickets' : 'Hide this goal\'s tickets'"
             >
               <input
                 type="checkbox"
