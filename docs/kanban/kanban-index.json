@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T18:36:39.574Z",
+  "generated_at": "2026-08-10T18:47:18.767Z",
   "goals": [
     {
       "ref": "G1",
@@ -1889,7 +1889,7 @@
               "owner": "consultant",
               "status": "in_progress",
               "assignee": "opencode",
-              "session_id": "3d3b16e7-a81f-48fd-93a1-8248a78d3eaa",
+              "session_id": "15484a19-a0b2-472a-8ea4-8e15fd97f547",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
