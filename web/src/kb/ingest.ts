@@ -18,6 +18,7 @@ export interface IngestTaskItem {
   nearDuplicate?: string;
   stages: IngestTask["stages"];
   lightrag?: IngestTask["lightrag"];
+  refinement?: IngestTask["refinement"];
   createdAt: number;
   updatedAt: number;
 }
@@ -34,6 +35,15 @@ export function initialStages(): IngestTask["stages"] {
         { name: "parse_ocr_image_desc", status: "pending" },
       ],
     },
+    refinement: {
+      name: "refinement",
+      status: "pending",
+      steps: [
+        // G4.S1: Athena single full-doc LLM pass (re-level headers + classify
+        // type/topic + chunk + entities/keywords + quality, one read).
+        { name: "refine_document", status: "pending" },
+      ],
+    },
     ingesting_lightrag: {
       name: "ingesting_lightrag",
       status: "pending",
@@ -47,7 +57,7 @@ export function initialStages(): IngestTask["stages"] {
       name: "ingesting_llmwiki",
       status: "pending",
       steps: [
-        { name: "classify", status: "pending" },
+        // G4.S1.T4: classify is folded into refinement — llm_wiki is pure I/O.
         { name: "write_page", status: "pending" },
         { name: "rebuild_index", status: "pending" },
       ],
@@ -134,6 +144,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
       nearDuplicate: updated.nearDuplicate,
       stages: updated.stages,
       lightrag: updated.lightrag,
+      refinement: updated.refinement,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };

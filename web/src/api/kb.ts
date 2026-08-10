@@ -49,9 +49,9 @@ export interface KnowledgeSearchResult {
   score?: number;
 }
 
-export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwiki";
+export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki";
 export type StageStatus = "pending" | "running" | "done" | "failed";
-export type TaskStatus = "pending" | "parsing" | "ingesting" | "done" | "failed";
+export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
 
 /** Per-system sub-step (G3.S5.T2): docling / LightRAG / llm_wiki phases. */
 export interface IngestTaskStep {
@@ -74,11 +74,25 @@ export interface IngestTask {
   progress: number;
   stages: {
     parsing: IngestTaskStage;
+    refinement: IngestTaskStage;
     ingesting_lightrag: IngestTaskStage;
     ingesting_llmwiki: IngestTaskStage;
   };
   documentId?: string;
   error?: string;
+  /** Athena refinement small ref (G4.S1.T4): type/topic + entities/keywords
+   *  injected for the G4.S2 RAG self-build. */
+  refinement?: {
+    md_ref?: string;
+    chunks_ref?: string;
+    preview?: string;
+    chunk_count?: number;
+    frontmatter?: { type: string; topic: string };
+    entities?: { name: string; type: string; description: string }[];
+    keywords?: string[];
+    quality?: { complete: boolean; confidence: number; issues: string[]; action: "auto_accept" | "review_required" };
+    mode?: "single" | "two-stage";
+  };
   /** Content dedup outcome (G2.S5.T14): set when the doc was skipped as a duplicate. */
   dedup?: {
     duplicate: boolean;

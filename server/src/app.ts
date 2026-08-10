@@ -54,6 +54,7 @@ import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
+import { createAthenaRefiner } from "./kb/refiner.js";
 import { ContentDedupStore } from "./kb/dedup.js";
 import { LightRagClient } from "./kb/lightrag.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
@@ -102,6 +103,7 @@ export function defaultTaskQueue(): IngestTaskQueue {
   return new IngestTaskQueue({
     parser: new DoclingParser(),
     ingest,
+    refiner: createAthenaRefiner(),
     dedup: new ContentDedupStore({
       loadExisting: async () => ingest.existingWikiContent(),
     }),

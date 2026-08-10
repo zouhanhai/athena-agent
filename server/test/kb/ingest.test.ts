@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   KnowledgeIngestService,
   buildWikiIndex,
+  classificationFromRefinement,
   distinctiveProbe,
   localClassify,
   localTopic,
@@ -415,6 +416,33 @@ test("localClassify derives a topic for Sommerseminar docs while classifying the
   assert.equal(result.category, "event");
   assert.equal(result.topic, "internal/events");
   assert.match(result.pagePath, /^wiki\/events\/sommerseminar-/);
+});
+
+test("classificationFromRefinement folds the Athena type/topic into llm_wiki classification (G4.S1.T4)", () => {
+  const result = classificationFromRefinement(
+    { type: "event", topic: "internal/events" },
+    "Sommerseminar 2026",
+    "# Sommerseminar\n\nC-Day",
+  );
+  assert.equal(result.category, "event", "Athena type maps to a valid wiki category");
+  assert.equal(result.topic, "internal/events", "Athena topic is validated + reused");
+  assert.match(result.pagePath, /^wiki\/events\/sommerseminar-/);
+});
+
+test("classificationFromRefinement falls back to the local heuristic on invalid type/topic", () => {
+  const result = classificationFromRefinement(
+    { type: "not-a-category", topic: "Not A Topic!!" },
+    "Sommerseminar 2026",
+    "# Sommerseminar\n\nC-Day für die CALEOs",
+  );
+  assert.equal(result.category, "event", "invalid type falls back to localClassify");
+  assert.equal(result.topic, "internal/events", "invalid topic falls back to localClassify");
+});
+
+test("classificationFromRefinement returns the local fallback when refinement emitted no frontmatter", () => {
+  const fallback = localClassify("Sommerseminar 2026", "# Sommerseminar\n\nC-Day für die CALEOs");
+  const result = classificationFromRefinement(undefined, "Sommerseminar 2026", "# Sommerseminar\n\nC-Day für die CALEOs");
+  assert.deepEqual(result, fallback);
 });
 
 test("ingest writes under wiki/<topic>/ when the classifier returns a topic", async () => {

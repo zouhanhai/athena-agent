@@ -13,6 +13,8 @@ function makeFakes(opts: {
   lightragOk?: boolean;
   llmwikiOk?: boolean;
   parseError?: Error;
+  refineError?: Error;
+  refinedMarkdown?: string;
   lightragTrack?: {
     /** Status sequence returned by the fake /documents/track_status (last repeats). */
     statuses?: string[];
@@ -37,6 +39,7 @@ function makeFakes(opts: {
     lightragOk: opts.lightragOk !== false,
     llmwikiOk: opts.llmwikiOk !== false,
     parseError: opts.parseError,
+    refineError: opts.refineError,
     /** Optional gate awaited by the llm_wiki fake so tests can observe the
      *  retry reset before the re-run re-drives the stage. */
     llmwikiGate: undefined as Promise<void> | undefined,
@@ -56,6 +59,29 @@ function makeFakes(opts: {
   };
   const lightragStatuses = opts.lightragTrack?.statuses ?? ["processed"];
   let trackStatusIdx = 0;
+  const refiner = async (markdown: string, topicHint?: string) => {
+    calls.push({ kind: "refiner.refine", args: [markdown, topicHint] });
+    if (flags.refineError) throw flags.refineError;
+    return {
+      ref: {
+        md_ref: "/storage/doc/markdown.md",
+        chunks_ref: "/storage/doc/chunks.json",
+        preview: "preview",
+        char_count: 1,
+        line_count: 1,
+        header_count: 1,
+        chunk_count: 1,
+        frontmatter: { type: "concept", topic: "sommerseminar" },
+        entities: [{ name: "CALEO", type: "org", description: "an org" }],
+        relations: [],
+        keywords: ["sommerseminar"],
+        quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
+        mode: "single",
+        sections: [],
+      },
+      markdown: opts.refinedMarkdown ?? "# Refined\n\nbody",
+    };
+  };
   const ingest = {
     async prepareForIngest(input: { title: string; content: string }) {
       calls.push({ kind: "ingest.prepare", args: [input.title] });
@@ -96,8 +122,12 @@ function makeFakes(opts: {
       calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown, onStep, preclassified, images] });
       if (flags.llmwikiGate) await flags.llmwikiGate;
       if (!onStep) return flags.llmwikiOk ? { ok: true } : { ok: false, error: "wiki down" };
-      onStep("classify", "running");
-      onStep("classify", "done");
+      // classify is folded into refinement (G4.S1.T4): the preclassified result
+      // from Athena is passed straight through — the llm_wiki stage is pure I/O.
+      if (!preclassified) {
+        onStep("classify", "running");
+        onStep("classify", "done");
+      }
       if (!flags.llmwikiOk) return { ok: false, error: "wiki down" };
       onStep("write_page", "running");
       onStep("write_page", "done");
@@ -124,6 +154,7 @@ function makeFakes(opts: {
   const queue = new IngestTaskQueue({
     parser: parser as never,
     ingest: ingest as never,
+    refiner: refiner as never,
     dedup: dedup as never,
     sleep: opts.sleep ?? (async () => {}),
     lightragWaitTimeoutMs: opts.lightragWaitTimeoutMs,
@@ -150,10 +181,11 @@ async function waitFor(check: () => boolean, deadlineMs = 2000): Promise<void> {
   throw new Error("condition not met in time");
 }
 
-test("createTask seeds per-system sub-steps (docling/LightRAG/llm_wiki) each pending", () => {
+test("createTask seeds per-system sub-steps (docling/refinement/LightRAG/llm_wiki) each pending", () => {
   const { queue } = makeFakes({});
   const task = queue.createTask("report.pdf");
   assert.equal(task.stages.parsing.status, "pending");
+  assert.equal(task.stages.refinement.status, "pending");
   assert.equal(task.stages.ingesting_lightrag.status, "pending");
   assert.equal(task.stages.ingesting_llmwiki.status, "pending");
 
@@ -165,6 +197,13 @@ test("createTask seeds per-system sub-steps (docling/LightRAG/llm_wiki) each pen
       ["parse_ocr_image_desc", "pending"],
     ],
   );
+  // refinement sub-step (G4.S1.T4: the Athena single full-doc pass)
+  assert.deepEqual(
+    task.stages.refinement.steps.map((s) => [s.name, s.status]),
+    [
+      ["refine_document", "pending"],
+    ],
+  );
   // LightRAG sub-steps (G3.S5.T4: chunking already includes entity extraction
   // + embedding upsert inline per chunk → one combined step)
   assert.deepEqual(
@@ -173,11 +212,10 @@ test("createTask seeds per-system sub-steps (docling/LightRAG/llm_wiki) each pen
       ["chunking_embedding", "pending"],
     ],
   );
-  // llm_wiki sub-steps
+  // llm_wiki sub-steps (classify is folded into refinement, G4.S1.T4)
   assert.deepEqual(
     task.stages.ingesting_llmwiki.steps.map((s) => [s.name, s.status]),
     [
-      ["classify", "pending"],
       ["write_page", "pending"],
       ["rebuild_index", "pending"],
     ],
@@ -190,7 +228,7 @@ test("successful ingest marks every per-system sub-step done", async () => {
   await untilDone(queue, taskId);
   const task = queue.getTask(taskId)!;
   assert.equal(task.status, "done");
-  for (const stage of [task.stages.parsing, task.stages.ingesting_lightrag, task.stages.ingesting_llmwiki]) {
+  for (const stage of [task.stages.parsing, task.stages.refinement, task.stages.ingesting_lightrag, task.stages.ingesting_llmwiki]) {
     assert.equal(stage.status, "done");
     for (const step of stage.steps) {
       assert.equal(step.status, "done", `${stage.name}.${step.name} done`);
@@ -210,16 +248,57 @@ test("docling failure marks the parsing sub-steps failed", async () => {
   }
 });
 
-test("llm_wiki failure marks only its sub-steps failed; classify done, later steps failed", async () => {
+test("llm_wiki failure marks only its sub-steps failed; write_page/rebuild_index failed (classify folded into refinement)", async () => {
   const { queue } = makeFakes({ llmwikiOk: false });
   const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
   await untilDone(queue, taskId);
   const task = queue.getTask(taskId)!;
   assert.equal(task.stages.ingesting_llmwiki.status, "failed");
   const status = new Map(task.stages.ingesting_llmwiki.steps.map((s) => [s.name, s.status]));
-  assert.equal(status.get("classify"), "done", "classify succeeded before the wiki call failed");
+  assert.equal(status.get("classify"), undefined, "classify is no longer a llm_wiki step (G4.S1.T4)");
   assert.equal(status.get("write_page"), "failed");
   assert.equal(status.get("rebuild_index"), "failed");
+  assert.equal(task.stages.refinement.status, "done", "refinement ran before the llm_wiki failure");
+});
+
+test("refinement failure marks the stage failed but falls back to raw docling (never worse than today)", async () => {
+  const { queue, calls } = makeFakes({ refineError: new Error("athena down") });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  // refinement fails but never blocks ingestion: raw docling markdown is used
+  assert.equal(task.stages.refinement.status, "failed");
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_lightrag.status, "done");
+  assert.equal(task.stages.ingesting_llmwiki.status, "done");
+
+  const lightrag = calls.find((c) => c.kind === "ingest.lightrag");
+  assert.ok(lightrag, "LightRAG still runs");
+  assert.ok((lightrag!.args[0] as string).endsWith("# Doc"), "LightRAG got the raw docling markdown");
+  const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+  assert.equal(llmwiki!.args[1], "# Doc", "llm_wiki got the raw docling markdown");
+});
+
+test("retry re-runs only the failed refinement stage on retry", async () => {
+  const { queue, calls, flags } = makeFakes({ refineError: new Error("athena down") });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+  let task = queue.getTask(taskId)!;
+  assert.equal(task.stages.refinement.status, "failed");
+  assert.equal(calls.filter((c) => c.kind === "refiner.refine").length, 1);
+  assert.equal(calls.filter((c) => c.kind === "ingest.lightrag").length, 1);
+
+  flags.refineError = undefined;
+  const retried = queue.retry(taskId);
+  assert.notEqual(retried.stages.refinement.status, "failed", "retry resets the failed refinement stage");
+
+  await untilDone(queue, taskId);
+  task = queue.getTask(taskId)!;
+  assert.equal(task.stages.refinement.status, "done");
+  assert.equal(task.stages.ingesting_lightrag.status, "done");
+  assert.equal(calls.filter((c) => c.kind === "refiner.refine").length, 2, "refinement re-run once");
+  assert.equal(calls.filter((c) => c.kind === "ingest.lightrag").length, 1, "done ingest stage not re-run");
 });
 
 test("task propagates per-system sub-step failure status on retry reset", async () => {
@@ -228,11 +307,13 @@ test("task propagates per-system sub-step failure status on retry reset", async 
   await untilDone(queue, taskId);
   const failed = queue.getTask(taskId)!;
   assert.equal(failed.stages.ingesting_llmwiki.status, "failed");
-  // classify succeeded before the wiki call failed; the later steps were skipped.
+  // The llm_wiki stage is pure I/O (write_page/rebuild_index) — classify is
+  // folded into the refinement stage (G4.S1.T4), which already succeeded.
   const before = new Map(failed.stages.ingesting_llmwiki.steps.map((s) => [s.name, s.status]));
-  assert.equal(before.get("classify"), "done");
+  assert.equal(before.get("classify"), undefined);
   assert.equal(before.get("write_page"), "failed");
   assert.equal(before.get("rebuild_index"), "failed");
+  assert.equal(failed.stages.refinement.status, "done");
 
   // Gate the re-run so the synchronous retry() reset is observable before run()
   // re-drives the stage.
@@ -241,7 +322,7 @@ test("task propagates per-system sub-step failure status on retry reset", async 
   flags.llmwikiOk = true;
   const retried = queue.retry(taskId);
   const reset = new Map(retried.stages.ingesting_llmwiki.steps.map((s) => [s.name, s.status]));
-  assert.equal(reset.get("classify"), "pending");
+  assert.equal(reset.get("classify"), undefined);
   assert.equal(reset.get("write_page"), "pending");
   assert.equal(reset.get("rebuild_index"), "pending");
 
@@ -259,7 +340,7 @@ test("task propagates per-system sub-step failure status on retry reset", async 
   );
 });
 
-test("submitFile runs parse → lightrag → llmwiki and finishes done with full progress", async () => {
+test("submitFile runs parse → refine → lightrag → llmwiki and finishes done with full progress", async () => {
   const { queue, calls } = makeFakes({});
   const pendingTask = queue.createTask("report.pdf");
   assert.equal(pendingTask.status, "pending");
@@ -274,16 +355,17 @@ test("submitFile runs parse → lightrag → llmwiki and finishes done with full
   assert.equal(task.progress, 100);
   assert.equal(task.documentId, "doc");
   assert.equal(task.stages.parsing.status, "done");
+  assert.equal(task.stages.refinement.status, "done");
   assert.equal(task.stages.ingesting_lightrag.status, "done");
   assert.equal(task.stages.ingesting_llmwiki.status, "done");
 
   assert.deepEqual(
     calls.map((c) => c.kind),
-    ["parser.parse", "ingest.prepare", "ingest.lightrag", "ingest.llmwiki"],
+    ["parser.parse", "refiner.refine", "ingest.lightrag", "ingest.llmwiki"],
   );
 });
 
-test("submitFile feeds LightRAG frontmatter-wrapped content (classify-first, G3.S8.T2)", async () => {
+test("submitFile feeds LightRAG the refined markdown + frontmatter from Athena (G4.S1.T4)", async () => {
   const { queue, calls } = makeFakes({});
   const { taskId } = queue.submitFile("/tmp/report.pdf", "report.pdf");
   await untilDone(queue, taskId);
@@ -291,9 +373,18 @@ test("submitFile feeds LightRAG frontmatter-wrapped content (classify-first, G3.
 
   const lightrag = calls.find((c) => c.kind === "ingest.lightrag");
   assert.ok(lightrag, "LightRAG is reached");
+  // LightRAG receives the RE-LEVELED markdown wrapped in frontmatter whose
+  // type/topic come from Athena's refinement output (folds llm_wiki classify).
   assert.match(lightrag!.args[0] as string, /^---\ntype: concept\n/);
   assert.match(lightrag!.args[0] as string, /topic: sommerseminar/);
-  assert.ok((lightrag!.args[0] as string).endsWith("# Doc"), "body follows the frontmatter");
+  assert.ok((lightrag!.args[0] as string).endsWith("# Refined\n\nbody"), "body is the refined markdown");
+
+  // llm_wiki receives the refined markdown + the Athena preclassified result
+  // (pure I/O write — no classify LLM call).
+  const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+  assert.ok(llmwiki, "llm_wiki is reached");
+  assert.equal(llmwiki!.args[1], "# Refined\n\nbody");
+  assert.deepEqual((llmwiki!.args[3] as { category: string; topic: string }).category, "concept");
 });
 
 test("submitUrl passes the URL straight to docling parsing", async () => {
@@ -451,7 +542,7 @@ test("non-duplicate content proceeds through the full pipeline", async () => {
   assert.equal(queue.getTask(taskId)!.status, "done");
   assert.deepEqual(
     calls.map((c) => c.kind),
-    ["parser.parse", "ingest.prepare", "ingest.lightrag", "ingest.llmwiki"],
+    ["parser.parse", "refiner.refine", "ingest.lightrag", "ingest.llmwiki"],
   );
 });
 

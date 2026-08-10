@@ -52,6 +52,7 @@ async function submitUrl(): Promise<void> {
 function hasFailedStage(task: IngestTaskItem): boolean {
   return (
     task.stages.parsing.status === "failed" ||
+    task.stages.refinement.status === "failed" ||
     task.stages.ingesting_lightrag.status === "failed" ||
     task.stages.ingesting_llmwiki.status === "failed"
   );
@@ -93,6 +94,17 @@ function lightragChunkText(task: IngestTaskItem): string {
 
 function friendlyStep(step: { name: string }): string {
   return step.name.replace(/_/g, " ");
+}
+
+/** Refinement summary for a task (G4.S1.T4): "type=topic" + quality action.
+ *  Empty when the refinement stage has not produced output yet. */
+function refinementText(task: IngestTaskItem): string {
+  const fm = task.refinement?.frontmatter;
+  const quality = task.refinement?.quality;
+  if (!fm) return "";
+  const parts = [`${fm.type}${fm.topic ? " / " + fm.topic : ""}`];
+  if (quality?.action) parts.push(quality.action === "review_required" ? "review needed" : "accepted");
+  return parts.join(" · ");
 }
 
 /** Human-readable elapsed time since `from` (ms). */
@@ -231,6 +243,7 @@ function stepMark(status: string): string {
             <div
               v-for="stage in [
                 { key: 'parsing' as const, label: 'Parse' },
+                { key: 'refinement' as const, label: 'Refine (Athena)' },
                 { key: 'ingesting_lightrag' as const, label: 'LightRAG' },
                 { key: 'ingesting_llmwiki' as const, label: 'llm_wiki' },
               ]"
@@ -246,6 +259,12 @@ function stepMark(status: string): string {
                 class="task-stage-chunk"
               >
                 {{ lightragChunkText(task) }}
+              </span>
+              <span
+                v-if="stage.key === 'refinement' && refinementText(task)"
+                class="task-stage-chunk"
+              >
+                {{ refinementText(task) }}
               </span>
               <span
                 v-if="stage.key === 'ingesting_lightrag' && task.status === 'ingesting'"
@@ -464,6 +483,7 @@ function stepMark(status: string): string {
 }
 
 .task-badge.parsing,
+.task-badge.refining,
 .task-badge.ingesting {
   color: var(--caleo-primary);
   background: var(--caleo-sidebar-active);

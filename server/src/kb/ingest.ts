@@ -229,6 +229,28 @@ function isValidCategory(category: string): category is WikiCategory {
   return (WIKI_CATEGORIES as readonly string[]).includes(category);
 }
 
+/**
+ * Convert the Athena refinement frontmatter (G4.S1.T4) into a llm_wiki
+ * WikiClassification so downstream is pure I/O (no classify LLM call). The
+ * refinement emits type/topic once; invalid/missing values fall back to the
+ * local heuristic so the pipeline never regresses.
+ */
+export function classificationFromRefinement(
+  frontmatter: { type: string; topic: string } | undefined,
+  title: string,
+  content: string,
+): WikiClassification {
+  const fallback = localClassify(title, content);
+  const category = frontmatter?.type && isValidCategory(frontmatter.type) ? frontmatter.type : fallback.category;
+  const topic = frontmatter?.topic && isValidTopic(frontmatter.topic) ? frontmatter.topic : fallback.topic;
+  const stem = slugify(title);
+  return {
+    category,
+    pagePath: `wiki/${categoryDir(category)}/${stem}.md`,
+    ...(topic ? { topic } : {}),
+  };
+}
+
 /** Map a wiki category (frontmatter `type`) to its plural directory under wiki/. */
 export function categoryDir(category: WikiCategory): string {
   return DOC_TYPE_DIRS[category];

@@ -11,8 +11,9 @@ import { dirname, relative } from "node:path";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
-import { documentIdFrom, extractPageTitle, stemTitle } from "./ingest.js";
+import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTitle, withFrontmatter } from "./ingest.js";
 import type { WikiClassification } from "./llmwiki.js";
+import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { ContentDedupStore } from "./dedup.js";
 import {
   LightRagTrackPoller,
@@ -21,16 +22,27 @@ import {
 } from "./lightrag-track.js";
 import type { LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js";
 
-export type TaskStageName = "parsing" | "ingesting_lightrag" | "ingesting_llmwiki";
+/** Athena refinement runner (G4.S1.T4): one full-doc LLM pass, returns the small
+ *  big-output ref + the full re-leveled markdown for downstream consumption.
+ *  Injected so tests can fake the LLM pass; the default uses refine_document. */
+export type Refiner = (markdown: string, topicHint?: string) => Promise<{
+  ref: RefineOutputRef;
+  markdown: string;
+}>;
+
+export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki";
 export type StageStatus = "pending" | "running" | "done" | "failed";
-export type TaskStatus = "pending" | "parsing" | "ingesting" | "done" | "failed";
+export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
 
 /** Per-system sub-step name (G3.S5.T2). LightRAG has ONE sub-step: chunking
  *  already includes entity extraction + embedding upsert (inline per chunk), so
- *  a single "chunking + embedding" step with chunk progress is enough (G3.S5.T4). */
+ *  a single "chunking + embedding" step with chunk progress is enough (G3.S5.T4).
+ *  Refinement (G4.S1) has ONE sub-step: the Athena full-document pass
+ *  (re-level headers + classify + chunk + entities/keywords + quality, one read). */
 export type DoclingStepName = "read_file" | "parse_ocr_image_desc";
+export type RefinementStepName = "refine_document";
 export type LightRagStepName = "chunking_embedding";
-export type StepName = DoclingStepName | LightRagStepName | LlmWikiStepName;
+export type StepName = DoclingStepName | RefinementStepName | LightRagStepName | LlmWikiStepName;
 
 export interface TaskStep {
   name: StepName;
@@ -55,11 +67,16 @@ export function initialSteps(stage: TaskStageName): TaskStep[] {
         { name: "read_file", status: "pending" },
         { name: "parse_ocr_image_desc", status: "pending" },
       ];
+    case "refinement":
+      return [
+        { name: "refine_document", status: "pending" },
+      ];
     case "ingesting_lightrag":
       return LIGHTRAG_STEPS.map((name) => ({ name, status: "pending" }));
     case "ingesting_llmwiki":
       return [
-        { name: "classify", status: "pending" },
+        // G4.S1.T4: `classify` is folded into the refinement stage — Athena
+        // decides type/topic once; llm_wiki is pure I/O (write + rebuild index).
         { name: "write_page", status: "pending" },
         { name: "rebuild_index", status: "pending" },
       ];
@@ -90,9 +107,17 @@ export interface IngestTask {
   progress: number;
   stages: {
     parsing: TaskStage;
+    refinement: TaskStage;
     ingesting_lightrag: TaskStage;
     ingesting_llmwiki: TaskStage;
   };
+  /** Re-leveled markdown from the Athena refinement stage (G4.S1.T4). Set once
+   *  the refinement stage succeeds; downstream (LightRAG + llm_wiki) consume it.
+   *  Falls back to the raw docling `markdown` when refinement fails. */
+  refinedMarkdown?: string;
+  /** Athena refinement small ref (frontmatter/entities/keywords/quality/md_ref),
+   *  retained so retry re-uses it without re-running the LLM pass. */
+  refinement?: RefineOutputRef;
   documentId?: string;
   error?: string;
   /** Content dedup outcome (G2.S5.T14). Present when the doc was skipped as a
@@ -127,6 +152,9 @@ export class NothingToRetryError extends Error {}
 export interface IngestTaskQueueOptions {
   parser: DoclingParser;
   ingest: KnowledgeIngestService;
+  /** Athena refinement runner (G4.S1.T4). When unset, the refinement stage is
+   *  skipped and the raw docling markdown is used (never worse than today). */
+  refiner?: Refiner;
   /** Optional content-dedup store (G2.S5.T14). When set, identical content is
    *  skipped before the pipelines run; newly stored content is recorded. */
   dedup?: ContentDedupStore;
@@ -145,6 +173,7 @@ export interface IngestSubmitResult {
 function initialStages(): IngestTask["stages"] {
   return {
     parsing: initialStage("parsing"),
+    refinement: initialStage("refinement"),
     ingesting_lightrag: initialStage("ingesting_lightrag"),
     ingesting_llmwiki: initialStage("ingesting_llmwiki"),
   };
@@ -153,6 +182,7 @@ function initialStages(): IngestTask["stages"] {
 export class IngestTaskQueue {
   private readonly parser: DoclingParser;
   private readonly ingest: KnowledgeIngestService;
+  private readonly refiner?: Refiner;
   private readonly dedup?: ContentDedupStore;
   private readonly tasks = new Map<string, IngestTask>();
   private readonly lightragPoller: LightRagTrackPoller;
@@ -160,6 +190,7 @@ export class IngestTaskQueue {
   constructor(options: IngestTaskQueueOptions) {
     this.parser = options.parser;
     this.ingest = options.ingest;
+    this.refiner = options.refiner;
     this.dedup = options.dedup;
     // The poller reads real status through the ingest service (which owns the
     // LightRAG client); tests inject fakes that resolve it directly.
@@ -223,16 +254,19 @@ export class IngestTaskQueue {
   }
 
   /**
-   * Recompute the overall 0-100 progress from the two parallel ingest stages so
-   * it never jumps to 100 while LightRAG (the slow one) is still running. One
-   * stage done + the other still running sits partway, not at 100.
+   * Recompute the overall 0-100 progress across parsing → refinement → the two
+   * parallel ingest stages. Never jumps to 100 while LightRAG (the slow one) is
+   * still running. Parsing done = 15, refinement done = 35, then the two ingest
+   * stages share the remaining band; one done + the other running sits partway.
    */
   private updateProgress(id: string): void {
     this.patch(id, (t) => {
       const p = t.stages.parsing.status;
+      const rf = t.stages.refinement.status;
       const lr = t.stages.ingesting_lightrag.status;
       const lw = t.stages.ingesting_llmwiki.status;
       if (p !== "done") { t.progress = p === "failed" ? 100 : 15; return; }
+      if (rf !== "done") { t.progress = rf === "failed" ? 100 : 35; return; }
       const lrDone = lr === "done", lwDone = lw === "done";
       const lrFail = lr === "failed", lwFail = lw === "failed";
       if (lrDone && lwDone) { t.progress = 100; return; }
@@ -289,14 +323,15 @@ export class IngestTaskQueue {
 
     let markdown = task.markdown;
     let fileName = task.fileName;
-    // G3.S8.T2: classification computed once before the LightRAG stage so both
-    // systems receive the SAME type+topic (LightRAG via frontmatter, llm_wiki
-    // via the preclassified result). Undefined when only the llm_wiki stage is
-    // re-run on retry (then it classifies internally as before).
+    let refinedMarkdown = task.refinedMarkdown;
+    let refinementRef = task.refinement;
+    // G3.S8.T2: classification computed once before the ingest stages so both
+    // systems receive the SAME type+topic. Since G4.S1.T4, the classification
+    // comes from the Athena refinement output (type/topic decided once); when
+    // refinement is unavailable it falls back to the llm_wiki classifier.
     let preclassified: WikiClassification | undefined;
-    // G3.S8.T2: frontmatter-wrapped content computed during classify-first,
-    // reused by the parallel LightRAG stage. Declared at run() scope so the
-    // parallel async branch can read it.
+    // G3.S8.T2: frontmatter-wrapped content consumed by the LightRAG stage.
+    // Built from the refined markdown (or raw docling when refinement failed).
     let preparedContent: string | undefined;
 
     // --- parsing (docling) ---
@@ -346,26 +381,70 @@ export class IngestTaskQueue {
       }
     }
 
-    // --- Ingesting: classify once, then LightRAG + llm_wiki run in PARALLEL ---
+    // --- Ingesting: refinement first, then LightRAG + llm_wiki run in PARALLEL ---
     const lightragTodo = task.stages.ingesting_lightrag.status !== "done";
     const llmwikiTodo = task.stages.ingesting_llmwiki.status !== "done";
 
-    // Classify FIRST (shared by both systems) so LightRAG gets content WITH
-    // frontmatter (type + topic). Only needed when either stage still runs.
-    if ((lightragTodo || llmwikiTodo) && !preclassified) {
-      this.patch(id, (t) => {
-        t.status = "ingesting";
-        if (lightragTodo) t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running", steps: t.stages.ingesting_lightrag.steps };
-        if (llmwikiTodo) t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
-        t.progress = 50;
-      });
-      this.markStageSteps(id, "ingesting_lightrag", "running");
-      const prepared = await this.safePrepare(() =>
-        this.ingest.prepareForIngest({ title: extractPageTitle(markdown!) ?? stemTitle(fileName!), content: markdown! }),
-      );
-      if (prepared) {
-        preclassified = prepared.classification;
-        preparedContent = prepared.frontmatterContent;
+    // --- refinement (G4.S1.T4): the Athena single full-doc LLM pass between
+    // parsing and the parallel ingest stages. Best-effort: when it fails (or no
+    // refiner is configured) the raw docling markdown is used — never worse
+    // than today. The type/topic it emits feeds BOTH systems (folds llm_wiki
+    // classify); entities/keywords are injected for G4.S2 RAG self-build.
+    if (task.stages.refinement.status !== "done") {
+      if (this.refiner) {
+        this.patch(id, (t) => {
+          t.status = "refining";
+          t.progress = 35;
+          t.stages.refinement = { name: "refinement", status: "running", steps: t.stages.refinement.steps };
+        });
+        this.setStep(id, "refinement", "refine_document", "running");
+        try {
+          console.log(`[tasks:${id}] refinement start`);
+          const result = await this.refiner(markdown!);
+          refinedMarkdown = result.markdown;
+          refinementRef = result.ref;
+          console.log(
+            `[tasks:${id}] refinement done (${refinedMarkdown?.length ?? 0} chars, ${result.ref.chunk_count} chunks, type=${result.ref.frontmatter.type}, topic=${result.ref.frontmatter.topic})`,
+          );
+          this.patch(id, (t) => {
+            t.refinedMarkdown = refinedMarkdown;
+            t.refinement = refinementRef;
+            t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
+          });
+          this.setStep(id, "refinement", "refine_document", "done");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[tasks:${id}] refinement FAILED (using raw docling): ${message}`);
+          this.patch(id, (t) => {
+            t.stages.refinement = { name: "refinement", status: "failed", error: message, steps: t.stages.refinement.steps };
+          });
+          this.markStageSteps(id, "refinement", "failed", message);
+        }
+      } else {
+        // No refiner configured → mark the stage done and use raw docling.
+        this.patch(id, (t) => {
+          t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
+        });
+      }
+    }
+
+    // Classify/feed content once, shared by both systems. Priority:
+    //   1. Athena refinement output (type/topic from the single LLM pass) — folds llm_wiki classify.
+    //   2. Fallback: llm_wiki classifier (existing behavior) so LightRAG still
+    //      receives frontmatter (type + topic) even when refinement failed.
+    if (lightragTodo || llmwikiTodo) {
+      const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
+      if (refinementRef) {
+        preclassified = classificationFromRefinement(refinementRef.frontmatter, title, refinedMarkdown ?? markdown!);
+        preparedContent = withFrontmatter(preclassified.category, title, refinedMarkdown ?? markdown!, preclassified.topic);
+      } else if (!preclassified) {
+        const prepared = await this.safePrepare(() =>
+          this.ingest.prepareForIngest({ title: extractPageTitle(markdown!) ?? stemTitle(fileName!), content: markdown! }),
+        );
+        if (prepared) {
+          preclassified = prepared.classification;
+          preparedContent = prepared.frontmatterContent;
+        }
       }
     }
 
@@ -419,7 +498,7 @@ export class IngestTaskQueue {
           t.progress = 85;
         });
         const res = await this.safeIngest(() =>
-          this.ingest.ingestLlmWiki(fileName!, markdown!, (step, status) => {
+          this.ingest.ingestLlmWiki(fileName!, refinedMarkdown ?? markdown!, (step, status) => {
             this.setStep(id, "ingesting_llmwiki", step, status);
           }, preclassified, task.images),
         );
@@ -439,13 +518,17 @@ export class IngestTaskQueue {
       // Surface the first failed stage's reason on the top-level task.error so the
       // UI shows WHY a stage failed (e.g. LightRAG 409 duplicate-name) instead of
       // a silent green "done" / generic message. Keep done even if one system failed.
+      // Refinement is best-effort: it may fail and fall back to raw docling while
+      // the task still completes (G4.S1 Spec: never worse than today).
       const failedStage = t.stages.parsing.status === "failed"
         ? t.stages.parsing
-        : t.stages.ingesting_lightrag.status === "failed"
-          ? t.stages.ingesting_lightrag
-          : t.stages.ingesting_llmwiki.status === "failed"
-            ? t.stages.ingesting_llmwiki
-            : undefined;
+        : t.stages.refinement.status === "failed"
+          ? t.stages.refinement
+          : t.stages.ingesting_lightrag.status === "failed"
+            ? t.stages.ingesting_lightrag
+            : t.stages.ingesting_llmwiki.status === "failed"
+              ? t.stages.ingesting_llmwiki
+              : undefined;
       if (lightragOk || llmwikiOk) {
         t.status = "done";
         t.progress = 100;
@@ -518,7 +601,7 @@ export class IngestTaskQueue {
       throw new TaskBusyError(`task is still running: ${taskId}`);
     }
     if (!task.input) throw new NothingToRetryError(`task has no parse input to retry: ${taskId}`);
-    const failedStages = (["parsing", "ingesting_lightrag", "ingesting_llmwiki"] as const).filter(
+    const failedStages = (["parsing", "refinement", "ingesting_lightrag", "ingesting_llmwiki"] as const).filter(
       (name) => task.stages[name].status === "failed",
     );
     if (failedStages.length === 0) {
@@ -528,9 +611,10 @@ export class IngestTaskQueue {
       t.error = undefined;
       // Reset the top-level status to a running state NOW (synchronously) so
       // callers polling right after retry() see the task as in-progress, not
-      // the old terminal state. run() will refine it to parsing/ingesting.
+      // the old terminal state. run() will refine it to parsing/refining/ingesting.
       const reRunParsing = failedStages.includes("parsing");
-      t.status = reRunParsing ? "parsing" : "ingesting";
+      const reRunRefinement = failedStages.includes("refinement");
+      t.status = reRunParsing ? "parsing" : reRunRefinement ? "refining" : "ingesting";
       for (const name of failedStages) {
         t.stages[name] = initialStage(name);
       }

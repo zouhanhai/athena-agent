@@ -24,6 +24,7 @@ function task(id: string, patch: Record<string, unknown> = {}) {
     progress: 0,
     stages: {
       parsing: { name: "parsing", status: "pending" },
+      refinement: { name: "refinement", status: "pending" },
       ingesting_lightrag: { name: "ingesting_lightrag", status: "pending" },
       ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
     },

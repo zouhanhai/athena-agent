@@ -80,11 +80,12 @@ function navItemByText(wrapper: AppWrapper, label: string) {
     .find((item) => item.text().includes(label));
 }
 
-function makeSteps(stage: "parsing" | "ingesting_lightrag" | "ingesting_llmwiki", status: string) {
+function makeSteps(stage: "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki", status: string) {
   const names: Record<string, string[]> = {
     parsing: ["read_file", "parse_ocr_image_desc"],
+    refinement: ["refine_document"],
     ingesting_lightrag: ["chunking", "entity_extraction", "graph_build", "embedding"],
-    ingesting_llmwiki: ["classify", "write_page", "rebuild_index"],
+    ingesting_llmwiki: ["write_page", "rebuild_index"],
   };
   return (names[stage] ?? []).map((name) => ({ name, status }));
 }
@@ -97,6 +98,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     progress: 72,
     stages: {
       parsing: { name: "parsing", status: "done", steps: makeSteps("parsing", "done") },
+      refinement: { name: "refinement", status: "done", steps: makeSteps("refinement", "done") },
       ingesting_lightrag: { name: "ingesting_lightrag", status: "done", steps: makeSteps("ingesting_lightrag", "done") },
       ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running", steps: makeSteps("ingesting_llmwiki", "pending") },
     },
@@ -206,6 +208,7 @@ describe("uploads page", () => {
         progress: 60,
         stages: {
           parsing: { name: "parsing", status: "done" },
+          refinement: { name: "refinement", status: "done" },
           ingesting_lightrag: {
             name: "ingesting_lightrag",
             status: "running",
@@ -235,6 +238,7 @@ describe("uploads page", () => {
         progress: 100,
         stages: {
           parsing: { name: "parsing", status: "done" },
+          refinement: { name: "refinement", status: "done" },
           ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
         },
@@ -249,7 +253,7 @@ describe("uploads page", () => {
     wrapper.unmount();
   });
 
-  it("renders the per-system sub-steps (docling/LightRAG/llm_wiki) with statuses", async () => {
+  it("renders the per-system sub-steps (docling/refinement/LightRAG/llm_wiki) with statuses", async () => {
     ingestFileMock.mockResolvedValue("t-1");
     getTaskMock.mockResolvedValue(
       makeTask({
@@ -261,6 +265,11 @@ describe("uploads page", () => {
               { name: "read_file", status: "done" },
               { name: "parse_ocr_image_desc", status: "running" },
             ],
+          },
+          refinement: {
+            name: "refinement",
+            status: "running",
+            steps: [{ name: "refine_document", status: "running" }],
           },
           ingesting_lightrag: {
             name: "ingesting_lightrag",
@@ -277,7 +286,6 @@ describe("uploads page", () => {
             name: "ingesting_llmwiki",
             status: "pending",
             steps: [
-              { name: "classify", status: "pending" },
               { name: "write_page", status: "pending" },
               { name: "rebuild_index", status: "pending" },
             ],
@@ -292,13 +300,16 @@ describe("uploads page", () => {
     // docling sub-steps
     expect(wrapper.text()).toContain("read file");
     expect(wrapper.text()).toContain("parse ocr image desc");
+    // refinement sub-step (G4.S1.T4)
+    expect(wrapper.text()).toContain("Refine (Athena): running");
+    expect(wrapper.text()).toContain("refine document");
     // LightRAG sub-steps
     expect(wrapper.text()).toContain("chunking");
     expect(wrapper.text()).toContain("entity extraction");
     expect(wrapper.text()).toContain("graph build");
     expect(wrapper.text()).toContain("embedding");
-    // llm_wiki sub-steps
-    expect(wrapper.text()).toContain("classify");
+    // llm_wiki sub-steps (classify folded into refinement)
+    expect(wrapper.text()).not.toContain("classify");
     expect(wrapper.text()).toContain("write page");
     expect(wrapper.text()).toContain("rebuild index");
     // failed step error is surfaced as a tooltip title on the step name
@@ -317,6 +328,7 @@ describe("uploads page", () => {
           progress: 100,
           stages: {
             parsing: { name: "parsing", status: "done" },
+            refinement: { name: "refinement", status: "done" },
             ingesting_lightrag: { name: "ingesting_lightrag", status: "failed", error: "timeout" },
             ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
           },
@@ -328,6 +340,7 @@ describe("uploads page", () => {
           progress: 50,
           stages: {
             parsing: { name: "parsing", status: "done" },
+            refinement: { name: "refinement", status: "done" },
             ingesting_lightrag: { name: "ingesting_lightrag", status: "running" },
             ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
           },
@@ -339,6 +352,7 @@ describe("uploads page", () => {
         progress: 50,
         stages: {
           parsing: { name: "parsing", status: "done" },
+          refinement: { name: "refinement", status: "done" },
           ingesting_lightrag: { name: "ingesting_lightrag", status: "running" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
         },
