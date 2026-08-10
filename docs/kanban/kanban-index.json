@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T17:01:07.021Z",
+  "generated_at": "2026-08-10T17:06:05.380Z",
   "goals": [
     {
       "ref": "G1",
@@ -1932,14 +1932,16 @@
               "id": "s2.8",
               "title": "G4.S2.T8: Increase Athena refinement retry — fewer spurious fallbacks",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_20260810-170043",
               "blocked_by": [],
               "acceptance_criteria": [
                 "Refinement retries >= 3 before falling back (default), not 1",
                 "Spurious fallback (output does not match contract) is rare in tests + a real re-upload"
-              ]
+              ],
+              "progress_last_row": "T8 done: default retries 1→3, tests green, kanban index refreshed, pushed",
+              "progress_updated_at": "2026-08-10T17:12:00Z"
             }
           ]
         },

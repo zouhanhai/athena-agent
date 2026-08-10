@@ -220,7 +220,7 @@ export interface RefineDocumentOptions {
   modelId?: string;
   /** Reasoning level for the refinement pass (default "high" — header re-leveling needs it). */
   thinkingLevel?: AthenaThinkingLevel;
-  /** Retries before giving up to fallbackRefinement (default 1 — re-prompt once, G4.S1.T6). */
+  /** Retries before giving up to fallbackRefinement (default 3 — up to 4 attempts, G4.S2.T8). */
   retries?: number;
   /** Override the refinement system prompt. */
   systemPrompt?: string;
@@ -721,9 +721,9 @@ export interface LargeRefineResult {
  * Run the single full-doc refinement LLM pass (sub-1MB path and the stage-2 per-section path).
  * Returns the refined document + the raw assistant (for usage reporting).
  *
- * G4.S1.T6: re-prompts once (default) before giving up — a transient "no structured output"
- * on a long/image-heavy doc usually succeeds on the retry, avoiding the fallback. The retry
- * nudge re-asserts the emit tool call.
+ * G4.S2.T8: re-prompts up to 3 times (default) before giving up — a transient "no structured
+ * output" on a long/image-heavy doc usually succeeds on an early retry, avoiding the fallback.
+ * The retry nudge re-asserts the emit tool call.
  */
 async function runRefinePass(
   modelRuntime: ModelRuntime,
@@ -732,7 +732,7 @@ async function runRefinePass(
   topicHint: string | undefined,
   options: Pick<RefineDocumentOptions, "thinkingLevel" | "systemPrompt" | "retries">,
 ): Promise<{ document: RefinedDocument; assistant: AssistantMessageLike; retries: number }> {
-  const retries = options.retries ?? 1;
+  const retries = options.retries ?? 3;
   let lastError: unknown;
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
     try {

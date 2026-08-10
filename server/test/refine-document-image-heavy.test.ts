@@ -335,13 +335,13 @@ test("extractRefinedDocument still throws when no JSON can be found at all", () 
 
 // --- retry ---
 
-test("runRefinePass retries once before giving up when the first pass returns no structured output", async () => {
+test("runRefinePass retries up to the default of 3 before giving up (T8)", async () => {
   const recorder: FakeStoreRecorder = {};
   let attempts = 0;
   const { runtime, calls } = makeFakeRuntime({
     completeResultFor: () => {
       attempts += 1;
-      if (attempts === 1) {
+      if (attempts <= 3) {
         return { role: "assistant", content: [{ type: "text", text: "please hold" }], usage: zeroUsage };
       }
       return {
@@ -358,11 +358,41 @@ test("runRefinePass retries once before giving up when the first pass returns no
   const ref = parseResult<RefineOutputRef>(result);
   const details = result.details as { retries?: number; fallback?: boolean };
 
-  assert.equal(calls.length, 2, "re-prompted once after the failed pass");
-  assert.equal(details.retries, 1);
-  assert.equal(details.fallback, undefined, "the retry produced structured output, no fallback");
+  assert.equal(calls.length, 4, "re-prompted 3 times after the failed passes (default retries = 3)");
+  assert.equal(details.retries, 3, "details.retries reflects the new default");
+  assert.equal(details.fallback, undefined, "the final retry produced structured output, no fallback");
   assert.equal(ref.frontmatter.type, "event");
   assert.equal(ref.entities.length, 3);
+});
+
+test("explicit retries option still overrides the default (0 gives up after the first pass)", async () => {
+  const recorder: FakeStoreRecorder = {};
+  let attempts = 0;
+  const { runtime, calls } = makeFakeRuntime({
+    completeResultFor: () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return { role: "assistant", content: [{ type: "text", text: "please hold" }], usage: zeroUsage };
+      }
+      return {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "t1", name: "emit_refined_document", arguments: REFINED_DOC }],
+        usage: zeroUsage,
+        stopReason: "stop",
+      };
+    },
+  });
+  const tool = createRefineDocumentTool(runtime, {
+    storageDir: "storage",
+    storeImpl: fakeStore(recorder),
+    retries: 0,
+  });
+
+  const result = await tool.execute("c", { markdown: IMAGE_HEAVY_MD }, undefined, undefined, {} as never);
+  const details = result.details as { retries?: number; fallback?: boolean };
+
+  assert.equal(calls.length, 1, "no re-prompt when retries = 0");
+  assert.equal(details.fallback, true, "falls back immediately after the single failed pass");
 });
 
 test("retry does not add calls when the first pass already returns structured output", async () => {
