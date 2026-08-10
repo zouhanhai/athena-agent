@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T08:28:43.596Z",
+  "generated_at": "2026-08-10T09:44:38.162Z",
   "goals": [
     {
       "ref": "G1",
@@ -1706,7 +1706,7 @@
           "id": "s1",
           "title": "G4.S1: Post-docling Athena document refinement step",
           "owner": "consultant",
-          "status": "backlog",
+          "status": "done",
           "milestone": "M4",
           "tickets": [
             {
@@ -1809,6 +1809,21 @@
               "started_at": "2026-08-10",
               "progress_last_row": "GREEN: task.reviewRequired flag + server REVIEW REQUIRED log; Uploads review badge; server 651 + web 348 green, typecheck clean",
               "progress_updated_at": "2026-08-10T08:30:00Z"
+            },
+            {
+              "ref": "G4.S1.T6",
+              "id": "s1.t6",
+              "title": "G4.S1.T6: refine_document structured-output fails on complex/image-heavy docs (falls back)",
+              "owner": "consultant",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_014ff988dffeYEnzqZSr6W8s4Y",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "refine_document returns structured output (entities/keywords/type/topic/chunks) for complex/image-heavy docling markdown — not fallback",
+                "Regression: simple docs still extract correctly",
+                "Repro covered by a test with an image-heavy markdown fixture"
+              ]
             }
           ]
         },
