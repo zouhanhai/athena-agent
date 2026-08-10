@@ -291,6 +291,8 @@ describe("KanbanTab", () => {
     const wrapper = await mountKanbanTab();
 
     expect(wrapper.find(".kanban-scan-errors").text()).toContain("1 file(s) failed to scan");
+    expect(wrapper.find(".kanban-scan-error-file").text()).toContain("docs/kanban/G1/S1/T9.md");
+    expect(wrapper.find(".kanban-scan-error-msg").text()).toContain("boom");
     wrapper.unmount();
   });
 });

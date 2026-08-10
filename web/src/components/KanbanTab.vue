@@ -190,9 +190,20 @@ watch(
           </section>
         </div>
 
-        <p v-if="board.errors.length" class="kanban-scan-errors">
-          {{ board.errors.length }} file(s) failed to scan.
-        </p>
+        <div v-if="board.errors.length" class="kanban-scan-errors">
+          <p class="kanban-scan-errors-summary">
+            {{ board.errors.length }} file(s) failed to scan. Click to see which files and why.
+          </p>
+          <details class="kanban-scan-errors-detail">
+            <summary>Show scan errors ({{ board.errors.length }})</summary>
+            <ul>
+              <li v-for="(err, i) in board.errors" :key="i" class="kanban-scan-error">
+                <code class="kanban-scan-error-file">{{ err.file }}</code>
+                <span class="kanban-scan-error-msg">{{ err.error }}</span>
+              </li>
+            </ul>
+          </details>
+        </div>
       </template>
     </template>
   </div>
@@ -565,5 +576,46 @@ watch(
   padding: 6px 14px 12px;
   font-size: 12px;
   color: var(--caleo-error);
+}
+.kanban-scan-errors-summary {
+  margin: 0 0 4px;
+  font-weight: 500;
+  color: var(--caleo-error);
+}
+.kanban-scan-errors-detail {
+  margin-top: 4px;
+  border: 1px solid rgba(207, 34, 46, 0.25);
+  border-radius: 6px;
+  background: rgba(207, 34, 46, 0.04);
+}
+.kanban-scan-errors-detail summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: var(--caleo-error);
+  user-select: none;
+}
+.kanban-scan-errors-detail ul {
+  margin: 0;
+  padding: 0 10px 8px 26px;
+  list-style: none;
+}
+.kanban-scan-error {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(207, 34, 46, 0.12);
+}
+.kanban-scan-error-file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--caleo-text-primary);
+  word-break: break-all;
+}
+.kanban-scan-error-msg {
+  font-size: 11px;
+  color: var(--caleo-error);
+  word-break: break-word;
 }
 </style>
