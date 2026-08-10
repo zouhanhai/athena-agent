@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T16:04:29.280Z",
+  "generated_at": "2026-08-10T16:27:17.297Z",
   "goals": [
     {
       "ref": "G1",
@@ -1851,6 +1851,79 @@
               ],
               "progress_last_row": "Verified: server 664 tests green, typecheck clean; feature commit c188e5d; codegraph synced; T1 done — RefinementEntity emits bilingual (DE+EN) aliases",
               "progress_updated_at": "2026-08-10T16:04:03Z"
+            },
+            {
+              "ref": "G4.S2.T2",
+              "id": "s2.2",
+              "title": "G4.S2.T2: Neo4j spike — deploy + validate vector/search (decision record)",
+              "owner": "consultant",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_t2neo4jspike",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ]
+            },
+            {
+              "ref": "G4.S2.T3",
+              "id": "s2.3",
+              "title": "G4.S2.T3: Neo4j store schema (Chunk/Entity/Relation/Document + aliases)",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ]
+            },
+            {
+              "ref": "G4.S2.T4",
+              "id": "s2.4",
+              "title": "G4.S2.T4: Ingest — Athena output → Neo4j (embed + index, no LLM)",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ]
+            },
+            {
+              "ref": "G4.S2.T5",
+              "id": "s2.5",
+              "title": "G4.S2.T5: Retrieval service (neo4j-graphrag hybrid + BM25 + graph)",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ]
+            },
+            {
+              "ref": "G4.S2.T6",
+              "id": "s2.6",
+              "title": "G4.S2.T6: Case-insensitive + bilingual alias search",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ]
+            },
+            {
+              "ref": "G4.S2.T7",
+              "id": "s2.7",
+              "title": "G4.S2.T7: Replace LightRAG path + full test suite",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ]
             }
           ]
         },
@@ -1893,30 +1966,5 @@
       ]
     }
   ],
-  "errors": [
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T2.md",
-      "error": "assignee must be a string"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T3.md",
-      "error": "assignee must be a string"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T4.md",
-      "error": "assignee must be a string"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T5.md",
-      "error": "assignee must be a string"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T6.md",
-      "error": "assignee must be a string"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T7.md",
-      "error": "assignee must be a string"
-    }
-  ]
+  "errors": []
 }
