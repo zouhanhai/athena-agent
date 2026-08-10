@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T19:17:34.519Z",
+  "generated_at": "2026-08-10T19:39:17.266Z",
   "goals": [
     {
       "ref": "G1",
@@ -1902,8 +1902,9 @@
               "id": "s2.5",
               "title": "G4.S2.T5: Retrieval service (neo4j-graphrag hybrid + BM25 + graph)",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_012d1093fffe5v6KrHqc2NaUj6",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
