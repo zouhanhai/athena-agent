@@ -29,6 +29,12 @@ into the platform via the federation, so either can be controlled from the platf
 
 ## Full design
 
+> **Reference (2026-08-10)**: [Avernet](https://github.com/inclusionAI/Avernet) — production-grade
+> distributed agent coordination platform (Ant Group, 12 BGs, 90%+ completion). Evaluate vs lean
+> federation; see `docs/avernet-reference.md`. Not a required dependency — lean S6 first.
+
+See `docs/knowledge-rag-design.md` §8 (RAG system selection & self-build direction) and the M4
+
 See `docs/knowledge-rag-design.md` + M4 federation items in `TODO.md`. Key points:
 
 - **Tailscale is part of this Spec** — it provides the encrypted tunnel so the server can reach every
