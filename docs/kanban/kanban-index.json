@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T08:02:34.586Z",
+  "generated_at": "2026-08-10T08:16:43.650Z",
   "goals": [
     {
       "ref": "G1",
@@ -1796,8 +1796,9 @@
               "id": "t5",
               "title": "G4.S1.T5: fallback + tests (LLM failure → raw docling; quality.review_required)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_g4s1_t5_opencode",
               "blocked_by": [],
               "acceptance_criteria": [
                 "refine_document failure → fallback to raw docling output (never worse than today)",
@@ -1805,7 +1806,7 @@
                 "Tests: tool output contract, header re-level, classification, entity/relation/keyword, chunking, fallback",
                 "All existing server/web tests stay green"
               ],
-              "started_at": ""
+              "started_at": "2026-08-10"
             }
           ]
         },
