@@ -32,9 +32,25 @@ export function createNeo4jDriver(config: Neo4jConfig): Neo4jDriverLike {
     session() {
       const session = driver.session();
       return {
-        run: async (query: string, params?: Record<string, unknown>) => session.run(query, params),
+        run: async (query: string, params?: Record<string, unknown>) =>
+          session.run(query, params ? toNeo4jParams(params) : params),
         close: async () => session.close(),
       };
     },
   };
+}
+
+/**
+ * Convert integer-valued params to Neo4j `Integer` so integer-only Cypher
+ * positions (e.g. `LIMIT $topK`) accept them. `neo4j-driver` sends plain JS
+ * numbers as float64, so `topK: 5` becomes `5.0` and Neo4j rejects it
+ * (`'5.0' is not a valid value`). Float arrays (embeddings) and strings pass
+ * through untouched.
+ */
+export function toNeo4jParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    out[key] = typeof value === "number" && Number.isSafeInteger(value) ? neo4j.int(value) : value;
+  }
+  return out;
 }

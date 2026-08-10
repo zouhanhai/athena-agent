@@ -6,6 +6,7 @@ import {
   DOCUMENT_LABEL,
   WIKIPAGE_LABEL,
   ENTITY_RELATION_TYPE,
+  EMBEDDING_DIMENSIONS,
   foldName,
   foldAliases,
   storeSchemaStatements,
@@ -57,8 +58,12 @@ test("storeSchemaStatements creates a vector index on Chunk.embedding (cosine) w
   assert.ok(vectorStmt!.includes(":Chunk"), "vector index targets Chunk");
   assert.ok(vectorStmt!.includes("(n.embedding)"), "vector index on embedding property");
   assert.ok(vectorStmt!.includes("WITH [n.topic]"), "topic declared as additional filter property");
-  assert.match(vectorStmt!, /vector\.dimensions`:\s*\d+/);
+  assert.match(vectorStmt!, /vector\.dimensions`:\s*4096/);
   assert.match(vectorStmt!, /cosine/);
+});
+
+test("EMBEDDING_DIMENSIONS matches the real qwen3-embedding-8b output (4096, not 1024)", () => {
+  assert.equal(EMBEDDING_DIMENSIONS, 4096);
 });
 
 test("storeSchemaStatements indexes folded (case-insensitive) name and aliases", () => {
@@ -103,11 +108,95 @@ test("applyNeo4jSchema runs every schema statement via the driver and closes the
 
   await applyNeo4jSchema(driver);
 
-  assert.equal(calls.length, statements.length, "each statement executed exactly once");
+  const ddlCalls = calls.filter((c) => !c.query.includes("SHOW INDEXES"));
+  assert.equal(ddlCalls.length, statements.length, "each statement executed exactly once");
   for (const [i, stmt] of statements.entries()) {
-    assert.equal(calls[i]!.query, stmt);
+    assert.equal(ddlCalls[i]!.query, stmt);
   }
+  assert.ok(calls.some((c) => c.query.includes("SHOW INDEXES")), "reconciles existing indexes first");
   assert.equal(closed, true, "driver session closed after applying schema");
+});
+
+test("applyNeo4jSchema drops a same-properties index with a different name so the app-named one materializes", async () => {
+  const calls: RecordedCall[] = [];
+  const driver: Neo4jDriverLike = {
+    session() {
+      return {
+        run: async (query: string, params?: Record<string, unknown>) => {
+          calls.push({ query, params });
+          if (query.includes("SHOW INDEXES")) {
+            return {
+              records: [
+                {
+                  get: (k: string) =>
+                    k === "name"
+                      ? "entity_ft_idx"
+                      : k === "type"
+                        ? "FULLTEXT"
+                        : k === "labelsOrTypes"
+                          ? ["Entity"]
+                          : k === "properties"
+                            ? ["name", "aliases"]
+                            : undefined,
+                },
+              ],
+            };
+          }
+          return { records: [] };
+        },
+        close: async () => {},
+      };
+    },
+  };
+
+  await applyNeo4jSchema(driver);
+
+  const drop = calls.find((c) => c.query.includes("DROP INDEX entity_ft_idx"));
+  assert.ok(drop, "conflicting spike-named fulltext index dropped so app-named create materializes");
+  const createFtx = calls.find((c) => c.query.includes("CREATE FULLTEXT INDEX entity_name_aliases_ftx"));
+  assert.ok(createFtx, "app-named entity fulltext index still created");
+});
+
+test("applyNeo4jSchema drops the vector index when its configured dimension is stale (1024 vs 4096)", async () => {
+  const calls: RecordedCall[] = [];
+  const driver: Neo4jDriverLike = {
+    session() {
+      return {
+        run: async (query: string, params?: Record<string, unknown>) => {
+          calls.push({ query, params });
+          if (query.includes("SHOW INDEXES")) {
+            return {
+              records: [
+                {
+                  get: (k: string) =>
+                    k === "name"
+                      ? "chunk_embedding_idx"
+                      : k === "type"
+                        ? "VECTOR"
+                        : k === "labelsOrTypes"
+                          ? ["Chunk"]
+                          : k === "properties"
+                            ? ["embedding", "topic"]
+                            : k === "options"
+                              ? { indexConfig: { "vector.dimensions": 1024 } }
+                              : undefined,
+                },
+              ],
+            };
+          }
+          return { records: [] };
+        },
+        close: async () => {},
+      };
+    },
+  };
+
+  await applyNeo4jSchema(driver);
+
+  const drop = calls.find((c) => c.query.includes("DROP INDEX chunk_embedding_idx"));
+  assert.ok(drop, "stale-dimension vector index dropped so it recreates at 4096");
+  const create = calls.find((c) => c.query.includes("CREATE VECTOR INDEX chunk_embedding_idx"));
+  assert.ok(create, "vector index recreated at the correct dimension");
 });
 
 test("foldName folds to upper-case, unicode-aware (DE umlauts)", () => {

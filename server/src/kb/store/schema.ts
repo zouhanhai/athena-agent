@@ -28,8 +28,8 @@ export const WIKIPAGE_LABEL = "WikiPage";
 /** Relationship type linking Entity nodes (source -> target). */
 export const ENTITY_RELATION_TYPE = "RELATION";
 
-/** Neo4j HNSW cosine vector index over Chunk.embedding (dimensions match qwen3-embedding-8b @ 1024). */
-export const EMBEDDING_DIMENSIONS = 1024;
+/** Neo4j HNSW cosine vector index over Chunk.embedding (qwen3-embedding-8b emits 4096-dim vectors). */
+export const EMBEDDING_DIMENSIONS = 4096;
 
 /** Index names used by retrieval (G4.S2.T5) — shared with the schema DDL so
  *  retrievers reference the exact indexes created at ingest time. */
@@ -88,13 +88,104 @@ export interface Neo4jDriverLike {
   session(): Neo4jSessionLike;
 }
 
+/** A parsed `SHOW INDEXES` row, normalized for conflict detection. */
+export interface ExistingIndexInfo {
+  name: string;
+  type: string;
+  labels: string[];
+  properties: string[];
+  /** `options.indexConfig` from the index (e.g. `vector.dimensions`). */
+  indexConfig?: Record<string, unknown>;
+}
+
+/** The label+property sets the app schema wants indexed under fixed names. */
+interface IntendedIndex {
+  name: string;
+  labels: string[];
+  properties: string[];
+  type: "VECTOR" | "RANGE" | "FULLTEXT";
+}
+
+const INTENDED_INDEXES: IntendedIndex[] = [
+  { name: CHUNK_EMBEDDING_INDEX, labels: [CHUNK_LABEL], properties: ["embedding", "topic"], type: "VECTOR" },
+  { name: ENTITY_NAME_UPPER_INDEX, labels: [ENTITY_LABEL], properties: ["nameUpper"], type: "RANGE" },
+  { name: ENTITY_NAME_ALIASES_FTX, labels: [ENTITY_LABEL], properties: ["name", "aliases"], type: "FULLTEXT" },
+  { name: CHUNK_TEXT_FTX, labels: [CHUNK_LABEL], properties: ["text"], type: "FULLTEXT" },
+];
+
+function sameSet(a: string[], b: string[]): boolean {
+  const as = new Set(a);
+  const bs = new Set(b);
+  if (as.size !== bs.size) return false;
+  for (const v of as) if (!bs.has(v)) return false;
+  return true;
+}
+
 /**
- * Apply the full store schema (constraints + indexes) to a Neo4j instance. Each statement runs in the
- * same session, in order; every statement is `IF NOT EXISTS` so calling again is a no-op.
+ * Compare existing indexes against the app's intended index set and return
+ * `DROP INDEX … IF EXISTS` statements for conflicts:
+ *  - any existing index over the same label+property set under a *different* name
+ *    (Neo4j 2026 silently dedups same-properties index creates, so the app-named
+ *    index would never materialize — e.g. the spike's `entity_ft_idx` shadowing
+ *    `entity_name_aliases_ftx`), and
+ *  - the vector index when its configured `vector.dimensions` differs from
+ *    `EMBEDDING_DIMENSIONS` (a stale spike index stuck at 1024 while the real
+ *    qwen3-embedding-8b emits 4096-dim vectors → vector search fails).
+ */
+export function reconcileIndexStatements(existing: ExistingIndexInfo[]): string[] {
+  const drops = new Set<string>();
+  for (const index of existing) {
+    const intended = INTENDED_INDEXES.find(
+      (i) => i.type === index.type && sameSet(i.labels, index.labels) && sameSet(i.properties, index.properties),
+    );
+    if (!intended) continue;
+    if (intended.name !== index.name) {
+      drops.add(index.name);
+      continue;
+    }
+    if (intended.type === "VECTOR") {
+      const configured = index.indexConfig?.["vector.dimensions"];
+      if (configured !== undefined && String(configured) !== String(EMBEDDING_DIMENSIONS)) {
+        drops.add(index.name);
+      }
+    }
+  }
+  return Array.from(drops).map((name) => `DROP INDEX ${name} IF EXISTS`);
+}
+
+/** Run `SHOW INDEXES` and normalize the rows into `ExistingIndexInfo[]`. */
+async function listExistingIndexes(session: Neo4jSessionLike): Promise<ExistingIndexInfo[]> {
+  const result = (await session.run(
+    "SHOW INDEXES YIELD name, type, labelsOrTypes, properties, options RETURN name, type, labelsOrTypes, properties, options",
+  )) as { records?: Array<{ get(key: string): unknown }> };
+  const records = result?.records ?? [];
+  return records.map((record) => {
+    const labels = record.get("labelsOrTypes");
+    const props = record.get("properties");
+    const options = record.get("options") as { indexConfig?: Record<string, unknown> } | undefined;
+    return {
+      name: String(record.get("name")),
+      type: String(record.get("type")),
+      labels: Array.isArray(labels) ? labels.map(String) : [],
+      properties: Array.isArray(props) ? props.map(String) : [],
+      ...(options?.indexConfig ? { indexConfig: options.indexConfig } : {}),
+    };
+  });
+}
+
+/**
+ * Apply the full store schema (constraints + indexes) to a Neo4j instance. First
+ * reconciles conflicting existing indexes (drop → the app-named creates
+ * materialize), then runs each statement in the same session; every statement is
+ * `IF NOT EXISTS` so calling again is a no-op.
  */
 export async function applyNeo4jSchema(driver: Neo4jDriverLike): Promise<void> {
   const session = driver.session();
   try {
+    const existing = await listExistingIndexes(session);
+    for (const statement of reconcileIndexStatements(existing)) {
+      await session.run(statement);
+    }
     for (const statement of storeSchemaStatements()) {
       await session.run(statement);
     }
