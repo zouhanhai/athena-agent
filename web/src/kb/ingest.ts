@@ -19,6 +19,7 @@ export interface IngestTaskItem {
   stages: IngestTask["stages"];
   lightrag?: IngestTask["lightrag"];
   refinement?: IngestTask["refinement"];
+  reviewRequired?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -145,6 +146,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
       stages: updated.stages,
       lightrag: updated.lightrag,
       refinement: updated.refinement,
+      reviewRequired: updated.reviewRequired,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };

@@ -14,6 +14,7 @@ function makeFakes(opts: {
   llmwikiOk?: boolean;
   parseError?: Error;
   refineError?: Error;
+  refineQualityAction?: "auto_accept" | "review_required";
   refinedMarkdown?: string;
   lightragTrack?: {
     /** Status sequence returned by the fake /documents/track_status (last repeats). */
@@ -75,7 +76,7 @@ function makeFakes(opts: {
         entities: [{ name: "CALEO", type: "org", description: "an org" }],
         relations: [],
         keywords: ["sommerseminar"],
-        quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
+        quality: { complete: true, confidence: 0.9, issues: [], action: opts.refineQualityAction ?? "auto_accept" },
         mode: "single",
         sections: [],
       },
@@ -278,6 +279,40 @@ test("refinement failure marks the stage failed but falls back to raw docling (n
   assert.ok((lightrag!.args[0] as string).endsWith("# Doc"), "LightRAG got the raw docling markdown");
   const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
   assert.equal(llmwiki!.args[1], "# Doc", "llm_wiki got the raw docling markdown");
+});
+
+test("quality.action=review_required is surfaced on the task for operator review (G4.S1.T5)", async () => {
+  const { queue } = makeFakes({ refineQualityAction: "review_required" });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.refinement.status, "done");
+  assert.equal(task.reviewRequired, true, "task flagged review_required");
+  assert.equal(task.refinement?.quality.action, "review_required");
+});
+
+test("auto_accept refinement is NOT flagged review_required (G4.S1.T5)", async () => {
+  const { queue } = makeFakes({});
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.reviewRequired, undefined, "clean refinement has no review flag");
+  assert.equal(task.refinement?.quality.action, "auto_accept");
+});
+
+test("raw-docling fallback after refinement failure flags the task for operator review (G4.S1.T5)", async () => {
+  const { queue } = makeFakes({ refineError: new Error("athena down") });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.stages.refinement.status, "failed");
+  // never worse than today: raw docling markdown was used → operator must review
+  assert.equal(task.reviewRequired, true, "fallback output flags review_required");
 });
 
 test("retry re-runs only the failed refinement stage on retry", async () => {

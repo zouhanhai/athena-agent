@@ -93,6 +93,10 @@ export interface IngestTask {
     quality?: { complete: boolean; confidence: number; issues: string[]; action: "auto_accept" | "review_required" };
     mode?: "single" | "two-stage";
   };
+  /** Operator-review flag (G4.S1.T5): set when Athena refinement emitted
+   *  quality.action=review_required, or refinement failed and the raw docling
+   *  output was used. The Uploads list shows a review badge for such tasks. */
+  reviewRequired?: boolean;
   /** Content dedup outcome (G2.S5.T14): set when the doc was skipped as a duplicate. */
   dedup?: {
     duplicate: boolean;

@@ -107,6 +107,13 @@ function refinementText(task: IngestTaskItem): string {
   return parts.join(" · ");
 }
 
+/** Operator-review flag (G4.S1.T5): true when Athena refinement emitted
+ *  review_required OR refinement failed and the raw docling output was used. */
+function reviewRequired(task: IngestTaskItem): boolean {
+  if (task.reviewRequired) return true;
+  return task.refinement?.quality?.action === "review_required";
+}
+
 /** Human-readable elapsed time since `from` (ms). */
 function fmtElapsed(from: number): string {
   const s = Math.max(0, Math.floor((Date.now() - from) / 1000));
@@ -220,6 +227,9 @@ function stepMark(status: string): string {
           <div class="task-head">
             <span class="task-source" :title="task.source">{{ task.source }}</span>
             <span class="task-badge" :class="task.status">{{ task.status }}</span>
+            <span v-if="reviewRequired(task)" class="task-review-badge" title="Athena refinement flagged this document for operator review">
+              review required
+            </span>
             <div class="task-actions">
               <t-button
                 v-if="hasFailedStage(task)"
@@ -497,6 +507,20 @@ function stepMark(status: string): string {
 .task-badge.failed {
   color: var(--caleo-error);
   background: rgba(213, 73, 65, 0.14);
+}
+
+.task-review-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--caleo-warning, #b5851d);
+  background: rgba(217, 155, 32, 0.14);
+  border: 1px solid rgba(217, 155, 32, 0.35);
 }
 
 .task-stages {

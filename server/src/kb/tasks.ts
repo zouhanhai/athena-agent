@@ -118,6 +118,10 @@ export interface IngestTask {
   /** Athena refinement small ref (frontmatter/entities/keywords/quality/md_ref),
    *  retained so retry re-uses it without re-running the LLM pass. */
   refinement?: RefineOutputRef;
+  /** Operator-review flag (G4.S1.T5): true when the Athena refinement pass
+   *  emitted quality.action=review_required, OR refinement failed and the raw
+   *  docling output was used (never worse than today, but worth a look). */
+  reviewRequired?: boolean;
   documentId?: string;
   error?: string;
   /** Content dedup outcome (G2.S5.T14). Present when the doc was skipped as a
@@ -406,9 +410,17 @@ export class IngestTaskQueue {
           console.log(
             `[tasks:${id}] refinement done (${refinedMarkdown?.length ?? 0} chars, ${result.ref.chunk_count} chunks, type=${result.ref.frontmatter.type}, topic=${result.ref.frontmatter.topic})`,
           );
+          const review = result.ref.quality?.action === "review_required";
+          if (review) {
+            const issues = result.ref.quality?.issues ?? [];
+            console.warn(
+              `[tasks:${id}] refinement REVIEW REQUIRED for operator: ${issues.join("; ") || "quality below auto-accept threshold"}`,
+            );
+          }
           this.patch(id, (t) => {
             t.refinedMarkdown = refinedMarkdown;
             t.refinement = refinementRef;
+            t.reviewRequired = review || undefined;
             t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
           });
           this.setStep(id, "refinement", "refine_document", "done");
@@ -417,6 +429,9 @@ export class IngestTaskQueue {
           console.error(`[tasks:${id}] refinement FAILED (using raw docling): ${message}`);
           this.patch(id, (t) => {
             t.stages.refinement = { name: "refinement", status: "failed", error: message, steps: t.stages.refinement.steps };
+            // Fallback to the raw docling output — never worse than today, but
+            // the doc skipped the quality check → flag it for operator review.
+            t.reviewRequired = true;
           });
           this.markStageSteps(id, "refinement", "failed", message);
         }

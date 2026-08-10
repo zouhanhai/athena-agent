@@ -319,6 +319,56 @@ describe("uploads page", () => {
     wrapper.unmount();
   });
 
+  it("flags a task with quality.action=review_required for operator review (G4.S1.T5)", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "done",
+        progress: 100,
+        reviewRequired: true,
+        refinement: {
+          md_ref: "storage/doc.md",
+          frontmatter: { type: "report", topic: "sap/consolidation/group-reporting" },
+          quality: {
+            complete: false,
+            confidence: 0.4,
+            issues: ["table on p3 split"],
+            action: "review_required",
+          },
+        },
+      }),
+    );
+    const wrapper = await mountApp();
+
+    await submitFile(wrapper);
+
+    expect(wrapper.find(".task-review-badge").exists()).toBe(true);
+    expect(wrapper.text()).toContain("review required");
+    wrapper.unmount();
+  });
+
+  it("does NOT show the review badge for a clean auto_accept refinement (G4.S1.T5)", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "done",
+        progress: 100,
+        refinement: {
+          md_ref: "storage/doc.md",
+          frontmatter: { type: "event", topic: "internal/events" },
+          quality: { complete: true, confidence: 0.95, issues: [], action: "auto_accept" },
+        },
+      }),
+    );
+    const wrapper = await mountApp();
+
+    await submitFile(wrapper);
+
+    expect(wrapper.find(".task-review-badge").exists()).toBe(false);
+    expect(wrapper.text()).toContain("accepted");
+    wrapper.unmount();
+  });
+
   it("shows a Retry button when a stage failed and re-runs it", async () => {
     ingestFileMock.mockResolvedValue("t-1");
     getTaskMock
