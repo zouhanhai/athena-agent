@@ -1,2 +1,5 @@
 # Local secrets — never commit
 server/.env.local
+
+# Local Neo4j spike data volume (G4.S2.T2) — DB data + auth, never commit
+.neo4j-spike/
