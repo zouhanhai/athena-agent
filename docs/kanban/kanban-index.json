@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T16:45:26.898Z",
+  "generated_at": "2026-08-10T17:01:07.021Z",
   "goals": [
     {
       "ref": "G1",
@@ -1934,7 +1934,7 @@
               "owner": "consultant",
               "status": "in_progress",
               "assignee": "opencode",
-              "session_id": "ses_g4s2t8_opencode",
+              "session_id": "ses_20260810-170043",
               "blocked_by": [],
               "acceptance_criteria": [
                 "Refinement retries >= 3 before falling back (default), not 1",
