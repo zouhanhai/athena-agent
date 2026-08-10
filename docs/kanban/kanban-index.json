@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-09T21:03:19.750Z",
+  "generated_at": "2026-08-10T07:10:12.477Z",
   "goals": [
     {
       "ref": "G1",
@@ -1775,8 +1775,9 @@
               "id": "t4",
               "title": "G4.S1.T4: pipeline integration (refinement stage in tasks.ts + fold llm_wiki classify + downstream)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_g4s1_t4_opencode",
               "blocked_by": [],
               "acceptance_criteria": [
                 "New `refinement` stage in tasks.ts: parsing → refinement → ingesting_lightrag ‖ ingesting_llmwiki",
@@ -1785,7 +1786,9 @@
                 "DOCLING_OPENROUTER_KEY used by docling VLM (parse_doc.py) — separate from refinement",
                 "Progress/status surface for the refinement stage (Uploads page)"
               ],
-              "started_at": ""
+              "started_at": "2026-08-10T07:10:00Z",
+              "progress_last_row": "Claimed T4 (ses_g4s1_t4_opencode); read Spec + Goal + T1-T3 impl; regenerated kanban index",
+              "progress_updated_at": "2026-08-10 07:10:00Z"
             },
             {
               "ref": "G4.S1.T5",
