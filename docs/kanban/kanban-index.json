@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T15:58:16.904Z",
+  "generated_at": "2026-08-10T16:04:29.280Z",
   "goals": [
     {
       "ref": "G1",
@@ -1842,15 +1842,15 @@
               "id": "s2.1",
               "title": "G4.S2.T1: S1 increment — RefinementEntity bilingual aliases (DE+EN)",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_t1bilingual",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "Claimed T1 — in_progress, assignee opencode, ses_t1bilingual; kanban index regenerated + pushed",
-              "progress_updated_at": "2026-08-10T15:58:07Z"
+              "progress_last_row": "Verified: server 664 tests green, typecheck clean; feature commit c188e5d; codegraph synced; T1 done — RefinementEntity emits bilingual (DE+EN) aliases",
+              "progress_updated_at": "2026-08-10T16:04:03Z"
             }
           ]
         },
