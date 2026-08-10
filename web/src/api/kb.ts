@@ -49,7 +49,7 @@ export interface KnowledgeSearchResult {
   score?: number;
 }
 
-export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki";
+export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
 
@@ -77,6 +77,7 @@ export interface IngestTask {
     refinement: IngestTaskStage;
     ingesting_lightrag: IngestTaskStage;
     ingesting_llmwiki: IngestTaskStage;
+    ingesting_neo4j: IngestTaskStage;
   };
   documentId?: string;
   error?: string;

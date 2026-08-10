@@ -58,6 +58,9 @@ import { createAthenaRefiner } from "./kb/refiner.js";
 import { ContentDedupStore } from "./kb/dedup.js";
 import { LightRagClient } from "./kb/lightrag.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
+import { OpenRouterEmbedder } from "./kb/embedding.js";
+import { Neo4jIngestService } from "./kb/store/ingest.js";
+import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
 
 export interface BuildAppOptions {
   manager?: AgentManager;
@@ -107,6 +110,21 @@ export function defaultTaskQueue(): IngestTaskQueue {
     dedup: new ContentDedupStore({
       loadExisting: async () => ingest.existingWikiContent(),
     }),
+    // G4.S2.T4: the lean Neo4j RAG store is wired only when NEO4J_PASSWORD is
+    // set (see .env.local / deployment). When absent the ingesting_neo4j stage
+    // is a no-op and ingestion continues unchanged.
+    neo4j: defaultNeo4jIngest(),
+  });
+}
+
+/** Neo4j lean RAG store ingest (G4.S2.T4): embed + index Athena output. Returns
+ *  undefined when NEO4J_PASSWORD is unset (store not deployed → stage no-op). */
+export function defaultNeo4jIngest(): Neo4jIngestService | undefined {
+  const config = neo4jConfigFromEnv();
+  if (!config) return undefined;
+  return new Neo4jIngestService({
+    driver: createNeo4jDriver(config),
+    embedder: new OpenRouterEmbedder(),
   });
 }
 

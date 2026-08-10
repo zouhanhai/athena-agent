@@ -54,6 +54,15 @@ export function initialStages(): IngestTask["stages"] {
         { name: "chunking_embedding", status: "pending" },
       ],
     },
+    ingesting_neo4j: {
+      name: "ingesting_neo4j",
+      status: "pending",
+      steps: [
+        // G4.S2.T4: embed + index the Athena refinement output into Neo4j (no
+        // LLM extraction — pure embed + index).
+        { name: "embed_store", status: "pending" },
+      ],
+    },
     ingesting_llmwiki: {
       name: "ingesting_llmwiki",
       status: "pending",

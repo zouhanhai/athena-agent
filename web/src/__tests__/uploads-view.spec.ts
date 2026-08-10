@@ -80,11 +80,12 @@ function navItemByText(wrapper: AppWrapper, label: string) {
     .find((item) => item.text().includes(label));
 }
 
-function makeSteps(stage: "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki", status: string) {
+function makeSteps(stage: "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_neo4j" | "ingesting_llmwiki", status: string) {
   const names: Record<string, string[]> = {
     parsing: ["read_file", "parse_ocr_image_desc"],
     refinement: ["refine_document"],
     ingesting_lightrag: ["chunking", "entity_extraction", "graph_build", "embedding"],
+    ingesting_neo4j: ["embed_store"],
     ingesting_llmwiki: ["write_page", "rebuild_index"],
   };
   return (names[stage] ?? []).map((name) => ({ name, status }));
@@ -100,6 +101,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
       parsing: { name: "parsing", status: "done", steps: makeSteps("parsing", "done") },
       refinement: { name: "refinement", status: "done", steps: makeSteps("refinement", "done") },
       ingesting_lightrag: { name: "ingesting_lightrag", status: "done", steps: makeSteps("ingesting_lightrag", "done") },
+      ingesting_neo4j: { name: "ingesting_neo4j", status: "done", steps: makeSteps("ingesting_neo4j", "done") },
       ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running", steps: makeSteps("ingesting_llmwiki", "pending") },
     },
   };
@@ -216,6 +218,7 @@ describe("uploads page", () => {
               { name: "chunking_embedding", status: "running" },
             ],
           },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
         },
         lightrag: { backendStatus: "processing", chunksProcessed: 12, chunksCount: 182 },
@@ -240,6 +243,7 @@ describe("uploads page", () => {
           parsing: { name: "parsing", status: "done" },
           refinement: { name: "refinement", status: "done" },
           ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
         },
         lightrag: { backendStatus: "processed", chunksProcessed: 182, chunksCount: 182 },
@@ -290,6 +294,7 @@ describe("uploads page", () => {
               { name: "rebuild_index", status: "pending" },
             ],
           },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
         },
       }),
     );
@@ -380,6 +385,7 @@ describe("uploads page", () => {
             parsing: { name: "parsing", status: "done" },
             refinement: { name: "refinement", status: "done" },
             ingesting_lightrag: { name: "ingesting_lightrag", status: "failed", error: "timeout" },
+            ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
             ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
           },
         }),
@@ -392,6 +398,7 @@ describe("uploads page", () => {
             parsing: { name: "parsing", status: "done" },
             refinement: { name: "refinement", status: "done" },
             ingesting_lightrag: { name: "ingesting_lightrag", status: "running" },
+            ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
             ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
           },
         }),
@@ -404,6 +411,7 @@ describe("uploads page", () => {
           parsing: { name: "parsing", status: "done" },
           refinement: { name: "refinement", status: "done" },
           ingesting_lightrag: { name: "ingesting_lightrag", status: "running" },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
         },
       }),

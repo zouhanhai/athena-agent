@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T18:47:18.767Z",
+  "generated_at": "2026-08-10T19:17:34.519Z",
   "goals": [
     {
       "ref": "G1",
@@ -1887,13 +1887,15 @@
               "id": "s2.4",
               "title": "G4.S2.T4: Ingest — Athena output → Neo4j (embed + index, no LLM)",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "15484a19-a0b2-472a-8ea4-8e15fd97f547",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
-              ]
+              ],
+              "progress_last_row": "Review: added Document.keywords (spec: keyword search uses Athena injected keywords); final verification server 689/689 + typecheck, web 348/348 + typecheck, codegraph sync; status done",
+              "progress_updated_at": "2026-08-10T22:00:00Z"
             },
             {
               "ref": "G4.S2.T5",

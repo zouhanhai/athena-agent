@@ -43,12 +43,17 @@ function makeFakes(opts: {
   sleep?: (ms: number) => Promise<void>;
   /** LightRAG poll loop timeout (ms). */
   lightragWaitTimeoutMs?: number;
+  /** When true, the queue is wired with a fake Neo4j store that records ingests. */
+  neo4j?: boolean;
+  /** Force the Neo4j ingest to fail (G4.S2.T4). */
+  neo4jError?: Error;
 } = {}) {
   const flags = {
     lightragOk: opts.lightragOk !== false,
     llmwikiOk: opts.llmwikiOk !== false,
     parseError: opts.parseError,
     refineError: opts.refineError,
+    neo4jError: opts.neo4jError,
     /** Optional gate awaited by the llm_wiki fake so tests can observe the
      *  retry reset before the re-run re-drives the stage. */
     llmwikiGate: undefined as Promise<void> | undefined,
@@ -169,6 +174,17 @@ function makeFakes(opts: {
     dedup: dedup as never,
     sleep: opts.sleep ?? (async () => {}),
     lightragWaitTimeoutMs: opts.lightragWaitTimeoutMs,
+    ...(opts.neo4j
+      ? {
+          neo4j: {
+            async ingest(input: { ref: unknown; documentId: string; title: string }) {
+              calls.push({ kind: "neo4j.ingest", args: [input.documentId, input.title] });
+              if (flags.neo4jError) throw flags.neo4jError;
+              return { chunksStored: 2, entitiesStored: 1, relationsStored: 1 };
+            },
+          } as never,
+        }
+      : {}),
   });
   return { queue, calls, flags };
 }
@@ -460,6 +476,67 @@ test("submitFile feeds LightRAG the refined markdown + frontmatter from Athena (
   assert.ok(llmwiki, "llm_wiki is reached");
   assert.equal(llmwiki!.args[1], "# Refined\n\nbody");
   assert.deepEqual((llmwiki!.args[3] as { category: string; topic: string }).category, "concept");
+});
+
+test("submitFile flows Athena refinement output to the Neo4j store in parallel with llm_wiki (G4.S2.T4)", async () => {
+  const { queue, calls } = makeFakes({ neo4j: true });
+  const { taskId } = queue.submitFile("/tmp/report.pdf", "report.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_neo4j.status, "done");
+  assert.equal(task.stages.ingesting_neo4j.steps.find((s) => s.name === "embed_store")!.status, "done");
+  assert.equal(task.neo4jStored, true);
+
+  // The Neo4j stage receives the Athena documentId + title (chunks/entities come
+  // via the ref it carries).
+  const neo4j = calls.find((c) => c.kind === "neo4j.ingest");
+  assert.ok(neo4j, "Neo4j store is reached in parallel with llm_wiki");
+  assert.equal(neo4j!.args[0], "doc");
+  assert.equal(neo4j!.args[1], "Refined");
+  // llm_wiki still runs in the same batch (parallel, not serialized).
+  assert.ok(calls.some((c) => c.kind === "ingest.llmwiki"), "llm_wiki still reached in parallel");
+});
+
+test("Neo4j stage failure is per-system: task done if another system ok, stage failed (G4.S2.T4)", async () => {
+  const { queue } = makeFakes({ neo4j: true, neo4jError: new Error("neo4j down") });
+  const { taskId } = queue.submitFile("/tmp/report.pdf", "report.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done", "LightRAG + llm_wiki succeeded → task done");
+  assert.equal(task.stages.ingesting_neo4j.status, "failed");
+  assert.match(task.stages.ingesting_neo4j.error ?? "", /neo4j down/);
+  assert.equal(task.neo4jStored, undefined);
+});
+
+test("Neo4j stage is a no-op (done) without a wired store or refinement output (G4.S2.T4)", async () => {
+  // No Neo4j store wired → stage marked done but not a real store write.
+  const { queue, calls } = makeFakes({});
+  const { taskId } = queue.submitFile("/tmp/report.pdf", "report.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_neo4j.status, "done");
+  assert.equal(task.neo4jStored, undefined, "no real store write without a wired store");
+  assert.equal(calls.filter((c) => c.kind === "neo4j.ingest").length, 0);
+
+  // Refinement fails → no Athena output, nothing to store even with a wired store.
+  const { queue: q2, calls: calls2 } = makeFakes({ neo4j: true, refineError: new Error("athena down") });
+  const { taskId: id2 } = q2.submitFile("/tmp/report.pdf", "report.pdf");
+  await untilDone(q2, id2);
+  assert.equal(q2.getTask(id2)!.stages.ingesting_neo4j.status, "done");
+  assert.equal(calls2.filter((c) => c.kind === "neo4j.ingest").length, 0, "no ingest without refinement output");
+});
+
+test("task still fails overall when all knowledge systems fail (incl. Neo4j)", async () => {
+  const { queue } = makeFakes({ lightragOk: false, llmwikiOk: false, neo4j: true, neo4jError: new Error("neo4j down") });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "failed");
 });
 
 test("submitUrl passes the URL straight to docling parsing", async () => {

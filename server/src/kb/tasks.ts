@@ -16,6 +16,7 @@ import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTit
 import type { WikiClassification } from "./llmwiki.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { ContentDedupStore } from "./dedup.js";
+import type { Neo4jIngestService } from "./store/ingest.js";
 import {
   LightRagTrackPoller,
   type LightRagTrackOutcome,
@@ -34,7 +35,7 @@ export type Refiner = (markdown: string, topicHint?: string) => Promise<{
   ragMarkdown: string;
 }>;
 
-export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki";
+export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
 
@@ -46,7 +47,8 @@ export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "don
 export type DoclingStepName = "read_file" | "parse_ocr_image_desc";
 export type RefinementStepName = "refine_document";
 export type LightRagStepName = "chunking_embedding";
-export type StepName = DoclingStepName | RefinementStepName | LightRagStepName | LlmWikiStepName;
+export type Neo4jStepName = "embed_store";
+export type StepName = DoclingStepName | RefinementStepName | LightRagStepName | LlmWikiStepName | Neo4jStepName;
 
 export interface TaskStep {
   name: StepName;
@@ -62,6 +64,7 @@ export interface TaskStage {
 }
 
 const LIGHTRAG_STEPS: LightRagStepName[] = ["chunking_embedding"];
+const NEO4J_STEPS: Neo4jStepName[] = ["embed_store"];
 
 /** Fresh pending sub-steps for a stage, e.g. `["read_file", "parse_ocr_image_desc"]`. */
 export function initialSteps(stage: TaskStageName): TaskStep[] {
@@ -77,6 +80,8 @@ export function initialSteps(stage: TaskStageName): TaskStep[] {
       ];
     case "ingesting_lightrag":
       return LIGHTRAG_STEPS.map((name) => ({ name, status: "pending" }));
+    case "ingesting_neo4j":
+      return NEO4J_STEPS.map((name) => ({ name, status: "pending" }));
     case "ingesting_llmwiki":
       return [
         // G4.S1.T4: `classify` is folded into the refinement stage — Athena
@@ -114,6 +119,7 @@ export interface IngestTask {
     refinement: TaskStage;
     ingesting_lightrag: TaskStage;
     ingesting_llmwiki: TaskStage;
+    ingesting_neo4j: TaskStage;
   };
   /** Re-leveled markdown from the Athena refinement stage (G4.S1.T4). Set once
    *  the refinement stage succeeds; downstream (LightRAG + llm_wiki) consume it.
@@ -130,6 +136,9 @@ export interface IngestTask {
    *  emitted quality.action=review_required, OR refinement failed and the raw
    *  docling output was used (never worse than today, but worth a look). */
   reviewRequired?: boolean;
+  /** True when the Neo4j stage actually stored refinement output (G4.S2.T4). A
+   *  no-op stage (store not wired / no refinement output) leaves this unset. */
+  neo4jStored?: boolean;
   documentId?: string;
   error?: string;
   /** Content dedup outcome (G2.S5.T14). Present when the doc was skipped as a
@@ -167,6 +176,9 @@ export interface IngestTaskQueueOptions {
   /** Athena refinement runner (G4.S1.T4). When unset, the refinement stage is
    *  skipped and the raw docling markdown is used (never worse than today). */
   refiner?: Refiner;
+  /** Neo4j lean RAG store ingest (G4.S2.T4). When unset, the ingesting_neo4j
+   *  stage is a no-op marked done — the store is not wired. */
+  neo4j?: Neo4jIngestService;
   /** Optional content-dedup store (G2.S5.T14). When set, identical content is
    *  skipped before the pipelines run; newly stored content is recorded. */
   dedup?: ContentDedupStore;
@@ -188,6 +200,7 @@ function initialStages(): IngestTask["stages"] {
     refinement: initialStage("refinement"),
     ingesting_lightrag: initialStage("ingesting_lightrag"),
     ingesting_llmwiki: initialStage("ingesting_llmwiki"),
+    ingesting_neo4j: initialStage("ingesting_neo4j"),
   };
 }
 
@@ -195,6 +208,7 @@ export class IngestTaskQueue {
   private readonly parser: DoclingParser;
   private readonly ingest: KnowledgeIngestService;
   private readonly refiner?: Refiner;
+  private readonly neo4j?: Neo4jIngestService;
   private readonly dedup?: ContentDedupStore;
   private readonly tasks = new Map<string, IngestTask>();
   private readonly lightragPoller: LightRagTrackPoller;
@@ -203,6 +217,7 @@ export class IngestTaskQueue {
     this.parser = options.parser;
     this.ingest = options.ingest;
     this.refiner = options.refiner;
+    this.neo4j = options.neo4j;
     this.dedup = options.dedup;
     // The poller reads real status through the ingest service (which owns the
     // LightRAG client); tests inject fakes that resolve it directly.
@@ -266,10 +281,10 @@ export class IngestTaskQueue {
   }
 
   /**
-   * Recompute the overall 0-100 progress across parsing → refinement → the two
-   * parallel ingest stages. Never jumps to 100 while LightRAG (the slow one) is
-   * still running. Parsing done = 15, refinement done = 35, then the two ingest
-   * stages share the remaining band; one done + the other running sits partway.
+   * Recompute the overall 0-100 progress across parsing → refinement → the three
+   * parallel ingest stages (LightRAG, llm_wiki, Neo4j). Never jumps to 100 while
+   * any of the ingest systems is still running. Parsing done = 15, refinement
+   * done = 35, then the ingest stages share the remaining band.
    */
   private updateProgress(id: string): void {
     this.patch(id, (t) => {
@@ -277,15 +292,17 @@ export class IngestTaskQueue {
       const rf = t.stages.refinement.status;
       const lr = t.stages.ingesting_lightrag.status;
       const lw = t.stages.ingesting_llmwiki.status;
+      const n4 = t.stages.ingesting_neo4j.status;
       if (p !== "done") { t.progress = p === "failed" ? 100 : 15; return; }
       if (rf !== "done") { t.progress = rf === "failed" ? 100 : 35; return; }
-      const lrDone = lr === "done", lwDone = lw === "done";
-      const lrFail = lr === "failed", lwFail = lw === "failed";
-      if (lrDone && lwDone) { t.progress = 100; return; }
-      if (lrDone) { t.progress = lwFail ? 100 : 88; return; } // LightRAG done, waiting on llm_wiki
-      if (lwDone) { t.progress = lrFail ? 100 : 72; return; } // llm_wiki done, waiting on LightRAG
-      if (lrFail || lwFail) { t.progress = 100; return; }
-      t.progress = 50; // both still running
+      const lrDone = lr === "done", lwDone = lw === "done", n4Done = n4 === "done";
+      const lrFail = lr === "failed", lwFail = lw === "failed", n4Fail = n4 === "failed";
+      if (lrDone && lwDone && n4Done) { t.progress = 100; return; }
+      if (lrDone) { t.progress = lwFail || n4Fail ? 100 : 88; return; } // LightRAG done, waiting on the rest
+      if (lwDone) { t.progress = lrFail || n4Fail ? 100 : 72; return; } // llm_wiki done, waiting on the rest
+      if (n4Done) { t.progress = lrFail || lwFail ? 100 : 60; return; } // Neo4j done, waiting on the rest
+      if (lrFail || lwFail || n4Fail) { t.progress = 100; return; }
+      t.progress = 50; // all still running
     });
   }
 
@@ -394,9 +411,10 @@ export class IngestTaskQueue {
       }
     }
 
-    // --- Ingesting: refinement first, then LightRAG + llm_wiki run in PARALLEL ---
+    // --- Ingesting: refinement first, then LightRAG + llm_wiki + Neo4j run in PARALLEL ---
     const lightragTodo = task.stages.ingesting_lightrag.status !== "done";
     const llmwikiTodo = task.stages.ingesting_llmwiki.status !== "done";
+    const neo4jTodo = task.stages.ingesting_neo4j.status !== "done";
 
     // --- refinement (G4.S1.T4): the Athena single full-doc LLM pass between
     // parsing and the parallel ingest stages. Best-effort: when it fails (or no
@@ -541,12 +559,50 @@ export class IngestTaskQueue {
         this.updateProgress(id);
         this.markStageSteps(id, "ingesting_llmwiki", res.ok ? "done" : "failed", res.error);
       })(),
+      (async () => {
+        if (!neo4jTodo) return;
+        this.patch(id, (t) => {
+          t.status = "ingesting";
+          t.stages.ingesting_neo4j = { name: "ingesting_neo4j", status: "running", steps: t.stages.ingesting_neo4j.steps };
+          t.progress = 50;
+        });
+        this.markStageSteps(id, "ingesting_neo4j", "running");
+
+        // G4.S2.T4: embed + index the Athena refinement output into Neo4j — no
+        // LLM extraction here. Requires a Neo4j store AND the refinement output
+        // (no ref = nothing to store); otherwise the stage is a no-op marked done.
+        const res = this.neo4j && refinementRef
+          ? await this.safeIngest(() => {
+              const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
+              const documentId = task.documentId ?? documentIdFrom(source, source);
+              return this.neo4j!.ingest({
+                ref: refinementRef!,
+                documentId,
+                title,
+              }).then((r) => ({ ok: true, count: r.chunksStored }));
+            })
+          : { ok: true };
+        console.log(
+          `[tasks:${id}] neo4j ingest: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}` +
+            (res.ok && "count" in res ? ` (${res.count} chunks embedded)` : ""),
+        );
+        this.patch(id, (t) => {
+          t.stages.ingesting_neo4j = { name: "ingesting_neo4j", status: res.ok ? "done" : "failed", ...(res.ok ? {} : { error: res.error }), steps: t.stages.ingesting_neo4j.steps };
+          // Only a real store write counts as a success for the finalize decision;
+          // a no-op (no store configured / no refinement output) must not alone
+          // mark the task done when every other system failed.
+          if (res.ok && this.neo4j && refinementRef) t.neo4jStored = true;
+        });
+        this.updateProgress(id);
+        this.markStageSteps(id, "ingesting_neo4j", res.ok ? "done" : "failed", res.error);
+      })(),
     ]);
 
     // --- finalize ---
     this.patch(id, (t) => {
       const lightragOk = t.stages.ingesting_lightrag.status === "done";
       const llmwikiOk = t.stages.ingesting_llmwiki.status === "done";
+      const neo4jOk = t.neo4jStored === true;
       // Surface the first failed stage's reason on the top-level task.error so the
       // UI shows WHY a stage failed (e.g. LightRAG 409 duplicate-name) instead of
       // a silent green "done" / generic message. Keep done even if one system failed.
@@ -560,15 +616,17 @@ export class IngestTaskQueue {
             ? t.stages.ingesting_lightrag
             : t.stages.ingesting_llmwiki.status === "failed"
               ? t.stages.ingesting_llmwiki
-              : undefined;
-      if (lightragOk || llmwikiOk) {
+              : t.stages.ingesting_neo4j.status === "failed"
+                ? t.stages.ingesting_neo4j
+                : undefined;
+      if (lightragOk || llmwikiOk || neo4jOk) {
         t.status = "done";
         t.progress = 100;
         if (failedStage?.error) t.error = failedStage.error;
       } else {
         t.status = "failed";
         t.progress = 100;
-        t.error = failedStage?.error ?? "Both knowledge systems failed";
+        t.error = failedStage?.error ?? "All knowledge systems failed";
       }
     });
 
@@ -633,7 +691,7 @@ export class IngestTaskQueue {
       throw new TaskBusyError(`task is still running: ${taskId}`);
     }
     if (!task.input) throw new NothingToRetryError(`task has no parse input to retry: ${taskId}`);
-    const failedStages = (["parsing", "refinement", "ingesting_lightrag", "ingesting_llmwiki"] as const).filter(
+    const failedStages = (["parsing", "refinement", "ingesting_lightrag", "ingesting_llmwiki", "ingesting_neo4j"] as const).filter(
       (name) => task.stages[name].status === "failed",
     );
     if (failedStages.length === 0) {

@@ -54,7 +54,8 @@ function hasFailedStage(task: IngestTaskItem): boolean {
     task.stages.parsing.status === "failed" ||
     task.stages.refinement.status === "failed" ||
     task.stages.ingesting_lightrag.status === "failed" ||
-    task.stages.ingesting_llmwiki.status === "failed"
+    task.stages.ingesting_llmwiki.status === "failed" ||
+    task.stages.ingesting_neo4j.status === "failed"
   );
 }
 
@@ -255,6 +256,7 @@ function stepMark(status: string): string {
                 { key: 'parsing' as const, label: 'Parse' },
                 { key: 'refinement' as const, label: 'Refine (Athena)' },
                 { key: 'ingesting_lightrag' as const, label: 'LightRAG' },
+                { key: 'ingesting_neo4j' as const, label: 'Neo4j (RAG)' },
                 { key: 'ingesting_llmwiki' as const, label: 'llm_wiki' },
               ]"
               :key="stage.key"
