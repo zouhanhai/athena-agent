@@ -7,6 +7,7 @@
  * LightRAG ok but llm_wiki failed (and vice versa).
  */
 import { randomUUID } from "node:crypto";
+import { unlink } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
@@ -24,10 +25,13 @@ import type { LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js"
 
 /** Athena refinement runner (G4.S1.T4): one full-doc LLM pass, returns the small
  *  big-output ref + the full re-leveled markdown for downstream consumption.
- *  Injected so tests can fake the LLM pass; the default uses refine_document. */
+ *  Injected so tests can fake the LLM pass; the default uses refine_document.
+ *  `markdown` is File A′ (refined headers + image refs — llm_wiki); `ragMarkdown`
+ *  is File B (refined text-only — the RAG working copy, G4.S1.T6). */
 export type Refiner = (markdown: string, topicHint?: string) => Promise<{
   ref: RefineOutputRef;
   markdown: string;
+  ragMarkdown: string;
 }>;
 
 export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki";
@@ -115,6 +119,10 @@ export interface IngestTask {
    *  the refinement stage succeeds; downstream (LightRAG + llm_wiki) consume it.
    *  Falls back to the raw docling `markdown` when refinement fails. */
   refinedMarkdown?: string;
+  /** RAG working copy (File B, G4.S1.T6): refined text-only markdown without image
+   *  refs. Retained so a retry of the LightRAG stage re-uses it without re-running
+   *  the LLM pass (the File B on disk is deleted after RAG ingestion). */
+  ragMarkdown?: string;
   /** Athena refinement small ref (frontmatter/entities/keywords/quality/md_ref),
    *  retained so retry re-uses it without re-running the LLM pass. */
   refinement?: RefineOutputRef;
@@ -328,6 +336,7 @@ export class IngestTaskQueue {
     let markdown = task.markdown;
     let fileName = task.fileName;
     let refinedMarkdown = task.refinedMarkdown;
+    let ragMarkdown = task.ragMarkdown;
     let refinementRef = task.refinement;
     // G3.S8.T2: classification computed once before the ingest stages so both
     // systems receive the SAME type+topic. Since G4.S1.T4, the classification
@@ -406,6 +415,7 @@ export class IngestTaskQueue {
           console.log(`[tasks:${id}] refinement start`);
           const result = await this.refiner(markdown!);
           refinedMarkdown = result.markdown;
+          ragMarkdown = result.ragMarkdown;
           refinementRef = result.ref;
           console.log(
             `[tasks:${id}] refinement done (${refinedMarkdown?.length ?? 0} chars, ${result.ref.chunk_count} chunks, type=${result.ref.frontmatter.type}, topic=${result.ref.frontmatter.topic})`,
@@ -419,6 +429,7 @@ export class IngestTaskQueue {
           }
           this.patch(id, (t) => {
             t.refinedMarkdown = refinedMarkdown;
+            t.ragMarkdown = ragMarkdown;
             t.refinement = refinementRef;
             t.reviewRequired = review || undefined;
             t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
@@ -451,7 +462,9 @@ export class IngestTaskQueue {
       const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
       if (refinementRef) {
         preclassified = classificationFromRefinement(refinementRef.frontmatter, title, refinedMarkdown ?? markdown!);
-        preparedContent = withFrontmatter(preclassified.category, title, refinedMarkdown ?? markdown!, preclassified.topic);
+        // G4.S1.T6 two-file design: RAG ingests File B (refined text-only, no image refs);
+        // llm_wiki below gets File A′ (refined headers + image refs) for display.
+        preparedContent = withFrontmatter(preclassified.category, title, ragMarkdown ?? refinedMarkdown ?? markdown!, preclassified.topic);
       } else if (!preclassified) {
         const prepared = await this.safePrepare(() =>
           this.ingest.prepareForIngest({ title: extractPageTitle(markdown!) ?? stemTitle(fileName!), content: markdown! }),
@@ -486,6 +499,7 @@ export class IngestTaskQueue {
           });
           this.updateProgress(id);
           this.markStageSteps(id, "ingesting_lightrag", "failed", message);
+          await this.deleteWorkingCopy(refinementRef);
           return;
         }
         const trackId = submitted.trackId;
@@ -504,6 +518,9 @@ export class IngestTaskQueue {
         });
         this.updateProgress(id);
         this.markStageSteps(id, "ingesting_lightrag", outcome.state === "done" ? "done" : "failed", outcome.error);
+        // G4.S1.T6: RAG ingestion is done → delete the File B working copy (text-only md).
+        // The durable File A′ (refined headers + image refs) at md_ref stays for llm_wiki.
+        await this.deleteWorkingCopy(refinementRef);
       })(),
       (async () => {
         if (!llmwikiTodo) return;
@@ -643,6 +660,18 @@ export class IngestTaskQueue {
       return await fn();
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** G4.S1.T6: delete the File B RAG working copy once RAG ingestion is done. Best-effort
+   *  (the in-memory `task.ragMarkdown` is retained for retries). Never touches File A′. */
+  private async deleteWorkingCopy(ref: RefineOutputRef | undefined): Promise<void> {
+    if (!ref?.rag_md_ref || ref.rag_md_ref === ref.md_ref) return;
+    try {
+      await unlink(ref.rag_md_ref);
+      console.log(`[tasks] deleted File B RAG working copy: ${ref.rag_md_ref}`);
+    } catch {
+      // best-effort cleanup — a missing/already-deleted file is fine
     }
   }
 

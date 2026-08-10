@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -160,6 +161,38 @@ test("storeRefinementOutput writes markdown.md + chunks.json and returns the sma
 
     assert.equal(await readFile(mdPath, "utf8"), doc.markdown);
     assert.deepEqual(JSON.parse(await readFile(chunksPath, "utf8")), doc.chunks);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("storeRefinementOutput writes the File B RAG working copy only when it differs (G4.S1.T6)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "refine-output-rag-"));
+  try {
+    const fileAPrime = "# Doc\n\n![Image](images/x.png)\n\nThe image displays a bright sky.\n\nbody";
+    const fileB = "# Doc\n\nThe image displays a bright sky.\n\nbody";
+    const doc: RefinedDocument = {
+      markdown: fileAPrime,
+      frontmatter: { type: "event", topic: "internal/events" },
+      chunks: [{ id: "c1", text: "body", heading_path: "Doc" }],
+      entities: [],
+      relations: [],
+      keywords: [],
+      quality: { complete: true, confidence: 0.85, issues: [], action: "auto_accept" },
+    };
+    const stem = "doc";
+
+    // File B differs from File A′ (image refs stripped) → a separate rag.md is written
+    const separate = await storeRefinementOutput(doc, dir, { stem, ragMarkdown: fileB });
+    const ragPath = join(dir, stem, "rag.md");
+    assert.equal(separate.rag_md_ref, ragPath);
+    assert.notEqual(separate.rag_md_ref, separate.md_ref);
+    assert.equal(await readFile(ragPath, "utf8"), fileB);
+
+    // File B equals the durable markdown → rag_md_ref falls back to md_ref, no rag.md
+    const same = await storeRefinementOutput(doc, dir, { stem: "doc-same", ragMarkdown: fileAPrime });
+    assert.equal(same.rag_md_ref, same.md_ref);
+    assert.equal(existsSync(join(dir, "doc-same", "rag.md")), false, "no separate rag.md when File B is identical");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -11,6 +11,11 @@
  * quality/md_ref/chunks_ref); this runner also reads the full re-leveled
  * markdown back from md_ref so downstream consumes by reference (pi-docparser
  * pattern). Falls back to the input markdown when the read fails.
+ *
+ * G4.S1.T6 two-file design: `md_ref` is File A′ (refined headers + image refs —
+ * durable, for llm_wiki); `rag_md_ref` is File B (refined text-only — the RAG
+ * working copy). Both are returned so the ingest task queue can feed llm_wiki
+ * File A′ and RAG File B, then delete File B once RAG ingestion is done.
  */
 import { readFile } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -20,6 +25,16 @@ import {
 } from "../agents/refine-document.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { Refiner } from "./tasks.js";
+
+/** Best-effort read of a stored markdown file; falls back to the input markdown. */
+async function readStored(path: string | undefined, fallback: string): Promise<string> {
+  if (!path) return fallback;
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return fallback;
+  }
+}
 
 /** Build the default Athena refiner for the ingest pipeline. */
 export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refiner {
@@ -43,12 +58,9 @@ export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refine
     )?.text;
     if (!text) throw new Error("refine_document returned no content");
     const ref = JSON.parse(text) as RefineOutputRef;
-    let refined = markdown;
-    try {
-      refined = await readFile(ref.md_ref, "utf8");
-    } catch {
-      // keep the input when the stored file is unreadable — never worse than today
-    }
-    return { ref, markdown: refined };
+    // File A′ (durable, llm_wiki) + File B (RAG working copy, text-only)
+    const fileAPrime = await readStored(ref.md_ref, markdown);
+    const ragMarkdown = await readStored(ref.rag_md_ref, fileAPrime);
+    return { ref, markdown: fileAPrime, ragMarkdown };
   };
 }

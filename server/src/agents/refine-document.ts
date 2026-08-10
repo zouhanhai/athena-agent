@@ -29,12 +29,15 @@ import {
   clampHeaderLevel,
   deriveStem,
   enforceSectionSize,
+  hasImageRefs,
   isLargeMarkdown,
   mergeRefinements,
   rebuildMarkdown,
   splitByHeaders,
   splitByRefinedH1,
   storeRefinementOutput,
+  stripImageRefs,
+  syncRefinedHeadersToSource,
   type HeaderBlock,
   type MarkdownSection,
   type RefineOutputRef,
@@ -209,6 +212,8 @@ export interface RefineDocumentOptions {
   modelId?: string;
   /** Reasoning level for the refinement pass (default "high" — header re-leveling needs it). */
   thinkingLevel?: AthenaThinkingLevel;
+  /** Retries before giving up to fallbackRefinement (default 1 — re-prompt once, G4.S1.T6). */
+  retries?: number;
   /** Override the refinement system prompt. */
   systemPrompt?: string;
   /**
@@ -347,7 +352,8 @@ function isEmitToolCall(part: AssistantMessageLike["content"][number]): part is 
 
 /**
  * Extract the structured refined document from the assistant response.
- * Prefers the constrained `emit_refined_document` tool call; falls back to plain-text JSON.
+ * Prefers the constrained `emit_refined_document` tool call; falls back to plain-text JSON
+ * (also accepted when nested inside prose or a fenced code block — G4.S1.T6).
  * Throws when neither yields a schema-conformant object.
  */
 export function extractRefinedDocument(message: AssistantMessageLike): RefinedDocument {
@@ -362,9 +368,37 @@ export function extractRefinedDocument(message: AssistantMessageLike): RefinedDo
     .join("\n")
     .trim();
   if (text) {
-    return normalizeRefinedDocument(JSON.parse(text));
+    const parsed = tryParseNestedJson(text);
+    if (parsed !== undefined) {
+      return normalizeRefinedDocument(parsed);
+    }
   }
   throw new Error("refine_document: assistant returned no structured output");
+}
+
+/**
+ * Lenient JSON recovery from assistant text: try the raw text, then a fenced ```json
+ * code block, then the outermost `{...}` span. Returns undefined when nothing parses.
+ */
+export function tryParseNestedJson(text: string): unknown {
+  const candidates: string[] = [text];
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (fence) candidates.push(fence[1]);
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidates.push(text.slice(firstBrace, lastBrace + 1));
+  }
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      // try the next candidate
+    }
+  }
+  return undefined;
 }
 
 /** Coerce a parsed tool-call payload into the refinement contract (JSON-string args accepted). */
@@ -669,24 +703,41 @@ export interface LargeRefineResult {
 /**
  * Run the single full-doc refinement LLM pass (sub-1MB path and the stage-2 per-section path).
  * Returns the refined document + the raw assistant (for usage reporting).
+ *
+ * G4.S1.T6: re-prompts once (default) before giving up — a transient "no structured output"
+ * on a long/image-heavy doc usually succeeds on the retry, avoiding the fallback. The retry
+ * nudge re-asserts the emit tool call.
  */
 async function runRefinePass(
   modelRuntime: ModelRuntime,
   model: RefineModel,
   markdown: string,
   topicHint: string | undefined,
-  options: Pick<RefineDocumentOptions, "thinkingLevel" | "systemPrompt">,
-): Promise<{ document: RefinedDocument; assistant: AssistantMessageLike }> {
-  const assistant = await modelRuntime.completeSimple(
-    model,
-    {
-      systemPrompt: options.systemPrompt ?? buildRefineSystemPrompt(topicHint),
-      messages: [{ role: "user", content: markdown, timestamp: Date.now() }],
-      tools: [emitRefinedDocumentTool()],
-    },
-    { reasoning: options.thinkingLevel ?? "high" },
-  );
-  return { document: extractRefinedDocument(assistant), assistant };
+  options: Pick<RefineDocumentOptions, "thinkingLevel" | "systemPrompt" | "retries">,
+): Promise<{ document: RefinedDocument; assistant: AssistantMessageLike; retries: number }> {
+  const retries = options.retries ?? 1;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      const userContent =
+        attempt === 1
+          ? markdown
+          : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_refined_document tool call carrying the complete refined document.`;
+      const assistant = await modelRuntime.completeSimple(
+        model,
+        {
+          systemPrompt: options.systemPrompt ?? buildRefineSystemPrompt(topicHint),
+          messages: [{ role: "user", content: userContent, timestamp: Date.now() }],
+          tools: [emitRefinedDocumentTool()],
+        },
+        { reasoning: options.thinkingLevel ?? "high" },
+      );
+      return { document: extractRefinedDocument(assistant), assistant, retries: attempt - 1 };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 function emitRefinedDocumentTool() {
@@ -793,15 +844,23 @@ export function createRefineDocumentTool(
       }
 
       const mode: RefinementMode = isLargeMarkdown(params.markdown) ? "two-stage" : "single";
-      const emitDetails = { provider: providerId, model: modelId, mode };
+      // G4.S1.T6 two-file design: File A = full docling md (image refs + VLM descriptions) for
+      // llm_wiki display; File B = image-ref lines stripped (text + VLM descriptions only) fed to
+      // the refinement LLM + RAG. Refinement reads text only — image refs are noise that made the
+      // constrained-sampling output unstable.
+      const originalMarkdown = params.markdown;
+      const textMarkdown = stripImageRefs(originalMarkdown);
+      const imageRefsStripped = textMarkdown !== originalMarkdown;
+      const emitDetails = { provider: providerId, model: modelId, mode, imageRefsStripped };
       let usage: unknown;
+      let retries = 0;
 
       try {
         let document: RefinedDocument;
         let sections: string[] = [];
         if (mode === "two-stage") {
           const result = await refineLargeDocument(
-            params.markdown,
+            textMarkdown,
             {
               judgeHeaderLevels:
                 options.judgeHeaderLevelsImpl ??
@@ -818,18 +877,33 @@ export function createRefineDocumentTool(
           document = result.document;
           sections = result.sections;
         } else {
-          const single = await runRefinePass(modelRuntime, model, params.markdown, params.topic_hint, options);
+          const single = await runRefinePass(modelRuntime, model, textMarkdown, params.topic_hint, options);
           document = single.document;
           usage = single.assistant.usage;
+          retries = single.retries;
         }
-        const ref = await store(document, storageDir, { stem: deriveStem(document.markdown), mode, sections });
+        // File B = refined text-only markdown (RAG working copy). Sync the header re-level back
+        // onto File A (keeping its image refs) → File A′ (durable, llm_wiki).
+        const ragMarkdown = document.markdown;
+        const fileAPrime = syncRefinedHeadersToSource(originalMarkdown, ragMarkdown);
+        const ref = await store({ ...document, markdown: fileAPrime }, storageDir, {
+          stem: deriveStem(fileAPrime),
+          mode,
+          sections,
+          ...(imageRefsStripped ? { ragMarkdown } : {}),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(ref) }],
-          details: { ...emitDetails, usage },
+          details: { ...emitDetails, usage, retries },
         };
       } catch (err) {
-        const fallback = fallbackRefinement(params.markdown, params.topic_hint, err);
-        const ref = await store(fallback, storageDir, { stem: deriveStem(fallback.markdown), mode });
+        const fallback = fallbackRefinement(originalMarkdown, params.topic_hint, err);
+        const fallbackRag = stripImageRefs(originalMarkdown);
+        const ref = await store(fallback, storageDir, {
+          stem: deriveStem(fallback.markdown),
+          mode,
+          ...(fallbackRag !== fallback.markdown ? { ragMarkdown: fallbackRag } : {}),
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(ref) }],
           details: {

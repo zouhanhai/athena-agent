@@ -72,6 +72,13 @@ export interface MarkdownSection {
 export interface RefineOutputRef {
   /** Absolute path of the full re-leveled markdown on disk. */
   md_ref: string;
+  /**
+   * Absolute path of the RAG working copy (File B — refined markdown WITHOUT image
+   * refs). Equal to `md_ref` when the source had no image refs to strip. File B is
+   * a working copy deleted once RAG ingestion is done; `md_ref` (File A′) is the
+   * durable artifact (refined headers + image refs) consumed by llm_wiki.
+   */
+  rag_md_ref?: string;
   /** Absolute path of the chunks JSON on disk. */
   chunks_ref: string;
   /** Short preview of the re-leveled markdown — NOT the full document. */
@@ -96,6 +103,12 @@ export interface StoreRefinementOptions {
   stem?: string;
   mode?: RefinementMode;
   sections?: string[];
+  /**
+   * RAG working copy (File B — refined markdown without image refs). Written to
+   * `rag.md` only when it differs from the durable doc.markdown (File A′); the ref's
+   * `rag_md_ref` falls back to `md_ref` when no separate copy is needed.
+   */
+  ragMarkdown?: string;
   /** Injectable mkdir for tests. */
   mkdir?: (path: string) => Promise<void>;
   /** Injectable writeFile for tests. */
@@ -106,6 +119,101 @@ export interface StoreRefinementOptions {
 export function clampHeaderLevel(level: number): number {
   if (Number.isFinite(level)) return Math.min(6, Math.max(1, Math.round(level)));
   return 2;
+}
+
+// --- image-ref handling (G4.S1.T6) ---
+//
+// docling emits image references like `![Image](images/image_1.jpeg)` purely so the
+// final llm_wiki view can render images alongside text. The refinement LLM does NOT
+// need them — only the following VLM text descriptions. Strip the reference lines
+// for the refinement prompt (File B: refine + RAG) and keep the full markdown (File A:
+// llm_wiki display). After refinement the corrected header levels are synced back onto
+// File A, keeping its image refs, to produce the durable File A′.
+
+/** A markdown image-reference line: `![Image](images/...)` on its own line. */
+const IMAGE_REF_LINE = /^\s*!\[[^\]]*\]\([^)]*\)\s*$/;
+
+/** A markdown image reference anywhere (inline form, `![alt](url)`). */
+const IMAGE_REF_INLINE = /!\[[^\]]*\]\([^)]*\)/g;
+
+/** True when the markdown contains at least one `![...](...)` image reference. */
+export function hasImageRefs(markdown: string): boolean {
+  return IMAGE_REF_INLINE.test(markdown);
+}
+
+/**
+ * Strip image-reference lines (and inline refs) from markdown, KEEPING the text that
+ * follows them (docling VLM descriptions like "The image displays a bright sky...").
+ * Used to build File B — the text-only input for Athena refinement + RAG. A document
+ * without image refs is returned unchanged.
+ */
+export function stripImageRefs(markdown: string): string {
+  const lines = markdown.split(/\r?\n/).map((line) => {
+    if (IMAGE_REF_LINE.test(line)) return "";
+    if (!IMAGE_REF_INLINE.test(line)) return line;
+    return line.replace(IMAGE_REF_INLINE, "").trim();
+  });
+  // collapse runs of blank lines left behind by removed image refs (max 1 blank line)
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * Sync the refined header re-level back onto the SOURCE markdown (File A), keeping its
+ * image refs + VLM descriptions untouched → File A′ (refined headers + images) for
+ * llm_wiki. Aligns headings by order and text; a heading that cannot be matched keeps
+ * its original level. Returns the source unchanged when it has no headings or the
+ * refined markdown has none.
+ */
+export function syncRefinedHeadersToSource(sourceMarkdown: string, refinedMarkdown: string): string {
+  const sourceHeadings = headingLines(sourceMarkdown);
+  const refinedHeadings = headingLines(refinedMarkdown);
+  if (sourceHeadings.length === 0 || refinedHeadings.length === 0) return sourceMarkdown;
+
+  const normalized = (text: string): string => text.toLowerCase().replace(/\s+/g, " ").trim().replace(/[.,:;!?]+$/g, "");
+  const refinedByText = new Map<string, number>();
+  for (const h of refinedHeadings) {
+    refinedByText.set(normalized(h.text), h.level);
+  }
+
+  const correctedLevels = new Map<number, number>();
+  for (let i = 0; i < sourceHeadings.length; i++) {
+    const source = sourceHeadings[i];
+    const refined = refinedHeadings[i];
+    const key = normalized(source.text);
+    const byText = refinedByText.get(key);
+    if (refined && normalized(refined.text) === key) {
+      correctedLevels.set(i, refined.level);
+    } else if (byText !== undefined) {
+      correctedLevels.set(i, byText);
+    }
+  }
+
+  const lines = sourceMarkdown.split(/\r?\n/);
+  let headingIdx = 0;
+  return lines
+    .map((line) => {
+      const m = /^(#{1,6})(\s+.*)$/.exec(line);
+      if (!m) return line;
+      const level = correctedLevels.get(headingIdx);
+      headingIdx += 1;
+      return level === undefined ? line : `${"#".repeat(clampHeaderLevel(level))}${m[2]}`;
+    })
+    .join("\n");
+}
+
+interface HeadingLine {
+  level: number;
+  text: string;
+}
+
+/** In-order headings (level + text) of a markdown document. */
+function headingLines(markdown: string): HeadingLine[] {
+  const out: HeadingLine[] = [];
+  for (const line of markdown.split(/\r?\n/)) {
+    const m = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (m) out.push({ level: m[1].length, text: m[2].trim() });
+  }
+  return out;
 }
 
 /** Route a document by size: >1MB → two-stage; sub-1MB → single full-doc pass. */
@@ -300,6 +408,8 @@ function countHeaders(markdown: string): number {
 /**
  * Big-output storage (pi-docparser pattern): write the full re-leveled markdown + chunks JSON to
  * `<storageDir>/<stem>/` and return the SMALL ref (preview + metadata + refs) for the context.
+ * File A′ (durable, `doc.markdown`) → `markdown.md`; when `options.ragMarkdown` differs it is written
+ * as the RAG working copy `rag.md` (deleted downstream after RAG ingestion; G4.S1.T6).
  */
 export async function storeRefinementOutput(
   doc: RefinedDocument,
@@ -310,6 +420,7 @@ export async function storeRefinementOutput(
   const dir = join(storageDir, stem);
   const mdPath = join(dir, "markdown.md");
   const chunksPath = join(dir, "chunks.json");
+  const ragPath = join(dir, "rag.md");
   const mkdirImpl = options.mkdir ?? (async (path: string) => void (await mkdir(path, { recursive: true })));
   const writeFileImpl = options.writeFile ?? ((path: string, content: string) => writeFile(path, content, "utf8"));
 
@@ -317,8 +428,14 @@ export async function storeRefinementOutput(
   await writeFileImpl(mdPath, doc.markdown);
   await writeFileImpl(chunksPath, JSON.stringify(doc.chunks ?? [], null, 2));
 
+  const separateRag = options.ragMarkdown !== undefined && options.ragMarkdown !== doc.markdown;
+  if (separateRag) {
+    await writeFileImpl(ragPath, options.ragMarkdown!);
+  }
+
   return {
     md_ref: mdPath,
+    rag_md_ref: separateRag ? ragPath : mdPath,
     chunks_ref: chunksPath,
     preview: previewMarkdown(doc.markdown),
     char_count: doc.markdown.length,

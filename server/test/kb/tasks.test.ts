@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   IngestTaskQueue,
   NothingToRetryError,
@@ -16,6 +20,8 @@ function makeFakes(opts: {
   refineError?: Error;
   refineQualityAction?: "auto_accept" | "review_required";
   refinedMarkdown?: string;
+  /** File B (refined text-only, G4.S1.T6) — when set the refiner returns it separately. */
+  ragMarkdown?: string;
   lightragTrack?: {
     /** Status sequence returned by the fake /documents/track_status (last repeats). */
     statuses?: string[];
@@ -28,6 +34,8 @@ function makeFakes(opts: {
     method?: "hash" | "chunks";
     existingSource?: string;
   };
+  /** Extra refinement ref fields merged into the fake refiner's ref (e.g. md_ref/rag_md_ref). */
+  ref?: Record<string, unknown>;
   nearDuplicate?: string;
   /** Docling-extracted images dir returned by the fake parser (G3.S5.T5). */
   imagesDir?: string;
@@ -79,8 +87,10 @@ function makeFakes(opts: {
         quality: { complete: true, confidence: 0.9, issues: [], action: opts.refineQualityAction ?? "auto_accept" },
         mode: "single",
         sections: [],
+        ...(opts.ref ?? {}),
       },
       markdown: opts.refinedMarkdown ?? "# Refined\n\nbody",
+      ragMarkdown: opts.ragMarkdown ?? opts.refinedMarkdown ?? "# Refined\n\nbody",
     };
   };
   const ingest = {
@@ -302,6 +312,36 @@ test("auto_accept refinement is NOT flagged review_required (G4.S1.T5)", async (
   assert.equal(task.status, "done");
   assert.equal(task.reviewRequired, undefined, "clean refinement has no review flag");
   assert.equal(task.refinement?.quality.action, "auto_accept");
+});
+
+test("two-file design: RAG ingests File B (text-only) while llm_wiki gets File A′ (image refs); File B deleted after ingest (G4.S1.T6)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "t6-"));
+  const mdRef = join(dir, "markdown.md");
+  const ragRef = join(dir, "rag.md");
+  const fileAprime = "# Doc\n\n![Image](images/x.png)\n\nThe image displays a bright sky.\n\nbody";
+  const fileB = "# Doc\n\nThe image displays a bright sky.\n\nbody";
+  await writeFile(mdRef, fileAprime, "utf8");
+  await writeFile(ragRef, fileB, "utf8");
+
+  const { queue, calls } = makeFakes({
+    markdown: fileAprime,
+    refinedMarkdown: fileAprime,
+    ragMarkdown: fileB,
+    ref: { md_ref: mdRef, rag_md_ref: ragRef },
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  const lightragArg = calls.find((c) => c.kind === "ingest.lightrag")!.args[0] as string;
+  const llmwikiArg = calls.find((c) => c.kind === "ingest.llmwiki")!.args[1] as string;
+
+  assert.ok(lightragArg.includes("The image displays a bright sky."), "RAG gets the text content");
+  assert.ok(!lightragArg.includes("![Image]"), "RAG (File B) has no image refs");
+  assert.ok(llmwikiArg.includes("![Image](images/x.png)"), "llm_wiki (File A′) keeps the image refs");
+  assert.equal(task.ragMarkdown, fileB, "task retains the in-memory File B for LightRAG retry");
+  assert.equal(existsSync(ragRef), false, "File B working copy deleted once RAG ingestion is done");
+  assert.equal(existsSync(mdRef), true, "File A′ durable artifact kept");
 });
 
 test("raw-docling fallback after refinement failure flags the task for operator review (G4.S1.T5)", async () => {
