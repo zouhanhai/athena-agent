@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T17:26:12.682Z",
+  "generated_at": "2026-08-10T18:36:39.574Z",
   "goals": [
     {
       "ref": "G1",
@@ -1887,8 +1887,9 @@
               "id": "s2.4",
               "title": "G4.S2.T4: Ingest — Athena output → Neo4j (embed + index, no LLM)",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "3d3b16e7-a81f-48fd-93a1-8248a78d3eaa",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
