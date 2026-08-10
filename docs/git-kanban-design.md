@@ -261,3 +261,28 @@ Reviewer (Pi-B) reviews Pi-A's T1 → finds issues:
 - **Worker crash leaves ticket stuck in_progress**: check git log timestamps; if timeout with no update → another Worker can take over (revert to backlog or take over)
 - **md conflicts**: different Workers modifying different ticket files won't conflict; two workers racing for the same ticket — the conflict IS the mutual exclusion lock
 - **main concurrency**: multiple PRs merging simultaneously may conflict → resolve via rebase
+
+## 13. Eng-Director Ticket Monitoring (auto-wake stalled workers)
+
+OpenCode workers can stall silently (long reasoning loops, session `updated` stops advancing while the
+ticket stays `in_progress` — or even `backlog` before claiming). The Eng Director side has an automatic
+monitor so you don't poll sessions by hand.
+
+**Two complementary directions**:
+- **Eng Director → Worker**: `monitor-ticket.sh` polls a ticket's status + the session's `updated` epoch
+  ms; if `in_progress` with no update for > threshold it POSTs a wake message
+  (`/session/{sid}/prompt_async`) that breaks the loop, and exits automatically on
+  done/approved/failed/rejected. One monitor per ticket, started on dispatch.
+- **Worker → Eng Director**: the G4.S4 plugin appends a Progress Log row (real wall-clock timestamp) on
+  each tool call, so the Eng Director can read progress from the ticket file.
+
+**Usage** (on 6900XT):
+```bash
+ssh hh@192.168.178.30 "nohup /home/hh/scripts/monitor-ticket.sh \
+  /home/hh/athena-agent/docs/kanban/G4/S1/T6.md <session-id> 60 300 \
+  > /tmp/monitor-run.log 2>&1 &"
+# args: <ticket-path> <session-id> [interval-secs=60] [stall-threshold-secs=300]
+# check: tail -f /tmp/monitor-<spec>-<ticket>.log
+```
+Script is also saved in the Hermes `monitor-ticket` skill. A worker may stall before claiming (still
+`backlog`) — the wake message tells it to claim and proceed.
