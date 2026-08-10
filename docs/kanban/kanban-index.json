@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T17:06:05.380Z",
+  "generated_at": "2026-08-10T17:14:22.799Z",
   "goals": [
     {
       "ref": "G1",
@@ -1872,8 +1872,9 @@
               "id": "s2.3",
               "title": "G4.S2.T3: Neo4j store schema (Chunk/Entity/Relation/Document + aliases)",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_t3schema",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
