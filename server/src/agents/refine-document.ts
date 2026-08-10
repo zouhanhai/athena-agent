@@ -84,11 +84,17 @@ export interface RefinementChunk {
   heading_path: string;
 }
 
-/** Knowledge-graph node. `name` is title-case for consistent naming ("CALEO", not "caleo"). */
+/**
+ * Knowledge-graph node. `name` is title-case for consistent naming ("CALEO", not "caleo").
+ * `aliases` are bilingual (DE+EN) variants of the SAME node (e.g. name "ZOB München" → aliases
+ * ["Zentraler Omnibusbahnhof", "Munich central bus station"]) so RAG finds one node in both
+ * languages. `name` is the document-language canonical form.
+ */
 export interface RefinementEntity {
   name: string;
   type: string;
   description: string;
+  aliases?: string[];
 }
 
 /** Binary knowledge-graph edge (source -> target). `keywords` = relationship keywords. */
@@ -135,6 +141,7 @@ export const REFINED_DOCUMENT_SCHEMA = Type.Object({
       name: Type.String(),
       type: Type.String(),
       description: Type.String(),
+      aliases: Type.Optional(Type.Array(Type.String())),
     }),
   ),
   relations: Type.Array(
@@ -170,6 +177,7 @@ export const GLOBAL_MERGE_SCHEMA = Type.Object({
       name: Type.String(),
       type: Type.String(),
       description: Type.String(),
+      aliases: Type.Optional(Type.Array(Type.String())),
     }),
   ),
   relations: Type.Array(
@@ -281,8 +289,14 @@ of the section it belongs to (e.g. "Sommerseminar / Workshops") so downstream kn
 ## 4. Entity extraction (knowledge-graph nodes)
 Extract the entities that are actually named in the document. For each:
 - name: TITLE-CASE, consistent naming — "CALEO", not "caleo"/"CALEO" variants (one canonical form).
+  name is the DOCUMENT-LANGUAGE canonical form.
 - type: org | person | product | event | location | concept | other (preset types; else "other").
 - description: one concise sentence stating what it is in this document's context.
+- aliases: bilingual (DE+EN) variant names of the SAME node — the node must be findable in BOTH
+  languages (RAG bilingual retrieval). name is the document-language canonical form; aliases are the
+  other-language (and alternate) terms for the same entity, e.g. name "ZOB München" → aliases
+  ["Zentraler Omnibusbahnhof", "Munich central bus station"]; name "Lüsen" → aliases ["Lüsen"].
+  Omit aliases only when no useful variant exists.
 Only direct, clearly-stated entities. Do not invent.
 
 ## 5. Relation extraction (binary edges)
@@ -428,6 +442,7 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
         name: String(e.name ?? ""),
         type: String(e.type ?? "other"),
         description: String(e.description ?? ""),
+        aliases: asStringArray(e.aliases) ?? [],
       }))
     : [];
   const relations = Array.isArray(args.relations)
@@ -504,6 +519,7 @@ refinement. A large document was refined section-by-section; each section produc
 entities, relations, keywords and quality. Produce the FINAL single-document view:
   - frontmatter: ONE type + ONE hierarchical topic for the whole document (docs/taxonomy.md).
   - entities: deduplicated with consistent TITLE-CASE naming (one canonical form per entity).
+    Preserve each entity's bilingual (DE+EN) aliases for RAG retrieval.
   - relations: deduplicated binary edges whose source/target match an emitted entity.
   - keywords: unified relationship + query keywords.
   - quality: the overall completeness/confidence and a single action (auto_accept | review_required).
@@ -597,6 +613,7 @@ export function extractGlobalMerge(message: AssistantMessageLike): GlobalRefinem
         name: String(e.name ?? ""),
         type: String(e.type ?? "other"),
         description: String(e.description ?? ""),
+        aliases: asStringArray(e.aliases) ?? [],
       }))
     : [];
   const relations = Array.isArray(args.relations)

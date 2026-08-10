@@ -32,9 +32,10 @@ test("chunk contract: id/text/heading_path (paragraph-semantic ~1200tok)", () =>
   assert.deepEqual(Object.keys(chunkProps).sort(), ["heading_path", "id", "text"]);
 });
 
-test("entity contract: name(title-case)/type/description", () => {
+test("entity contract: name(title-case)/type/description/aliases (bilingual DE+EN)", () => {
   const entProps = schemaJson(REFINED_DOCUMENT_SCHEMA).properties.entities.items?.properties ?? {};
-  assert.deepEqual(Object.keys(entProps).sort(), ["description", "name", "type"]);
+  assert.deepEqual(Object.keys(entProps).sort(), ["aliases", "description", "name", "type"]);
+  assert.equal(entProps.aliases?.type, "array");
 });
 
 test("relation contract: source/target/keywords/description (binary)", () => {
@@ -55,9 +56,16 @@ test("normalizeRefinedDocument maps heading_path + source/target/keywords/descri
     markdown: "# Sommerseminar\n\n## Workshops\n\nDetails.",
     frontmatter: { type: "event", topic: "internal/events" },
     chunks: [{ id: "c1", text: "Details.", heading_path: "Workshops" }],
-    entities: [{ name: "CALEO", type: "org", description: "An organization" }],
+    entities: [
+      {
+        name: "ZOB München",
+        type: "location",
+        description: "Munich central bus station",
+        aliases: ["Zentraler Omnibusbahnhof", "München ZOB"],
+      },
+    ],
     relations: [
-      { source: "CALEO", target: "Sommerseminar", keywords: ["hosts"], description: "CALEO hosts Sommerseminar" },
+      { source: "ZOB München", target: "Sommerseminar", keywords: ["hosts"], description: "ZOB hosts Sommerseminar" },
     ],
     keywords: ["sommerseminar", "workshop"],
     quality: { complete: true, confidence: 0.85, issues: [], action: "auto_accept" },
@@ -66,14 +74,33 @@ test("normalizeRefinedDocument maps heading_path + source/target/keywords/descri
   assert.equal(doc.markdown, "# Sommerseminar\n\n## Workshops\n\nDetails.");
   assert.deepEqual(doc.frontmatter, { type: "event", topic: "internal/events" });
   assert.deepEqual(doc.chunks, [{ id: "c1", text: "Details.", heading_path: "Workshops" }]);
+  assert.deepEqual(doc.entities[0], {
+    name: "ZOB München",
+    type: "location",
+    description: "Munich central bus station",
+    aliases: ["Zentraler Omnibusbahnhof", "München ZOB"],
+  });
   assert.deepEqual(doc.relations[0], {
-    source: "CALEO",
+    source: "ZOB München",
     target: "Sommerseminar",
     keywords: ["hosts"],
-    description: "CALEO hosts Sommerseminar",
+    description: "ZOB hosts Sommerseminar",
   });
   assert.deepEqual(doc.keywords, ["sommerseminar", "workshop"]);
   assert.equal(doc.quality.action, "auto_accept");
+});
+
+test("normalizeRefinedDocument defaults entity aliases to [] when absent", () => {
+  const doc = normalizeRefinedDocument({
+    markdown: "# D",
+    frontmatter: { type: "document", topic: "unclassified" },
+    chunks: [],
+    entities: [{ name: "CALEO", type: "org", description: "An organization" }],
+    relations: [],
+    keywords: [],
+    quality: { complete: true, confidence: 0.5, issues: [], action: "auto_accept" },
+  });
+  assert.deepEqual(doc.entities[0].aliases, []);
 });
 
 test("refinement prompt embeds docs/taxonomy.md (type criteria + hierarchical topic tree)", () => {
@@ -94,6 +121,13 @@ test("refinement prompt encodes cross-RAG best practices + single full-doc pass 
   assert.match(p, /ONE|single/);
 });
 
+test("refinement prompt emits bilingual (DE+EN) entity aliases for RAG retrieval", () => {
+  const p = REFINE_DOCUMENT_SYSTEM_PROMPT;
+  assert.match(p, /aliases/i);
+  assert.match(p, /German.*English|DE.*EN|bilingual|same node/i);
+  assert.match(p, /canonical/i);
+});
+
 test("document-refinement SKILL.md exists with required guidance sections", () => {
   const name = DOCUMENT_REFINEMENT_SKILL_NAME;
   assert.equal(name, "document-refinement");
@@ -108,4 +142,5 @@ test("document-refinement SKILL.md exists with required guidance sections", () =
   assert.match(content, /[Ee]ntit/);
   assert.match(content, /[Rr]elation/);
   assert.match(content, /single|one pass|full-doc/i);
+  assert.match(content, /aliases/i);
 });

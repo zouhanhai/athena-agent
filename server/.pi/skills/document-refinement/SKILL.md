@@ -55,8 +55,14 @@ style), NOT fixed token windows:
 Extract the entities actually named in the document:
 
 - **name**: TITLE-CASE, consistent naming — "CALEO", not "caleo"/"CALEO" variants (one canonical form).
+  `name` is the **document-language canonical** form.
 - **type**: `org` | `person` | `product` | `event` | `location` | `concept` | `other` (preset types).
 - **description**: one concise sentence stating what it is in this document's context.
+- **aliases**: bilingual (DE+EN) variant names of the **same node** — the node must be findable in
+  **both languages** (RAG bilingual retrieval). `name` is the document-language canonical form;
+  `aliases` are the other-language (and alternate) terms for the same entity. E.g. `name: "ZOB
+  München"` → `aliases: ["Zentraler Omnibusbahnhof", "Munich central bus station"]`; `name: "Lüsen"`
+  → `aliases: ["Lüsen"]`. Omit aliases only when no useful variant exists.
 - Only direct, clearly-stated entities. Do not invent.
 
 ## 5. Relation extraction (binary edges)
@@ -91,7 +97,7 @@ Emit retrieval keywords: **relationship** keywords (edge vocabulary, e.g. "hosts
   "markdown": "...",                       // re-leveled markdown (header hierarchy fixed)
   "frontmatter": { "type": "...", "topic": "..." },   // from docs/taxonomy.md
   "chunks": [{ "id": "c1", "text": "...", "heading_path": "..." }],  // paragraph-semantic, ~1200 tok
-  "entities": [{ "name": "...", "type": "org|person|...", "description": "..." }],
+  "entities": [{ "name": "...", "type": "org|person|...", "description": "...", "aliases": ["..."] }],
   "relations": [{ "source": "...", "target": "...", "keywords": ["..."], "description": "..." }],
   "keywords": ["..."],                     // relationship + query keywords
   "quality": {
