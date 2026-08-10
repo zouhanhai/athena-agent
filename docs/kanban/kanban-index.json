@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T19:56:28.695Z",
+  "generated_at": "2026-08-10T22:25:56.684Z",
   "goals": [
     {
       "ref": "G1",
@@ -1951,6 +1951,20 @@
               ],
               "progress_last_row": "T8 done: default retries 1→3, tests green, kanban index refreshed, pushed",
               "progress_updated_at": "2026-08-10T17:12:00Z"
+            },
+            {
+              "ref": "G4.S2.T9",
+              "id": "s2.9",
+              "title": "G4.S2.T9: Fix Neo4j vector search stalling (VectorRetriever Cypher hangs)",
+              "owner": "consultant",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "73274282-f646-4329-b4b9-39e913e77bfe",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Neo4j vector search returns hits promptly (not hang) for a real query",
+                "Retrieval API surfaces neo4j source results alongside llmwiki"
+              ]
             }
           ]
         },
