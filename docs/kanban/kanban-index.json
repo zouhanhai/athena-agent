@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T07:10:12.477Z",
+  "generated_at": "2026-08-10T08:02:34.586Z",
   "goals": [
     {
       "ref": "G1",
@@ -1775,7 +1775,7 @@
               "id": "t4",
               "title": "G4.S1.T4: pipeline integration (refinement stage in tasks.ts + fold llm_wiki classify + downstream)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_g4s1_t4_opencode",
               "blocked_by": [],
@@ -1787,8 +1787,9 @@
                 "Progress/status surface for the refinement stage (Uploads page)"
               ],
               "started_at": "2026-08-10T07:10:00Z",
-              "progress_last_row": "Claimed T4 (ses_g4s1_t4_opencode); read Spec + Goal + T1-T3 impl; regenerated kanban index",
-              "progress_updated_at": "2026-08-10 07:10:00Z"
+              "completed_at": "2026-08-10T08:02:00Z",
+              "progress_last_row": "T4 done: refinement stage in tasks.ts (parsing → refinement → ingesting_lightrag ‖ ingesting_llmwiki); llm_wiki classify folded into refinement (Athena decides type/topic once); downstream consumes Athena output (llm_wiki pure I/O write_page+rebuild_index; RAG gets injected entities/keywords/quality via task.refinement); DOCLING_OPENROUTER_KEY separate (docling VLM only, createAthenaRefiner uses athena provider); Uploads progress surface; server 648/648 + web 346/346 green; regenerated kanban index",
+              "progress_updated_at": "2026-08-10 08:02:00Z"
             },
             {
               "ref": "G4.S1.T5",
