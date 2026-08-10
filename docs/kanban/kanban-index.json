@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T09:44:38.162Z",
+  "generated_at": "2026-08-10T10:08:32.834Z",
   "goals": [
     {
       "ref": "G1",
@@ -1815,7 +1815,7 @@
               "id": "s1.t6",
               "title": "G4.S1.T6: refine_document structured-output fails on complex/image-heavy docs (falls back)",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_014ff988dffeYEnzqZSr6W8s4Y",
               "blocked_by": [],
@@ -1823,7 +1823,9 @@
                 "refine_document returns structured output (entities/keywords/type/topic/chunks) for complex/image-heavy docling markdown — not fallback",
                 "Regression: simple docs still extract correctly",
                 "Repro covered by a test with an image-heavy markdown fixture"
-              ]
+              ],
+              "progress_last_row": "Verified: server 662 + web 348 tests green, typecheck clean; committed implementation (feature commit f48b799)",
+              "progress_updated_at": "2026-08-10T10:04:00Z"
             }
           ]
         },
