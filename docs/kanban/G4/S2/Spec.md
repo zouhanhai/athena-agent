@@ -43,6 +43,13 @@ RAG-selection item in `TODO.md`. Key points:
   `KnowledgeRetrievalService.search` (LightRAG semantic + llm_wiki keyword via Promise.allSettled):
   - **BM25**: llm_wiki's keyword search is BM25; in the self-build it's Neo4j FULLTEXT index / Cypher
     BM25 scoring (or keep llm_wiki as the BM25 source over the wiki pages).
+
+- **Bilingual entity aliases (DE+EN, decided 2026-08-10)**: entities are one node, but must be findable in
+  **both German and English** — a user searching German ("Zentraler Omnibusbahnhof") must match the EN node
+  (ZOB München), and vice versa. `RefinementEntity` gains **`aliases: string[]`** (same node, alternate
+  language names/terms). Athena's refinement prompt emits `name` (document-language canonical) +
+  `aliases` (EN+DE variants) in one pass. RAG stores aliases as node properties and includes them in
+  keyword/full-text/BM25 search. (Out of scope: Chinese — DE+EN covers the CALEO doc corpus.)
   - **Vector**: Neo4j vector index (HNSW, cosine) over Athena-chunk embeddings.
   - **Graph**: entity/relation traversal (Text2Cypher) — agentic RAG uses topic as Athena's knowledge
     navigation (determine topic → converge document domain → fuse).
