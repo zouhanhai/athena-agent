@@ -563,12 +563,15 @@ watch(
 
 .kanban-card-session {
   align-self: flex-start;
+  max-width: 100%;
   padding: 1px 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   color: var(--caleo-text-secondary);
   background: rgba(127, 127, 127, 0.08);
   border-radius: 999px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .kanban-scan-errors {
