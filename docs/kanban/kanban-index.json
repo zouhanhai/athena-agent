@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T10:08:32.834Z",
+  "generated_at": "2026-08-10T15:58:16.904Z",
   "goals": [
     {
       "ref": "G1",
@@ -1836,7 +1836,23 @@
           "owner": "consultant",
           "status": "backlog",
           "milestone": "M4",
-          "tickets": []
+          "tickets": [
+            {
+              "ref": "G4.S2.T1",
+              "id": "s2.1",
+              "title": "G4.S2.T1: S1 increment — RefinementEntity bilingual aliases (DE+EN)",
+              "owner": "consultant",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_t1bilingual",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Claimed T1 — in_progress, assignee opencode, ses_t1bilingual; kanban index regenerated + pushed",
+              "progress_updated_at": "2026-08-10T15:58:07Z"
+            }
+          ]
         },
         {
           "ref": "G4.S3",
@@ -1877,5 +1893,30 @@
       ]
     }
   ],
-  "errors": []
+  "errors": [
+    {
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T2.md",
+      "error": "assignee must be a string"
+    },
+    {
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T3.md",
+      "error": "assignee must be a string"
+    },
+    {
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T4.md",
+      "error": "assignee must be a string"
+    },
+    {
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T5.md",
+      "error": "assignee must be a string"
+    },
+    {
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T6.md",
+      "error": "assignee must be a string"
+    },
+    {
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S2/T7.md",
+      "error": "assignee must be a string"
+    }
+  ]
 }
