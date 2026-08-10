@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { KnowledgeRetrievalService } from "../../src/kb/retrieval.js";
 import type { LightRagClient } from "../../src/kb/lightrag.js";
 import type { LlmWikiClient } from "../../src/kb/llmwiki.js";
+import type { Neo4jRetrievalService } from "../../src/kb/store/retrieval.js";
 
 function stubLightrag(overrides: Partial<LightRagClient> = {}): LightRagClient {
   return {
@@ -26,14 +27,36 @@ function stubLlmwiki(overrides: Partial<LlmWikiClient> = {}): LlmWikiClient {
   } as unknown as LlmWikiClient;
 }
 
+function stubNeo4j(
+  hits: Array<Partial<{ id: string; text: string; topic?: string; documentId?: string; source: string; score: number; related: string[] }>> = [],
+): Neo4jRetrievalService {
+  return {
+    search: async () => ({
+      query: "",
+      hits: hits.map((h) => ({
+        id: h.id ?? "c1",
+        text: h.text ?? "",
+        ...(h.topic !== undefined ? { topic: h.topic } : {}),
+        ...(h.documentId !== undefined ? { documentId: h.documentId } : {}),
+        source: (h.source ?? "bm25") as "vector" | "bm25" | "graph",
+        score: h.score ?? 0.9,
+        ...(h.related ? { related: h.related } : {}),
+      })),
+    }),
+    toolsSearch: async () => ({ query: "", hits: [] }),
+  } as unknown as Neo4jRetrievalService;
+}
+
 function makeService(overrides: {
   lightrag?: Partial<LightRagClient>;
   llmwiki?: Partial<LlmWikiClient>;
+  neo4j?: Neo4jRetrievalService;
   projectId?: string;
 } = {}) {
   return new KnowledgeRetrievalService({
     lightrag: stubLightrag(overrides.lightrag),
     llmwiki: stubLlmwiki(overrides.llmwiki),
+    ...(overrides.neo4j ? { neo4j: overrides.neo4j } : {}),
     projectId: overrides.projectId,
   });
 }
@@ -376,4 +399,51 @@ test("search returns empty results when both systems have nothing", async () => 
   const service = makeService();
   const result = await service.search("nothing here");
   assert.deepEqual(result.results, []);
+});
+
+test("search with a Neo4j store replaces LightRAG and fuses Neo4j + llm_wiki hits", async () => {
+  const neo4j = stubNeo4j([
+    { id: "doc1:c1", text: "bus station guide", topic: "transport", documentId: "doc1", source: "bm25", score: 0.9 },
+    { id: "ZOB München", text: "central bus station", source: "graph", score: 0.8, related: ["CALEO", "MVV"] },
+  ]);
+  const lightrag = stubLightrag({
+    query: async () => {
+      throw new Error("LightRAG must not be queried when the Neo4j store is wired");
+    },
+  });
+  const llmwiki = stubLlmwiki({
+    search: async () => ({
+      results: [{ path: "bus.md", title: "Bus", snippet: "keyword hit", score: 0.7 }],
+    }),
+  });
+  const service = makeService({ lightrag, llmwiki, neo4j });
+
+  const result = await service.search("bus station", { topic: "transport" });
+
+  assert.equal(result.query, "bus station");
+  const sources = result.results.map((r) => r.source).sort();
+  assert.deepEqual(sources, ["llmwiki", "neo4j", "neo4j"], "Neo4j hits + llm_wiki keyword source fused");
+  const neoHits = result.results.filter((r) => r.source === "neo4j");
+  assert.equal(neoHits[0]!.snippet, "bus station guide");
+  assert.equal(neoHits[1]!.title, "ZOB München → CALEO, MVV", "graph hit renders the relation neighborhood");
+});
+
+test("search with a failing Neo4j store still returns llm_wiki hits", async () => {
+  const neo4j = {
+    search: async () => {
+      throw new Error("neo4j down");
+    },
+    toolsSearch: async () => ({ query: "", hits: [] }),
+  } as unknown as Neo4jRetrievalService;
+  const llmwiki = stubLlmwiki({
+    search: async () => ({
+      results: [{ path: "runbook.md", title: "Runbook", snippet: "Incident handling", score: 0.9 }],
+    }),
+  });
+  const service = makeService({ llmwiki, neo4j });
+
+  const result = await service.search("incident handling");
+  assert.equal(result.results.length, 1);
+  assert.equal(result.results[0]!.source, "llmwiki");
+  assert.equal(result.results[0]!.path, "runbook.md");
 });

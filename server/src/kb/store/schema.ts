@@ -31,6 +31,13 @@ export const ENTITY_RELATION_TYPE = "RELATION";
 /** Neo4j HNSW cosine vector index over Chunk.embedding (dimensions match qwen3-embedding-8b @ 1024). */
 export const EMBEDDING_DIMENSIONS = 1024;
 
+/** Index names used by retrieval (G4.S2.T5) — shared with the schema DDL so
+ *  retrievers reference the exact indexes created at ingest time. */
+export const CHUNK_EMBEDDING_INDEX = "chunk_embedding_idx";
+export const ENTITY_NAME_UPPER_INDEX = "entity_name_upper_idx";
+export const ENTITY_NAME_ALIASES_FTX = "entity_name_aliases_ftx";
+export const CHUNK_TEXT_FTX = "chunk_text_ftx";
+
 /**
  * Fold a name to a case-insensitive canonical form (`toUpper`, Unicode-aware so German umlauts
  * case-fold correctly: "lüsen" -> "LÜSEN"). Stored as Entity.nameUpper and range-indexed for exact
@@ -59,14 +66,14 @@ export function storeSchemaStatements(): string[] {
     `CREATE CONSTRAINT wikipage_id_unique IF NOT EXISTS FOR (n:${WIKIPAGE_LABEL}) REQUIRE n.id IS UNIQUE`,
     // HNSW cosine vector index over Athena-chunk embeddings, with topic as an additional property so
     // retrieval can filter in-index via SEARCH…WHERE (ADR-0008, Neo4j 2026 Community).
-    `CREATE VECTOR INDEX chunk_embedding_idx IF NOT EXISTS FOR (n:${CHUNK_LABEL}) ON (n.embedding) WITH [n.topic] OPTIONS { indexConfig: { \`vector.dimensions\`: ${EMBEDDING_DIMENSIONS}, \`vector.similarity_function\`: 'cosine' } }`,
+    `CREATE VECTOR INDEX ${CHUNK_EMBEDDING_INDEX} IF NOT EXISTS FOR (n:${CHUNK_LABEL}) ON (n.embedding) WITH [n.topic] OPTIONS { indexConfig: { \`vector.dimensions\`: ${EMBEDDING_DIMENSIONS}, \`vector.similarity_function\`: 'cosine' } }`,
     // Folded canonical name -> exact case-insensitive lookup (nameUpper = toUpper(name)).
-    `CREATE RANGE INDEX entity_name_upper_idx IF NOT EXISTS FOR (n:${ENTITY_LABEL}) ON (n.nameUpper)`,
+    `CREATE RANGE INDEX ${ENTITY_NAME_UPPER_INDEX} IF NOT EXISTS FOR (n:${ENTITY_LABEL}) ON (n.nameUpper)`,
     // Bilingual alias search: FULLTEXT over name + aliases folds case AND diacritics ("zentraler
     // omnibusbahnhof" matches the EN node ZOB München).
-    `CREATE FULLTEXT INDEX entity_name_aliases_ftx IF NOT EXISTS FOR (n:${ENTITY_LABEL}) ON EACH [n.name, n.aliases]`,
+    `CREATE FULLTEXT INDEX ${ENTITY_NAME_ALIASES_FTX} IF NOT EXISTS FOR (n:${ENTITY_LABEL}) ON EACH [n.name, n.aliases]`,
     // BM25 retrieval over chunk text (neo4j-graphrag HybridRetriever full-text half, G4.S2.T5).
-    `CREATE FULLTEXT INDEX chunk_text_ftx IF NOT EXISTS FOR (n:${CHUNK_LABEL}) ON EACH [n.text]`,
+    `CREATE FULLTEXT INDEX ${CHUNK_TEXT_FTX} IF NOT EXISTS FOR (n:${CHUNK_LABEL}) ON EACH [n.text]`,
   ];
 }
 

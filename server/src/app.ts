@@ -60,6 +60,7 @@ import { LightRagClient } from "./kb/lightrag.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
 import { OpenRouterEmbedder } from "./kb/embedding.js";
 import { Neo4jIngestService } from "./kb/store/ingest.js";
+import { Neo4jRetrievalService } from "./kb/store/retrieval.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
 
 export interface BuildAppOptions {
@@ -94,10 +95,24 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
   return new KnowledgeRetrievalService({
     lightrag: new LightRagClient(),
     llmwiki: new LlmWikiClient(),
+    // G4.S2.T5: when the Neo4j lean RAG store is wired (NEO4J_PASSWORD set) it
+    // replaces the LightRag semantic path in search; llm_wiki stays the BM25 source.
+    neo4j: defaultNeo4jRetrieval(),
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
     // Match the ingest side (defaultIngestService) so wiki image reads resolve
     // against the same on-disk wiki dir (G3.S5.T5).
     wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
+  });
+}
+
+/** Neo4j lean RAG store retrieval (G4.S2.T5): fused vector + BM25 + graph.
+ *  Returns undefined when NEO4J_PASSWORD is unset (store not deployed). */
+export function defaultNeo4jRetrieval(): Neo4jRetrievalService | undefined {
+  const config = neo4jConfigFromEnv();
+  if (!config) return undefined;
+  return new Neo4jRetrievalService({
+    driver: createNeo4jDriver(config),
+    embedder: new OpenRouterEmbedder(),
   });
 }
 

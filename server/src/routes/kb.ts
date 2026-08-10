@@ -21,6 +21,8 @@ export interface KbRequestBody {
 
 export interface KbSearchBody {
   query?: unknown;
+  /** Optional topic scope: converges retrieval to a document domain (G4.S2.T5). */
+  topic?: unknown;
 }
 
 export interface KbUrlBody {
@@ -275,7 +277,9 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       return reply.code(400).send({ error: "query is required" });
     }
     try {
-      return await options.retrieval!.search(body.query.trim());
+      const topic =
+        typeof body.topic === "string" && body.topic.trim().length > 0 ? body.topic.trim() : undefined;
+      return await options.retrieval!.search(body.query.trim(), { ...(topic ? { topic } : {}) });
     } catch (err) {
       return reply
         .code(500)

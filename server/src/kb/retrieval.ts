@@ -10,12 +10,21 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { LightRagClient, LightRagGraphResult } from "./lightrag.js";
+import type { LightRagClient, LightRagGraphResult, LightRagQueryResult } from "./lightrag.js";
 import type { LlmWikiClient, LlmWikiFileNode, LlmWikiSearchResult } from "./llmwiki.js";
+import type {
+  Neo4jRetrievalService,
+  Neo4jSearchHit,
+  Neo4jSearchResponse,
+} from "./store/retrieval.js";
 
 export interface KnowledgeRetrievalOptions {
   lightrag: LightRagClient;
   llmwiki: LlmWikiClient;
+  /** Neo4j lean RAG store retrieval (G4.S2.T5). When provided, the LightRAG
+   *  semantic path in `search` is replaced by the Neo4j fused retrieval
+   *  (vector + BM25 + graph + topic) while llm_wiki stays the BM25 source. */
+  neo4j?: Neo4jRetrievalService;
   /** llm_wiki project id. When omitted, current/first project is used. */
   projectId?: string;
   /** Default label for the LightRAG graph export. Default: "*" (full graph). */
@@ -61,7 +70,7 @@ export interface WikiPage {
 
 export interface KnowledgeSearchResult {
   /** Which knowledge system produced this hit. */
-  source: "lightrag" | "llmwiki";
+  source: "lightrag" | "llmwiki" | "neo4j";
   title: string;
   snippet: string;
   path?: string;
@@ -82,6 +91,7 @@ interface ResolvedProject {
 export class KnowledgeRetrievalService {
   private readonly lightrag: LightRagClient;
   private readonly llmwiki: LlmWikiClient;
+  private readonly neo4j?: Neo4jRetrievalService;
   private readonly projectId?: string;
   private readonly lightragLabel: string;
   private readonly wikiDir?: string;
@@ -91,6 +101,7 @@ export class KnowledgeRetrievalService {
   constructor(options: KnowledgeRetrievalOptions) {
     this.lightrag = options.lightrag;
     this.llmwiki = options.llmwiki;
+    this.neo4j = options.neo4j;
     this.projectId = options.projectId;
     this.lightragLabel = options.lightragLabel ?? "*";
     this.wikiDir = options.wikiDir;
@@ -155,20 +166,38 @@ export class KnowledgeRetrievalService {
     return { data, contentType: contentTypeForImage(relative) };
   }
 
-  /** POST /api/kb/search → fused results from LightRAG (semantic) + llm_wiki (keyword). */
-  async search(query: string): Promise<KnowledgeSearchResponse> {
+  /**
+   * POST /api/kb/search → fused results across the configured knowledge systems:
+   * when the Neo4j store is wired (G4.S2.T5) it replaces the LightRAG semantic
+   * path with Neo4j fused retrieval (vector + BM25 + graph + topic) and keeps
+   * llm_wiki as the BM25 keyword source; otherwise LightRAG + llm_wiki (legacy).
+   */
+  async search(query: string, options: { topic?: string } = {}): Promise<KnowledgeSearchResponse> {
     const results: KnowledgeSearchResult[] = [];
-    const [rag, wiki] = await Promise.allSettled([
-      this.lightrag.query(query, { mode: "hybrid", topK: 5 }),
-      this.llmwiki.search((await this.resolveProject()).id, query, { topK: 5 }),
+    const project = await this.resolveProject();
+    const [ragResult, wiki] = await Promise.allSettled([
+      this.neo4j
+        ? this.neo4j.search(query, { topic: options.topic, topK: 5 })
+        : this.lightrag.query(query, { mode: "hybrid", topK: 5 }),
+      this.llmwiki.search(project.id, query, { topK: 5 }),
     ]);
 
-    if (rag.status === "fulfilled" && rag.value.response?.trim()) {
-      results.push({
-        source: "lightrag",
-        title: "RAG summary",
-        snippet: rag.value.response.trim(),
-      });
+    if (ragResult.status === "fulfilled") {
+      if (this.neo4j) {
+        const response = ragResult.value as Neo4jSearchResponse;
+        for (const hit of response.hits) {
+          results.push(mapNeo4jHit(hit));
+        }
+      } else {
+        const lightrag = ragResult.value as LightRagQueryResult;
+        if (lightrag.response?.trim()) {
+          results.push({
+            source: "lightrag",
+            title: "RAG summary",
+            snippet: lightrag.response.trim(),
+          });
+        }
+      }
     }
     if (wiki.status === "fulfilled") {
       for (const hit of wiki.value.results) {
@@ -313,6 +342,19 @@ function mapWikiHit(hit: LlmWikiSearchResult): KnowledgeSearchResult {
     title: hit.title || hit.path,
     snippet: hit.snippet,
     path: hit.path,
+    score: hit.score,
+  };
+}
+
+/** Map a Neo4j fused-retrieval hit to the frontend search result shape (G4.S2.T5). */
+function mapNeo4jHit(hit: Neo4jSearchHit): KnowledgeSearchResult {
+  const title =
+    hit.source === "graph" ? (hit.related?.length ? `${hit.id} → ${hit.related.join(", ")}` : hit.id) : hit.id;
+  return {
+    source: "neo4j",
+    title,
+    snippet: hit.text,
+    ...(hit.documentId ? { path: `chunk/${hit.documentId}` } : {}),
     score: hit.score,
   };
 }

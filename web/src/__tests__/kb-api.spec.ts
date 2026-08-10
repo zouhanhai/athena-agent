@@ -134,6 +134,24 @@ describe("searchKnowledge", () => {
     stubFetch(jsonResponse({ error: "bad" }, 400));
     await expect(searchKnowledge("x")).rejects.toThrow("400");
   });
+
+  it("sends the optional topic scope and accepts neo4j-sourced hits (G4.S2.T5)", async () => {
+    const results = [
+      { source: "neo4j", title: "doc1:c1", snippet: "bus station", score: 0.9 },
+      { source: "llmwiki", title: "Bus", snippet: "keyword", path: "bus.md" },
+    ];
+    stubFetch(jsonResponse({ query: "bus", results }));
+    const got = await searchKnowledge("bus", "transport");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/search",
+      expect.objectContaining({
+        body: JSON.stringify({ query: "bus", topic: "transport" }),
+      }),
+    );
+    expect(got).toEqual(results);
+  });
 });
 
 describe("ingestFile", () => {

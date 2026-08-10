@@ -42,7 +42,7 @@ export interface WikiTreeNode {
 }
 
 export interface KnowledgeSearchResult {
-  source: "lightrag" | "llmwiki";
+  source: "lightrag" | "llmwiki" | "neo4j";
   title: string;
   snippet: string;
   path?: string;
@@ -174,12 +174,14 @@ export async function deleteWikiDoc(path: string): Promise<{
   });
 }
 
-/** POST /api/kb/search { query } → fused LightRAG + llm_wiki results. */
-export async function searchKnowledge(query: string): Promise<KnowledgeSearchResult[]> {
+/** POST /api/kb/search { query, topic? } → fused retrieval results
+ *  (Neo4j vector+BM25+graph+topic when the RAG store is wired, else LightRAG) +
+ *  llm_wiki keyword hits. */
+export async function searchKnowledge(query: string, topic?: string): Promise<KnowledgeSearchResult[]> {
   const data = await request<{ results: KnowledgeSearchResult[] }>(`${KB_BASE}/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, ...(topic ? { topic } : {}) }),
   });
   return data.results;
 }
