@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-10T16:27:17.297Z",
+  "generated_at": "2026-08-10T16:38:53.081Z",
   "goals": [
     {
       "ref": "G1",
@@ -1857,13 +1857,15 @@
               "id": "s2.2",
               "title": "G4.S2.T2: Neo4j spike — deploy + validate vector/search (decision record)",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_t2neo4jspike",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
-              ]
+              ],
+              "progress_last_row": "Verified: server 664 tests green + typecheck clean (no source changes — spike is Docker+ADR); kanban index regenerated; T2 done — Neo4j 2026 Community spike validated + ADR-0008 (self-build confirmed)",
+              "progress_updated_at": "2026-08-10T16:38:39Z"
             },
             {
               "ref": "G4.S2.T3",
