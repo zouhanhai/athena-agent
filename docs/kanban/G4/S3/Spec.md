@@ -60,7 +60,8 @@ Two chat/front-end driven features that feed the KB lifecycle + retrieval:
    colloquial name to a canonical semantic (e.g. "C-Day" → "CALEO Day", "HW" → "Haushaltswaren").
    - Stored in a DB table; applied at query time so a colloquial term also matches the canonical.
    - Complements T1 Athena-extracted aliases (DE/EN) with user-curated mappings.
-   - Lives on the "Uploads" page (rename candidate: Library / Manage — TBD).
+   - Lives on a NEW dedicated tab **"Terms & QA"** (separate from Uploads) that shows both the
+     semantic mappings AND the stored Q&A pairs, with live query against the DB.
 
 ## Dependencies
 
