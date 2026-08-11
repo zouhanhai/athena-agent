@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T14:32:26.027Z",
+  "generated_at": "2026-08-11T14:37:54.382Z",
   "goals": [
     {
       "ref": "G1",
@@ -1979,8 +1979,9 @@
               "id": "s2.10",
               "title": "G4.S2.T10: Remove LightRAG — decommission the LightRAG ingest stage, client, and track poller",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_t10_remove_lightrag",
               "blocked_by": [],
               "acceptance_criteria": [
                 "No LightRAG references remain in server code/tests/deps",
