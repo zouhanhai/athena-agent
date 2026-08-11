@@ -65,3 +65,45 @@ query
 2. Context Enrich（T11 已规划）
 3. Rerank
 4. G4.S3 agentic（query transform / compression）
+
+---
+
+## 当前存储全景（2026-08-11 实测）
+
+### RAG (Neo4j)
+```
+(:Document)  · {id, topic, md_ref}   ← md_ref 指向 refinement 文件,非 wiki
+(:Chunk)     · {id:"doc:c1", text, embedding[4096], topic, heading_path, documentId}
+              · ⚠️ heading_path 是字符串属性,不是图节点
+              · ⚠️ 无 PART_OF 关系,只靠 documentId 字符串引用
+(:Entity)    · {name, aliases[], type, description}
+(:Entity)-[:RELATION]->(:Entity)
+❌ 无 WikiPage 节点
+❌ 无 Section 节点
+❌ Chunk↔Document 无图关系 (只 documentId 字符串)
+❌ Entity↔Chunk 无关系
+```
+
+### Wiki (llm_wiki 磁盘文件)
+```
+wiki/ → index.md + concepts/ + unclassified/ + internal/events/
+        ↑ 按 topic 分层目录树
+```
+
+### chunk 存储回答
+
+Chunk 存在 Neo4j,每 chunk 一节点,`id = documentId:chunkId`。
+- 文本 text + 向量 embedding[4096] + topic + heading_path + documentId
+- **与 Document 关联 = documentId 字符串引用,不是图关系**
+- heading_path 是字符串,未解析成 Section 图节点
+
+### 半融合状态
+
+- RAG 内部:Chunk/Entity/Document 都在 Neo4j,但 chunk 只字符串关联 document,Entity 只连 Entity
+- RAG↔Wiki:完全分离(wiki 磁盘文件,Neo4j 无 WikiPage,Document.md_ref 指向 refinement 非 wiki)
+
+### T11 解决
+
+建 Section/WikiPage 节点 + 图关系(Document→Section→Chunk, Document→WikiPage),
+让 chunk 通过图连到 wiki 页面。
+
