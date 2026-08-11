@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T20:29:36.363Z",
+  "generated_at": "2026-08-11T21:38:40.499Z",
   "goals": [
     {
       "ref": "G1",
@@ -2076,8 +2076,9 @@
               "id": "s3.2",
               "title": "G4.S3.T2: Athena KB review pass — re-topic / re-classify / deprecate / reinforce",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t2",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
