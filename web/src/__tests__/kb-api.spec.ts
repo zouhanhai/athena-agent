@@ -112,7 +112,7 @@ describe("readWikiPage", () => {
 describe("searchKnowledge", () => {
   it("POSTs { query } to /api/kb/search and returns results", async () => {
     const results = [
-      { source: "lightrag", title: "RAG summary", snippet: "answer" },
+      { source: "neo4j", title: "doc1:c1", snippet: "bus station guide" },
       { source: "llmwiki", title: "Runbook", snippet: "Incident", path: "runbook.md" },
     ];
     stubFetch(jsonResponse({ query: "incidents", results }));

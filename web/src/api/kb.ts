@@ -42,7 +42,7 @@ export interface WikiTreeNode {
 }
 
 export interface KnowledgeSearchResult {
-  source: "lightrag" | "llmwiki" | "neo4j";
+  source: "llmwiki" | "neo4j";
   title: string;
   snippet: string;
   path?: string;

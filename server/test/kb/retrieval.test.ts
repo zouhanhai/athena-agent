@@ -368,12 +368,13 @@ test("readWikiImage uses the configured wikiDir and rejects traversal paths", as
   );
 });
 
-test("search fuses LightRAG answer and llm_wiki hits with source tags", async () => {
+test("search never queries LightRAG for semantic hits — decommissioned (G4.S2.T7)", async () => {
+  let lightragQueried = false;
   const lightrag = stubLightrag({
-    query: async () => ({
-      response: "The on-call runbook describes incident handling.",
-      references: [{ reference_id: "r1", file_path: "runbook.md" }],
-    }),
+    query: async () => {
+      lightragQueried = true;
+      return { response: "must never run", references: [] };
+    },
   });
   const llmwiki = stubLlmwiki({
     search: async () => ({
@@ -386,13 +387,13 @@ test("search fuses LightRAG answer and llm_wiki hits with source tags", async ()
 
   const result = await service.search("how to handle incidents");
   assert.equal(result.query, "how to handle incidents");
-  const lightragHit = result.results.find((r) => r.source === "lightrag");
-  const wikiHit = result.results.find((r) => r.source === "llmwiki");
-  assert.ok(lightragHit);
-  assert.match(lightragHit!.snippet ?? "", /incident handling/);
-  assert.ok(wikiHit);
-  assert.equal(wikiHit!.path, "runbook.md");
-  assert.equal(wikiHit!.title, "Runbook");
+  assert.equal(lightragQueried, false, "LightRAG must not be queried for semantic search");
+  assert.deepEqual(
+    result.results.map((r) => r.source),
+    ["llmwiki"],
+  );
+  assert.equal(result.results[0]!.path, "runbook.md");
+  assert.equal(result.results[0]!.title, "Runbook");
 });
 
 test("search returns empty results when both systems have nothing", async () => {

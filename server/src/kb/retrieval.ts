@@ -2,15 +2,17 @@
  * KnowledgeRetrievalService - frontend-facing retrieval access layer (G2.S4).
  *
  * Exposes the read endpoints the Knowledge/Wiki panels consume, backed by the
- * two knowledge systems:
- *   - LightRAG: /api/kb/graph (entity-relation graph), /api/kb/search (semantic)
- *   - llm_wiki: /api/kb/wiki (page tree), /api/kb/wiki/page (markdown), /api/kb/search (keyword)
+ * knowledge systems:
+ *   - LightRAG: /api/kb/graph (entity-relation graph) only — the semantic
+ *     search query path was decommissioned in G4.S2.T7 (Neo4j replaces it)
+ *   - Neo4j lean RAG store: /api/kb/search (fused vector + BM25 + graph + topic)
+ *   - llm_wiki: /api/kb/wiki (page tree), /api/kb/wiki/page (markdown), /api/kb/search (BM25 keyword)
  */
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { LightRagClient, LightRagGraphResult, LightRagQueryResult } from "./lightrag.js";
+import type { LightRagClient, LightRagGraphResult } from "./lightrag.js";
 import type { LlmWikiClient, LlmWikiFileNode, LlmWikiSearchResult } from "./llmwiki.js";
 import type {
   Neo4jRetrievalService,
@@ -21,9 +23,9 @@ import type {
 export interface KnowledgeRetrievalOptions {
   lightrag: LightRagClient;
   llmwiki: LlmWikiClient;
-  /** Neo4j lean RAG store retrieval (G4.S2.T5). When provided, the LightRAG
-   *  semantic path in `search` is replaced by the Neo4j fused retrieval
-   *  (vector + BM25 + graph + topic) while llm_wiki stays the BM25 source. */
+  /** Neo4j lean RAG store retrieval (G4.S2.T5). It is the sole semantic path in
+   *  `search` (fused vector + BM25 + graph + topic, G4.S2.T7) while llm_wiki
+   *  stays the BM25 keyword source. When omitted, search returns keyword hits only. */
   neo4j?: Neo4jRetrievalService;
   /** llm_wiki project id. When omitted, current/first project is used. */
   projectId?: string;
@@ -70,7 +72,7 @@ export interface WikiPage {
 
 export interface KnowledgeSearchResult {
   /** Which knowledge system produced this hit. */
-  source: "lightrag" | "llmwiki" | "neo4j";
+  source: "llmwiki" | "neo4j";
   title: string;
   snippet: string;
   path?: string;
@@ -167,36 +169,25 @@ export class KnowledgeRetrievalService {
   }
 
   /**
-   * POST /api/kb/search → fused results across the configured knowledge systems:
-   * when the Neo4j store is wired (G4.S2.T5) it replaces the LightRAG semantic
-   * path with Neo4j fused retrieval (vector + BM25 + graph + topic) and keeps
-   * llm_wiki as the BM25 keyword source; otherwise LightRAG + llm_wiki (legacy).
+   * POST /api/kb/search → fused results across the configured knowledge systems.
+   * The Neo4j store (G4.S2.T5) is the sole semantic path — fused vector + BM25 +
+   * graph + topic — and llm_wiki stays the BM25 keyword source. The LightRAG
+   * semantic query path was decommissioned in G4.S2.T7; when the Neo4j store is
+   * not wired (NEO4J_PASSWORD unset) search degrades to llm_wiki keyword hits.
    */
   async search(query: string, options: { topic?: string } = {}): Promise<KnowledgeSearchResponse> {
     const results: KnowledgeSearchResult[] = [];
     const project = await this.resolveProject();
-    const [ragResult, wiki] = await Promise.allSettled([
+    const [neo4jResult, wiki] = await Promise.allSettled([
       this.neo4j
         ? this.neo4j.search(query, { topic: options.topic, topK: 5 })
-        : this.lightrag.query(query, { mode: "hybrid", topK: 5 }),
+        : Promise.resolve(null),
       this.llmwiki.search(project.id, query, { topK: 5 }),
     ]);
 
-    if (ragResult.status === "fulfilled") {
-      if (this.neo4j) {
-        const response = ragResult.value as Neo4jSearchResponse;
-        for (const hit of response.hits) {
-          results.push(mapNeo4jHit(hit));
-        }
-      } else {
-        const lightrag = ragResult.value as LightRagQueryResult;
-        if (lightrag.response?.trim()) {
-          results.push({
-            source: "lightrag",
-            title: "RAG summary",
-            snippet: lightrag.response.trim(),
-          });
-        }
+    if (neo4jResult.status === "fulfilled" && neo4jResult.value) {
+      for (const hit of neo4jResult.value.hits) {
+        results.push(mapNeo4jHit(hit));
       }
     }
     if (wiki.status === "fulfilled") {

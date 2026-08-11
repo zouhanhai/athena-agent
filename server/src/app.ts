@@ -95,8 +95,8 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
   return new KnowledgeRetrievalService({
     lightrag: new LightRagClient(),
     llmwiki: new LlmWikiClient(),
-    // G4.S2.T5: when the Neo4j lean RAG store is wired (NEO4J_PASSWORD set) it
-    // replaces the LightRag semantic path in search; llm_wiki stays the BM25 source.
+    // G4.S2.T7: the Neo4j lean RAG store is the sole semantic search path
+    // (LightRAG's query path is decommissioned); llm_wiki stays the BM25 source.
     neo4j: defaultNeo4jRetrieval(),
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
     // Match the ingest side (defaultIngestService) so wiki image reads resolve
