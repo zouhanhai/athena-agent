@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T13:57:49.513Z",
+  "generated_at": "2026-08-11T14:27:18.882Z",
   "goals": [
     {
       "ref": "G1",
@@ -2014,6 +2014,21 @@
               "acceptance_criteria": [
                 "Refinement output contract gains a document summary field",
                 "Summary stored on Document node (Neo4j) + frontmatter (llm_wiki)",
+                "Server tests green + typecheck clean"
+              ]
+            },
+            {
+              "ref": "G4.S2.T14",
+              "id": "s2.14",
+              "title": "G4.S2.T14: Entity→Chunk graph link + graph in RRF fusion + cross-encoder rerank",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Entity nodes link to Chunk nodes that mention them (MENTIONED_IN)",
+                "Graph retrieval returns chunks (not just entities) and participates in RRF fusion",
+                "Cross-encoder reranks the fused top-k",
                 "Server tests green + typecheck clean"
               ]
             }
