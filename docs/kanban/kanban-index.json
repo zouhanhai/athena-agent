@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T18:36:48.573Z",
+  "generated_at": "2026-08-11T19:39:54.580Z",
   "goals": [
     {
       "ref": "G1",
@@ -1834,7 +1834,7 @@
           "id": "s2",
           "title": "G4.S2: RAG self-build — replace LightRAG with Athena-driven Neo4j store",
           "owner": "consultant",
-          "status": "backlog",
+          "status": "done",
           "milestone": "M4",
           "tickets": [
             {
