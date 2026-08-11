@@ -173,6 +173,8 @@ export class VectorRetriever {
       ...(topics ? { topics } : {}),
     };
     const cypher =
+      `CYPHER 25
+` +
       `MATCH (c:Chunk)\n` +
       `  SEARCH c IN (\n` +
       `    VECTOR INDEX ${CHUNK_EMBEDDING_INDEX}\n` +
