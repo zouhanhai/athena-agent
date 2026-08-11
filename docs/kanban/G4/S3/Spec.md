@@ -48,6 +48,19 @@ Decompose into tickets during S3 planning:
 4. **Multi-hop graph reasoning**: the LLM walks the Entity/Relation graph over multiple hops to
    discover indirect associations the single-hop retriever misses.
 
+## Feedback loop + custom semantic mappings (added 2026-08-11, front-end enhancements)
+
+Two chat/front-end driven features that feed the KB lifecycle + retrieval:
+
+1. **Feedback loop (thumbs up/down)**: on the Chat page, a user can upvote/downvote an answer.
+   - Store Q&A pairs `{question, answer, sources, feedback}` in a DB table (reusable, avoids re-RAG).
+   - Upvote = reinforce (raise `confidence` of the source chunks/document — ties into the lifecycle).
+   - Downvote = fade (lower `confidence`).
+2. **Custom semantic mappings (synonyms/terms)**: in the front-end, a user can map a company term /
+   colloquial name to a canonical semantic (e.g. "C-Day" → "CALEO Day", "HW" → "Haushaltswaren").
+   - Stored in a DB table; applied at query time so a colloquial term also matches the canonical.
+   - Complements T1 Athena-extracted aliases (DE/EN) with user-curated mappings.
+   - Lives on the "Uploads" page (rename candidate: Library / Manage — TBD).
 
 ## Dependencies
 
