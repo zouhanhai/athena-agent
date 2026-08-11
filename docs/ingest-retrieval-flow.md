@@ -182,4 +182,49 @@ Athena 是唯一 LLM pass → 所有"额外生成"（small chunks、summary、hi
 ### 待办
 - [ ] 拆 tickets：删 LightRAG / Section+WikiPage 节点化 / Context Enrich / Athena summary
 
+---
+
+## Agent RAG 融合分析（2026-08-11）
+
+### 目标
+
+Agent RAG 最后总结时，能知道两边 retrieval（llmwiki wiki 页面 + Neo4j chunks）
+**互相之间的关联**，从而融合分析：
+- 从 llmwiki 获得 wiki 页面 A
+- 从 RAG 获得 chunk c1-c4
+- **并且知道 c1-c4 都属于 wiki 页面 A（同源）**，可交叉验证、分组分析
+
+### 当前分离问题
+
+检索结果目前是分离的，每个结果有自己的 path（格式不同）：
+- neo4j chunk: `path: "chunk/Infos_....pdf"`（chunk 路径）
+- llmwiki 页面: `path: "wiki/internal/events/Infos_....pdf.md"`（wiki 路径）
+
+**Agent 无法建立关联**——两个 path 格式不同，无显式关系。
+
+### 融合后的检索结果设计
+
+每个 chunk 结果增强为带关联信息：
+
+```json
+{
+  "source": "neo4j",
+  "title": "Infos_....pdf:c3",
+  "path": "chunk/Infos_....pdf",
+  "documentId": "Infos_....pdf",
+  "wikiPath": "wiki/internal/events/Infos_....pdf.md",   // 新：关联的 wiki 页面
+  "sectionPath": "Sommerseminar 2026 / Samstag, 13. Juni"  // 新：chunk 的 section 层级
+}
+```
+
+**Agent 分组分析**：wiki 概览 + 对应 chunks 细节 + section 上下文。
+
+### 实现
+
+依赖 RAG↔Wiki 融合图模型（WikiPage↔Document→Section→Chunk）：
+- chunk 结果查询时 JOIN 到 WikiPage 得 `wikiPath`
+- 从 chunk 的 Section 链得 `sectionPath`
+- 检索返回结构扩展（KnowledgeSearchResult 加 wikiPath/sectionPath）
+
+
 
