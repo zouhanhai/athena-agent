@@ -46,3 +46,19 @@ Corresponds to Milestone M4. Three thrusts:
 - `docs/spec-m4-worker-progress.md` (G4.S4)
 - `docs/spec-m4-kanban-issues-sync.md` (G4.S5)
 - `docs/taxonomy.md` (classification tree)
+- `docs/ingest-retrieval-flow.md` (ingest + retrieval pipeline + RAG↔Wiki fusion design)
+- `docs/retrieval-analysis.md` (retrieval deep analysis + optimization roadmap)
+
+## Progress
+
+- **G4.S1 (Athena refinement): DONE** — T1-T6 complete. Athena is the single full-doc LLM pass
+  (re-level headers + quality + topic + chunks + entities/relations/keywords + layered summaries).
+  Server tests green.
+- **G4.S2 (RAG self-build): DONE (2026-08-11)** — T1-T9 core + T10-T14 enhancement all complete.
+  Neo4j 2026 lean store replaces LightRAG; vector + BM25 + graph + topic + bilingual aliases;
+  RAG↔Wiki fusion (Section/WikiPage nodes, chunk hits carry wikiPath/sectionPath);
+  layered summaries; Entity→Chunk + graph in RRF + cross-encoder rerank (llama.cpp BGE-Reranker-v2-M3).
+  Server **693/693** tests, typecheck 0. LightRAG fully removed (T10).
+  See `docs/kanban/G4/S2/Spec.md` "Status: DONE" for verification details.
+- **G4.S3+ (KB intelligence, worker progress, issues sync, federation): backlog** — next.
+

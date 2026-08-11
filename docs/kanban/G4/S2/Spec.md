@@ -4,7 +4,7 @@ title: "G4.S2: RAG self-build — replace LightRAG with Athena-driven Neo4j stor
 layer: S
 parent: G4
 owner: consultant
-status: backlog
+status: done
 milestone: M4
 acceptance_criteria:
   - "Decision made: self-build (Neo4j lean) vs keep LightRAG — spike validates Neo4j 2026 Community (vector index + SEARCH + filters)"
@@ -77,3 +77,48 @@ RAG-selection item in `TODO.md`. Key points:
 - Store schema (Chunk/Entity/Relation/Document) + ingest from Athena output.
 - Retrieval service (neo4j-graphrag) replacing `KnowledgeRetrievalService`'s LightRAG path.
 - Case-insensitive lookup + tests.
+
+## Status: DONE (2026-08-11) + enhancement tickets
+
+Core S2 (T1-T9) + enhancement tickets (T10-T14) all complete and verified.
+
+### Core tickets
+| Ticket | Deliverable | Status |
+|--------|------------|--------|
+| T1 | RefinementEntity bilingual aliases (DE+EN) | done |
+| T2 | Neo4j 2026 spike + ADR-0008 (self-build confirmed) | done |
+| T8 | Refinement retry default 1→3 (fewer spurious fallbacks) | done |
+| T3 | Neo4j store schema (Chunk/Entity/Relation/Document + folded index) | done |
+| T4 | Ingest: Athena output → Neo4j (embed + index, no LLM) + pipeline stage | done |
+| T5 | Retrieval service (vector + BM25 + graph + topic + fusion) | done |
+| T9 | Fix Neo4j vector search hang (CYPHER 25 prefix + index dims 4096 + LIMIT int) | done |
+| T6 | Case-insensitive + bilingual alias search | done |
+| T7 | Replace LightRAG path in /api/kb/search | done |
+
+### Enhancement tickets
+| Ticket | Deliverable | Status |
+|--------|------------|--------|
+| T10 | Remove LightRAG completely (stage, client, poller, deps, tests) | done |
+| T11 | RAG↔Wiki fusion: Section/WikiPage nodes + chunk hits carry wikiPath/sectionPath + same-section context | done |
+| T13 | Athena layered document summaries (file-level + per-H1-section) | done |
+| T14 | Entity→Chunk (MENTIONED_IN) + graph in RRF + cross-encoder rerank (llama.cpp BGE-Reranker-v2-M3) | done |
+
+### Verification (2026-08-11)
+- Server tests: **693/693 pass**, typecheck 0 errors (grew from 656 base to 693 across T10-T14).
+- End-to-end upload (Sommerseminar Mallorca 2023.pdf) verified on clean DB:
+  - Neo4j graph: 1 Document + 14 Chunk + 18 Section + 20 Entity + 1 WikiPage.
+  - Relationships: HAS_SUBSECTION (17), PART_OF (14), RELATION (5), IS_DOCUMENT (1), HAS_SECTION (1).
+  - Layered summaries: file-level on Document + per-H1-section on Section nodes.
+  - Retrieval returns neo4j chunks with `wikiPath` + `sectionPath`.
+  - Graph-only chunk RRF-fused (verify-t14.ts): entity chunk surfaces via MENTIONED_IN path.
+  - llm_wiki page written (internal/events/Sommerseminar-Mallorca-2023.pdf.md).
+- T14 verify script (`server/scripts/verify-t14.ts`): MENTIONED_IN edges created + graph-only chunk fused.
+
+### Notes / decisions
+- LightRAG database (NetworkX graph in Postgres `lightrag`) deleted; qm/weknora DBs removed (empty).
+- Chunking stays "semantically complete sections" (each schedule activity = a chunk); short chunks
+  are fine — Context Enrich (T11) supplies same-section context.
+- Cross-encoder rerank runs on local llama.cpp (`/home/hh/llamacpp-rocm/llama-server --rerank
+  --pooling rank`, BGE-Reranker-v2-M3 GGUF) — injectable, falls back to RRF-only if unavailable.
+- Reranker is BGE-Reranker-v2-M3 (2025, MIT, 100+ languages) not the older bge-reranker-base.
+

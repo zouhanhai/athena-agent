@@ -105,7 +105,7 @@
   - **Context-efficiency**: fold ALL full-doc LLM passes into ONE Athena read (llm_wiki classify +
     this step). LightRAG still runs its own per-chunk entity/keyword LLM internally (hardcoded,
     no injection interface — needs fork to remove; spike in M4).
-- [ ] **RAG system selection: replace LightRAG?** (2026-08-09)
+- [x] **RAG system selection: replace LightRAG?** (2026-08-09) — **DONE: self-built Neo4j lean store replaces LightRAG (G4.S2, completed 2026-08-11).** Neo4j 2026 Community (Docker) with native vector index (HNSW cosine) + SEARCH clause; Athena injects entities/chunks/topic/headers directly (no LightRAG fork). vector + BM25 + graph + topic fusion; RAG↔Wiki fusion; layered summaries; cross-encoder rerank (llama.cpp BGE-Reranker-v2-M3). LightRAG fully removed (G4.S2.T10). See G4 Goal + S2 Spec "Status: DONE".
   - Driver: LightRAG is a black box — entity extraction / keyword / chunk are hardcoded internal LLM
     calls with no external-injection interface, so Athena can't drive them (needs fork). 
   - Evaluated RAGFlow (86.9k★): deep doc parsing + GraphRAG + Docling support + custom chunker, BUT it
