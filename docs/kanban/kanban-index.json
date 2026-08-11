@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T17:03:06.799Z",
+  "generated_at": "2026-08-11T17:30:42.176Z",
   "goals": [
     {
       "ref": "G1",
@@ -2014,8 +2014,9 @@
               "id": "s2.13",
               "title": "G4.S2.T13: Athena document summary — one-pass full-text read also emits a doc summary",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "5279",
               "blocked_by": [],
               "acceptance_criteria": [
                 "Refinement output contract gains a document summary field",
