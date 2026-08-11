@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T16:25:15.972Z",
+  "generated_at": "2026-08-11T16:40:39.857Z",
   "goals": [
     {
       "ref": "G1",
@@ -1996,8 +1996,9 @@
               "id": "s2.11",
               "title": "G4.S2.T11: RAG↔Wiki fusion — Section/WikiPage nodes + chunk retrieval with wikiPath/sectionPath + same-section context",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_t11_opencode_0821",
               "blocked_by": [],
               "acceptance_criteria": [
                 "Ingest creates Section + WikiPage nodes, Chunk→Section→Document→WikiPage relationships",
