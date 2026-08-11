@@ -9,7 +9,7 @@ export interface KnowledgeGraphNode {
   id?: string;
   label?: string;
   type?: string;
-  /** Source file the node was extracted from (LightRAG file_path). */
+  /** Source file the node was extracted from. */
   filePath?: string;
 }
 
@@ -49,11 +49,11 @@ export interface KnowledgeSearchResult {
   score?: number;
 }
 
-export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki" | "ingesting_neo4j";
+export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
 
-/** Per-system sub-step (G3.S5.T2): docling / LightRAG / llm_wiki phases. */
+/** Per-system sub-step (G3.S5.T2): docling / llm_wiki / Neo4j phases. */
 export interface IngestTaskStep {
   name: string;
   status: StageStatus;
@@ -75,7 +75,6 @@ export interface IngestTask {
   stages: {
     parsing: IngestTaskStage;
     refinement: IngestTaskStage;
-    ingesting_lightrag: IngestTaskStage;
     ingesting_llmwiki: IngestTaskStage;
     ingesting_neo4j: IngestTaskStage;
   };
@@ -104,21 +103,6 @@ export interface IngestTask {
     method?: "hash" | "chunks";
     existingSource?: string;
   };
-  /** Layer-2 semantic near-duplicate notice: path of an existing similar doc. */
-  nearDuplicate?: string;
-  /** Real LightRAG backend state + chunk progress (G3.S5.T3): reflects the
-   *  actual /documents status, never a false "done" at submit time. */
-  lightrag?: {
-    /** LightRAG submission track id. */
-    trackId?: string;
-    /** Raw backend status (e.g. "processing", "processed", "failed"). */
-    backendStatus?: string;
-    /** Number of chunks fully processed. */
-    chunksProcessed?: number;
-    /** Total chunks the document was split into. */
-    chunksCount?: number;
-    error?: string;
-  };
   createdAt: number;
   updatedAt: number;
 }
@@ -131,8 +115,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** GET /api/kb/graph?label=&topic= → LightRAG entity-relation graph.
- *  When `topic` is given the graph is filtered to nodes of that topic. */
+/** GET /api/kb/graph → Neo4j entity-relation graph. */
 export async function getGraph(label?: string, topic?: string): Promise<KnowledgeGraph> {
   const params = new URLSearchParams();
   if (label) params.set("label", label);
@@ -161,10 +144,9 @@ export async function readWikiPage(path: string): Promise<string> {
   return data.content;
 }
 
-/** POST /api/kb/doc/delete { path } → delete a wiki page from both systems. */
+/** POST /api/kb/doc/delete { path } → delete a wiki page. */
 export async function deleteWikiDoc(path: string): Promise<{
   ok: boolean;
-  lightrag?: { deleted: string[]; error?: string };
   llmwiki?: { path?: string; error?: string };
 }> {
   return request(`${KB_BASE}/doc/delete`, {
@@ -175,7 +157,7 @@ export async function deleteWikiDoc(path: string): Promise<{
 }
 
 /** POST /api/kb/search { query, topic? } → fused retrieval results
- *  (Neo4j vector+BM25+graph+topic when the RAG store is wired, else LightRAG) +
+ *  (Neo4j vector+BM25+graph+topic when the RAG store is wired) +
  *  llm_wiki keyword hits. */
 export async function searchKnowledge(query: string, topic?: string): Promise<KnowledgeSearchResult[]> {
   const data = await request<{ results: KnowledgeSearchResult[] }>(`${KB_BASE}/search`, {

@@ -1,17 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { KnowledgeRetrievalService } from "../../src/kb/retrieval.js";
-import type { LightRagClient } from "../../src/kb/lightrag.js";
 import type { LlmWikiClient } from "../../src/kb/llmwiki.js";
 import type { Neo4jRetrievalService } from "../../src/kb/store/retrieval.js";
-
-function stubLightrag(overrides: Partial<LightRagClient> = {}): LightRagClient {
-  return {
-    getGraph: async (label: string) => ({ nodes: [], edges: [], label }),
-    query: async () => ({ response: "" }),
-    ...overrides,
-  } as unknown as LightRagClient;
-}
 
 function stubLlmwiki(overrides: Partial<LlmWikiClient> = {}): LlmWikiClient {
   return {
@@ -29,6 +20,7 @@ function stubLlmwiki(overrides: Partial<LlmWikiClient> = {}): LlmWikiClient {
 
 function stubNeo4j(
   hits: Array<Partial<{ id: string; text: string; topic?: string; documentId?: string; source: string; score: number; related: string[] }>> = [],
+  graph: { nodes: { id: string; label: string; type?: string }[]; edges: { source: string; target: string }[] } = { nodes: [], edges: [] },
 ): Neo4jRetrievalService {
   return {
     search: async () => ({
@@ -44,160 +36,45 @@ function stubNeo4j(
       })),
     }),
     toolsSearch: async () => ({ query: "", hits: [] }),
+    getGraph: async () => graph,
   } as unknown as Neo4jRetrievalService;
 }
 
 function makeService(overrides: {
-  lightrag?: Partial<LightRagClient>;
   llmwiki?: Partial<LlmWikiClient>;
   neo4j?: Neo4jRetrievalService;
   projectId?: string;
 } = {}) {
   return new KnowledgeRetrievalService({
-    lightrag: stubLightrag(overrides.lightrag),
     llmwiki: stubLlmwiki(overrides.llmwiki),
     ...(overrides.neo4j ? { neo4j: overrides.neo4j } : {}),
     projectId: overrides.projectId,
   });
 }
 
-test("getGraph normalizes LightRAG nodes/edges and uses default label when omitted", async () => {
-  const lightrag = stubLightrag({
-    getGraph: async (label) => ({
-      nodes: [
-        { id: "n1", label: "Alpha", type: "concept" },
-        { label: "Beta", type: "org" },
-        {},
-      ],
-      edges: [
-        { source: "n1", target: "n2", weight: 2 },
-        {},
-      ],
-    }),
+test("getGraph returns the Neo4j entity-relation graph", async () => {
+  const neo4j = stubNeo4j([], {
+    nodes: [
+      { id: "Alpha", label: "Alpha", type: "concept" },
+      { id: "Beta", label: "Beta", type: "org" },
+    ],
+    edges: [{ source: "Alpha", target: "Beta" }],
   });
-  const service = makeService({ lightrag });
+  const service = makeService({ neo4j });
 
   const graph = await service.getGraph();
   assert.equal(graph.nodes.length, 2);
   assert.equal(graph.nodes[0]!.label, "Alpha");
-  assert.equal(graph.nodes[1]!.label, "Beta");
+  assert.equal(graph.nodes[0]!.type, "concept");
   assert.equal(graph.edges.length, 1);
-  assert.equal(graph.edges[0]!.weight, 2);
+  assert.equal(graph.edges[0]!.source, "Alpha");
+  assert.equal(graph.edges[0]!.target, "Beta");
 });
 
-test("normalizeGraph preserves file_path from nested properties (LightRAG shape)", async () => {
-  const lightrag = stubLightrag({
-    getGraph: async () => ({
-      nodes: [
-        {
-          id: "n1",
-          label: "Alpha",
-          properties: { file_path: "Sommerseminar-L-sen.md", entity_type: "event" },
-        },
-        { id: "n2", label: "Beta", file_path: "runbook.md" },
-      ],
-      edges: [],
-    }),
-  });
-  const service = makeService({ lightrag });
-
+test("getGraph returns an empty graph when no Neo4j store is wired", async () => {
+  const service = makeService();
   const graph = await service.getGraph();
-  assert.equal(graph.nodes[0]!.filePath, "Sommerseminar-L-sen.md");
-  assert.equal(graph.nodes[1]!.filePath, "runbook.md");
-});
-
-test("getGraph with a topic filters nodes by file_path→topic and keeps internal edges", async () => {
-  const nodes = [
-    { id: "n1", label: "A", properties: { file_path: "Sommerseminar-L-sen.md" } },
-    { id: "n2", label: "B", properties: { file_path: "diag2.md" } },
-    { id: "n3", label: "C", properties: { file_path: "runbook.md" } },
-  ];
-  const edges = [
-    { source: "n1", target: "n2", weight: 1 },
-    { source: "n2", target: "n3", weight: 2 },
-    { source: "n1", target: "n3", weight: 3 },
-  ];
-  const lightrag = stubLightrag({
-    getGraph: async () => ({ nodes, edges }),
-  });
-  const llmwiki = stubLlmwiki({
-    listWikiPages: async () => [
-      { path: "wiki/sommerseminar/Sommerseminar-L-sen.md", type: "concept", topic: "sommerseminar" },
-      { path: "wiki/sommerseminar/diag2.md", type: "concept", topic: "sommerseminar" },
-      { path: "wiki/runbook.md", type: "concept", topic: "ops" },
-    ],
-  });
-  const service = makeService({ lightrag, llmwiki });
-
-  const graph = await service.getGraph("*", "sommerseminar");
-  const ids = graph.nodes.map((n) => n.id).sort();
-  assert.deepEqual(ids, ["n1", "n2"]);
-  assert.equal(graph.edges.length, 1);
-  assert.equal(graph.edges[0]!.source, "n1");
-  assert.equal(graph.edges[0]!.target, "n2");
-});
-
-test("getGraph with a parent topic includes sub-topic nodes via file_path (hierarchical drill-down)", async () => {
-  const nodes = [
-    { id: "n1", label: "GR", properties: { file_path: "gr.md" } },
-    { id: "n2", label: "S4", properties: { file_path: "s4.md" } },
-    { id: "n3", label: "CoT", properties: { file_path: "cot.md" } },
-  ];
-  const edges = [
-    { source: "n1", target: "n2", weight: 1 },
-    { source: "n1", target: "n3", weight: 2 },
-  ];
-  const lightrag = stubLightrag({
-    getGraph: async () => ({ nodes, edges }),
-  });
-  const llmwiki = stubLlmwiki({
-    listWikiPages: async () => [
-      { path: "wiki/sap/consolidation/group-reporting/gr.md", type: "source", topic: "sap/consolidation/group-reporting" },
-      { path: "wiki/sap/migration/s4hana/s4.md", type: "source", topic: "sap/migration/s4hana" },
-      { path: "wiki/concepts/cot.md", type: "concept", topic: "chain-of-thought" },
-    ],
-  });
-  const service = makeService({ lightrag, llmwiki });
-
-  const graph = await service.getGraph("*", "sap");
-  assert.deepEqual(graph.nodes.map((n) => n.id).sort(), ["n1", "n2"]);
-  assert.equal(graph.edges.length, 1);
-  assert.equal(graph.edges[0]!.source, "n1");
-  assert.equal(graph.edges[0]!.target, "n2");
-});
-
-test("getGraph with a deep topic filters to exactly that topic (no drill-up)", async () => {
-  const nodes = [
-    { id: "n1", label: "GR", properties: { file_path: "gr.md" } },
-    { id: "n2", label: "S4", properties: { file_path: "s4.md" } },
-  ];
-  const lightrag = stubLightrag({
-    getGraph: async () => ({ nodes, edges: [] }),
-  });
-  const llmwiki = stubLlmwiki({
-    listWikiPages: async () => [
-      { path: "wiki/sap/consolidation/group-reporting/gr.md", type: "source", topic: "sap/consolidation/group-reporting" },
-      { path: "wiki/sap/migration/s4hana/s4.md", type: "source", topic: "sap/migration/s4hana" },
-    ],
-  });
-  const service = makeService({ lightrag, llmwiki });
-
-  const graph = await service.getGraph("*", "sap/consolidation/group-reporting");
-  assert.deepEqual(graph.nodes.map((n) => n.id).sort(), ["n1"]);
-});
-
-test("getGraph without a topic returns the full graph", async () => {
-  const nodes = [
-    { id: "n1", label: "A", properties: { file_path: "Sommerseminar-L-sen.md" } },
-    { id: "n2", label: "B", properties: { file_path: "runbook.md" } },
-  ];
-  const lightrag = stubLightrag({
-    getGraph: async () => ({ nodes, edges: [] }),
-  });
-  const service = makeService({ lightrag });
-
-  const graph = await service.getGraph();
-  assert.equal(graph.nodes.length, 2);
+  assert.deepEqual(graph, { nodes: [], edges: [] });
 });
 
 test("getGraphTopics returns distinct sorted topics from wiki pages", async () => {
@@ -213,34 +90,6 @@ test("getGraphTopics returns distinct sorted topics from wiki pages", async () =
 
   const topics = await service.getGraphTopics();
   assert.deepEqual(topics, ["ops", "sommerseminar"]);
-});
-
-test("getGraph forwards the requested label to LightRAG", async () => {
-  let calledWith: string | undefined;
-  const lightrag = stubLightrag({
-    getGraph: async (label) => {
-      calledWith = label;
-      return { nodes: [], edges: [] };
-    },
-  });
-  const service = makeService({ lightrag });
-
-  await service.getGraph("finance");
-  assert.equal(calledWith, "finance");
-});
-
-test("getGraph defaults the LightRAG label to * (full graph), not all", async () => {
-  let calledWith: string | undefined;
-  const lightrag = stubLightrag({
-    getGraph: async (label) => {
-      calledWith = label;
-      return { nodes: [], edges: [] };
-    },
-  });
-  const service = makeService({ lightrag });
-
-  await service.getGraph();
-  assert.equal(calledWith, "*");
 });
 
 test("getWikiTree resolves project id and returns the wiki file tree", async () => {
@@ -319,7 +168,6 @@ test("readWikiPage returns the markdown content for a path", async () => {
 test("readWikiImage resolves the image against the on-disk wiki dir and returns bytes + content-type (G3.S5.T5)", async () => {
   const readPaths: string[] = [];
   const service = new KnowledgeRetrievalService({
-    lightrag: stubLightrag(),
     llmwiki: stubLlmwiki({
       listProjects: async () => ({
         projects: [{ id: "proj1", name: "P1", path: "/data/wiki", current: false }],
@@ -345,7 +193,6 @@ test("readWikiImage resolves the image against the on-disk wiki dir and returns 
 test("readWikiImage uses the configured wikiDir and rejects traversal paths", async () => {
   const readPaths: string[] = [];
   const service = new KnowledgeRetrievalService({
-    lightrag: stubLightrag(),
     llmwiki: stubLlmwiki(),
     wikiDir: "/data/wiki",
     readFile: async (path) => {
@@ -368,14 +215,7 @@ test("readWikiImage uses the configured wikiDir and rejects traversal paths", as
   );
 });
 
-test("search never queries LightRAG for semantic hits — decommissioned (G4.S2.T7)", async () => {
-  let lightragQueried = false;
-  const lightrag = stubLightrag({
-    query: async () => {
-      lightragQueried = true;
-      return { response: "must never run", references: [] };
-    },
-  });
+test("search returns keyword hits from llm_wiki when no Neo4j store is wired", async () => {
   const llmwiki = stubLlmwiki({
     search: async () => ({
       results: [
@@ -383,11 +223,10 @@ test("search never queries LightRAG for semantic hits — decommissioned (G4.S2.
       ],
     }),
   });
-  const service = makeService({ lightrag, llmwiki });
+  const service = makeService({ llmwiki });
 
   const result = await service.search("how to handle incidents");
   assert.equal(result.query, "how to handle incidents");
-  assert.equal(lightragQueried, false, "LightRAG must not be queried for semantic search");
   assert.deepEqual(
     result.results.map((r) => r.source),
     ["llmwiki"],
@@ -402,22 +241,17 @@ test("search returns empty results when both systems have nothing", async () => 
   assert.deepEqual(result.results, []);
 });
 
-test("search with a Neo4j store replaces LightRAG and fuses Neo4j + llm_wiki hits", async () => {
+test("search with a Neo4j store fuses Neo4j + llm_wiki hits", async () => {
   const neo4j = stubNeo4j([
     { id: "doc1:c1", text: "bus station guide", topic: "transport", documentId: "doc1", source: "bm25", score: 0.9 },
     { id: "ZOB München", text: "central bus station", source: "graph", score: 0.8, related: ["CALEO", "MVV"] },
   ]);
-  const lightrag = stubLightrag({
-    query: async () => {
-      throw new Error("LightRAG must not be queried when the Neo4j store is wired");
-    },
-  });
   const llmwiki = stubLlmwiki({
     search: async () => ({
       results: [{ path: "bus.md", title: "Bus", snippet: "keyword hit", score: 0.7 }],
     }),
   });
-  const service = makeService({ lightrag, llmwiki, neo4j });
+  const service = makeService({ llmwiki, neo4j });
 
   const result = await service.search("bus station", { topic: "transport" });
 

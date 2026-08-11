@@ -8,8 +8,6 @@
  *  - Layer 1b (long docs): chunk-hash sequence comparison. Long documents are
  *    split into word-bounded chunks (~1000 tokens); a doc whose chunk-hash
  *    sequence matches an existing doc is a duplicate.
- *
- * Layer 2 (semantic near-dup) lives in the LightRAG pipeline, not here.
  */
 import { createHash } from "node:crypto";
 

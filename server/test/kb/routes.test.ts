@@ -42,7 +42,6 @@ test("POST /api/kb/ingest returns per-system ingest status", async () => {
   const result = {
     documentId: "runbook",
     systems: {
-      lightrag: { ok: true, trackId: "insert_1" },
       llmwiki: { ok: true },
     },
   };
@@ -60,9 +59,9 @@ test("POST /api/kb/ingest returns per-system ingest status", async () => {
   }
 });
 
-test("POST /api/kb/ingest returns 500 when both systems fail", async () => {
+test("POST /api/kb/ingest returns 500 when llm_wiki fails", async () => {
   const app = buildApp({
-    ingest: makeStubIngest(undefined, new Error("both down")) as never,
+    ingest: makeStubIngest(undefined, new Error("wiki down")) as never,
   });
   try {
     const res = await app.inject({
@@ -71,7 +70,7 @@ test("POST /api/kb/ingest returns 500 when both systems fail", async () => {
       payload: { title: "Runbook", content: "# Runbook" },
     });
     assert.equal(res.statusCode, 500);
-    assert.match(res.json().error ?? "", /both down/);
+    assert.match(res.json().error ?? "", /wiki down/);
   } finally {
     await app.close();
   }

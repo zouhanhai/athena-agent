@@ -1,15 +1,13 @@
 /**
- * KnowledgeIngestService - dual-pipeline ingestion (G2.S3.T2).
+ * KnowledgeIngestService - wiki-page ingestion (G2.S3.T2).
  *
- * Consumes already-parsed Markdown (docling belongs to G2.S5) and feeds it to
- * both knowledge systems:
- *   - LightRAG: POST /documents/text (chunk → vector + entity graph)
- *   - llm_wiki: write the Markdown directly into the project's wiki dir, then
- *     rescan so Source Watch picks it up as a searchable wiki page.
+ * Consumes already-parsed Markdown (docling belongs to G2.S5) and writes it into
+ * the llm_wiki project's wiki dir, then rescans so Source Watch picks it up as a
+ * searchable wiki page. The RAG store ingest (Neo4j) is driven by the ingest
+ * task queue from the Athena refinement output (G4.S2.T4).
  */
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LightRagClient, LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
 import { WIKI_CATEGORIES, isValidTopic } from "./llmwiki.js";
 import { DOC_TYPE_DIRS } from "./taxonomy.js";
@@ -37,8 +35,6 @@ export type LlmWikiProgress = (step: LlmWikiStepName, status: "running" | "done"
 export interface DeleteDocumentResult {
   /** True when the wiki page was removed (the tree can refresh). */
   ok: boolean;
-  /** LightRAG delete outcome: doc ids removed (and/or an error). */
-  lightrag?: { deleted: string[]; error?: string };
   /** llm_wiki delete outcome for the page path (and/or an error). */
   llmwiki?: { path?: string; error?: string };
 }
@@ -46,13 +42,11 @@ export interface DeleteDocumentResult {
 export interface IngestResult {
   documentId: string;
   systems: {
-    lightrag: SystemIngestStatus;
     llmwiki: SystemIngestStatus;
   };
 }
 
 export interface KnowledgeIngestOptions {
-  lightrag: LightRagClient;
   llmwiki: LlmWikiClient;
   /**
    * llm_wiki wiki pages directory to write into. When omitted, it is resolved
@@ -104,25 +98,6 @@ export function documentIdFrom(title: string, source?: string): string {
 export function extractPageTitle(content: string): string | undefined {
   const match = content.match(/^#\s+(.+)$/m);
   return match?.[1]?.trim();
-}
-
-/**
- * Extract a short distinctive probe from a document for LightRAG semantic
- * near-duplicate queries (G2.S5.T14). Prefers the first non-heading paragraph,
- * else the first non-empty line; capped to ~400 chars.
- */
-export function distinctiveProbe(content: string): string | undefined {
-  const withoutFrontmatter = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-  const lines = withoutFrontmatter
-    .split(/\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const paragraphs = withoutFrontmatter
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter((p) => p && !/^#{1,6}\s/.test(p));
-  const probe = (paragraphs[0] ?? lines[0] ?? "").slice(0, 400).trim();
-  return probe || undefined;
 }
 
 /** Human-readable title fallback derived from a file stem (kebab-case → words). */
@@ -379,7 +354,6 @@ interface ResolvedProject {
 }
 
 export class KnowledgeIngestService {
-  private readonly lightrag: LightRagClient;
   private readonly llmwiki: LlmWikiClient;
   private readonly wikiDir?: string;
   private readonly projectId?: string;
@@ -392,7 +366,6 @@ export class KnowledgeIngestService {
   private resolved?: ResolvedProject;
 
   constructor(options: KnowledgeIngestOptions) {
-    this.lightrag = options.lightrag;
     this.llmwiki = options.llmwiki;
     this.wikiDir = options.wikiDir;
     this.projectId = options.projectId;
@@ -437,23 +410,15 @@ export class KnowledgeIngestService {
     const documentId = documentIdFrom(input.title, input.source);
     const fileName = `${documentId}.md`;
 
-    // G3.S8.T2: classify FIRST (llm_wiki agent, local fallback) so LightRAG
-    // receives the content WITH frontmatter (type + topic) — its documents then
-    // carry topic metadata that the graph can filter by. The same classification
-    // is reused by the llm_wiki stage so both systems agree on type/topic.
-    const { frontmatterContent, classification } = await this.prepareForIngest(input);
+    // G3.S8.T2: classify FIRST (llm_wiki agent, local fallback) so the wiki page
+    // carries the type + topic frontmatter.
+    const { classification } = await this.prepareForIngest(input);
 
-    // LightRAG and llm_wiki are independent once classification is done — run
-    // them in parallel so ingestion isn't serialized behind the slower system.
-    const [lightragResult, llmwikiResult] = await Promise.all([
-      this.ingestLightRag(frontmatterContent, fileName),
-      this.ingestLlmWiki(fileName, input.content, undefined, classification),
-    ]);
+    const llmwikiResult = await this.ingestLlmWiki(fileName, input.content, undefined, classification);
 
     return {
       documentId,
       systems: {
-        lightrag: lightragResult,
         llmwiki: llmwikiResult,
       },
     };
@@ -461,10 +426,8 @@ export class KnowledgeIngestService {
 
   /**
    * Classify a document (llm_wiki agent with local fallback) and wrap its
-   * content in the llm_wiki frontmatter schema (type + title + topic), so the
-   * caller can feed LightRAG content that already carries the topic — making
-   * LightRAG documents filterable by topic via their content_summary/metadata
-   * (G3.S8.T2). Best-effort: never throws; the local heuristic is the floor.
+   * content in the llm_wiki frontmatter schema (type + title + topic).
+   * Best-effort: never throws; the local heuristic is the floor.
    */
   async prepareForIngest(input: { title: string; content: string }): Promise<{
     classification: WikiClassification;
@@ -486,53 +449,20 @@ export class KnowledgeIngestService {
   }
 
   /**
-   * Ingest into LightRAG only. Public so the G2.S5 task queue can track
-   * per-system progress independently of llm_wiki.
-   */
-  async ingestLightRag(content: string, fileName: string): Promise<SystemIngestStatus> {
-    try {
-      const result = await this.lightrag.ingestText(content, { fileSource: fileName });
-      return { ok: true, trackId: result.track_id };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
-  /**
-   * Real per-submission LightRAG status (G3.S5.T3). The task queue polls this
-   * after the 202 submit so the task reflects the actual backend state instead
-   * of a false "done".
-   */
-  async getLightRagTrackStatus(trackId: string): Promise<LightRagTrackStatus> {
-    return this.lightrag.getTrackStatus(trackId);
-  }
-
-  /**
-   * Global LightRAG indexing progress; `latest_message` / `history_messages`
-   * carry "Chunk N of M" lines used to surface chunk progress.
-   */
-  async getLightRagPipelineStatus(): Promise<LightRagPipelineStatus> {
-    return this.lightrag.getPipelineStatus();
-  }
-
-  /**
    * Ingest into llm_wiki only (write wiki page + rescan). Public so the G2.S5
-   * task queue can track per-system progress independently of LightRAG.
+   * task queue can track per-system progress.
    *
    * G2.S5.T5: the page is classified by the llm_wiki agent and written under
    * wiki/<category>/ (not flat root), then wiki/index.md is rebuilt.
    * G2.S5.T10: when the classifier also derives a topic, the page is written
    * under wiki/<topic>/ instead so related documents group together.
    * G3.S8.T2: when `preclassified` is given (the caller already classified the
-   * doc — e.g. ingestMarkdown/task queue, to feed LightRAG the frontmatter),
-   * the classification is REUSED instead of calling the agent again, so both
-   * systems carry the exact same type + topic.
+   * doc), the classification is REUSED instead of calling the agent again.
    * G3.S5.T5: when `images` is given, the docling-extracted image files are
    * copied beside the page (wiki/<topic>/images/<stem>/...) so the markdown
    * refs `images/<stem>/image_x.png` resolve relative to the page. The refs
    * themselves are NOT rewritten — the copy preserves the relative layout the
-   * refs already use. LightRAG is unaffected: it ingests the same markdown
-   * text only, never the image bytes.
+   * refs already use.
    */
   async ingestLlmWiki(
     fileName: string,
@@ -571,29 +501,6 @@ export class KnowledgeIngestService {
   }
 
   /**
-   * Layer-2 semantic near-duplicate check (G2.S5.T14), running inside LightRAG
-   * (which has embeddings) — NOT llm_wiki (keyword/vector only). After a doc is
-   * stored, query LightRAG with a distinctive probe from the doc; if the top
-   * reference belongs to a DIFFERENT existing file, return that file's path so
-   * the UI can surface a "possibly similar to X" notice. Best-effort: returns
-   * undefined when nothing strong matches or LightRAG is unreachable.
-   */
-  async findNearDuplicate(content: string, selfFileName: string): Promise<string | undefined> {
-    const probe = distinctiveProbe(content);
-    if (!probe) return undefined;
-    try {
-      const result = await this.lightrag.query(probe, { mode: "hybrid", topK: 5 });
-      for (const ref of result.references ?? []) {
-        if (!ref.file_path || ref.file_path === selfFileName) continue;
-        return ref.file_path;
-      }
-    } catch {
-      // semantic check is best-effort; a LightRAG outage must never fail ingest
-    }
-    return undefined;
-  }
-
-  /**
    * List the raw markdown content of every existing wiki page (G2.S5.T14).
    * Used to seed the content-dedup store so previously-ingested documents are
    * recognized even after a server restart. Best-effort: unreadable pages are
@@ -616,28 +523,11 @@ export class KnowledgeIngestService {
   }
 
   /**
-   * Delete a wiki page from BOTH knowledge systems (G2.S5.T12). `path` is the
-   * project-relative wiki page, e.g. "wiki/concepts/foo.md".
-   *
-   * - LightRAG: list docs, match by file_source basename, delete matched ids
-   *   (chunks + vectors + graph + LLM cache, so a re-upload of the same name works).
-   * - llm_wiki: delete the page file on disk + rescan (Source Watch drops it from
-   *   the index) + rebuild wiki/index.md.
+   * Delete a wiki page from llm_wiki (G2.S5.T12). `path` is the project-relative
+   * wiki page, e.g. "wiki/concepts/foo.md". Deletes the page file on disk +
+   * rescan (Source Watch drops it from the index) + rebuilds wiki/index.md.
    */
   async deleteDocument(path: string): Promise<DeleteDocumentResult> {
-    const fileSource = path.split("/").pop() ?? path;
-    const lightragOutcome: { deleted: string[]; error?: string } = { deleted: [] };
-    try {
-      const docs = await this.lightrag.listDocuments();
-      const matches = docs.filter((d) => d.file_path === fileSource);
-      for (const doc of matches) {
-        await this.lightrag.deleteDocument(doc.id);
-        lightragOutcome.deleted.push(doc.id);
-      }
-    } catch (err) {
-      lightragOutcome.error = err instanceof Error ? err.message : String(err);
-    }
-
     const llmwikiOutcome: { path?: string; error?: string } = { path };
     try {
       const { id } = await this.resolveProject();
@@ -650,7 +540,6 @@ export class KnowledgeIngestService {
 
     return {
       ok: !llmwikiOutcome.error,
-      lightrag: lightragOutcome,
       llmwiki: llmwikiOutcome,
     };
   }

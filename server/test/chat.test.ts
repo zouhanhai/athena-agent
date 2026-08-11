@@ -161,8 +161,8 @@ test("POST /api/chat injects knowledge tools for Knowledge / Wiki pages", async 
         headers: { accept: "text/event-stream" },
         payload: { userId: "alice", message: "explain RAG", page },
       });
-      assert.ok(session.prompts[0]!.includes("knowledge_search"), `${page} should inject knowledge_search`);
       assert.ok(session.prompts[0]!.includes("wiki_search"), `${page} should inject wiki_search`);
+      assert.ok(session.prompts[0]!.includes("wiki_graph"), `${page} should inject wiki_graph`);
     } finally {
       await chatApp.close();
     }
@@ -210,7 +210,7 @@ test("POST /api/chat same userId across pages keeps ONE shared session (context 
     });
     assert.equal(factoryCalls, 1, "switching pages must not create a new session");
     assert.equal(session.prompts.length, 2, "both turns should go to the same session");
-    assert.ok(session.prompts[0]!.includes("knowledge"), "first turn carries knowledge injection");
+    assert.ok(session.prompts[0]!.includes("wiki_search"), "first turn carries knowledge injection");
     assert.ok(session.prompts[1]!.includes("GitHub"), "second turn carries workbench injection");
   } finally {
     await chatApp.close();

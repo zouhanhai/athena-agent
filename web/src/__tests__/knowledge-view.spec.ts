@@ -109,7 +109,7 @@ afterEach(() => {
 });
 
 describe("graph mapping helpers", () => {
-  it("maps LightRAG nodes/edges to the v-network-graph format", () => {
+  it("maps graph nodes/edges to the v-network-graph format", () => {
     const view = mapKnowledgeGraph(sampleGraph);
     expect(Object.keys(view.nodes)).toEqual(["n1", "n2", "n3"]);
     expect(view.nodes.n1).toEqual({ name: "Alpha", type: "concept", size: 14 });
@@ -251,7 +251,7 @@ describe("KnowledgeView topic filter", () => {
 
   it("shows the error message when the topic graph fetch fails", async () => {
     getGraphTopicsMock.mockResolvedValue(["sommerseminar"]);
-    getGraphMock.mockRejectedValue(new Error("lightrag down"));
+    getGraphMock.mockRejectedValue(new Error("neo4j down"));
     const { wrapper } = await mountView();
     await flushPromises();
 
@@ -260,7 +260,7 @@ describe("KnowledgeView topic filter", () => {
     await select.vm.$emit("change", "sommerseminar");
     await flushPromises();
 
-    expect(wrapper.find(".knowledge-error").text()).toContain("lightrag down");
+    expect(wrapper.find(".knowledge-error").text()).toContain("neo4j down");
     wrapper.unmount();
   });
 });

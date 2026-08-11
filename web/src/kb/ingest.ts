@@ -15,9 +15,7 @@ export interface IngestTaskItem {
   progress: number;
   error?: string;
   dedup?: IngestTask["dedup"];
-  nearDuplicate?: string;
   stages: IngestTask["stages"];
-  lightrag?: IngestTask["lightrag"];
   refinement?: IngestTask["refinement"];
   reviewRequired?: boolean;
   createdAt: number;
@@ -43,15 +41,6 @@ export function initialStages(): IngestTask["stages"] {
         // G4.S1: Athena single full-doc LLM pass (re-level headers + classify
         // type/topic + chunk + entities/keywords + quality, one read).
         { name: "refine_document", status: "pending" },
-      ],
-    },
-    ingesting_lightrag: {
-      name: "ingesting_lightrag",
-      status: "pending",
-      steps: [
-        // chunking already includes entity extraction + embedding upsert (inline
-        // per chunk) — a single "chunking + embedding" step with chunk progress.
-        { name: "chunking_embedding", status: "pending" },
       ],
     },
     ingesting_neo4j: {
@@ -151,9 +140,7 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
       progress: updated.progress,
       error: updated.error,
       dedup: updated.dedup,
-      nearDuplicate: updated.nearDuplicate,
       stages: updated.stages,
-      lightrag: updated.lightrag,
       refinement: updated.refinement,
       reviewRequired: updated.reviewRequired,
       createdAt: updated.createdAt,

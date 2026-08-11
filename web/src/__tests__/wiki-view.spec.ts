@@ -257,7 +257,6 @@ describe("WikiView", () => {
     readWikiPageMock.mockResolvedValue("body");
     deleteWikiDocMock.mockResolvedValue({
       ok: true,
-      lightrag: { deleted: ["doc-1"] },
       llmwiki: { path: "release-notes.md" },
     });
     const { wrapper } = await mountView();

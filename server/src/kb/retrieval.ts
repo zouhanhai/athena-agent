@@ -3,16 +3,14 @@
  *
  * Exposes the read endpoints the Knowledge/Wiki panels consume, backed by the
  * knowledge systems:
- *   - LightRAG: /api/kb/graph (entity-relation graph) only — the semantic
- *     search query path was decommissioned in G4.S2.T7 (Neo4j replaces it)
- *   - Neo4j lean RAG store: /api/kb/search (fused vector + BM25 + graph + topic)
+ *   - Neo4j lean RAG store: /api/kb/graph (entity-relation graph), /api/kb/search
+ *     (fused vector + BM25 + graph + topic)
  *   - llm_wiki: /api/kb/wiki (page tree), /api/kb/wiki/page (markdown), /api/kb/search (BM25 keyword)
  */
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { LightRagClient, LightRagGraphResult } from "./lightrag.js";
 import type { LlmWikiClient, LlmWikiFileNode, LlmWikiSearchResult } from "./llmwiki.js";
 import type {
   Neo4jRetrievalService,
@@ -21,16 +19,14 @@ import type {
 } from "./store/retrieval.js";
 
 export interface KnowledgeRetrievalOptions {
-  lightrag: LightRagClient;
   llmwiki: LlmWikiClient;
-  /** Neo4j lean RAG store retrieval (G4.S2.T5). It is the sole semantic path in
-   *  `search` (fused vector + BM25 + graph + topic, G4.S2.T7) while llm_wiki
-   *  stays the BM25 keyword source. When omitted, search returns keyword hits only. */
+  /** Neo4j lean RAG store retrieval (G4.S2.T5). It is the sole semantic + graph
+   *  path (fused vector + BM25 + graph + topic, G4.S2.T7/T10) while llm_wiki
+   *  stays the BM25 keyword source. When omitted, search returns keyword hits
+   *  only and the graph is empty. */
   neo4j?: Neo4jRetrievalService;
   /** llm_wiki project id. When omitted, current/first project is used. */
   projectId?: string;
-  /** Default label for the LightRAG graph export. Default: "*" (full graph). */
-  lightragLabel?: string;
   /** llm_wiki wiki pages directory (project.path/wiki). When omitted, it is
    *  resolved from the project path returned by listProjects(). */
   wikiDir?: string;
@@ -42,8 +38,6 @@ export interface KnowledgeGraphNode {
   id: string;
   label: string;
   type?: string;
-  /** Source file the node was extracted from (LightRAG file_path). */
-  filePath?: string;
   [key: string]: unknown;
 }
 
@@ -91,34 +85,34 @@ interface ResolvedProject {
 }
 
 export class KnowledgeRetrievalService {
-  private readonly lightrag: LightRagClient;
   private readonly llmwiki: LlmWikiClient;
   private readonly neo4j?: Neo4jRetrievalService;
   private readonly projectId?: string;
-  private readonly lightragLabel: string;
   private readonly wikiDir?: string;
   private readonly readFile: (path: string) => Promise<Buffer>;
   private resolved?: ResolvedProject;
 
   constructor(options: KnowledgeRetrievalOptions) {
-    this.lightrag = options.lightrag;
     this.llmwiki = options.llmwiki;
     this.neo4j = options.neo4j;
     this.projectId = options.projectId;
-    this.lightragLabel = options.lightragLabel ?? "*";
     this.wikiDir = options.wikiDir;
     this.readFile = options.readFile ?? readFile;
   }
 
-  /** GET /api/kb/graph → LightRAG entity-relation graph, normalized for the
-   *  frontend. When `topic` is given, only nodes whose source file maps to that
-   *  topic (via wiki frontmatter) are kept, plus the edges between them. */
-  async getGraph(label?: string, topic?: string): Promise<KnowledgeGraph> {
-    const raw = await this.lightrag.getGraph(label ?? this.lightragLabel);
-    const graph = normalizeGraph(raw);
-    if (!topic) return graph;
-    const topics = await this.buildTopicMap();
-    return filterGraphByTopic(graph, topic, topics);
+  /** GET /api/kb/graph → the entity-relation graph from the Neo4j store
+   *  (G4.S2.T10). Empty when the store is not wired. */
+  async getGraph(): Promise<KnowledgeGraph> {
+    if (!this.neo4j) return { nodes: [], edges: [] };
+    const raw = await this.neo4j.getGraph();
+    return {
+      nodes: raw.nodes.map((n) => ({
+        id: n.id,
+        label: n.label,
+        ...(n.type ? { type: n.type } : {}),
+      })),
+      edges: raw.edges.map((e) => ({ source: e.source, target: e.target })),
+    };
   }
 
   /** GET /api/kb/graph/topics → distinct topics seen in wiki pages, sorted. */
@@ -171,9 +165,8 @@ export class KnowledgeRetrievalService {
   /**
    * POST /api/kb/search → fused results across the configured knowledge systems.
    * The Neo4j store (G4.S2.T5) is the sole semantic path — fused vector + BM25 +
-   * graph + topic — and llm_wiki stays the BM25 keyword source. The LightRAG
-   * semantic query path was decommissioned in G4.S2.T7; when the Neo4j store is
-   * not wired (NEO4J_PASSWORD unset) search degrades to llm_wiki keyword hits.
+   * graph + topic — and llm_wiki stays the BM25 keyword source. When the Neo4j
+   * store is not wired (NEO4J_PASSWORD unset) search degrades to llm_wiki keyword hits.
    */
   async search(query: string, options: { topic?: string } = {}): Promise<KnowledgeSearchResponse> {
     const results: KnowledgeSearchResult[] = [];
@@ -214,28 +207,6 @@ export class KnowledgeRetrievalService {
     this.resolved = { id, ...(wikiDir ? { wikiDir } : {}) };
     return this.resolved;
   }
-
-  /** Build a map from wiki page basename → topic (frontmatter), so LightRAG
-   *  node file_path values (e.g. "Sommerseminar-L-sen.md") can be resolved to
-   *  a topic. Falls back to the full path for robustness. */
-  private async buildTopicMap(): Promise<Map<string, string>> {
-    const { id } = await this.resolveProject();
-    const pages = await this.llmwiki.listWikiPages(id);
-    const map = new Map<string, string>();
-    for (const page of pages) {
-      if (!page.topic) continue;
-      const base = basename(page.path);
-      map.set(base, page.topic);
-      map.set(page.path, page.topic);
-    }
-    return map;
-  }
-}
-
-function basename(path: string): string {
-  const cleaned = path.replace(/\\/g, "/");
-  const parts = cleaned.split("/");
-  return parts[parts.length - 1] ?? path;
 }
 
 /** Content-type for a served wiki image based on its extension (G3.S5.T5). */
@@ -256,75 +227,6 @@ function contentTypeForImage(path: string): string {
     default:
       return "application/octet-stream";
   }
-}
-
-/** Keep only nodes whose source file maps to `topic` (or a sub-topic of it,
- *  enabling hierarchical drill-down, e.g. "sap" includes "sap/consolidation/
- *  group-reporting"), plus the edges between them. */
-function filterGraphByTopic(
-  graph: KnowledgeGraph,
-  topic: string,
-  topicMap: Map<string, string>,
-): KnowledgeGraph {
-  // A node's file_path is the LightRAG file_source (<documentId>.md). The
-  // topic map (built from llm_wiki page frontmatter) keys on the wiki page
-  // basename AND full path, so a node maps to its topic via file_path.
-  const nodeTopic = (node: KnowledgeGraphNode): string | undefined => {
-    if (!node.filePath) return undefined;
-    return topicMap.get(node.filePath) ?? topicMap.get(basename(node.filePath));
-  };
-
-  const matches = (nodeTopicValue: string | undefined): boolean => {
-    if (nodeTopicValue === topic) return true;
-    return typeof nodeTopicValue === "string" && nodeTopicValue.startsWith(`${topic}/`);
-  };
-
-  const kept = new Set<string>();
-  const nodes: KnowledgeGraphNode[] = [];
-  for (const node of graph.nodes) {
-    if (matches(nodeTopic(node))) {
-      kept.add(node.id);
-      nodes.push(node);
-    }
-  }
-
-  const edges: KnowledgeGraphEdge[] = [];
-  for (const edge of graph.edges) {
-    if (kept.has(edge.source) && kept.has(edge.target)) {
-      edges.push(edge);
-    }
-  }
-
-  return { nodes, edges };
-}
-
-function normalizeGraph(raw: LightRagGraphResult): KnowledgeGraph {
-  const nodes: KnowledgeGraphNode[] = [];
-  for (const node of raw.nodes) {
-    const id = node.id ?? node.label;
-    if (!id) continue;
-    nodes.push({
-      id: String(id),
-      label: node.label ?? String(id),
-      ...(node.type ? { type: String(node.type) } : {}),
-      ...(node.file_path ? { filePath: String(node.file_path) } : {}),
-      ...(node.properties?.file_path
-        ? { filePath: String(node.properties.file_path) }
-        : {}),
-    });
-  }
-
-  const edges: KnowledgeGraphEdge[] = [];
-  for (const edge of raw.edges) {
-    if (edge.source === undefined || edge.target === undefined) continue;
-    edges.push({
-      source: String(edge.source),
-      target: String(edge.target),
-      ...(edge.weight !== undefined ? { weight: Number(edge.weight) } : {}),
-    });
-  }
-
-  return { nodes, edges };
 }
 
 function mapWikiHit(hit: LlmWikiSearchResult): KnowledgeSearchResult {

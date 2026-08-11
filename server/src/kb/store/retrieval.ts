@@ -22,6 +22,7 @@ import type { TextEmbedder } from "../embedding.js";
 import {
   CHUNK_EMBEDDING_INDEX,
   CHUNK_TEXT_FTX,
+  ENTITY_LABEL,
   ENTITY_NAME_ALIASES_FTX,
   ENTITY_RELATION_TYPE,
   type Neo4jDriverLike,
@@ -338,6 +339,25 @@ export class ToolsRetriever {
   }
 }
 
+/** A single node exported from the entity-relation graph (G4.S2.T10, Neo4j-backed). */
+export interface Neo4jGraphNode {
+  id: string;
+  label: string;
+  type?: string;
+}
+
+/** A single edge exported from the entity-relation graph. */
+export interface Neo4jGraphEdge {
+  source: string;
+  target: string;
+}
+
+/** The entity-relation graph export shape. */
+export interface Neo4jGraphExport {
+  nodes: Neo4jGraphNode[];
+  edges: Neo4jGraphEdge[];
+}
+
 /**
  * Neo4jRetrievalService — the fused retrieval entry point: runs vector + BM25 +
  * graph via Promise.allSettled (a failing source never kills the search), fuses
@@ -375,5 +395,44 @@ export class Neo4jRetrievalService {
   async toolsSearch(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchResponse> {
     const hits = await new ToolsRetriever(this.options).search(query, options);
     return { query, hits };
+  }
+
+  /** GET /api/kb/graph → the full entity-relation graph stored in Neo4j
+   *  (Entity nodes + RELATION edges). Case-insensitive: node names are returned
+   *  canonical. */
+  async getGraph(): Promise<Neo4jGraphExport> {
+    const session = this.options.driver.session();
+    try {
+      const nodesResult = (await session.run(
+        `MATCH (n:${ENTITY_LABEL}) RETURN n.name AS name, n.type AS type`,
+      )) as Neo4jRunResultLike;
+      const nodes: Neo4jGraphNode[] = [];
+      for (const record of nodesResult?.records ?? []) {
+        const name = record.get("name");
+        if (name === null || name === undefined) continue;
+        const type = record.get("type");
+        nodes.push({
+          id: String(name),
+          label: String(name),
+          ...(type !== null && type !== undefined ? { type: String(type) } : {}),
+        });
+      }
+
+      const edgesResult = (await session.run(
+        `MATCH (a:${ENTITY_LABEL})-[r:${ENTITY_RELATION_TYPE}]->(b:${ENTITY_LABEL})
+         RETURN a.name AS source, b.name AS target`,
+      )) as Neo4jRunResultLike;
+      const edges: Neo4jGraphEdge[] = [];
+      for (const record of edgesResult?.records ?? []) {
+        const source = record.get("source");
+        const target = record.get("target");
+        if (source === null || source === undefined || target === null || target === undefined) continue;
+        edges.push({ source: String(source), target: String(target) });
+      }
+
+      return { nodes, edges };
+    } finally {
+      await session.close();
+    }
   }
 }

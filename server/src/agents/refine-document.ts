@@ -282,7 +282,7 @@ ${TOPIC_TREE_PROMPT}
 
 ## 3. Chunking (paragraph-semantic)
 Segment the re-leveled markdown into paragraph-semantic chunks (~1200 tokens, ~100 token overlap —
-LightRAG paragraph_semantic style). Prefer whole paragraphs / semantically complete sections over fixed
+paragraph-semantic style). Prefer whole paragraphs / semantically complete sections over fixed
 token windows. Each chunk: stable id ("c1", "c2", ...), its text, and heading_path = the heading path
 of the section it belongs to (e.g. "Sommerseminar / Workshops") so downstream knows the context.
 
@@ -305,7 +305,7 @@ Extract BINARY relations only: source -> target. For each:
 - keywords: relationship keywords (the verbs/phrases expressing the edge).
 - description: one concise sentence.
 Decompose multi-entity statements into individual binary edges. Include ONLY direct, clearly-stated,
-meaningful relations (GraphRAG/LightRAG best practice) — skip speculative ones.
+meaningful relations (graph-RAG best practice) — skip speculative ones.
 
 ## 6. Keywords (relationship + query)
 Emit retrieval keywords: relationship keywords (edge vocabulary, e.g. "hosts", "part of") AND query

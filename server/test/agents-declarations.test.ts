@@ -14,7 +14,7 @@ let registry: MemoryAgentRegistry;
 
 const declaredCapabilities: AgentCapabilities = {
   system: "opencode",
-  mcp: ["lightrag", "github"],
+  mcp: ["athena", "github"],
   tools: ["bash", "file_edit", "web_fetch"],
   skills: ["code_review", "git_workflow"],
   specialty: "software-engineering",
@@ -80,7 +80,7 @@ test("POST /api/agents/self-declare rejects malformed capabilities", async () =>
     url: "/api/agents/self-declare",
     payload: {
       agent_id: "opencode-ses_xyz",
-      capabilities: { system: "opencode", mcp: "lightrag", tools: [], skills: [] },
+      capabilities: { system: "opencode", mcp: "athena", tools: [], skills: [] },
     },
   });
   assert.equal(res.statusCode, 400);

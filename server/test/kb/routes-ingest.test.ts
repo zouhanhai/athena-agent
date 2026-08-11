@@ -12,9 +12,9 @@ const BOUNDARY = "test-boundary-123";
 function makeTaskQueue(opts: {
   failParse?: boolean;
   llmwikiFailures?: number;
-  lightragFailures?: number;
+  neo4j?: boolean;
 } = {}) {
-  const counts = { lightrag: 0, llmwiki: 0 };
+  const counts = { llmwiki: 0 };
   const parser = {
     async parse(input: string) {
       if (opts.failParse) throw new Error("docling failed");
@@ -28,24 +28,6 @@ function makeTaskQueue(opts: {
         frontmatterContent: `---\ntype: concept\ntitle: ${input.title}\ntopic: sommerseminar\n---\n\n${input.content}`,
       };
     },
-    async ingestLightRag() {
-      counts.lightrag += 1;
-      if (opts.lightragFailures !== undefined && counts.lightrag <= opts.lightragFailures) {
-        return { ok: false, error: "LightRAG down" };
-      }
-      return { ok: true, trackId: "insert_1" };
-    },
-    async getLightRagTrackStatus(trackId: string) {
-      return {
-        track_id: trackId,
-        total_count: 1,
-        status_summary: { processed: 1 },
-        documents: [{ id: "d1", status: "processed", chunks_count: 12 }],
-      };
-    },
-    async getLightRagPipelineStatus() {
-      return { history_messages: ["Chunk 12 of 12 extracted 3 Ent + 2 Rel"] };
-    },
     async ingestLlmWiki() {
       counts.llmwiki += 1;
       if (opts.llmwikiFailures !== undefined && counts.llmwiki <= opts.llmwikiFailures) {
@@ -54,10 +36,39 @@ function makeTaskQueue(opts: {
       return { ok: true };
     },
   };
+  const refiner = async () => ({
+    ref: {
+      md_ref: "/storage/uploaded/markdown.md",
+      chunks_ref: "/storage/uploaded/chunks.json",
+      preview: "preview",
+      char_count: 1,
+      line_count: 1,
+      header_count: 1,
+      chunk_count: 1,
+      frontmatter: { type: "concept", topic: "sommerseminar" },
+      entities: [],
+      relations: [],
+      keywords: [],
+      quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
+      mode: "single",
+      sections: [],
+    },
+    markdown: "# Uploaded",
+    ragMarkdown: "# Uploaded",
+  });
   return new IngestTaskQueue({
     parser: parser as never,
     ingest: ingest as never,
-    sleep: async () => {},
+    refiner: refiner as never,
+    ...(opts.neo4j
+      ? {
+          neo4j: {
+            async ingest() {
+              return { chunksStored: 1, entitiesStored: 0, relationsStored: 0 };
+            },
+          } as never,
+        }
+      : {}),
   });
 }
 
@@ -210,7 +221,7 @@ test("failed docling parse surfaces a failed task via the task endpoint", async 
 });
 
 test("POST /api/kb/ingest/retry re-runs only the failed stage and returns the updated task", async () => {
-  const app = buildApp({ taskQueue: makeTaskQueue({ llmwikiFailures: 1 }) });
+  const app = buildApp({ taskQueue: makeTaskQueue({ llmwikiFailures: 1, neo4j: true }) });
   try {
     const ingest = await app.inject({
       method: "POST",
@@ -227,8 +238,8 @@ test("POST /api/kb/ingest/retry re-runs only the failed stage and returns the up
       "failed",
     );
     assert.equal(
-      ((failed as { stages: { ingesting_lightrag: { status: string } } }).stages)
-        .ingesting_lightrag.status,
+      ((failed as { stages: { ingesting_neo4j: { status: string } } }).stages)
+        .ingesting_neo4j.status,
       "done",
     );
 
@@ -284,14 +295,14 @@ function makeDeleteIngest(opts: { fail?: boolean } = {}) {
   return {
     async deleteDocument(path: string) {
       if (opts.fail) {
-        return { ok: false, lightrag: { deleted: [] }, llmwiki: { path, error: "delete failed" } };
+        return { ok: false, llmwiki: { path, error: "delete failed" } };
       }
-      return { ok: true, lightrag: { deleted: ["doc-1"] }, llmwiki: { path } };
+      return { ok: true, llmwiki: { path } };
     },
   } as never;
 }
 
-test("DELETE /api/kb/doc deletes the page from both systems", async () => {
+test("DELETE /api/kb/doc deletes the wiki page", async () => {
   const app = buildApp({ ingest: makeDeleteIngest(), taskQueue: makeTaskQueue() });
   try {
     const res = await app.inject({
@@ -300,9 +311,9 @@ test("DELETE /api/kb/doc deletes the page from both systems", async () => {
       payload: { path: "wiki/concepts/foo.md" },
     });
     assert.equal(res.statusCode, 200);
-    const body = res.json() as { ok: boolean; lightrag: { deleted: string[] } };
+    const body = res.json() as { ok: boolean; llmwiki: { path: string } };
     assert.equal(body.ok, true);
-    assert.deepEqual(body.lightrag.deleted, ["doc-1"]);
+    assert.equal(body.llmwiki.path, "wiki/concepts/foo.md");
   } finally {
     await app.close();
   }

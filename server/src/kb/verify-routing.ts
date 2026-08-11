@@ -1,15 +1,14 @@
 /**
  * End-to-end retrieval verification (G2.S3.T4).
  *
- * 1. Dual-pipeline ingest of a rich sample doc (process + facts + architecture).
- * 2. Confirm it landed in LightRAG (semantic) + llm_wiki (wiki page + search).
+ * 1. Ingest of a rich sample doc (process + facts + architecture).
+ * 2. Confirm it landed in llm_wiki (wiki page + search).
  * 3. Drive Pi AgentSession with intent questions and record which knowledge
  *    tools it calls, verifying intent→tool routing per knowledge-rag-design.md §4.
  *
  * Run: node --import tsx src/kb/verify-routing.ts
  */
 import { KnowledgeIngestService } from "./ingest.js";
-import { LightRagClient } from "./lightrag.js";
 import { LlmWikiClient } from "./llmwiki.js";
 import { createAgent } from "../agents/agent.js";
 
@@ -44,30 +43,25 @@ async function poll<T>(what: string, fn: () => Promise<T>, check: (v: T) => bool
   throw new Error(`timeout waiting for ${what}`);
 }
 
-const lightrag = new LightRagClient();
 const llmwiki = new LlmWikiClient();
-const ingest = new KnowledgeIngestService({ lightrag, llmwiki });
+const ingest = new KnowledgeIngestService({ llmwiki });
 
 const { projects } = await llmwiki.listProjects();
 const projectId = projects[0]?.id ?? "athena-wiki";
 
-console.log("=== 1. Dual-pipeline ingest ===");
+console.log("=== 1. Ingest ===");
 const ingestResult = await ingest.ingestMarkdown({
   title: `${tag} Engineering Manual`,
   content,
   source: `${tag}.md`,
 });
 console.log(JSON.stringify(ingestResult, null, 2));
-if (!ingestResult.systems.lightrag.ok || !ingestResult.systems.llmwiki.ok) {
-  console.error("FATAL: sample did not ingest into both systems");
+if (!ingestResult.systems.llmwiki.ok) {
+  console.error("FATAL: sample did not ingest into llm_wiki");
   process.exit(1);
 }
 
-console.log("\n=== 2. Confirm presence in both systems ===");
-const factQuery = `What is the default value of the ${tag} feature flag?`;
-const query = await poll("LightRAG to index the sample", () => lightrag.query(factQuery, { mode: "hybrid", topK: 5 }), (q) => (q.references ?? []).some((r) => r.file_path.includes(tag)));
-console.log("LightRAG references:", query.references?.map((r) => r.file_path).join(", "));
-
+console.log("\n=== 2. Confirm presence ===");
 const wikiFile = await poll("llm_wiki to index the wiki page", () => llmwiki.getFileTree(projectId, { root: "wiki" }), (t) => t.files.some((f) => f.path.includes(tag)));
 console.log("llm_wiki wiki file:", wikiFile.files.map((f) => f.path).find((p) => p.includes(tag)));
 
@@ -75,7 +69,7 @@ const wikiSearch = await poll("llm_wiki search index", () => llmwiki.search(proj
 console.log("llm_wiki search:", wikiSearch.results.map((r) => `${r.path} (${r.score})`).join(", "));
 
 console.log("\n=== 3. Pi intent routing ===");
-console.log("(fresh agent per case, restricted to the 5 knowledge tools)");
+console.log("(fresh agent per case, restricted to the knowledge tools)");
 
 interface IntentCase {
   label: string;
@@ -91,25 +85,14 @@ const cases: IntentCase[] = [
     expectedTools: ["wiki_search", "wiki_read_page"],
   },
   {
-    label: "fact/semantic → knowledge_search",
-    question: `Find the fact about the ${tag} feature flag. What is its default value?`,
-    expectedTools: ["knowledge_search"],
-  },
-  {
-    label: "relationship → query_graph/wiki_graph",
-    question: `In the ${tag} architecture, which component does the ${tag} subsystem depend on? Use the knowledge graph.`,
-    expectedTools: ["query_graph", "wiki_graph"],
-  },
-  {
-    label: "cross-domain fusion → multiple sources",
-    question: `Combine info: what wiki page covers the ${tag} process, and what fact sheet value FAB-${tag} relates to?`,
-    expectedTools: ["wiki_search", "knowledge_search"],
-    minTools: 2,
+    label: "page/topic links → wiki_graph",
+    question: `In the ${tag} architecture, which component does the ${tag} subsystem depend on? Use the wiki graph.`,
+    expectedTools: ["wiki_graph"],
   },
 ];
 
 const results: { label: string; question: string; called: string[]; pass: boolean; reply: string }[] = [];
-const knowledgeOnly = ["knowledge_search", "query_graph", "wiki_search", "wiki_read_page", "wiki_graph"];
+const knowledgeOnly = ["wiki_search", "wiki_read_page", "wiki_graph"];
 
 for (const c of cases) {
   const agent = await createAgent({ tools: knowledgeOnly });

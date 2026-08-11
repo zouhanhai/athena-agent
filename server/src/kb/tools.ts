@@ -5,10 +5,12 @@
  * each knowledge source declares its capability surface. Pi (ReAct) routes by
  * user intent + tool descriptions + capability declarations (see
  * docs/knowledge-rag-design.md sections 3-5).
+ *
+ * G4.S2.T10: the semantic knowledge tools (knowledge_search / query_graph) were
+ * removed with their backend; llm_wiki remains the knowledge source.
  */
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { LightRagClient } from "./lightrag.js";
 import type { LlmWikiClient } from "./llmwiki.js";
 
 export type Capability = "vector" | "keyword" | "graph" | "wiki";
@@ -28,7 +30,6 @@ export interface KnowledgeSource {
 
 /** Declared capability surface of each knowledge source (design §3.1). */
 export const KNOWLEDGE_SOURCES: readonly KnowledgeSource[] = [
-  { id: "lightrag", name: "LightRAG", capabilities: ["vector", "graph"] },
   { id: "llmwiki", name: "llm_wiki", capabilities: ["wiki", "keyword", "graph"] },
 ];
 
@@ -50,7 +51,6 @@ export function routeRequirement(requirement: CapabilityRequirement): KnowledgeS
 }
 
 export interface KnowledgeToolServices {
-  lightrag: Pick<LightRagClient, "query" | "getGraph">;
   llmwiki: Pick<LlmWikiClient, "search" | "readFile" | "getGraph" | "listProjects">;
   /** Explicit llm_wiki project id; otherwise resolved from listProjects(). */
   projectId?: string;
@@ -68,8 +68,9 @@ function textResult(text: string): Promise<AgentToolResult<unknown>> {
 }
 
 /**
- * Build the 5 knowledge tools registered on Pi AgentSession:
- *   knowledge_search / query_graph (LightRAG), wiki_search / wiki_read_page / wiki_graph (llm_wiki).
+ * Build the 3 wiki knowledge tools registered on Pi AgentSession:
+ *   wiki_search / wiki_read_page / wiki_graph (llm_wiki).
+ * G4.S2.T10: the semantic knowledge tools were removed with their backend.
  */
 export function createKnowledgeTools(services: KnowledgeToolServices): KnowledgeToolDefinition[] {
   let resolvedProjectId: string | undefined;
@@ -82,60 +83,6 @@ export function createKnowledgeTools(services: KnowledgeToolServices): Knowledge
   };
 
   const tools: KnowledgeToolDefinition[] = [
-    {
-      name: "knowledge_search",
-      label: "Knowledge Search (LightRAG)",
-      description:
-        "Semantic search over raw document chunks (suitable for: specific facts, fuzzy semantics, material lookup). Requires vector or keyword capability (LightRAG).",
-      promptGuidelines: [
-        "Use for fact/semantic/material questions. Capability required: vector OR keyword (available from LightRAG).",
-        "Prefer this over wiki_search when the user asks for a specific fact, fuzzy semantic match, or materials about a topic.",
-      ],
-      parameters: Type.Object({
-        query: Type.String(),
-        topK: Type.Optional(Type.Number()),
-      }),
-      requireCapability: { anyOf: ["vector", "keyword"] },
-      sources: ["lightrag"],
-      async execute(_toolCallId, params: { query: string; topK?: number }) {
-        const result = await services.lightrag.query(params.query, {
-          mode: "hybrid",
-          topK: params.topK ?? 5,
-          includeChunkContent: true,
-        });
-        const refs = (result.references ?? [])
-          .map((r) => `- ${r.file_path}${r.content?.length ? `:\n  ${r.content.join("\n  ")}` : ""}`)
-          .join("\n");
-        return textResult(
-          `Answer:\n${result.response}\n\nReferences:\n${refs || "(none)"}`,
-        );
-      },
-    },
-    {
-      name: "query_graph",
-      label: "Query Graph (LightRAG)",
-      description:
-        "Query the LightRAG entity-relation knowledge graph (suitable for: who relates to whom, dependency relationships). Requires vector or graph capability.",
-      promptGuidelines: [
-        "Use for entity relationships / dependencies. Capability required: vector OR graph (available from LightRAG).",
-        "Use when the user asks which entities relate to X, dependencies, or connections between components.",
-      ],
-      parameters: Type.Object({
-        label: Type.String(),
-      }),
-      requireCapability: { anyOf: ["vector", "graph"] },
-      sources: ["lightrag"],
-      async execute(_toolCallId, params: { label: string }) {
-        const graph = await services.lightrag.getGraph(params.label, { maxDepth: 3, maxNodes: 1000 });
-        const nodes = graph.nodes.map((n) => n.label ?? n.id).filter(Boolean);
-        const edges = graph.edges.map(
-          (e) => `${e.source} -> ${e.target}${e.weight !== undefined ? ` (${e.weight})` : ""}`,
-        );
-        return textResult(
-          `Graph around "${params.label}":\nNodes (${nodes.length}): ${nodes.slice(0, 50).join(", ")}\nEdges (${edges.length}):\n${edges.slice(0, 50).join("\n") || "(none)"}`,
-        );
-      },
-    },
     {
       name: "wiki_search",
       label: "Wiki Search (llm_wiki)",
@@ -228,10 +175,7 @@ export function buildCapabilitiesSystemSection(): string {
     "",
     "Route queries by intent:",
     "- Process / standards / concept definitions -> wiki_search (llm_wiki)",
-    "- Specific facts / fuzzy semantics / materials -> knowledge_search (LightRAG)",
-    "- Entity relationships / dependencies -> query_graph (LightRAG)",
     "- Page / topic links exploration -> wiki_graph (llm_wiki)",
-    "- Cross-domain comparisons -> query multiple sources, then fuse the answers",
     "- Simple chit-chat -> answer directly without querying",
   ].join("\n");
 }

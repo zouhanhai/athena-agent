@@ -7,9 +7,9 @@
  * injecting everything). Switching tabs keeps the conversation context intact —
  * only this dynamic capability overlay changes with the current page.
  *
- *   Uploads page   → ingest capabilities (docling / LightRAG / llm_wiki)
+ *   Uploads page   → ingest capabilities (docling / llm_wiki)
  *   Workbench page → GitHub capabilities (repo tree / PR / issue / mutate)
- *   Wiki / Knowledge → knowledge tools (knowledge_search / wiki_* / LightRAG)
+ *   Wiki / Knowledge → knowledge tools (wiki_*)
  */
 
 export interface PageCapability {
@@ -27,14 +27,6 @@ export interface PageContext {
 }
 
 const KNOWLEDGE_CAPABILITIES: PageCapability[] = [
-  {
-    name: "knowledge_search",
-    description: "Semantic search over raw document chunks (LightRAG vector/graph).",
-  },
-  {
-    name: "query_graph",
-    description: "Query the LightRAG entity-relation knowledge graph.",
-  },
   {
     name: "wiki_search",
     description: "Search accumulated wiki pages (llm_wiki).",
@@ -89,10 +81,6 @@ export const PAGE_CONTEXTS: readonly PageContext[] = [
       {
         name: "docling ingest",
         description: "Parse uploaded documents with docling.",
-      },
-      {
-        name: "LightRAG ingest",
-        description: "Index parsed chunks into the LightRAG vector/graph knowledge base.",
       },
       {
         name: "llm_wiki ingest",

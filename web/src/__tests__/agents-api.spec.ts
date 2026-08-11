@@ -27,7 +27,7 @@ afterEach(() => {
 
 const caps = {
   system: "opencode",
-  mcp: ["lightrag"],
+  mcp: ["athena"],
   tools: ["bash"],
   skills: ["code_review"],
   specialty: "software-engineering",

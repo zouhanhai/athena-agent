@@ -53,7 +53,6 @@ function hasFailedStage(task: IngestTaskItem): boolean {
   return (
     task.stages.parsing.status === "failed" ||
     task.stages.refinement.status === "failed" ||
-    task.stages.ingesting_lightrag.status === "failed" ||
     task.stages.ingesting_llmwiki.status === "failed" ||
     task.stages.ingesting_neo4j.status === "failed"
   );
@@ -81,18 +80,6 @@ function stageStatus(stage: IngestTaskStage): string {
   return stage.status;
 }
 
-/** Chunk progress text for the LightRAG stage (G3.S5.T3): "chunk 12/182"
- *  while processing, "182 chunks" once processed. Empty when the backend has
- *  not yet reported a chunk total. */
-function lightragChunkText(task: IngestTaskItem): string {
-  const lr = task.lightrag;
-  if (lr?.chunksCount == null || lr.chunksCount <= 0) return "";
-  if (task.stages.ingesting_lightrag.status === "done") {
-    return `${lr.chunksCount} chunks`;
-  }
-  return `chunk ${lr.chunksProcessed ?? 0}/${lr.chunksCount}`;
-}
-
 function friendlyStep(step: { name: string }): string {
   return step.name.replace(/_/g, " ");
 }
@@ -116,35 +103,6 @@ function reviewRequired(task: IngestTaskItem): boolean {
 }
 
 /** Human-readable elapsed time since `from` (ms). */
-function fmtElapsed(from: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - from) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${m}m ${sec}s`;
-}
-
-/** Estimated remaining time for LightRAG chunking/embedding, based on the
- *  actual processed/total chunk ratio × elapsed time. Null when not enough
- *  data (no chunks yet). */
-function etaText(task: IngestTaskItem): string {
-  const lr = task.lightrag;
-  const processed = lr?.chunksProcessed ?? 0;
-  const total = lr?.chunksCount ?? 0;
-  if (total <= 0 || processed <= 0 || processed >= total) return "";
-  const start = task.createdAt || task.updatedAt;
-  const elapsedMs = Math.max(0, Date.now() - start);
-  if (elapsedMs <= 0) return "";
-  const rate = processed / total;
-  const totalMs = elapsedMs / rate;
-  const remainingMs = Math.max(0, totalMs - elapsedMs);
-  const s = Math.ceil(remainingMs / 1000);
-  if (s < 60) return `~${s}s left`;
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `~${m}m ${sec}s left`;
-}
-
 function stepMark(status: string): string {
   switch (status) {
     case "done":
@@ -164,7 +122,7 @@ function stepMark(status: string): string {
     <header class="uploads-header">
       <h2 class="uploads-title">Uploads</h2>
       <span class="uploads-meta">
-        Ingest documents for the knowledge base (docling → LightRAG + llm_wiki)
+        Ingest documents for the knowledge base (docling → llm_wiki + Neo4j)
       </span>
     </header>
 
@@ -193,7 +151,7 @@ function stepMark(status: string): string {
           @change="onFileChange"
         />
         <span class="drop-zone-main">Drop files here or click to select</span>
-        <span class="drop-zone-sub">Every file is parsed by docling → LightRAG + llm_wiki</span>
+        <span class="drop-zone-sub">Every file is parsed by docling → llm_wiki + Neo4j</span>
       </div>
 
       <div class="url-row">
@@ -255,7 +213,6 @@ function stepMark(status: string): string {
               v-for="stage in [
                 { key: 'parsing' as const, label: 'Parse' },
                 { key: 'refinement' as const, label: 'Refine (Athena)' },
-                { key: 'ingesting_lightrag' as const, label: 'LightRAG' },
                 { key: 'ingesting_neo4j' as const, label: 'Neo4j (RAG)' },
                 { key: 'ingesting_llmwiki' as const, label: 'llm_wiki' },
               ]"
@@ -267,23 +224,10 @@ function stepMark(status: string): string {
                 {{ stage.label }}: {{ task.stages[stage.key].status }}
               </span>
               <span
-                v-if="stage.key === 'ingesting_lightrag' && lightragChunkText(task)"
-                class="task-stage-chunk"
-              >
-                {{ lightragChunkText(task) }}
-              </span>
-              <span
                 v-if="stage.key === 'refinement' && refinementText(task)"
                 class="task-stage-chunk"
               >
                 {{ refinementText(task) }}
-              </span>
-              <span
-                v-if="stage.key === 'ingesting_lightrag' && task.status === 'ingesting'"
-                class="task-stage-time"
-              >
-                {{ fmtElapsed(task.updatedAt || task.createdAt) }}
-                <template v-if="etaText(task)"> · {{ etaText(task) }}</template>
               </span>
               <ul v-if="task.stages[stage.key].steps?.length" class="task-stage-steps">
                 <li

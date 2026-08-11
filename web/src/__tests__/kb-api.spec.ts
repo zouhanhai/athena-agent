@@ -193,8 +193,8 @@ describe("getTask", () => {
       progress: 72,
       stages: {
         parsing: { name: "parsing", status: "done" },
-        ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
         ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running" },
+        ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
       },
     };
     stubFetch(jsonResponse(task));
@@ -221,8 +221,8 @@ describe("retryTask", () => {
       progress: 85,
       stages: {
         parsing: { name: "parsing", status: "done" },
-        ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
         ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running" },
+        ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
       },
     };
     stubFetch(jsonResponse(task));

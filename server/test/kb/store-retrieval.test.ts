@@ -185,7 +185,7 @@ test("case-insensitive node lookup: searching lowercase 'zob münchen' matches t
   assert.equal(hits[0]!.source, "graph");
 });
 
-test("case-insensitive node lookup: searching 'caleo' matches the 'CALEO' node (LightRAG bug not repeated)", async () => {
+test("case-insensitive node lookup: searching 'caleo' matches the 'CALEO' node (case bug not repeated)", async () => {
   const { driver, calls } = makeDriver((q, p) =>
     q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "caleo"
       ? [GRAPH_ENTITY("CALEO", "the company", ["ZOB München"])]
@@ -196,7 +196,7 @@ test("case-insensitive node lookup: searching 'caleo' matches the 'CALEO' node (
   const hits = await retriever.search("caleo");
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0]!.id, "CALEO", "lightrag caleo/CALEO case bug must not recur");
+  assert.equal(hits[0]!.id, "CALEO", "case-sensitive lookup must not recur");
   const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
   assert.equal(call.params.queryText, "caleo", "query folded to lowercase before fulltext");
 });

@@ -80,11 +80,10 @@ function navItemByText(wrapper: AppWrapper, label: string) {
     .find((item) => item.text().includes(label));
 }
 
-function makeSteps(stage: "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_neo4j" | "ingesting_llmwiki", status: string) {
+function makeSteps(stage: "parsing" | "refinement" | "ingesting_neo4j" | "ingesting_llmwiki", status: string) {
   const names: Record<string, string[]> = {
     parsing: ["read_file", "parse_ocr_image_desc"],
     refinement: ["refine_document"],
-    ingesting_lightrag: ["chunking", "entity_extraction", "graph_build", "embedding"],
     ingesting_neo4j: ["embed_store"],
     ingesting_llmwiki: ["write_page", "rebuild_index"],
   };
@@ -100,7 +99,6 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     stages: {
       parsing: { name: "parsing", status: "done", steps: makeSteps("parsing", "done") },
       refinement: { name: "refinement", status: "done", steps: makeSteps("refinement", "done") },
-      ingesting_lightrag: { name: "ingesting_lightrag", status: "done", steps: makeSteps("ingesting_lightrag", "done") },
       ingesting_neo4j: { name: "ingesting_neo4j", status: "done", steps: makeSteps("ingesting_neo4j", "done") },
       ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running", steps: makeSteps("ingesting_llmwiki", "pending") },
     },
@@ -189,7 +187,7 @@ describe("uploads page", () => {
     wrapper.unmount();
   });
 
-  it("shows the per-system stages (Parse / LightRAG / llm_wiki) on the task card", async () => {
+  it("shows the per-system stages (Parse / Neo4j / llm_wiki) on the task card", async () => {
     ingestFileMock.mockResolvedValue("t-1");
     getTaskMock.mockResolvedValue(makeTask());
     const wrapper = await mountApp();
@@ -197,67 +195,12 @@ describe("uploads page", () => {
     await submitFile(wrapper);
 
     expect(wrapper.text()).toContain("Parse: done");
-    expect(wrapper.text()).toContain("LightRAG: done");
+    expect(wrapper.text()).toContain("Neo4j (RAG): done");
     expect(wrapper.text()).toContain("llm_wiki: running");
     wrapper.unmount();
   });
 
-  it("surfaces real LightRAG chunk progress (chunk N/M) while processing", async () => {
-    ingestFileMock.mockResolvedValue("t-1");
-    getTaskMock.mockResolvedValue(
-      makeTask({
-        status: "ingesting",
-        progress: 60,
-        stages: {
-          parsing: { name: "parsing", status: "done" },
-          refinement: { name: "refinement", status: "done" },
-          ingesting_lightrag: {
-            name: "ingesting_lightrag",
-            status: "running",
-            steps: [
-              { name: "chunking_embedding", status: "running" },
-            ],
-          },
-          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
-          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
-        },
-        lightrag: { backendStatus: "processing", chunksProcessed: 12, chunksCount: 182 },
-      }),
-    );
-    const wrapper = await mountApp();
-
-    await submitFile(wrapper);
-
-    expect(wrapper.text()).toContain("chunk 12/182");
-    expect(wrapper.find(".task-badge.ingesting").exists()).toBe(true);
-    wrapper.unmount();
-  });
-
-  it("shows the chunk total once LightRAG finished processing", async () => {
-    ingestFileMock.mockResolvedValue("t-1");
-    getTaskMock.mockResolvedValue(
-      makeTask({
-        status: "done",
-        progress: 100,
-        stages: {
-          parsing: { name: "parsing", status: "done" },
-          refinement: { name: "refinement", status: "done" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
-          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
-          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
-        },
-        lightrag: { backendStatus: "processed", chunksProcessed: 182, chunksCount: 182 },
-      }),
-    );
-    const wrapper = await mountApp();
-
-    await submitFile(wrapper);
-
-    expect(wrapper.text()).toContain("182 chunks");
-    wrapper.unmount();
-  });
-
-  it("renders the per-system sub-steps (docling/refinement/LightRAG/llm_wiki) with statuses", async () => {
+  it("renders the per-system sub-steps (docling/refinement/neo4j/llm_wiki) with statuses", async () => {
     ingestFileMock.mockResolvedValue("t-1");
     getTaskMock.mockResolvedValue(
       makeTask({
@@ -275,15 +218,12 @@ describe("uploads page", () => {
             status: "running",
             steps: [{ name: "refine_document", status: "running" }],
           },
-          ingesting_lightrag: {
-            name: "ingesting_lightrag",
+          ingesting_neo4j: {
+            name: "ingesting_neo4j",
             status: "failed",
             error: "timeout",
             steps: [
-              { name: "chunking", status: "done" },
-              { name: "entity_extraction", status: "done" },
-              { name: "graph_build", status: "failed", error: "timeout" },
-              { name: "embedding", status: "pending" },
+              { name: "embed_store", status: "failed", error: "timeout" },
             ],
           },
           ingesting_llmwiki: {
@@ -294,7 +234,6 @@ describe("uploads page", () => {
               { name: "rebuild_index", status: "pending" },
             ],
           },
-          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
         },
       }),
     );
@@ -308,11 +247,8 @@ describe("uploads page", () => {
     // refinement sub-step (G4.S1.T4)
     expect(wrapper.text()).toContain("Refine (Athena): running");
     expect(wrapper.text()).toContain("refine document");
-    // LightRAG sub-steps
-    expect(wrapper.text()).toContain("chunking");
-    expect(wrapper.text()).toContain("entity extraction");
-    expect(wrapper.text()).toContain("graph build");
-    expect(wrapper.text()).toContain("embedding");
+    // Neo4j sub-step
+    expect(wrapper.text()).toContain("embed store");
     // llm_wiki sub-steps (classify folded into refinement)
     expect(wrapper.text()).not.toContain("classify");
     expect(wrapper.text()).toContain("write page");
@@ -384,8 +320,7 @@ describe("uploads page", () => {
           stages: {
             parsing: { name: "parsing", status: "done" },
             refinement: { name: "refinement", status: "done" },
-            ingesting_lightrag: { name: "ingesting_lightrag", status: "failed", error: "timeout" },
-            ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
+            ingesting_neo4j: { name: "ingesting_neo4j", status: "failed", error: "timeout" },
             ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
           },
         }),
@@ -397,8 +332,7 @@ describe("uploads page", () => {
           stages: {
             parsing: { name: "parsing", status: "done" },
             refinement: { name: "refinement", status: "done" },
-            ingesting_lightrag: { name: "ingesting_lightrag", status: "running" },
-            ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
+            ingesting_neo4j: { name: "ingesting_neo4j", status: "running" },
             ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
           },
         }),
@@ -410,8 +344,7 @@ describe("uploads page", () => {
         stages: {
           parsing: { name: "parsing", status: "done" },
           refinement: { name: "refinement", status: "done" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "running" },
-          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "running" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
         },
       }),
@@ -423,14 +356,14 @@ describe("uploads page", () => {
     const buttons = wrapper.findAll("button");
     const retryBtn = buttons.find((b) => b.text().includes("Retry"));
     expect(retryBtn).toBeDefined();
-    expect(wrapper.text()).toContain("LightRAG: failed");
+    expect(wrapper.text()).toContain("Neo4j (RAG): failed");
 
     await retryBtn!.trigger("click");
     await flushPromises();
     await flushPromises();
 
     expect(retryTaskMock).toHaveBeenCalledWith("t-1");
-    expect(wrapper.text()).toContain("LightRAG: running");
+    expect(wrapper.text()).toContain("Neo4j (RAG): running");
     wrapper.unmount();
   });
 

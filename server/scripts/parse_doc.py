@@ -4,7 +4,7 @@ parse_doc.py - docling unified parsing layer (G2.S5.T1).
 
 Convert any docling-supported input (PDF / DOCX / XLSX / PPTX / images /
 HTML / EPUB / CSV / Markdown / LaTeX ... or a URL) to Markdown and write it
-to the shared input-dir consumed by the dual-pipeline (LightRAG + llm_wiki).
+to the shared input-dir consumed by the ingest pipeline (llm_wiki + Neo4j).
 
 Usage:
     parse_doc.py <input> <output-dir> [--images-dir <dir>]
@@ -213,7 +213,7 @@ def derive_stem(source: str) -> str:
     name = Path(source).name or "document"
     # Keep the original extension in the output stem so same-name files of
     # DIFFERENT formats (e.g. sommerseminar-l-sen.pdf vs .docx) get different
-    # file_sources downstream → no LightRAG 409. Dedup is purely content-based;
+    # file_sources downstream → no name collisions. Dedup is purely content-based;
     # the name is just an identifier, never a rejection reason (G2.S5.T14).
     return sanitize_stem(Path(name).name)
 

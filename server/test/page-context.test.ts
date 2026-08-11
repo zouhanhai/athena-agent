@@ -27,9 +27,9 @@ test("page-context: Workbench injects GitHub capabilities", () => {
 test("page-context: Knowledge and Wiki inject knowledge tools", () => {
   for (const page of ["/knowledge", "/wiki"]) {
     const injection = buildPageInjection(page);
-    assert.match(injection, /knowledge_search/, `${page} should list knowledge_search`);
     assert.match(injection, /wiki_search/, `${page} should list wiki_search`);
-    assert.match(injection, /LightRAG/, `${page} should mention LightRAG`);
+    assert.match(injection, /wiki_read_page/, `${page} should list wiki_read_page`);
+    assert.match(injection, /wiki_graph/, `${page} should list wiki_graph`);
     assert.match(injection, /llm_wiki/i, `${page} should mention llm_wiki`);
   }
 });
@@ -38,7 +38,7 @@ test("page-context: Uploads injects ingest capabilities", () => {
   const injection = buildPageInjection("/uploads");
   assert.match(injection, /ingest/i, "should mention ingest");
   assert.match(injection, /docling/i, "should mention docling parsing");
-  assert.match(injection, /LightRAG/i, "should mention LightRAG indexing");
+  assert.match(injection, /llm_wiki/i, "should mention llm_wiki ingest");
 });
 
 test("page-context: unknown page has no context and no injection", () => {

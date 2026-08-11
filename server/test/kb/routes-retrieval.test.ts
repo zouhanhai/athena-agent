@@ -8,10 +8,9 @@ function stubRetrieval(
   overrides: Partial<KnowledgeRetrievalService> = {},
 ): KnowledgeRetrievalService {
   return {
-    getGraph: async (label?: string) => ({
+    getGraph: async () => ({
       nodes: [{ id: "n1", label: "Alpha", type: "concept" }],
       edges: [{ source: "n1", target: "n2", weight: 1 }],
-      label,
     }),
     getWikiTree: async () => [{ name: "runbook.md", path: "runbook.md", isDir: false }],
     readWikiPage: async (path: string) => ({ path, content: "# Runbook\nbody" }),
@@ -32,7 +31,7 @@ async function appWith(retrieval: KnowledgeRetrievalService): Promise<FastifyIns
   return app;
 }
 
-test("GET /api/kb/graph returns nodes/edges from LightRAG", async () => {
+test("GET /api/kb/graph returns nodes/edges from the Neo4j store", async () => {
   const app = await appWith(stubRetrieval());
   try {
     const res = await app.inject({ method: "GET", url: "/api/kb/graph" });
@@ -46,42 +45,20 @@ test("GET /api/kb/graph returns nodes/edges from LightRAG", async () => {
   }
 });
 
-test("GET /api/kb/graph forwards the label query param", async () => {
-  let seenLabel: string | undefined;
+test("GET /api/kb/graph ignores label/topic query params (full Neo4j graph, G4.S2.T10)", async () => {
+  let calls = 0;
   const app = await appWith(
     stubRetrieval({
-      getGraph: async (label?: string) => {
-        seenLabel = label;
+      getGraph: async () => {
+        calls += 1;
         return { nodes: [], edges: [] };
       },
     }),
   );
   try {
-    const res = await app.inject({ method: "GET", url: "/api/kb/graph?label=finance" });
+    const res = await app.inject({ method: "GET", url: "/api/kb/graph?label=finance&topic=sommerseminar" });
     assert.equal(res.statusCode, 200);
-    assert.equal(seenLabel, "finance");
-  } finally {
-    await app.close();
-  }
-});
-
-test("GET /api/kb/graph forwards the topic query param", async () => {
-  let seenTopic: string | undefined;
-  const app = await appWith(
-    stubRetrieval({
-      getGraph: async (_label?: string, topic?: string) => {
-        seenTopic = topic;
-        return { nodes: [], edges: [] };
-      },
-    }),
-  );
-  try {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/kb/graph?topic=sommerseminar",
-    });
-    assert.equal(res.statusCode, 200);
-    assert.equal(seenTopic, "sommerseminar");
+    assert.equal(calls, 1, "the store graph is fetched without label/topic filtering");
   } finally {
     await app.close();
   }
@@ -241,14 +218,14 @@ test("retrieval route errors map to 500", async () => {
   const app = await appWith(
     stubRetrieval({
       getGraph: async () => {
-        throw new Error("lightrag down");
+        throw new Error("neo4j down");
       },
     }),
   );
   try {
     const res = await app.inject({ method: "GET", url: "/api/kb/graph" });
     assert.equal(res.statusCode, 500);
-    assert.match(res.json().error ?? "", /lightrag down/);
+    assert.match(res.json().error ?? "", /neo4j down/);
   } finally {
     await app.close();
   }

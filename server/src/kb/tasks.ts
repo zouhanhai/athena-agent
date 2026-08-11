@@ -2,9 +2,9 @@
  * IngestTaskQueue + IngestCoordinator - async ingestion task tracking (G2.S5.T2).
  *
  * In-memory queue (POC) that drives the full pipeline for one source:
- *   docling parsing → LightRAG ingesting → llm_wiki ingesting → done / failed.
+ *   docling parsing → llm_wiki ingesting + Neo4j ingesting → done / failed.
  * Per-system stage status is tracked independently, so a task can finish with
- * LightRAG ok but llm_wiki failed (and vice versa).
+ * llm_wiki ok but Neo4j failed (and vice versa).
  */
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
@@ -12,17 +12,11 @@ import { dirname, relative } from "node:path";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
-import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTitle, withFrontmatter } from "./ingest.js";
+import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTitle } from "./ingest.js";
 import type { WikiClassification } from "./llmwiki.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { ContentDedupStore } from "./dedup.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
-import {
-  LightRagTrackPoller,
-  type LightRagTrackOutcome,
-  type LightRagTrackProgress,
-} from "./lightrag-track.js";
-import type { LightRagPipelineStatus, LightRagTrackStatus } from "./lightrag.js";
 
 /** Athena refinement runner (G4.S1.T4): one full-doc LLM pass, returns the small
  *  big-output ref + the full re-leveled markdown for downstream consumption.
@@ -35,20 +29,17 @@ export type Refiner = (markdown: string, topicHint?: string) => Promise<{
   ragMarkdown: string;
 }>;
 
-export type TaskStageName = "parsing" | "refinement" | "ingesting_lightrag" | "ingesting_llmwiki" | "ingesting_neo4j";
+export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
 
-/** Per-system sub-step name (G3.S5.T2). LightRAG has ONE sub-step: chunking
- *  already includes entity extraction + embedding upsert (inline per chunk), so
- *  a single "chunking + embedding" step with chunk progress is enough (G3.S5.T4).
- *  Refinement (G4.S1) has ONE sub-step: the Athena full-document pass
- *  (re-level headers + classify + chunk + entities/keywords + quality, one read). */
+/** Per-system sub-step name (G3.S5.T2). Refinement (G4.S1) has ONE sub-step:
+ *  the Athena full-document pass (re-level headers + classify + chunk +
+ *  entities/keywords + quality, one read). */
 export type DoclingStepName = "read_file" | "parse_ocr_image_desc";
 export type RefinementStepName = "refine_document";
-export type LightRagStepName = "chunking_embedding";
 export type Neo4jStepName = "embed_store";
-export type StepName = DoclingStepName | RefinementStepName | LightRagStepName | LlmWikiStepName | Neo4jStepName;
+export type StepName = DoclingStepName | RefinementStepName | LlmWikiStepName | Neo4jStepName;
 
 export interface TaskStep {
   name: StepName;
@@ -63,7 +54,6 @@ export interface TaskStage {
   steps: TaskStep[];
 }
 
-const LIGHTRAG_STEPS: LightRagStepName[] = ["chunking_embedding"];
 const NEO4J_STEPS: Neo4jStepName[] = ["embed_store"];
 
 /** Fresh pending sub-steps for a stage, e.g. `["read_file", "parse_ocr_image_desc"]`. */
@@ -78,8 +68,6 @@ export function initialSteps(stage: TaskStageName): TaskStep[] {
       return [
         { name: "refine_document", status: "pending" },
       ];
-    case "ingesting_lightrag":
-      return LIGHTRAG_STEPS.map((name) => ({ name, status: "pending" }));
     case "ingesting_neo4j":
       return NEO4J_STEPS.map((name) => ({ name, status: "pending" }));
     case "ingesting_llmwiki":
@@ -117,17 +105,15 @@ export interface IngestTask {
   stages: {
     parsing: TaskStage;
     refinement: TaskStage;
-    ingesting_lightrag: TaskStage;
     ingesting_llmwiki: TaskStage;
     ingesting_neo4j: TaskStage;
   };
   /** Re-leveled markdown from the Athena refinement stage (G4.S1.T4). Set once
-   *  the refinement stage succeeds; downstream (LightRAG + llm_wiki) consume it.
-   *  Falls back to the raw docling `markdown` when refinement fails. */
+   *  the refinement stage succeeds; llm_wiki consumes it. Falls back to the raw
+   *  docling `markdown` when refinement fails. */
   refinedMarkdown?: string;
   /** RAG working copy (File B, G4.S1.T6): refined text-only markdown without image
-   *  refs. Retained so a retry of the LightRAG stage re-uses it without re-running
-   *  the LLM pass (the File B on disk is deleted after RAG ingestion). */
+   *  refs. Retained so the File B on disk can be cleaned up after ingestion. */
   ragMarkdown?: string;
   /** Athena refinement small ref (frontmatter/entities/keywords/quality/md_ref),
    *  retained so retry re-uses it without re-running the LLM pass. */
@@ -147,17 +133,6 @@ export interface IngestTask {
     duplicate: boolean;
     method?: "hash" | "chunks";
     existingSource?: string;
-  };
-  /** Layer-2 semantic near-duplicate notice (G2.S5.T14): file path of an
-   *  existing doc that LightRAG found highly similar. Best-effort. */
-  nearDuplicate?: string;
-  /** Real LightRAG backend state + chunk progress (G3.S5.T3). Set once the
-   *  LightRAG stage starts; reflects the actual /documents status, never a
-   *  false "done" at submit time. */
-  lightrag?: LightRagTrackProgress & {
-    /** LightRAG submission track id, used to poll /documents/track_status. */
-    trackId?: string;
-    error?: string;
   };
   createdAt: number;
   updatedAt: number;
@@ -182,12 +157,6 @@ export interface IngestTaskQueueOptions {
   /** Optional content-dedup store (G2.S5.T14). When set, identical content is
    *  skipped before the pipelines run; newly stored content is recorded. */
   dedup?: ContentDedupStore;
-  /** Poll interval (ms) between LightRAG track-status checks. Default: 1500. */
-  lightragPollIntervalMs?: number;
-  /** Max time (ms) to wait for LightRAG to process before failing. Default: 10 min. */
-  lightragWaitTimeoutMs?: number;
-  /** Injectable sleep for the LightRAG poll loop (tests). */
-  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface IngestSubmitResult {
@@ -198,7 +167,6 @@ function initialStages(): IngestTask["stages"] {
   return {
     parsing: initialStage("parsing"),
     refinement: initialStage("refinement"),
-    ingesting_lightrag: initialStage("ingesting_lightrag"),
     ingesting_llmwiki: initialStage("ingesting_llmwiki"),
     ingesting_neo4j: initialStage("ingesting_neo4j"),
   };
@@ -211,7 +179,6 @@ export class IngestTaskQueue {
   private readonly neo4j?: Neo4jIngestService;
   private readonly dedup?: ContentDedupStore;
   private readonly tasks = new Map<string, IngestTask>();
-  private readonly lightragPoller: LightRagTrackPoller;
 
   constructor(options: IngestTaskQueueOptions) {
     this.parser = options.parser;
@@ -219,21 +186,6 @@ export class IngestTaskQueue {
     this.refiner = options.refiner;
     this.neo4j = options.neo4j;
     this.dedup = options.dedup;
-    // The poller reads real status through the ingest service (which owns the
-    // LightRAG client); tests inject fakes that resolve it directly.
-    const service = this.ingest as KnowledgeIngestService & {
-      getLightRagTrackStatus?: (trackId: string) => Promise<LightRagTrackStatus>;
-      getLightRagPipelineStatus?: () => Promise<LightRagPipelineStatus>;
-    };
-    this.lightragPoller = new LightRagTrackPoller({
-      getTrackStatus: (trackId) =>
-        service.getLightRagTrackStatus?.(trackId) ??
-        Promise.resolve({ track_id: trackId, documents: [], total_count: 0 }),
-      getPipelineStatus: () => service.getLightRagPipelineStatus?.(),
-      pollIntervalMs: options.lightragPollIntervalMs,
-      timeoutMs: options.lightragWaitTimeoutMs,
-      sleep: options.sleep,
-    });
   }
 
   /** Create + return a task without starting it. */
@@ -281,27 +233,25 @@ export class IngestTaskQueue {
   }
 
   /**
-   * Recompute the overall 0-100 progress across parsing → refinement → the three
-   * parallel ingest stages (LightRAG, llm_wiki, Neo4j). Never jumps to 100 while
-   * any of the ingest systems is still running. Parsing done = 15, refinement
-   * done = 35, then the ingest stages share the remaining band.
+   * Recompute the overall 0-100 progress across parsing → refinement → the two
+   * parallel ingest stages (llm_wiki, Neo4j). Never jumps to 100 while any of
+   * the ingest systems is still running. Parsing done = 15, refinement done =
+   * 35, then the ingest stages share the remaining band.
    */
   private updateProgress(id: string): void {
     this.patch(id, (t) => {
       const p = t.stages.parsing.status;
       const rf = t.stages.refinement.status;
-      const lr = t.stages.ingesting_lightrag.status;
       const lw = t.stages.ingesting_llmwiki.status;
       const n4 = t.stages.ingesting_neo4j.status;
       if (p !== "done") { t.progress = p === "failed" ? 100 : 15; return; }
       if (rf !== "done") { t.progress = rf === "failed" ? 100 : 35; return; }
-      const lrDone = lr === "done", lwDone = lw === "done", n4Done = n4 === "done";
-      const lrFail = lr === "failed", lwFail = lw === "failed", n4Fail = n4 === "failed";
-      if (lrDone && lwDone && n4Done) { t.progress = 100; return; }
-      if (lrDone) { t.progress = lwFail || n4Fail ? 100 : 88; return; } // LightRAG done, waiting on the rest
-      if (lwDone) { t.progress = lrFail || n4Fail ? 100 : 72; return; } // llm_wiki done, waiting on the rest
-      if (n4Done) { t.progress = lrFail || lwFail ? 100 : 60; return; } // Neo4j done, waiting on the rest
-      if (lrFail || lwFail || n4Fail) { t.progress = 100; return; }
+      const lwDone = lw === "done", n4Done = n4 === "done";
+      const lwFail = lw === "failed", n4Fail = n4 === "failed";
+      if (lwDone && n4Done) { t.progress = 100; return; }
+      if (lwDone) { t.progress = n4Fail ? 100 : 88; return; } // llm_wiki done, waiting on Neo4j
+      if (n4Done) { t.progress = lwFail ? 100 : 72; return; } // Neo4j done, waiting on llm_wiki
+      if (lwFail || n4Fail) { t.progress = 100; return; }
       t.progress = 50; // all still running
     });
   }
@@ -327,24 +277,6 @@ export class IngestTaskQueue {
     });
   }
 
-  /** Reflect one LightRAG poll outcome on the task (G3.S5.T3). Called on every
-   *  poll tick so the task tracks the REAL backend status while it processes. */
-  private applyLightRagProgress(id: string, outcome: LightRagTrackOutcome): void {
-    this.patch(id, (t) => {
-      t.lightrag = {
-        ...t.lightrag,
-        backendStatus: outcome.backendStatus,
-        chunksProcessed: outcome.chunksProcessed,
-        chunksCount: outcome.chunksCount,
-      };
-    });
-    // Chunking + embedding is finished once the chunk total is known (LightRAG
-    // sets chunks_count when it transitions into PROCESSING).
-    if (typeof outcome.chunksCount === "number" && outcome.chunksCount > 0) {
-      this.setStep(id, "ingesting_lightrag", "chunking_embedding", "done");
-    }
-  }
-
   private async run(id: string, input: string, source: string): Promise<void> {
     const task = this.tasks.get(id);
     if (!task) return;
@@ -360,9 +292,6 @@ export class IngestTaskQueue {
     // comes from the Athena refinement output (type/topic decided once); when
     // refinement is unavailable it falls back to the llm_wiki classifier.
     let preclassified: WikiClassification | undefined;
-    // G3.S8.T2: frontmatter-wrapped content consumed by the LightRAG stage.
-    // Built from the refined markdown (or raw docling when refinement failed).
-    let preparedContent: string | undefined;
 
     // --- parsing (docling) ---
     if (task.stages.parsing.status !== "done") {
@@ -411,8 +340,7 @@ export class IngestTaskQueue {
       }
     }
 
-    // --- Ingesting: refinement first, then LightRAG + llm_wiki + Neo4j run in PARALLEL ---
-    const lightragTodo = task.stages.ingesting_lightrag.status !== "done";
+    // --- Ingesting: refinement first, then llm_wiki + Neo4j run in PARALLEL ---
     const llmwikiTodo = task.stages.ingesting_llmwiki.status !== "done";
     const neo4jTodo = task.stages.ingesting_neo4j.status !== "done";
 
@@ -472,74 +400,24 @@ export class IngestTaskQueue {
       }
     }
 
-    // Classify/feed content once, shared by both systems. Priority:
+    // Classify/feed content once for the llm_wiki stage. Priority:
     //   1. Athena refinement output (type/topic from the single LLM pass) — folds llm_wiki classify.
-    //   2. Fallback: llm_wiki classifier (existing behavior) so LightRAG still
-    //      receives frontmatter (type + topic) even when refinement failed.
-    if (lightragTodo || llmwikiTodo) {
+    //   2. Fallback: llm_wiki classifier (existing behavior).
+    if (llmwikiTodo) {
       const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
       if (refinementRef) {
         preclassified = classificationFromRefinement(refinementRef.frontmatter, title, refinedMarkdown ?? markdown!);
-        // G4.S1.T6 two-file design: RAG ingests File B (refined text-only, no image refs);
-        // llm_wiki below gets File A′ (refined headers + image refs) for display.
-        preparedContent = withFrontmatter(preclassified.category, title, ragMarkdown ?? refinedMarkdown ?? markdown!, preclassified.topic);
       } else if (!preclassified) {
         const prepared = await this.safePrepare(() =>
           this.ingest.prepareForIngest({ title: extractPageTitle(markdown!) ?? stemTitle(fileName!), content: markdown! }),
         );
         if (prepared) {
           preclassified = prepared.classification;
-          preparedContent = prepared.frontmatterContent;
         }
       }
     }
 
-    const [, llmwiki] = await Promise.all([
-      (async () => {
-        if (!lightragTodo) return;
-        this.patch(id, (t) => {
-          t.status = "ingesting";
-          t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "running", steps: t.stages.ingesting_lightrag.steps };
-          t.progress = 50;
-        });
-        this.markStageSteps(id, "ingesting_lightrag", "running");
-
-        // The 202 submit only means LightRAG queued the doc. Submit, then poll
-        // /documents/track_status until the backend actually processed (or failed).
-        const submitted = await this.safeIngest(() =>
-          this.ingest.ingestLightRag(preparedContent ?? markdown!, fileName!),
-        );
-        if (!submitted.ok || !submitted.trackId) {
-          const message = submitted.error ?? "LightRAG rejected the document";
-          console.error(`[tasks:${id}] lightrag submit FAILED: ${message}`);
-          this.patch(id, (t) => {
-            t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: "failed", error: message, steps: t.stages.ingesting_lightrag.steps };
-          });
-          this.updateProgress(id);
-          this.markStageSteps(id, "ingesting_lightrag", "failed", message);
-          await this.deleteWorkingCopy(refinementRef);
-          return;
-        }
-        const trackId = submitted.trackId;
-        this.patch(id, (t) => {
-          t.lightrag = { trackId, backendStatus: "pending" };
-        });
-        const outcome = await this.lightragPoller.wait(trackId, (o) => this.applyLightRagProgress(id, o));
-        console.log(
-          `[tasks:${id}] lightrag track ${trackId} -> ${outcome.state}` +
-            (typeof outcome.chunksCount === "number" ? ` (${outcome.chunksProcessed ?? 0}/${outcome.chunksCount} chunks)` : ""),
-        );
-        this.patch(id, (t) => {
-          const done = outcome.state === "done";
-          t.stages.ingesting_lightrag = { name: "ingesting_lightrag", status: done ? "done" : "failed", ...(done ? {} : { error: outcome.error }), steps: t.stages.ingesting_lightrag.steps };
-          t.lightrag = { ...t.lightrag, ...(outcome.error ? { error: outcome.error } : {}) };
-        });
-        this.updateProgress(id);
-        this.markStageSteps(id, "ingesting_lightrag", outcome.state === "done" ? "done" : "failed", outcome.error);
-        // G4.S1.T6: RAG ingestion is done → delete the File B working copy (text-only md).
-        // The durable File A′ (refined headers + image refs) at md_ref stays for llm_wiki.
-        await this.deleteWorkingCopy(refinementRef);
-      })(),
+    const [llmwiki] = await Promise.all([
       (async () => {
         if (!llmwikiTodo) return;
         this.patch(id, (t) => {
@@ -600,26 +478,23 @@ export class IngestTaskQueue {
 
     // --- finalize ---
     this.patch(id, (t) => {
-      const lightragOk = t.stages.ingesting_lightrag.status === "done";
       const llmwikiOk = t.stages.ingesting_llmwiki.status === "done";
       const neo4jOk = t.neo4jStored === true;
       // Surface the first failed stage's reason on the top-level task.error so the
-      // UI shows WHY a stage failed (e.g. LightRAG 409 duplicate-name) instead of
-      // a silent green "done" / generic message. Keep done even if one system failed.
+      // UI shows WHY a stage failed instead of a silent green "done" / generic
+      // message. Keep done even if one system failed.
       // Refinement is best-effort: it may fail and fall back to raw docling while
       // the task still completes (G4.S1 Spec: never worse than today).
       const failedStage = t.stages.parsing.status === "failed"
         ? t.stages.parsing
         : t.stages.refinement.status === "failed"
           ? t.stages.refinement
-          : t.stages.ingesting_lightrag.status === "failed"
-            ? t.stages.ingesting_lightrag
-            : t.stages.ingesting_llmwiki.status === "failed"
-              ? t.stages.ingesting_llmwiki
-              : t.stages.ingesting_neo4j.status === "failed"
-                ? t.stages.ingesting_neo4j
-                : undefined;
-      if (lightragOk || llmwikiOk || neo4jOk) {
+          : t.stages.ingesting_llmwiki.status === "failed"
+            ? t.stages.ingesting_llmwiki
+            : t.stages.ingesting_neo4j.status === "failed"
+              ? t.stages.ingesting_neo4j
+              : undefined;
+      if (llmwikiOk || neo4jOk) {
         t.status = "done";
         t.progress = 100;
         if (failedStage?.error) t.error = failedStage.error;
@@ -633,7 +508,7 @@ export class IngestTaskQueue {
     // Record the newly stored content so future uploads of it are detected.
     if (this.dedup) {
       const task = this.tasks.get(id);
-      if (task && (task.stages.ingesting_lightrag.status === "done" || task.stages.ingesting_llmwiki.status === "done")) {
+      if (task && task.stages.ingesting_llmwiki.status === "done") {
         try {
           await this.dedup.record(markdown, fileName);
         } catch {
@@ -641,24 +516,13 @@ export class IngestTaskQueue {
         }
       }
     }
-    const finalTask = this.tasks.get(id);
-    console.log(`[tasks:${id}] FINAL status=${finalTask?.status} progress=${finalTask?.progress} parsing=${finalTask?.stages.parsing.status} lightrag=${finalTask?.stages.ingesting_lightrag.status} llmwiki=${finalTask?.stages.ingesting_llmwiki.status}`);
+    // G4.S1.T6: ingestion is done → delete the File B RAG working copy (text-only
+    // md). The durable File A′ (refined headers + image refs) at md_ref stays for
+    // llm_wiki. Best-effort; the in-memory task.ragMarkdown is retained for retries.
+    await this.deleteWorkingCopy(refinementRef);
 
-    // Layer 2: semantic near-duplicate notice via LightRAG (best-effort).
-    const finished = this.tasks.get(id);
-    const findNear = (this.ingest as { findNearDuplicate?: (c: string, f: string) => Promise<string | undefined> }).findNearDuplicate;
-    if (finished && finished.status === "done" && !finished.dedup?.duplicate && finished.stages.ingesting_lightrag.status === "done" && findNear) {
-      try {
-        const near = await findNear(markdown, fileName);
-        if (near) {
-          this.patch(id, (t) => {
-            t.nearDuplicate = near;
-          });
-        }
-      } catch {
-        // semantic check is best-effort; never fail a successful ingest
-      }
-    }
+    const finalTask = this.tasks.get(id);
+    console.log(`[tasks:${id}] FINAL status=${finalTask?.status} progress=${finalTask?.progress} parsing=${finalTask?.stages.parsing.status} llmwiki=${finalTask?.stages.ingesting_llmwiki.status} neo4j=${finalTask?.stages.ingesting_neo4j.status}`);
   }
 
   /** Mark a task as done because its content is a duplicate of an existing doc. */
@@ -691,7 +555,7 @@ export class IngestTaskQueue {
       throw new TaskBusyError(`task is still running: ${taskId}`);
     }
     if (!task.input) throw new NothingToRetryError(`task has no parse input to retry: ${taskId}`);
-    const failedStages = (["parsing", "refinement", "ingesting_lightrag", "ingesting_llmwiki", "ingesting_neo4j"] as const).filter(
+    const failedStages = (["parsing", "refinement", "ingesting_llmwiki", "ingesting_neo4j"] as const).filter(
       (name) => task.stages[name].status === "failed",
     );
     if (failedStages.length === 0) {
@@ -733,8 +597,8 @@ export class IngestTaskQueue {
     }
   }
 
-  /** Classify-and-wrap is best-effort: if it fails, ingestion falls back to
-   *  feeding LightRAG the raw markdown (no frontmatter). */
+  /** Classify-and-wrap is best-effort: if it fails, ingestion falls back to the
+   *  raw markdown (no frontmatter). */
   private async safePrepare(fn: () => Promise<{ classification: WikiClassification; frontmatterContent: string }>): Promise<
     { classification: WikiClassification; frontmatterContent: string } | undefined
   > {

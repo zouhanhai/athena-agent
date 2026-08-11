@@ -77,10 +77,10 @@ function isSafeWikiImagePath(value: string): boolean {
  * - GET /api/kb/task/:id → poll task status { id, source, status, progress, stages }.
  *
  * Retrieval endpoints (registered when a KnowledgeRetrievalService is provided):
- * - GET /api/kb/graph?label= → LightRAG entity-relation graph {nodes, edges}
+ * - GET /api/kb/graph?label= → Neo4j entity-relation graph {nodes, edges}
  * - GET /api/kb/wiki → llm_wiki wiki page tree {files}
  * - GET /api/kb/wiki/page?path= → wiki page markdown {path, content}
- * - POST /api/kb/search { query } → fused LightRAG + llm_wiki results
+ * - POST /api/kb/search { query } → fused Neo4j + llm_wiki results
  */
 export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions): void {
   app.post("/api/kb/ingest", async (request, reply) => {
@@ -124,7 +124,7 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
         content: body.content as string,
         source: typeof body.source === "string" && body.source.trim() ? body.source : undefined,
       });
-      const anyOk = result.systems.lightrag.ok || result.systems.llmwiki.ok;
+      const anyOk = result.systems.llmwiki.ok;
       return reply.code(anyOk ? 200 : 500).send(result);
     } catch (err) {
       return reply
@@ -181,7 +181,7 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     }
   });
 
-  /** Delete a wiki page from BOTH llm_wiki + LightRAG (G2.S5.T12). */
+  /** Delete a wiki page from llm_wiki (G2.S5.T12). */
   const deleteDocHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as { path?: unknown };
     if (typeof body.path !== "string" || !isSafeWikiPath(body.path.trim())) {
@@ -201,11 +201,7 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
 
   app.get("/api/kb/graph", async (request, reply) => {
     try {
-      const { label, topic } = request.query as { label?: string; topic?: string };
-      const graph = await options.retrieval!.getGraph(
-        typeof label === "string" && label.trim() ? label : undefined,
-        typeof topic === "string" && topic.trim() ? topic : undefined,
-      );
+      const graph = await options.retrieval!.getGraph();
       return graph;
     } catch (err) {
       return reply

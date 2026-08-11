@@ -25,7 +25,7 @@ function task(id: string, patch: Record<string, unknown> = {}) {
     stages: {
       parsing: { name: "parsing", status: "pending" },
       refinement: { name: "refinement", status: "pending" },
-      ingesting_lightrag: { name: "ingesting_lightrag", status: "pending" },
+      ingesting_neo4j: { name: "ingesting_neo4j", status: "pending" },
       ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
     },
     ...patch,
@@ -87,7 +87,7 @@ describe("useIngestTasks", () => {
         progress: 100,
         stages: {
           parsing: { name: "parsing", status: "done" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "failed", error: "timeout" },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "failed", error: "timeout" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
         },
       }),
@@ -96,8 +96,8 @@ describe("useIngestTasks", () => {
     const { tasks, addFile } = useIngestTasks();
     await addFile(new File(["x"], "b.pdf"));
 
-    expect(tasks.value[0]!.stages.ingesting_lightrag.status).toBe("failed");
-    expect(tasks.value[0]!.stages.ingesting_lightrag.error).toBe("timeout");
+    expect(tasks.value[0]!.stages.ingesting_neo4j.status).toBe("failed");
+    expect(tasks.value[0]!.stages.ingesting_neo4j.error).toBe("timeout");
   });
 
   it("records the submit error when the ingest request fails", async () => {
@@ -129,7 +129,7 @@ describe("useIngestTasks", () => {
         progress: 100,
         stages: {
           parsing: { name: "parsing", status: "done" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "failed", error: "wiki down" },
         },
       }),
@@ -145,7 +145,7 @@ describe("useIngestTasks", () => {
         progress: 85,
         stages: {
           parsing: { name: "parsing", status: "done" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "running" },
         },
       }),
@@ -156,7 +156,7 @@ describe("useIngestTasks", () => {
         progress: 100,
         stages: {
           parsing: { name: "parsing", status: "done" },
-          ingesting_lightrag: { name: "ingesting_lightrag", status: "done" },
+          ingesting_neo4j: { name: "ingesting_neo4j", status: "done" },
           ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
         },
       }),

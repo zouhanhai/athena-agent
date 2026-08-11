@@ -54,7 +54,7 @@ const DEFAULT_ATHENA_PARTICIPANT: ChatParticipant = {
   kind: "agent",
   name: "Athena",
   logoUrl: "/athena-logo-ai.png",
-  capabilities: ["llm_wiki", "LightRAG", "knowledge graph Q&A"],
+  capabilities: ["llm_wiki", "knowledge graph Q&A"],
   speak: true,
 };
 

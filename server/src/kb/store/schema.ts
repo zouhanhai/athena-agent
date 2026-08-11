@@ -9,7 +9,7 @@
  *   - `Entity` relations — directed `(:Entity)-[RELATION]->(:Entity)` edges {source, target, keywords[],
  *     description}.
  *
- * Case-insensitive-friendly indexing (LightRAG's `caleo`/`CALEO` bug must not recur, per ADR-0008):
+ * Case-insensitive-friendly indexing (the case-sensitive lookup bug must not recur, per ADR-0008):
  *   - `nameUpper = toUpper(name)` stored on Entity + RANGE index → exact case-insensitive lookup.
  *   - FULLTEXT index over `name` + `aliases` folds case AND diacritics → bilingual (DE+EN) alias search.
  *
@@ -41,7 +41,7 @@ export const CHUNK_TEXT_FTX = "chunk_text_ftx";
 /**
  * Fold a name to a case-insensitive canonical form (`toUpper`, Unicode-aware so German umlauts
  * case-fold correctly: "lüsen" -> "LÜSEN"). Stored as Entity.nameUpper and range-indexed for exact
- * case-insensitive lookup (ADR-0008 — the normalized-property pattern that fixes LightRAG's bug).
+ * case-insensitive lookup (ADR-0008 — the normalized-property pattern).
  */
 export function foldName(name: string): string {
   return name.toUpperCase();

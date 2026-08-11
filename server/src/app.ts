@@ -56,7 +56,6 @@ import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
 import { createAthenaRefiner } from "./kb/refiner.js";
 import { ContentDedupStore } from "./kb/dedup.js";
-import { LightRagClient } from "./kb/lightrag.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
 import { OpenRouterEmbedder } from "./kb/embedding.js";
 import { Neo4jIngestService } from "./kb/store/ingest.js";
@@ -84,7 +83,6 @@ export interface BuildAppOptions {
 
 export function defaultIngestService(): KnowledgeIngestService {
   return new KnowledgeIngestService({
-    lightrag: new LightRagClient(),
     llmwiki: new LlmWikiClient(),
     wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
@@ -93,10 +91,9 @@ export function defaultIngestService(): KnowledgeIngestService {
 
 export function defaultRetrievalService(): KnowledgeRetrievalService {
   return new KnowledgeRetrievalService({
-    lightrag: new LightRagClient(),
     llmwiki: new LlmWikiClient(),
-    // G4.S2.T7: the Neo4j lean RAG store is the sole semantic search path
-    // (LightRAG's query path is decommissioned); llm_wiki stays the BM25 source.
+    // G4.S2.T7/T10: the Neo4j lean RAG store is the sole semantic + graph path;
+    // llm_wiki stays the BM25 source.
     neo4j: defaultNeo4jRetrieval(),
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
     // Match the ingest side (defaultIngestService) so wiki image reads resolve

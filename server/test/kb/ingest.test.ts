@@ -4,7 +4,6 @@ import {
   KnowledgeIngestService,
   buildWikiIndex,
   classificationFromRefinement,
-  distinctiveProbe,
   localClassify,
   localTopic,
   rebuildWikiIndex,
@@ -14,12 +13,6 @@ import type { WikiClassification } from "../../src/kb/llmwiki.js";
 
 function makeFakes(opts: { classify?: (input: { title: string; content: string }) => Promise<WikiClassification> } = {}) {
   const calls: { kind: string; args: unknown[] }[] = [];
-  const lightrag = {
-    async ingestText(text: string, opts?: { fileSource?: string }) {
-      calls.push({ kind: "lightrag.ingestText", args: [text, opts] });
-      return { status: "success", message: "ok", track_id: "insert_123" };
-    },
-  };
   const llmwiki = {
     async rescan(projectId: string) {
       calls.push({ kind: "llmwiki.rescan", args: [projectId] });
@@ -49,17 +42,15 @@ function makeFakes(opts: { classify?: (input: { title: string; content: string }
     calls,
     written,
     rebuildIndex,
-    lightrag: lightrag as never,
     llmwiki: llmwiki as never,
     fs,
     ...(opts.classify ? { classify: opts.classify } : {}),
   };
 }
 
-test("ingestMarkdown feeds LightRAG frontmatter-wrapped content and writes the wiki page into a type dir + rebuilds index", async () => {
+test("ingestMarkdown writes the wiki page into a type dir + rebuilds index", async () => {
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -74,15 +65,7 @@ test("ingestMarkdown feeds LightRAG frontmatter-wrapped content and writes the w
   });
 
   assert.equal(result.documentId, "runbook");
-  assert.equal(result.systems.lightrag.ok, true);
   assert.equal(result.systems.llmwiki.ok, true);
-
-  // G3.S8.T2: LightRAG receives content WITH frontmatter (type + title), not raw content.
-  const ingest = fakes.calls.find((c) => c.kind === "lightrag.ingestText");
-  assert.equal(ingest?.args[1]?.fileSource, "runbook.md");
-  const lightragContent = ingest?.args[0] as string;
-  assert.match(lightragContent, /^---\ntype: manual\ntitle: Incident Runbook\n/);
-  assert.ok(lightragContent.endsWith("\n\n# Incident Runbook\n\nStep 1"));
 
   const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
   assert.ok(write?.args[0]);
@@ -105,7 +88,6 @@ test("ingest uses the llm_wiki agent classification when available", async () =>
   });
   const fakes = makeFakes({ classify });
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -146,7 +128,6 @@ test("ingest passes existing wiki topics to the agent classifier so it reuses th
   };
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: llmwiki as never,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -160,21 +141,8 @@ test("ingest passes existing wiki topics to the agent classifier so it reuses th
   assert.equal(write?.args[0], "/data/wiki/sommerseminar/sommerseminar-4.md");
 });
 
-test("deleteDocument removes the page from LightRAG and llm_wiki and rebuilds the index", async () => {
+test("deleteDocument removes the page from llm_wiki and rebuilds the index", async () => {
   const calls: { kind: string; args: unknown[] }[] = [];
-  const lightrag = {
-    async listDocuments() {
-      calls.push({ kind: "lightrag.listDocuments", args: [] });
-      return [
-        { id: "doc-1", file_path: "foo.md" },
-        { id: "doc-2", file_path: "bar.md" },
-      ];
-    },
-    async deleteDocument(docId: string) {
-      calls.push({ kind: "lightrag.deleteDocument", args: [docId] });
-      return { status: "deletion_started" };
-    },
-  };
   const llmwiki = {
     async listProjects() {
       return {
@@ -190,7 +158,6 @@ test("deleteDocument removes the page from LightRAG and llm_wiki and rebuilds th
     calls.push({ kind: "rebuildIndex", args: [wikiDir] });
   };
   const service = new KnowledgeIngestService({
-    lightrag: lightrag as never,
     llmwiki: llmwiki as never,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -199,40 +166,8 @@ test("deleteDocument removes the page from LightRAG and llm_wiki and rebuilds th
 
   const result = await service.deleteDocument("wiki/concepts/foo.md");
   assert.equal(result.ok, true);
-  assert.deepEqual(result.lightrag?.deleted, ["doc-1"]);
-  assert.ok(
-    calls.some((c) => c.kind === "lightrag.deleteDocument" && c.args[0] === "doc-1"),
-    "only the doc whose file_path matches is deleted",
-  );
   assert.ok(calls.some((c) => c.kind === "llmwiki.deleteFile" && c.args[1] === "wiki/concepts/foo.md"));
   assert.ok(calls.some((c) => c.kind === "rebuildIndex" && c.args[0] === "/data/wiki"));
-});
-
-test("deleteDocument reports ok when llm_wiki succeeds but LightRAG fails", async () => {
-  const lightrag = {
-    async listDocuments() {
-      throw new Error("lightrag down");
-    },
-  };
-  const llmwiki = {
-    async listProjects() {
-      return {
-        currentProject: null,
-        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
-      };
-    },
-    async deleteFile() {},
-  };
-  const service = new KnowledgeIngestService({
-    lightrag: lightrag as never,
-    llmwiki: llmwiki as never,
-    projectId: "athena-wiki",
-    rebuildIndex: async () => {},
-  });
-
-  const result = await service.deleteDocument("wiki/concepts/foo.md");
-  assert.equal(result.ok, true);
-  assert.match(result.lightrag?.error ?? "", /lightrag down/);
 });
 
 test("deleteDocument reports failure when the wiki file cannot be deleted", async () => {
@@ -248,7 +183,6 @@ test("deleteDocument reports failure when the wiki file cannot be deleted", asyn
     },
   };
   const service = new KnowledgeIngestService({
-    lightrag: { listDocuments: async () => [], deleteDocument: async () => ({}) } as never,
     llmwiki: llmwiki as never,
     projectId: "athena-wiki",
     rebuildIndex: async () => {},
@@ -262,7 +196,6 @@ test("deleteDocument reports failure when the wiki file cannot be deleted", asyn
 test("ingestMarkdown resolves wiki dir from project path when not configured", async () => {
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     rebuildIndex: fakes.rebuildIndex,
     ...fakes.fs,
@@ -278,7 +211,6 @@ test("ingestMarkdown resolves wiki dir from project path when not configured", a
 test("ingestMarkdown sanitizes title into a safe filename when no source", async () => {
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -291,28 +223,6 @@ test("ingestMarkdown sanitizes title into a safe filename when no source", async
   });
   assert.match(result.documentId, /^my-wiki-page-part-2$/);
   assert.match(fakes.written[0], /\/my-wiki-page-part-2\.md$/);
-  const ingest = fakes.calls.find((c) => c.kind === "lightrag.ingestText");
-  assert.equal(ingest?.args[1].fileSource, "my-wiki-page-part-2.md");
-});
-
-test("ingestMarkdown reports partial status when LightRAG fails", async () => {
-  const fakes = makeFakes();
-  const lightrag = {
-    async ingestText() {
-      throw new Error("LightRAG down");
-    },
-  };
-  const service = new KnowledgeIngestService({
-    lightrag: lightrag as never,
-    llmwiki: fakes.llmwiki,
-    wikiDir: "/data/wiki",
-    rebuildIndex: fakes.rebuildIndex,
-    ...fakes.fs,
-  });
-  const result = await service.ingestMarkdown({ title: "Doc", content: "x" });
-  assert.equal(result.systems.lightrag.ok, false);
-  assert.match(result.systems.lightrag.error ?? "", /LightRAG down/);
-  assert.equal(result.systems.llmwiki.ok, true);
 });
 
 test("ingestMarkdown reports partial status when llm_wiki fails", async () => {
@@ -329,60 +239,14 @@ test("ingestMarkdown reports partial status when llm_wiki fails", async () => {
     },
   };
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: llmwiki as never,
     projectId: "athena-wiki",
     rebuildIndex: fakes.rebuildIndex,
     ...fakes.fs,
   });
   const result = await service.ingestMarkdown({ title: "Doc", content: "x" });
-  assert.equal(result.systems.lightrag.ok, true);
   assert.equal(result.systems.llmwiki.ok, false);
   assert.match(result.systems.llmwiki.error ?? "", /rescan failed/);
-});
-
-test("ingestMarkdown propagates total failure when both systems fail", async () => {
-  const lightrag = {
-    async ingestText() {
-      throw new Error("lr down");
-    },
-  };
-  const llmwiki = {
-    async rescan() {
-      throw new Error("wiki down");
-    },
-    async listProjects() {
-      return {
-        currentProject: null,
-        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
-      };
-    },
-  };
-  const service = new KnowledgeIngestService({
-    lightrag: lightrag as never,
-    llmwiki: llmwiki as never,
-    wikiDir: "/data/wiki",
-    projectId: "athena-wiki",
-    writeFile: async () => {},
-    mkdir: async () => {},
-    rebuildIndex: async () => {},
-  });
-  const result = await service.ingestMarkdown({ title: "Doc", content: "x" });
-  assert.equal(result.systems.lightrag.ok, false);
-  assert.equal(result.systems.llmwiki.ok, false);
-});
-
-test("ingestMarkdown records track_id from LightRAG", async () => {
-  const fakes = makeFakes();
-  const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
-    llmwiki: fakes.llmwiki,
-    wikiDir: "/data/wiki",
-    rebuildIndex: fakes.rebuildIndex,
-    ...fakes.fs,
-  });
-  const result = await service.ingestMarkdown({ title: "Doc", content: "x" });
-  assert.equal(result.systems.lightrag.trackId, "insert_123");
 });
 
 test("withFrontmatter emits the llm_wiki schema frontmatter", () => {
@@ -453,7 +317,6 @@ test("ingest writes under wiki/<topic>/ when the classifier returns a topic", as
   });
   const fakes = makeFakes({ classify });
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -492,7 +355,7 @@ test("localClassify maps the external SAP Group Reporting doc to source + sap/co
   assert.match(result.pagePath, /^wiki\/sources\//);
 });
 
-test("ingestMarkdown classifies FIRST and feeds LightRAG the topic via frontmatter (G3.S8.T2)", async () => {
+test("ingestMarkdown classifies FIRST and reuses the classification for the wiki page (G3.S8.T2)", async () => {
   let classifyCalls = 0;
   const classify: (input: { title: string; content: string }) => Promise<WikiClassification> = async () => {
     classifyCalls += 1;
@@ -504,7 +367,6 @@ test("ingestMarkdown classifies FIRST and feeds LightRAG the topic via frontmatt
   };
   const fakes = makeFakes({ classify });
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -515,11 +377,7 @@ test("ingestMarkdown classifies FIRST and feeds LightRAG the topic via frontmatt
 
   await service.ingestMarkdown({ title: "Sommerseminar 2026", content: "# Sommerseminar 2026\n\nC-Day" });
 
-  const ingest = fakes.calls.find((c) => c.kind === "lightrag.ingestText");
-  const lightragContent = ingest?.args[0] as string;
-  assert.match(lightragContent, /^---\ntype: event\ntitle: Sommerseminar 2026\ntopic: internal\/events\n/);
-
-  // the same classification is reused for the wiki page (no double classify call)
+  // the classification is used once for the wiki page
   assert.equal(classifyCalls, 1);
   const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
   assert.equal(write?.args[0], "/data/wiki/internal/events/sommerseminar-2026.md");
@@ -530,7 +388,6 @@ test("ingestLlmWiki copies docling-extracted images beside the wiki page (G3.S5.
   const copied: [string, string][] = [];
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -573,7 +430,6 @@ test("ingestLlmWiki skips image copying when the doc has no images (missing sour
   let copied = 0;
   const fakes = makeFakes();
   const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
     llmwiki: fakes.llmwiki,
     wikiDir: "/data/wiki",
     projectId: "athena-wiki",
@@ -599,34 +455,6 @@ test("ingestLlmWiki skips image copying when the doc has no images (missing sour
 
   assert.equal(result.ok, true);
   assert.equal(copied, 0);
-});
-
-test("LightRAG receives pure text (no served image URLs/bytes) while the wiki page keeps image refs (G3.S5.T5)", async () => {
-  const content =
-    "# Report\n\nText.\n\n![A revenue chart](images/report.pdf/image_000000_abc.png)";
-  const fakes = makeFakes();
-  const service = new KnowledgeIngestService({
-    lightrag: fakes.lightrag,
-    llmwiki: fakes.llmwiki,
-    wikiDir: "/data/wiki",
-    projectId: "athena-wiki",
-    rebuildIndex: fakes.rebuildIndex,
-    ...fakes.fs,
-  });
-
-  await service.ingestMarkdown({ title: "Report", content, source: "report.md" });
-
-  const ingest = fakes.calls.find((c) => c.kind === "lightrag.ingestText");
-  const lightragContent = ingest?.args[0] as string;
-  // image bytes / served URLs never reach LightRAG
-  assert.ok(!lightragContent.includes("/api/kb/wiki/image"));
-  assert.ok(!/data:image\//.test(lightragContent));
-  // the alt-text (VLM description) stays RAG-searchable
-  assert.match(lightragContent, /A revenue chart/);
-
-  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
-  const wikiContent = write?.args[1] as string;
-  assert.match(wikiContent, /!\[A revenue chart\]\(images\/report\.pdf\/image_000000_abc\.png\)/);
 });
 
 test("buildWikiIndex groups pages by frontmatter type", () => {
@@ -671,64 +499,4 @@ test("rebuildWikiIndex scans the wiki dir and writes index.md", async () => {
   assert.equal(written[0], "/data/wiki/index.md");
   assert.ok((files.get("/data/wiki/index.md") ?? "").includes("- [[concepts/chain-of-thought|CoT]]"));
   assert.ok((files.get("/data/wiki/index.md") ?? "").includes("- [[entities/acme|Acme]]"));
-});
-
-test("distinctiveProbe prefers the first paragraph and caps length", () => {
-  const probe = distinctiveProbe("---\ntype: concept\n---\n\n# Title\n\nThis is the first paragraph that matters.\n\nSecond paragraph.");
-  assert.equal(probe, "This is the first paragraph that matters.");
-  const long = "w".repeat(600);
-  assert.equal(distinctiveProbe(`# T\n\n${long}`)!.length, 400);
-  assert.equal(distinctiveProbe("   \n\n  "), undefined);
-});
-
-test("findNearDuplicate returns a different file referenced by LightRAG", async () => {
-  const lightrag = {
-    async query(_q: string, _o?: unknown) {
-      return {
-        response: "something similar",
-        references: [
-          { reference_id: "r1", file_path: "sommerseminar-l-sen.pdf.md" },
-        ],
-      };
-    },
-  };
-  const service = new KnowledgeIngestService({
-    lightrag: lightrag as never,
-    llmwiki: {} as never,
-  });
-  const near = await service.findNearDuplicate("# Title\n\nProbe body text.", "fresh.md");
-  assert.equal(near, "sommerseminar-l-sen.pdf.md");
-});
-
-test("findNearDuplicate ignores the self file and returns undefined for no other hits", async () => {
-  const lightrag = {
-    async query() {
-      return {
-        response: "ok",
-        references: [
-          { reference_id: "r1", file_path: "self.md" },
-        ],
-      };
-    },
-  };
-  const service = new KnowledgeIngestService({
-    lightrag: lightrag as never,
-    llmwiki: {} as never,
-  });
-  const near = await service.findNearDuplicate("# Title\n\nBody.", "self.md");
-  assert.equal(near, undefined);
-});
-
-test("findNearDuplicate swallows LightRAG errors", async () => {
-  const lightrag = {
-    async query() {
-      throw new Error("lightrag down");
-    },
-  };
-  const service = new KnowledgeIngestService({
-    lightrag: lightrag as never,
-    llmwiki: {} as never,
-  });
-  const near = await service.findNearDuplicate("# Title\n\nBody.", "self.md");
-  assert.equal(near, undefined);
 });
