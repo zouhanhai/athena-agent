@@ -15,7 +15,7 @@
  */
 import { readFile } from "node:fs/promises";
 import type { RefineOutputRef } from "../../agents/refine-output.js";
-import type { RefinementChunk } from "../../agents/refine-document.js";
+import type { RefinementChunk, RefinementEntity } from "../../agents/refine-document.js";
 import type { TextEmbedder } from "../embedding.js";
 import {
   CHUNK_LABEL,
@@ -25,6 +25,7 @@ import {
   HAS_SECTION_TYPE,
   HAS_SUBSECTION_TYPE,
   IS_DOCUMENT_TYPE,
+  MENTIONED_IN_TYPE,
   PART_OF_TYPE,
   SECTION_LABEL,
   WIKIPAGE_LABEL,
@@ -77,6 +78,32 @@ export function parseHeadingPath(headingPath: string): string[] {
     .split("/")
     .map((segment) => segment.trim().replace(/^#+\s*/, ""))
     .filter((segment) => segment.length > 0);
+}
+
+/**
+ * Compute the Entity → Chunk mention links (G4.S2.T14): an entity is linked to every
+ * chunk whose text mentions its canonical name or any alias (case-insensitive
+ * substring match). Idempotent by design — the ingest MERGEs these as
+ * `(:Entity)-[:MENTIONED_IN]->(:Chunk)` edges. Chunk ids are namespaced by documentId.
+ */
+export function mentionPairs(
+  entities: RefinementEntity[],
+  chunks: RefinementChunk[],
+  documentId: string,
+): Array<{ entityName: string; chunkId: string }> {
+  const pairs: Array<{ entityName: string; chunkId: string }> = [];
+  for (const entity of entities) {
+    const terms = [entity.name, ...(entity.aliases ?? [])]
+      .map((term) => term.trim().toLowerCase())
+      .filter((term) => term.length > 0);
+    for (const chunk of chunks) {
+      const text = chunk.text.toLowerCase();
+      if (terms.some((term) => text.includes(term))) {
+        pairs.push({ entityName: entity.name, chunkId: `${documentId}:${chunk.id}` });
+      }
+    }
+  }
+  return pairs;
 }
 
 /**
@@ -217,6 +244,21 @@ export class Neo4jIngestService {
           `MERGE (e:${ENTITY_LABEL} {name: $name})
            SET e.aliases = $aliases, e.type = $type, e.description = $description, e.nameUpper = $nameUpper`,
           entityNodeProps(entity),
+        );
+      }
+
+      // Entity → Chunk mention links (G4.S2.T14): each Entity is MERGE'd to every Chunk
+      // whose text mentions its name/alias, so the graph retriever can fall through from
+      // a matched entity to the chunks that actually answer a query. Skipped when no
+      // entity is mentioned in any chunk.
+      const mentions = mentionPairs(input.ref.entities ?? [], chunks, input.documentId);
+      if (mentions.length > 0) {
+        await session.run(
+          `UNWIND $mentions AS m
+           MATCH (e:${ENTITY_LABEL} {name: m.entityName})
+           MATCH (c:${CHUNK_LABEL} {id: m.chunkId})
+           MERGE (e)-[:${MENTIONED_IN_TYPE}]->(c)`,
+          { mentions },
         );
       }
 

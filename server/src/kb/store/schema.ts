@@ -35,6 +35,10 @@ export const HAS_SUBSECTION_TYPE = "HAS_SUBSECTION";
 export const PART_OF_TYPE = "PART_OF";
 export const IS_DOCUMENT_TYPE = "IS_DOCUMENT";
 
+/** Entity → Chunk relationship (G4.S2.T14): an Entity is MENTIONED_IN the Chunk's text.
+ *  Lets the graph retriever fall through to the chunks that actually answer a query. */
+export const MENTIONED_IN_TYPE = "MENTIONED_IN";
+
 /** Neo4j HNSW cosine vector index over Chunk.embedding (qwen3-embedding-8b emits 4096-dim vectors). */
 export const EMBEDDING_DIMENSIONS = 4096;
 

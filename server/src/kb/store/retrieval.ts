@@ -28,11 +28,16 @@ import {
   ENTITY_NAME_ALIASES_FTX,
   ENTITY_RELATION_TYPE,
   IS_DOCUMENT_TYPE,
+  MENTIONED_IN_TYPE,
   PART_OF_TYPE,
   SECTION_LABEL,
   WIKIPAGE_LABEL,
   type Neo4jDriverLike,
 } from "./schema.js";
+import type { Reranker } from "./rerank.js";
+
+export type { Reranker, RerankerRequest } from "./rerank.js";
+export { LlamaCppReranker } from "./rerank.js";
 
 /** A single fused retrieval hit over the Neo4j store. */
 export interface Neo4jSearchHit {
@@ -72,6 +77,10 @@ export interface Neo4jSearchOptions {
   enrichContext?: boolean;
   /** Max sibling chunks per hit when enrichContext is on. Default: 4. */
   contextSize?: number;
+  /** Cross-encoder reranker for this search (overrides the service-level one). Default: off. */
+  reranker?: Reranker;
+  /** Max fused hits the reranker sees for this search. Default: 20. */
+  rerankTopN?: number;
 }
 
 /** Tool names a ToolsRetriever picker can select. */
@@ -98,6 +107,10 @@ export interface Neo4jRetrievalOptions {
   topK?: number;
   /** LLM picker for ToolsRetriever. Default: "hybrid". */
   picker?: RetrieverPicker;
+  /** Optional cross-encoder reranker applied to the fused top-k after RRF (G4.S2.T14). Default: off. */
+  reranker?: Reranker;
+  /** Max fused hits the reranker sees. Default: 20. */
+  rerankTopN?: number;
 }
 
 /** Reciprocate a 1-based rank into an RRF contribution (k=60, neo4j-graphrag default). */
@@ -249,10 +262,13 @@ export class Bm25Retriever {
 }
 
 /**
- * Graph traversal retriever (Text2Cypher mirror): matches entities case-insensitively
- * through the folded name+alias FULLTEXT index (bilingual DE+EN), then expands the
- * 1-2 hop RELATION neighborhood. The query text is the (lowercased) user query —
- * no LLM is needed because Athena already injected the graph.
+ * Graph traversal retriever (Text2Cypher mirror, G4.S2.T14): matches entities
+ * case-insensitively through the folded name+alias FULLTEXT index (bilingual DE+EN),
+ * then returns the chunks the entity is MENTIONED_IN — with the entity + its RELATION
+ * neighbors kept as context. Chunk hits carry the same T11 shape as vector/BM25
+ * (id/topic/documentId/sectionPath/wikiPath) so all three sources RRF-fuse by chunk id.
+ * The query text is the (lowercased) user query — no LLM is needed because Athena
+ * already injected the graph.
  */
 export class Text2CypherRetriever {
   private readonly driver: Neo4jDriverLike;
@@ -268,18 +284,26 @@ export class Text2CypherRetriever {
     const params: Record<string, unknown> = { queryText: foldQuery(query), topK };
     const cypher =
       `CALL db.index.fulltext.queryNodes('${ENTITY_NAME_ALIASES_FTX}', $queryText) YIELD node AS e, score\n` +
-      `MATCH (e)-[r:${ENTITY_RELATION_TYPE}]-(n:Entity)\n` +
-      `WITH e, score, collect(DISTINCT n.name) AS related\n` +
-      `RETURN e.name AS id, e.description AS text, score, related\n` +
+      `MATCH (e)-[:${MENTIONED_IN_TYPE}]->(c:${CHUNK_LABEL})\n` +
+      `OPTIONAL MATCH (e)-[r:${ENTITY_RELATION_TYPE}]-(n:${ENTITY_LABEL})\n` +
+      `WITH e, c, score, collect(DISTINCT n.name) AS neighbors\n` +
+      CHUNK_WIKI_JOIN +
+      `RETURN c.id AS id, c.text AS text, c.topic AS topic, c.documentId AS documentId,\n` +
+      `       sec.path AS sectionPath, wp.path AS wikiPath, score,\n` +
+      `       e.name AS entity, neighbors\n` +
       `ORDER BY score DESC\n` +
       `LIMIT $topK`;
     const records = await runRecords(this.driver, cypher, params);
     return records.map((r) => ({
       id: str(r, "id") ?? "",
       text: str(r, "text") ?? "",
+      ...(str(r, "topic") !== undefined ? { topic: str(r, "topic") } : {}),
+      ...(str(r, "documentId") !== undefined ? { documentId: str(r, "documentId") } : {}),
+      ...(str(r, "sectionPath") !== undefined ? { sectionPath: str(r, "sectionPath") } : {}),
+      ...(str(r, "wikiPath") !== undefined ? { wikiPath: str(r, "wikiPath") } : {}),
       source: "graph" as const,
       score: num(r, "score"),
-      related: strList(r, "related"),
+      related: [str(r, "entity"), ...strList(r, "neighbors")].filter((v): v is string => Boolean(v)),
     }));
   }
 }
@@ -390,9 +414,9 @@ export interface Neo4jGraphExport {
 
 /**
  * Neo4jRetrievalService — the fused retrieval entry point: runs vector + BM25 +
- * graph via Promise.allSettled (a failing source never kills the search), fuses
- * the chunk ranking with RRF, and appends graph hits. Case-insensitive BM25 +
- * graph, topic-scoped chunk retrieval.
+ * graph via Promise.allSettled (a failing source never kills the search), fuses all
+ * three chunk rankings with RRF, then optionally reranks the fused top-k with a
+ * cross-encoder. Case-insensitive BM25 + graph, topic-scoped chunk retrieval.
  */
 export class Neo4jRetrievalService {
   private readonly options: Neo4jRetrievalOptions;
@@ -405,9 +429,10 @@ export class Neo4jRetrievalService {
     this.picker = options.picker ?? DEFAULT_PICKER;
   }
 
-  /** Fused search: vector + BM25 (RRF) + graph, topic-scoped, tolerant of failures.
-   *  With `enrichContext`, each chunk hit is enriched with its same-section sibling
-   *  chunk texts (G4.S2.T11) — best-effort, a failing enrichment never kills the search. */
+  /** Fused search: vector + BM25 + graph (RRF over all three, all chunk hits) + optional
+   *  cross-encoder rerank of the fused top-k, topic-scoped, tolerant of failures. With
+   *  `enrichContext`, each chunk hit is enriched with its same-section sibling chunk texts
+   *  (G4.S2.T11) — best-effort, a failing enrichment never kills the search. */
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchResponse> {
     const topK = options.topK ?? this.topK;
     const [vector, bm25, graph] = await Promise.allSettled([
@@ -418,8 +443,15 @@ export class Neo4jRetrievalService {
     const vectorHits = vector.status === "fulfilled" ? vector.value : [];
     const bm25Hits = bm25.status === "fulfilled" ? bm25.value : [];
     const graphHits = graph.status === "fulfilled" ? graph.value : [];
-    const fused = rrfFuse([vectorHits, bm25Hits], topK);
-    const hits = [...fused, ...graphHits];
+    let hits = rrfFuse([vectorHits, bm25Hits, graphHits], topK);
+
+    // Optional cross-encoder rerank of the fused top-k (G4.S2.T14). Never the whole
+    // corpus; a failing reranker falls back to the RRF-only ranking (no regression).
+    const reranker = options.reranker ?? this.options.reranker;
+    if (reranker) {
+      const rerankTopN = options.rerankTopN ?? this.options.rerankTopN ?? 20;
+      hits = await reranker.rerank(query, hits, rerankTopN).catch(() => hits);
+    }
 
     if (options.enrichContext) {
       const contextSize = options.contextSize ?? 4;

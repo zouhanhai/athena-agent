@@ -13,6 +13,7 @@ import {
   VectorRetriever,
   Bm25Retriever,
   type Neo4jSearchHit,
+  type Reranker,
 } from "../../src/kb/store/retrieval.js";
 import type { TextEmbedder } from "../../src/kb/embedding.js";
 
@@ -63,11 +64,25 @@ const CHUNK = (id: string, text: string, topic = "transport") => ({
   score: 0.9,
 });
 
-const GRAPH_ENTITY = (name: string, description: string, related: string[]) => ({
-  id: name,
-  text: description,
+/** A Chunk hit from the graph retriever (G4.S2.T14): the entity was matched, then
+ *  its MENTIONED_IN chunks are returned with the entity + neighbor context. */
+const GRAPH_CHUNK = (
+  id: string,
+  text: string,
+  entity: string,
+  neighbors: string[] = [],
+  extra: Record<string, unknown> = {},
+) => ({
+  id,
+  text,
+  topic: "transport",
+  documentId: `doc-${id}`,
+  sectionPath: "Alpha",
+  wikiPath: "wiki/transport/bus.md",
   score: 1.0,
-  related,
+  entity,
+  neighbors,
+  ...extra,
 });
 
 test("VectorRetriever embeds the query and issues a SEARCH VECTOR INDEX query over chunks", async () => {
@@ -151,10 +166,10 @@ test("HybridRetriever fuses vector + BM25 hits with reciprocal rank fusion", asy
   assert.ok(response.hits.find((h) => h.source === "bm25"));
 });
 
-test("Text2CypherRetriever traverses the entity graph (case-insensitive alias match)", async () => {
+test("Text2CypherRetriever returns the MENTIONED_IN chunks of a matched entity as chunk hits", async () => {
   const { driver, calls } = makeDriver((q, p) =>
     q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "zob münchen"
-      ? [GRAPH_ENTITY("ZOB München", "central bus station", ["CALEO", "MVV"])]
+      ? [GRAPH_CHUNK("doc:c1", "ZOB München is the central hub.", "ZOB München", ["CALEO", "MVV"])]
       : [],
   );
   const retriever = new Text2CypherRetriever({ driver, topK: 5 });
@@ -162,18 +177,37 @@ test("Text2CypherRetriever traverses the entity graph (case-insensitive alias ma
   const hits = await retriever.search("ZOB MÜNCHEN");
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0]!.id, "ZOB München");
+  assert.equal(hits[0]!.id, "doc:c1", "graph hit id is the chunk id (RRF-fusable with vector/BM25)");
+  assert.equal(hits[0]!.text, "ZOB München is the central hub.");
   assert.equal(hits[0]!.source, "graph");
-  assert.deepEqual(hits[0]!.related, ["CALEO", "MVV"], "1-2 hop neighbors included");
+  assert.deepEqual(hits[0]!.related, ["ZOB München", "CALEO", "MVV"], "entity + neighbors kept as context");
   const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
-  assert.ok(call.query.includes(":RELATION"), "traverses RELATION edges");
+  assert.match(call.query, /MENTIONED_IN/, "traverses the entity → chunk MENTIONED_IN edge");
   assert.equal(call.params.queryText, "zob münchen", "query folded to lowercase");
 });
 
-test("case-insensitive node lookup: searching lowercase 'zob münchen' matches the 'ZOB München' node", async () => {
+test("graph chunk hits carry the T11 chunk shape: topic, documentId, sectionPath, wikiPath", async () => {
+  const { driver } = makeDriver((q) =>
+    q.includes(ENTITY_NAME_ALIASES_FTX)
+      ? [GRAPH_CHUNK("doc:c1", "bus", "ZOB München", [], { topic: "transport", documentId: "doc" })]
+      : [],
+  );
+  const retriever = new Text2CypherRetriever({ driver, topK: 5 });
+
+  const hits = await retriever.search("ZOB");
+
+  const hit = hits[0]!;
+  assert.equal(hit.topic, "transport");
+  assert.equal(hit.documentId, "doc");
+  assert.equal(hit.sectionPath, "Alpha");
+  assert.equal(hit.wikiPath, "wiki/transport/bus.md");
+  assert.match(hits[0]!.text, /bus/);
+});
+
+test("case-insensitive node lookup: searching lowercase 'zob münchen' returns the chunk via the 'ZOB München' entity", async () => {
   const { driver, calls } = makeDriver((q, p) =>
     q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "zob münchen"
-      ? [GRAPH_ENTITY("ZOB München", "central bus station", ["CALEO"])]
+      ? [GRAPH_CHUNK("doc:c1", "ZOB München bus station", "ZOB München", ["CALEO"])]
       : [],
   );
   const retriever = new Text2CypherRetriever({ driver, topK: 5 });
@@ -181,14 +215,14 @@ test("case-insensitive node lookup: searching lowercase 'zob münchen' matches t
   const hits = await retriever.search("zob münchen");
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0]!.id, "ZOB München", "lowercase query folds and matches the canonical node name");
-  assert.equal(hits[0]!.source, "graph");
+  assert.equal(hits[0]!.id, "doc:c1", "lowercase query folds and lands on the entity's chunks");
+  assert.deepEqual(hits[0]!.related, ["ZOB München", "CALEO"], "canonical entity name surfaces via context");
 });
 
 test("case-insensitive node lookup: searching 'caleo' matches the 'CALEO' node (case bug not repeated)", async () => {
   const { driver, calls } = makeDriver((q, p) =>
     q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "caleo"
-      ? [GRAPH_ENTITY("CALEO", "the company", ["ZOB München"])]
+      ? [GRAPH_CHUNK("doc:c1", "CALEO runs the show", "CALEO", ["ZOB München"])]
       : [],
   );
   const retriever = new Text2CypherRetriever({ driver, topK: 5 });
@@ -196,15 +230,15 @@ test("case-insensitive node lookup: searching 'caleo' matches the 'CALEO' node (
   const hits = await retriever.search("caleo");
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0]!.id, "CALEO", "case-sensitive lookup must not recur");
+  assert.deepEqual(hits[0]!.related, ["CALEO", "ZOB München"], "case-sensitive lookup must not recur");
   const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
   assert.equal(call.params.queryText, "caleo", "query folded to lowercase before fulltext");
 });
 
-test("bilingual alias search: German term matches the EN node via its alias (DE→EN)", async () => {
+test("bilingual alias search: German term returns the chunk mentioning the EN node via its alias (DE→EN)", async () => {
   const { driver, calls } = makeDriver((q, p) =>
     q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "zentraler omnibusbahnhof"
-      ? [GRAPH_ENTITY("ZOB München", "central bus station", ["MVV"])]
+      ? [GRAPH_CHUNK("doc:c1", "ZOB München", "ZOB München", ["MVV"])]
       : [],
   );
   const retriever = new Text2CypherRetriever({ driver, topK: 5 });
@@ -212,15 +246,15 @@ test("bilingual alias search: German term matches the EN node via its alias (DE�
   const hits = await retriever.search("Zentraler Omnibusbahnhof");
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0]!.id, "ZOB München", "German term resolves to the EN canonical node via aliases");
+  assert.deepEqual(hits[0]!.related, ["ZOB München", "MVV"], "German term resolves to the EN canonical node via aliases");
   const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
   assert.equal(call.params.queryText, "zentraler omnibusbahnhof", "German query folded to lowercase");
 });
 
-test("bilingual alias search: English term matches the DE node via its alias (EN→DE)", async () => {
+test("bilingual alias search: English term returns the chunk mentioning the DE node via its alias (EN→DE)", async () => {
   const { driver, calls } = makeDriver((q, p) =>
     q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "munich central bus station"
-      ? [GRAPH_ENTITY("Zentraler Omnibusbahnhof München", "ZOB München", ["MVV"])]
+      ? [GRAPH_CHUNK("doc:c1", "Zentraler Omnibusbahnhof München", "Zentraler Omnibusbahnhof München", ["MVV"])]
       : [],
   );
   const retriever = new Text2CypherRetriever({ driver, topK: 5 });
@@ -228,15 +262,15 @@ test("bilingual alias search: English term matches the DE node via its alias (EN
   const hits = await retriever.search("Munich Central Bus Station");
 
   assert.equal(hits.length, 1);
-  assert.equal(hits[0]!.id, "Zentraler Omnibusbahnhof München", "English term resolves to the DE canonical node via aliases");
+  assert.deepEqual(hits[0]!.related, ["Zentraler Omnibusbahnhof München", "MVV"], "English term resolves to the DE canonical node via aliases");
   const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
   assert.equal(call.params.queryText, "munich central bus station", "English query folded to lowercase");
 });
 
-test("fused search surfaces bilingual alias graph hits: German query returns the EN node", async () => {
+test("fused search surfaces graph chunk hits from a bilingual alias match", async () => {
   const { driver } = makeDriver((q, p) => {
     if (q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "zentraler omnibusbahnhof") {
-      return [GRAPH_ENTITY("ZOB München", "central bus station", ["MVV"])];
+      return [GRAPH_CHUNK("doc:c1", "ZOB München bus station", "ZOB München", ["MVV"])];
     }
     return [];
   });
@@ -245,8 +279,8 @@ test("fused search surfaces bilingual alias graph hits: German query returns the
   const response = await service.search("Zentraler Omnibusbahnhof");
 
   assert.ok(
-    response.hits.some((h) => h.id === "ZOB München" && h.source === "graph"),
-    "German term fuses into the EN node via the alias fulltext graph retriever",
+    response.hits.some((h) => h.id === "doc:c1" && h.source === "graph" && h.related?.includes("ZOB München")),
+    "German term fuses into the chunk mentioning the EN node via the alias fulltext graph retriever",
   );
 });
 
@@ -277,7 +311,7 @@ test("Neo4jRetrievalService.search returns fused results and tolerates a failing
   const { driver } = makeDriver((q) => {
     if (q.includes("VECTOR INDEX")) throw new Error("embedding down");
     if (q.includes(CHUNK_TEXT_FTX)) return [CHUNK("c1", "bus")];
-    if (q.includes(ENTITY_NAME_ALIASES_FTX)) return [GRAPH_ENTITY("ZOB", "bus station", [])];
+    if (q.includes(ENTITY_NAME_ALIASES_FTX)) return [GRAPH_CHUNK("doc:c2", "bus station guide", "ZOB", [])];
     return [];
   });
   const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
@@ -286,9 +320,41 @@ test("Neo4jRetrievalService.search returns fused results and tolerates a failing
 
   assert.equal(response.query, "bus station");
   const ids = response.hits.map((h) => h.id).sort();
-  assert.deepEqual(ids, ["ZOB", "c1"], "BM25 + graph still returned when vector failed");
+  assert.deepEqual(ids, ["c1", "doc:c2"], "BM25 + graph chunks still returned when vector failed");
   assert.ok(response.hits.find((h) => h.source === "bm25"));
   assert.ok(response.hits.find((h) => h.source === "graph"));
+});
+
+test("fused search RRF-fuses graph chunks into the ranking (not appended last)", async () => {
+  const { driver } = makeDriver((q) => {
+    if (q.includes("VECTOR INDEX")) return [CHUNK("c1", "tram line 1"), CHUNK("c2", "tram line 2")];
+    if (q.includes(CHUNK_TEXT_FTX)) return [CHUNK("c2", "tram line 2"), CHUNK("c3", "tram line 3")];
+    // graph-only chunk: found by no other source — must rank via its RRF position
+    if (q.includes(ENTITY_NAME_ALIASES_FTX)) return [GRAPH_CHUNK("doc:c9", "tram hub", "ZOB", [])];
+    return [];
+  });
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const response = await service.search("tram");
+
+  const ids = response.hits.map((h) => h.id);
+  assert.ok(ids.includes("doc:c9"), "graph-only chunk fused into the ranked hits");
+  assert.ok(ids.length < 4 || ids.indexOf("doc:c9") < ids.length - 1, "graph chunk participates in fusion order");
+  assert.ok(response.hits.find((h) => h.source === "graph"));
+});
+
+test("fused search dedupes a chunk found by multiple sources (graph vs vector) by id", async () => {
+  const { driver } = makeDriver((q) => {
+    if (q.includes("VECTOR INDEX")) return [CHUNK("doc:c1", "hub", "transport")];
+    if (q.includes(ENTITY_NAME_ALIASES_FTX)) return [GRAPH_CHUNK("doc:c1", "hub", "ZOB")];
+    return [];
+  });
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const response = await service.search("hub");
+
+  const ids = response.hits.map((h) => h.id);
+  assert.equal(new Set(ids).size, ids.length, "no duplicate chunk ids across sources");
 });
 
 test("Neo4jRetrievalService.search returns empty hits when every source fails", async () => {
@@ -411,4 +477,58 @@ test("search without enrichContext leaves hits untouched", async () => {
     !calls.some((c) => c.query.includes("sib.id <> c.id")),
     "no sibling enrichment queries when disabled",
   );
+});
+
+test("search reranks the fused hits with the injected reranker (query + fused top-k)", async () => {
+  const { driver } = makeDriver((q) => {
+    if (q.includes("VECTOR INDEX")) return [CHUNK("c1", "a"), CHUNK("c2", "b"), CHUNK("c3", "c")];
+    return [];
+  });
+  const rerankCalls: Array<{ query: string; count: number }> = [];
+  const reranker: Reranker = {
+    rerank: async (query, hits) => {
+      rerankCalls.push({ query, count: hits.length });
+      return [...hits].reverse();
+    },
+  };
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5, reranker });
+
+  const response = await service.search("tram");
+
+  assert.deepEqual(
+    response.hits.map((h) => h.id),
+    ["c3", "c2", "c1"],
+    "reranker's order wins over the RRF order",
+  );
+  assert.deepEqual(rerankCalls, [{ query: "tram", count: 3 }], "reranker saw the query + fused top-k");
+});
+
+test("search falls back to the RRF-only ranking when the reranker fails", async () => {
+  const { driver } = makeDriver((q) => {
+    if (q.includes("VECTOR INDEX")) return [CHUNK("c1", "a"), CHUNK("c2", "b")];
+    return [];
+  });
+  const reranker: Reranker = {
+    rerank: async () => {
+      throw new Error("rerank endpoint down");
+    },
+  };
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5, reranker });
+
+  const response = await service.search("tram");
+
+  assert.deepEqual(
+    response.hits.map((h) => h.id),
+    ["c1", "c2"],
+    "no regression when reranking is unavailable",
+  );
+});
+
+test("search skips reranking entirely when no reranker is configured", async () => {
+  const { driver } = makeDriver((q) => (q.includes("VECTOR INDEX") ? [CHUNK("c1", "a")] : []));
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const response = await service.search("tram");
+
+  assert.equal(response.hits[0]!.id, "c1");
 });

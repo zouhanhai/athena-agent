@@ -59,7 +59,8 @@ import { ContentDedupStore } from "./kb/dedup.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
 import { OpenRouterEmbedder } from "./kb/embedding.js";
 import { Neo4jIngestService } from "./kb/store/ingest.js";
-import { Neo4jRetrievalService } from "./kb/store/retrieval.js";
+import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
+import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
 
 export interface BuildAppOptions {
@@ -110,7 +111,18 @@ export function defaultNeo4jRetrieval(): Neo4jRetrievalService | undefined {
   return new Neo4jRetrievalService({
     driver: createNeo4jDriver(config),
     embedder: new OpenRouterEmbedder(),
+    // G4.S2.T14: optional local cross-encoder rerank after RRF fusion. Off by default.
+    reranker: createDefaultReranker(),
   });
+}
+
+/** Local cross-encoder reranker (G4.S2.T14) from env: RERANK_URL points at a llama.cpp
+ *  `/rerank` server (e.g. http://127.0.0.1:9632). Returns undefined when unset — pure
+ *  RRF fusion, no reranking. */
+export function createDefaultReranker(): Reranker | undefined {
+  const url = process.env.RERANK_URL;
+  if (!url) return undefined;
+  return new LlamaCppReranker({ baseUrl: url });
 }
 
 export function defaultTaskQueue(): IngestTaskQueue {

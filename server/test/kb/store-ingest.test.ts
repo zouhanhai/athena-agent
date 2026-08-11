@@ -10,7 +10,12 @@ import {
   WIKIPAGE_LABEL,
   type Neo4jDriverLike,
 } from "../../src/kb/store/schema.js";
-import { Neo4jIngestService, parseHeadingPath } from "../../src/kb/store/ingest.js";
+import {
+  Neo4jIngestService,
+  parseHeadingPath,
+  mentionPairs,
+} from "../../src/kb/store/ingest.js";
+import { MENTIONED_IN_TYPE } from "../../src/kb/store/schema.js";
 
 interface RecordedCall {
   query: string;
@@ -329,4 +334,70 @@ test("ingest links a single-segment heading_path (# heading) to one Section", as
     { id: "doc:Alpha", title: "Alpha", path: "Alpha", documentId: "doc" },
   ]);
   assert.equal(chainQuery!.params!.chunkId, "doc:c1");
+});
+
+test("mentionPairs links each entity to the chunks whose text mentions its name or aliases (case-insensitive)", () => {
+  const entities = [
+    { name: "ZOB München", type: "place", description: "bus station", aliases: ["Zentraler Omnibusbahnhof"] },
+    { name: "CALEO", type: "org", description: "company" },
+  ];
+  const chunks = [
+    { id: "c1", text: "Der ZOB München liegt zentral.", heading_path: "# A" },
+    { id: "c2", text: "Zentraler Omnibusbahnhof wird saniert.", heading_path: "# B" },
+    { id: "c3", text: "Die Firma CALEO plant.", heading_path: "# C" },
+    { id: "c4", text: "Kein Erwaehnen hier.", heading_path: "# D" },
+  ];
+
+  const pairs = mentionPairs(entities, chunks, "doc");
+
+  assert.deepEqual(
+    pairs.sort((a, b) => a.entityName.localeCompare(b.entityName) || a.chunkId.localeCompare(b.chunkId)),
+    [
+      { entityName: "CALEO", chunkId: "doc:c3" },
+      { entityName: "ZOB München", chunkId: "doc:c1" },
+      { entityName: "ZOB München", chunkId: "doc:c2" },
+    ],
+    "entity canonical name + aliases match chunks case-insensitively; unmatched chunks get no link",
+  );
+});
+
+test("ingest links each Entity to the Chunks that mention it via MENTIONED_IN (idempotent MERGE)", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [
+      { id: "c1", text: "ZOB München guide", heading_path: "# X" },
+      { id: "c2", text: "CALEO is hiring", heading_path: "# Y" },
+      { id: "c3", text: "nothing", heading_path: "# Z" },
+    ],
+  });
+
+  await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc" });
+
+  const mentionQuery = calls.find((c) => c.query.includes(`:${MENTIONED_IN_TYPE}`));
+  assert.ok(mentionQuery, "MENTIONED_IN linking query issued");
+  assert.match(mentionQuery!.query, /MERGE/, "idempotent (MERGE) entity→chunk link");
+  assert.deepEqual(
+    mentionQuery!.params!.mentions,
+    [
+      { entityName: "CALEO", chunkId: "doc:c2" },
+      { entityName: "ZOB München", chunkId: "doc:c1" },
+    ],
+    "only entity-mentioning chunks are linked, id namespaced by document id",
+  );
+});
+
+test("ingest issues no MENTIONED_IN query when no entity is mentioned in any chunk", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "nothing relevant", heading_path: "# X" }],
+  });
+
+  await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc" });
+
+  const mentionQueries = calls.filter((c) => c.query.includes(`:${MENTIONED_IN_TYPE}`));
+  assert.equal(mentionQueries.length, 0, "no MENTIONED_IN query without any mention");
 });

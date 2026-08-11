@@ -245,10 +245,14 @@ function mapWikiHit(hit: LlmWikiSearchResult): KnowledgeSearchResult {
   };
 }
 
-/** Map a Neo4j fused-retrieval hit to the frontend search result shape (G4.S2.T5/T11). */
+/** Map a Neo4j fused-retrieval hit to the frontend search result shape (G4.S2.T5/T11).
+ *  Graph hits are now chunk hits (G4.S2.T14): `related` holds the entity + neighbors
+ *  context, so the title shows "Entity → neighbor, …" instead of the chunk id. */
 function mapNeo4jHit(hit: Neo4jSearchHit): KnowledgeSearchResult {
   const title =
-    hit.source === "graph" ? (hit.related?.length ? `${hit.id} → ${hit.related.join(", ")}` : hit.id) : hit.id;
+    hit.source === "graph" && hit.related?.length
+      ? `${hit.related[0]}${hit.related.length > 1 ? ` → ${hit.related.slice(1).join(", ")}` : ""}`
+      : hit.id;
   return {
     source: "neo4j",
     title,

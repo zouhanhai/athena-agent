@@ -247,7 +247,7 @@ test("search returns empty results when both systems have nothing", async () => 
 test("search with a Neo4j store fuses Neo4j + llm_wiki hits", async () => {
   const neo4j = stubNeo4j([
     { id: "doc1:c1", text: "bus station guide", topic: "transport", documentId: "doc1", source: "bm25", score: 0.9 },
-    { id: "ZOB München", text: "central bus station", source: "graph", score: 0.8, related: ["CALEO", "MVV"] },
+    { id: "doc1:c2", text: "central bus station", source: "graph", score: 0.8, related: ["ZOB München", "CALEO", "MVV"] },
   ]);
   const llmwiki = stubLlmwiki({
     search: async () => ({
