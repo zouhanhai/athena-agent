@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T19:39:54.580Z",
+  "generated_at": "2026-08-11T20:12:03.101Z",
   "goals": [
     {
       "ref": "G1",
@@ -2055,7 +2055,106 @@
           "owner": "consultant",
           "status": "backlog",
           "milestone": "M4",
-          "tickets": []
+          "tickets": [
+            {
+              "ref": "G4.S3.T1",
+              "id": "s3.1",
+              "title": "G4.S3.T1: Wiki frontmatter schema — read_count / last_reviewed / confidence / topic_history",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S3.T2",
+              "id": "s3.2",
+              "title": "G4.S3.T2: Athena KB review pass — re-topic / re-classify / deprecate / reinforce",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S3.T3",
+              "id": "s3.3",
+              "title": "G4.S3.T3: Incremental re-curation tool — re-topic + topic_history + index rebuild",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S3.T4",
+              "id": "s3.4",
+              "title": "G4.S3.T4: Topic-scoped search — scope retrieval to a topic subtree",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S3.T5",
+              "id": "s3.5",
+              "title": "G4.S3.T5: Feedback loop — thumbs up/down → Q&A pairs + confidence update",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S3.T6",
+              "id": "s3.6",
+              "title": "G4.S3.T6: Terms & QA tab — semantic mappings + Q&A pairs (live query + manual entry)",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S3.T7",
+              "id": "s3.7",
+              "title": "G4.S3.T7: Agentic RAG — query transformation / compression / picker / multi-hop",
+              "owner": "consultant",
+              "status": "backlog",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            }
+          ]
         },
         {
           "ref": "G4.S4",
