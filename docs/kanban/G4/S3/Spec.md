@@ -34,6 +34,21 @@ See `docs/spec-m4-kb-confidence-lifecycle.md` and the M4 KB items in `TODO.md`. 
 - **Topic-scoped search**: let a query search within a topic subtree (pre-filter candidates by wiki frontmatter
   topic before semantic scoring), for agentic-RAG scoping + precision on large corpora.
 
+## Agentic RAG optimizations (added 2026-08-11, from docs/retrieval-analysis.md)
+
+These need an LLM in the retrieval/generation path (deviate from S2's pure-storage lean design).
+Decompose into tickets during S3 planning:
+
+1. **Query Transformation**: if a user question is too broad, ask back for detail; or decompose the
+   query into multiple sub-queries and run them in parallel, then fuse.
+2. **Compression**: after recall, an LLM distills the retrieved chunks into a concise summary before
+   output — controls token use and removes noise.
+3. **Agentic retriever picker** (ToolsRetriever already exists but defaults to "hybrid"): the LLM picks
+   the best retriever (vector/bm25/graph/hybrid) per query.
+4. **Multi-hop graph reasoning**: the LLM walks the Entity/Relation graph over multiple hops to
+   discover indirect associations the single-hop retriever misses.
+
+
 ## Dependencies
 
 - G4.S1 (refinement), G4.S2 (RAG).
