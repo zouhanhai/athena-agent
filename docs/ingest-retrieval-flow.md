@@ -128,3 +128,58 @@ Athena 是唯一 LLM pass → 所有"额外生成"（small chunks、summary、hi
 - **Retrieval**：优化在 Retrieval pipeline 增强（rerank、enrich、compression）
 - 两者互补：Ingest 决定"存什么"，Retrieval 决定"怎么取"
 
+---
+
+## RAG ↔ Wiki 融合图模型（2026-08-11）
+
+### 目标
+
+让 RAG（Neo4j chunk）和 wiki（llm_wiki 文件）**不再是两个分离系统**，
+而是通过图关系融合成一个整体：检索到 chunk 能连到对应 wiki 页面。
+
+### 当前分离状态
+
+- Document 节点有 `md_ref`（refinement 文件），但**无 wiki 文件路径关联**
+- Chunk **无 PART_OF 关系**（只用 documentId 字符串）
+- **无 WikiPage 节点**（wiki 文件没进图）
+
+### 目标图模型
+
+```
+(:WikiPage {path: "wiki/internal/events/Infos....pdf.md", topic, title})
+    │
+    └─[:IS_DOCUMENT]─ (:Document {id, title, topic, md_ref})
+                          │
+                          └─[:HAS_SECTION]→ (:Section {title})   ← H1
+                                              │
+                                              └─[:HAS_SUBSECTION]→ (:Section {title})  ← H2
+                                                                      │
+                                                                      └─[:PART_OF]← (:Chunk {id, text, embedding})
+```
+
+### 关键关系
+
+| 关系 | 含义 |
+|------|------|
+| `WikiPage -[:IS_DOCUMENT]-> Document` | wiki 文件 = RAG 文档（桥接）|
+| `Document -[:HAS_SECTION]-> Section` | 文档的顶级 section |
+| `Section -[:HAS_SUBSECTION]-> Section` | section 层级（从 heading_path 解析）|
+| `Section <-[:PART_OF]- Chunk` | chunk 属于某 section |
+
+### 融合好处
+
+1. **chunk → wiki**：`(c:Chunk)-[:PART_OF]->(:Section)-...->(:Document)-[:IS_DOCUMENT]-(:WikiPage)` 检索后直接给 wiki 链接
+2. **wiki → RAG**：浏览 wiki 树可关联该文件 chunks/entities
+3. **Context Enrich**：同 section chunk + wiki 位置
+4. **Entity → 文档**：Entity 关联提到它的文档 → wiki 页面
+
+### 实现（ingest 时）
+
+- Athena heading_path 按 `/` 拆成 Section 链 → 建 Section 节点 + HAS_SUBSECTION
+- Document 关联 WikiPage（wiki 写入路径）
+- Chunk PART_OF 到最深层 Section
+
+### 待办
+- [ ] 拆 tickets：删 LightRAG / Section+WikiPage 节点化 / Context Enrich / Athena summary
+
+
