@@ -22,6 +22,12 @@ import {
   DOCUMENT_LABEL,
   ENTITY_LABEL,
   ENTITY_RELATION_TYPE,
+  HAS_SECTION_TYPE,
+  HAS_SUBSECTION_TYPE,
+  IS_DOCUMENT_TYPE,
+  PART_OF_TYPE,
+  SECTION_LABEL,
+  WIKIPAGE_LABEL,
   applyNeo4jSchema,
   entityNodeProps,
   relationEdgeProps,
@@ -44,6 +50,9 @@ export interface Neo4jIngestInput {
   documentId: string;
   /** Document title (llm_wiki display / Document.title). */
   title: string;
+  /** The llm_wiki page path written for this doc (e.g. "wiki/events/doc.md"). When
+   *  present, a WikiPage node is created and bridged to the Document (G4.S2.T11). */
+  wikiPath?: string;
 }
 
 export interface Neo4jIngestResult {
@@ -56,6 +65,33 @@ const DEFAULT_READ_CHUNKS: (chunksRef: string) => Promise<RefinementChunk[]> = a
   const raw = await readFile(chunksRef, "utf8");
   return JSON.parse(raw) as RefinementChunk[];
 };
+
+/**
+ * Parse a chunk's `heading_path` into its heading segments (G4.S2.T11). The path
+ * format is the refinement's heading chain, e.g. "Sommerseminar / Workshops" (or
+ * legacy "# Alpha"); each segment is trimmed and any markdown heading markers
+ * ("#") are stripped. Empty paths yield no sections.
+ */
+export function parseHeadingPath(headingPath: string): string[] {
+  return headingPath
+    .split("/")
+    .map((segment) => segment.trim().replace(/^#+\s*/, ""))
+    .filter((segment) => segment.length > 0);
+}
+
+/**
+ * Build the Section chain for a chunk's heading path: one node per heading level
+ * with a stable id (`<documentId>:<accumulated path>`), `title` = its own heading
+ * text and `path` = the accumulated heading chain (used as the sectionPath at
+ * retrieval). Ordered H1 → H2 → … → deepest.
+ */
+export function sectionChain(documentId: string, headingPath: string): Array<{ id: string; title: string; path: string; documentId: string }> {
+  let accumulated = "";
+  return parseHeadingPath(headingPath).map((segment) => {
+    accumulated = accumulated ? `${accumulated} / ${segment}` : segment;
+    return { id: `${documentId}:${accumulated}`, title: segment, path: accumulated, documentId };
+  });
+}
 
 export class Neo4jIngestService {
   private readonly driver: Neo4jDriverLike;
@@ -98,14 +134,33 @@ export class Neo4jIngestService {
         },
       );
 
+      // RAG↔Wiki fusion bridge (G4.S2.T11): a WikiPage node per llm_wiki page,
+      // Document -[:IS_DOCUMENT]-> WikiPage. Skipped when no wiki path is known
+      // (legacy direct ingest).
+      if (input.wikiPath) {
+        await session.run(
+          `MATCH (d:${DOCUMENT_LABEL} {id: $documentId})
+           MERGE (wp:${WIKIPAGE_LABEL} {id: $wikiPath})
+           SET wp.path = $wikiPath, wp.topic = $topic, wp.title = $title
+           MERGE (d)-[:${IS_DOCUMENT_TYPE}]->(wp)`,
+          {
+            documentId: input.documentId,
+            wikiPath: input.wikiPath,
+            topic: input.ref.frontmatter?.topic ?? "",
+            title: input.title,
+          },
+        );
+      }
+
       for (let i = 0; i < chunks.length; i += 1) {
         const chunk = chunks[i]!;
+        const chunkId = `${input.documentId}:${chunk.id}`;
         await session.run(
           `MERGE (c:${CHUNK_LABEL} {id: $id})
            SET c.text = $text, c.embedding = $embedding, c.topic = $topic, c.heading_path = $heading_path,
                c.documentId = $documentId`,
           {
-            id: `${input.documentId}:${chunk.id}`,
+            id: chunkId,
             text: chunk.text,
             embedding: embeddings[i] ?? [],
             topic: input.ref.frontmatter?.topic ?? "",
@@ -113,6 +168,33 @@ export class Neo4jIngestService {
             documentId: input.documentId,
           },
         );
+
+        // Section chain (H1 → H2 → … → deepest): Document -[:HAS_SECTION]-> H1,
+        // Section -[:HAS_SUBSECTION]-> child, Chunk -[:PART_OF]-> deepest. MERGE
+        // everywhere = idempotent on re-ingest. The Document/Chunk are MATCHed
+        // (already created by the queries above) — MERGE-ing them inside a
+        // multi-node pattern would trip the unique-constraint conflict when the
+        // node exists but the pattern doesn't yet. A chunk with no heading
+        // segments simply keeps no PART_OF edge (matches pre-T11 behavior).
+        const sections = sectionChain(input.documentId, chunk.heading_path ?? "");
+        if (sections.length > 0) {
+          await session.run(
+            `MATCH (d:${DOCUMENT_LABEL} {id: $documentId})
+             UNWIND $sections AS s
+             MERGE (sec:${SECTION_LABEL} {id: s.id})
+             SET sec.title = s.title, sec.path = s.path, sec.documentId = s.documentId
+             WITH d, collect(sec) AS chain
+             WITH d, chain, chain[0] AS first, chain[size(chain) - 1] AS deepest
+             MATCH (c:${CHUNK_LABEL} {id: $chunkId})
+             MERGE (d)-[:${HAS_SECTION_TYPE}]->(first)
+             MERGE (c)-[:${PART_OF_TYPE}]->(deepest)
+             WITH c, chain
+             UNWIND [i IN range(0, size(chain) - 2)] AS i
+             WITH c, chain[i] AS parent, chain[i + 1] AS child
+             MERGE (parent)-[:${HAS_SUBSECTION_TYPE}]->(child)`,
+            { documentId: input.documentId, sections, chunkId },
+          );
+        }
       }
 
       for (const entity of input.ref.entities ?? []) {

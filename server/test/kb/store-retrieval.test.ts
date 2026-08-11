@@ -329,3 +329,86 @@ test("retrieval hits carry documentId + topic for downstream mapping", async () 
   assert.equal(hit.documentId, "doc-c1");
   assert.equal(hit.topic, "transport");
 });
+
+test("vector retriever joins chunks to their Section chain and Document → WikiPage", async () => {
+  const { driver, calls } = makeDriver((q) => (q.includes("VECTOR INDEX") ? [CHUNK("c1", "bus")] : []));
+  const retriever = new VectorRetriever({ driver, embedder: stubEmbedder, topK: 5 });
+
+  await retriever.search("bus");
+
+  const call = calls.find((c) => c.query.includes("VECTOR INDEX"))!;
+  assert.match(call.query, /PART_OF/, "joins the chunk to its Section");
+  assert.match(call.query, /IS_DOCUMENT/, "joins Document → WikiPage");
+  assert.match(call.query, /sectionPath/, "returns the section heading path");
+  assert.match(call.query, /wikiPath/, "returns the wiki page path");
+});
+
+test("chunk hits carry wikiPath + sectionPath from the section/wiki join", async () => {
+  const { driver } = makeDriver((q) =>
+    q.includes(CHUNK_TEXT_FTX)
+      ? [{ ...CHUNK("c1", "bus"), sectionPath: "Alpha / Beta", wikiPath: "wiki/transport/bus.md" }]
+      : [],
+  );
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const { hits } = await service.search("bus");
+  const hit: Neo4jSearchHit = hits[0]!;
+  assert.equal(hit.sectionPath, "Alpha / Beta");
+  assert.equal(hit.wikiPath, "wiki/transport/bus.md");
+});
+
+test("sameSectionTexts returns the sibling chunks that share the hit's deepest Section", async () => {
+  const { driver } = makeDriver((q) => {
+    if (q.includes("sib.id <> c.id")) {
+      return [
+        { id: "doc:c2", text: "sibling two", topic: "transport", documentId: "doc", sectionPath: "Alpha / Beta" },
+        { id: "doc:c3", text: "sibling three", topic: "transport", documentId: "doc", sectionPath: "Alpha / Beta" },
+      ];
+    }
+    return [];
+  });
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const texts = await service.sameSectionTexts({ id: "doc:c1" }, 4);
+  assert.deepEqual(texts, ["sibling two", "sibling three"]);
+});
+
+test("sameSectionTexts scopes sibling lookup to the hit's deepest Section", async () => {
+  const { driver, calls } = makeDriver(() => [{ id: "doc:c2", text: "sibling two" }]);
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  await service.sameSectionTexts({ id: "doc:c1" }, 2);
+
+  const call = calls.find((c) => c.query.includes("sib.id <> c.id"))!;
+  assert.deepEqual(call.params, { id: "doc:c1", limit: 2 }, "matches by chunk id + limits");
+  assert.match(call.query, /PART_OF/, "traverses through the shared Section");
+  assert.match(call.query, /sib.id <> c.id/, "excludes the hit chunk itself");
+});
+
+test("search with enrichContext attaches same-section sibling texts to chunk hits", async () => {
+  const { driver } = makeDriver((q, p) => {
+    if (q.includes("VECTOR INDEX")) return [CHUNK("c1", "bus"), CHUNK("c2", "tram")];
+    if (q.includes("sib.id <> c.id")) {
+      return p.id === "c1" ? [{ id: "doc-c1:c9", text: "same-section sibling" }] : [];
+    }
+    return [];
+  });
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const { hits } = await service.search("bus", { enrichContext: true });
+  const bus = hits.find((h) => h.id === "c1")!;
+  assert.deepEqual(bus.siblings, ["same-section sibling"], "same-section context attached");
+  assert.ok(!("siblings" in hits.find((h) => h.id === "c2")!), "no siblings when the section has none");
+});
+
+test("search without enrichContext leaves hits untouched", async () => {
+  const { driver, calls } = makeDriver((q) => (q.includes(CHUNK_TEXT_FTX) ? [CHUNK("c1", "bus")] : []));
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const { hits } = await service.search("bus");
+  assert.equal(hits[0]!.siblings, undefined);
+  assert.ok(
+    !calls.some((c) => c.query.includes("sib.id <> c.id")),
+    "no sibling enrichment queries when disabled",
+  );
+});

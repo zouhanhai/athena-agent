@@ -21,10 +21,16 @@
 import type { TextEmbedder } from "../embedding.js";
 import {
   CHUNK_EMBEDDING_INDEX,
+  CHUNK_LABEL,
   CHUNK_TEXT_FTX,
+  DOCUMENT_LABEL,
   ENTITY_LABEL,
   ENTITY_NAME_ALIASES_FTX,
   ENTITY_RELATION_TYPE,
+  IS_DOCUMENT_TYPE,
+  PART_OF_TYPE,
+  SECTION_LABEL,
+  WIKIPAGE_LABEL,
   type Neo4jDriverLike,
 } from "./schema.js";
 
@@ -44,6 +50,13 @@ export interface Neo4jSearchHit {
   score: number;
   /** 1-2 hop neighbor entity names (graph hits). */
   related?: string[];
+  /** Wiki page path of the hit's document, via Document -[:IS_DOCUMENT]-> WikiPage
+   *  (RAG↔Wiki fusion, G4.S2.T11). Present on chunk hits with a bridged wiki page. */
+  wikiPath?: string;
+  /** Heading path of the chunk's deepest Section (e.g. "Sommerseminar / Workshops"). */
+  sectionPath?: string;
+  /** Same-section sibling chunk texts (context enrichment, G4.S2.T11). */
+  siblings?: string[];
 }
 
 export interface Neo4jSearchResponse {
@@ -55,6 +68,10 @@ export interface Neo4jSearchOptions {
   /** Converge to a document domain: exact chunk.topic filter (case-insensitive). */
   topic?: string;
   topK?: number;
+  /** Attach same-section sibling chunk texts to each chunk hit (context enrichment). Default false. */
+  enrichContext?: boolean;
+  /** Max sibling chunks per hit when enrichContext is on. Default: 4. */
+  contextSize?: number;
 }
 
 /** Tool names a ToolsRetriever picker can select. */
@@ -142,10 +159,18 @@ function mapChunkRow(
     text: str(record, "text") ?? "",
     ...(str(record, "topic") !== undefined ? { topic: str(record, "topic") } : {}),
     ...(str(record, "documentId") !== undefined ? { documentId: str(record, "documentId") } : {}),
+    ...(str(record, "sectionPath") !== undefined ? { sectionPath: str(record, "sectionPath") } : {}),
+    ...(str(record, "wikiPath") !== undefined ? { wikiPath: str(record, "wikiPath") } : {}),
     source,
     score,
   };
 }
+
+/** Cypher suffix joining a matched chunk to its Section chain + Document → WikiPage
+ *  so every chunk hit carries sectionPath + wikiPath (RAG↔Wiki fusion, G4.S2.T11). */
+const CHUNK_WIKI_JOIN =
+  `OPTIONAL MATCH (c)-[:${PART_OF_TYPE}]->(sec:${SECTION_LABEL})\n` +
+  `OPTIONAL MATCH (d:${DOCUMENT_LABEL} {id: c.documentId})-[:${IS_DOCUMENT_TYPE}]->(wp:${WIKIPAGE_LABEL})\n`;
 
 /** Build the (optional) in-index topic predicate for a SEARCH…WHERE filter. */
 function topicWhereParam(topic: string | undefined): { clause: string; topics?: string[] } {
@@ -176,14 +201,16 @@ export class VectorRetriever {
     const cypher =
       `CYPHER 25
 ` +
-      `MATCH (c:Chunk)\n` +
+      `MATCH (c:${CHUNK_LABEL})\n` +
       `  SEARCH c IN (\n` +
       `    VECTOR INDEX ${CHUNK_EMBEDDING_INDEX}\n` +
       `    FOR $embedding\n` +
       `${clause}\n` +
       `    LIMIT $topK\n` +
       `  ) SCORE AS score\n` +
-      `RETURN c.id AS id, c.text AS text, c.topic AS topic, c.documentId AS documentId, score\n` +
+      CHUNK_WIKI_JOIN +
+      `RETURN c.id AS id, c.text AS text, c.topic AS topic, c.documentId AS documentId,\n` +
+      `       sec.path AS sectionPath, wp.path AS wikiPath, score\n` +
       `ORDER BY score DESC`;
     const records = await runRecords(this.driver, cypher, params);
     return records.map((r) => mapChunkRow(r, "vector", num(r, "score")));
@@ -210,7 +237,10 @@ export class Bm25Retriever {
     const cypher =
       `CALL db.index.fulltext.queryNodes('${CHUNK_TEXT_FTX}', $queryText) YIELD node AS c, score` +
       topicFilter +
-      `\nRETURN c.id AS id, c.text AS text, c.topic AS topic, c.documentId AS documentId, score\n` +
+      `\n` +
+      CHUNK_WIKI_JOIN +
+      `RETURN c.id AS id, c.text AS text, c.topic AS topic, c.documentId AS documentId,\n` +
+      `       sec.path AS sectionPath, wp.path AS wikiPath, score\n` +
       `ORDER BY score DESC\n` +
       `LIMIT $topK`;
     const records = await runRecords(this.driver, cypher, params);
@@ -375,7 +405,9 @@ export class Neo4jRetrievalService {
     this.picker = options.picker ?? DEFAULT_PICKER;
   }
 
-  /** Fused search: vector + BM25 (RRF) + graph, topic-scoped, tolerant of failures. */
+  /** Fused search: vector + BM25 (RRF) + graph, topic-scoped, tolerant of failures.
+   *  With `enrichContext`, each chunk hit is enriched with its same-section sibling
+   *  chunk texts (G4.S2.T11) — best-effort, a failing enrichment never kills the search. */
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchResponse> {
     const topK = options.topK ?? this.topK;
     const [vector, bm25, graph] = await Promise.allSettled([
@@ -388,7 +420,33 @@ export class Neo4jRetrievalService {
     const graphHits = graph.status === "fulfilled" ? graph.value : [];
     const fused = rrfFuse([vectorHits, bm25Hits], topK);
     const hits = [...fused, ...graphHits];
+
+    if (options.enrichContext) {
+      const contextSize = options.contextSize ?? 4;
+      for (const hit of hits) {
+        if (!hit.documentId) continue;
+        const siblings = await this.sameSectionTexts(hit, contextSize).catch(() => []);
+        if (siblings.length > 0) hit.siblings = siblings;
+      }
+    }
+
     return { query, hits };
+  }
+
+  /**
+   * Context enrichment (G4.S2.T11): return the texts of the sibling chunks that
+   * share the hit's deepest Section. Best-effort — callers should .catch(() => []).
+   */
+  async sameSectionTexts(hit: { id: string }, limit = 4): Promise<string[]> {
+    const cypher =
+      `MATCH (c:${CHUNK_LABEL} {id: $id})-[:${PART_OF_TYPE}]->(sec:${SECTION_LABEL})\n` +
+      `MATCH (sib:${CHUNK_LABEL})-[:${PART_OF_TYPE}]->(sec)\n` +
+      `WHERE sib.id <> c.id\n` +
+      `RETURN sib.text AS text\n` +
+      `ORDER BY sib.id\n` +
+      `LIMIT $limit`;
+    const records = await runRecords(this.options.driver, cypher, { id: hit.id, limit });
+    return records.map((r) => str(r, "text") ?? "");
   }
 
   /** Agentic retrieval: the LLM picker chooses the best retriever per query. */

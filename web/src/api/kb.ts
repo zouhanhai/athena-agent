@@ -47,6 +47,12 @@ export interface KnowledgeSearchResult {
   snippet: string;
   path?: string;
   score?: number;
+  /** Wiki page path of a neo4j chunk hit (RAG↔Wiki fusion, G4.S2.T11). */
+  wikiPath?: string;
+  /** Heading path of a neo4j chunk hit's Section. */
+  sectionPath?: string;
+  /** Same-section sibling chunk texts (context enrichment, G4.S2.T11). */
+  siblings?: string[];
 }
 
 export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "ingesting_neo4j";

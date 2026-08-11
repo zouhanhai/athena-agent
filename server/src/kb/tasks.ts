@@ -12,8 +12,9 @@ import { dirname, relative } from "node:path";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
-import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTitle } from "./ingest.js";
+import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTitle, categoryDir } from "./ingest.js";
 import type { WikiClassification } from "./llmwiki.js";
+import { isValidTopic } from "./llmwiki.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { ContentDedupStore } from "./dedup.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
@@ -55,6 +56,21 @@ export interface TaskStage {
 }
 
 const NEO4J_STEPS: Neo4jStepName[] = ["embed_store"];
+
+/**
+ * Derive the llm_wiki page path that will be (or was) written for this doc —
+ * mirrors ingestLlmWiki's `wiki/<topic|category>/<fileName>` layout so the Neo4j
+ * WikiPage bridge points at the real page (G4.S2.T11). Unknown classification →
+ * undefined (no WikiPage bridge).
+ */
+function wikiPathFor(fileName: string, preclassified?: WikiClassification): string | undefined {
+  if (!preclassified) return undefined;
+  const subDir =
+    preclassified.topic && isValidTopic(preclassified.topic)
+      ? preclassified.topic
+      : categoryDir(preclassified.category);
+  return `wiki/${subDir}/${fileName}`;
+}
 
 /** Fresh pending sub-steps for a stage, e.g. `["read_file", "parse_ocr_image_desc"]`. */
 export function initialSteps(stage: TaskStageName): TaskStep[] {
@@ -453,10 +469,12 @@ export class IngestTaskQueue {
           ? await this.safeIngest(() => {
               const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
               const documentId = task.documentId ?? documentIdFrom(source, source);
+              const wikiPath = wikiPathFor(fileName!, preclassified);
               return this.neo4j!.ingest({
                 ref: refinementRef!,
                 documentId,
                 title,
+                ...(wikiPath ? { wikiPath } : {}),
               }).then((r) => ({ ok: true, count: r.chunksStored }));
             })
           : { ok: true };

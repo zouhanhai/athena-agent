@@ -19,7 +19,7 @@ function stubLlmwiki(overrides: Partial<LlmWikiClient> = {}): LlmWikiClient {
 }
 
 function stubNeo4j(
-  hits: Array<Partial<{ id: string; text: string; topic?: string; documentId?: string; source: string; score: number; related: string[] }>> = [],
+  hits: Array<Partial<{ id: string; text: string; topic?: string; documentId?: string; source: string; score: number; related: string[]; wikiPath?: string; sectionPath?: string; siblings?: string[] }>> = [],
   graph: { nodes: { id: string; label: string; type?: string }[]; edges: { source: string; target: string }[] } = { nodes: [], edges: [] },
 ): Neo4jRetrievalService {
   return {
@@ -33,6 +33,9 @@ function stubNeo4j(
         source: (h.source ?? "bm25") as "vector" | "bm25" | "graph",
         score: h.score ?? 0.9,
         ...(h.related ? { related: h.related } : {}),
+        ...(h.wikiPath !== undefined ? { wikiPath: h.wikiPath } : {}),
+        ...(h.sectionPath !== undefined ? { sectionPath: h.sectionPath } : {}),
+        ...(h.siblings ? { siblings: h.siblings } : {}),
       })),
     }),
     toolsSearch: async () => ({ query: "", hits: [] }),
@@ -281,4 +284,28 @@ test("search with a failing Neo4j store still returns llm_wiki hits", async () =
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0]!.source, "llmwiki");
   assert.equal(result.results[0]!.path, "runbook.md");
+});
+
+test("search maps Neo4j hits with wikiPath + sectionPath + same-section siblings onto KnowledgeSearchResult", async () => {
+  const neo4j = stubNeo4j([
+    {
+      id: "doc1:c1",
+      text: "bus station guide",
+      topic: "transport",
+      documentId: "doc1",
+      source: "bm25",
+      score: 0.9,
+      wikiPath: "wiki/transport/bus.md",
+      sectionPath: "Alpha / Beta",
+      siblings: ["same-section neighbor"],
+    },
+  ]);
+  const service = makeService({ llmwiki: stubLlmwiki({ search: async () => ({ results: [] }) }), neo4j });
+
+  const result = await service.search("bus station");
+
+  const neoHit = result.results.find((r) => r.source === "neo4j")!;
+  assert.equal(neoHit.wikiPath, "wiki/transport/bus.md");
+  assert.equal(neoHit.sectionPath, "Alpha / Beta");
+  assert.deepEqual(neoHit.siblings, ["same-section neighbor"]);
 });

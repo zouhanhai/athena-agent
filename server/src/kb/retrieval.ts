@@ -71,6 +71,12 @@ export interface KnowledgeSearchResult {
   snippet: string;
   path?: string;
   score?: number;
+  /** Wiki page path of a neo4j chunk hit (RAG↔Wiki fusion, G4.S2.T11). */
+  wikiPath?: string;
+  /** Heading path of a neo4j chunk hit's Section (e.g. "Sommerseminar / Workshops"). */
+  sectionPath?: string;
+  /** Same-section sibling chunk texts (context enrichment, G4.S2.T11). */
+  siblings?: string[];
 }
 
 export interface KnowledgeSearchResponse {
@@ -173,7 +179,7 @@ export class KnowledgeRetrievalService {
     const project = await this.resolveProject();
     const [neo4jResult, wiki] = await Promise.allSettled([
       this.neo4j
-        ? this.neo4j.search(query, { topic: options.topic, topK: 5 })
+        ? this.neo4j.search(query, { topic: options.topic, topK: 5, enrichContext: true })
         : Promise.resolve(null),
       this.llmwiki.search(project.id, query, { topK: 5 }),
     ]);
@@ -239,7 +245,7 @@ function mapWikiHit(hit: LlmWikiSearchResult): KnowledgeSearchResult {
   };
 }
 
-/** Map a Neo4j fused-retrieval hit to the frontend search result shape (G4.S2.T5). */
+/** Map a Neo4j fused-retrieval hit to the frontend search result shape (G4.S2.T5/T11). */
 function mapNeo4jHit(hit: Neo4jSearchHit): KnowledgeSearchResult {
   const title =
     hit.source === "graph" ? (hit.related?.length ? `${hit.id} → ${hit.related.join(", ")}` : hit.id) : hit.id;
@@ -248,6 +254,9 @@ function mapNeo4jHit(hit: Neo4jSearchHit): KnowledgeSearchResult {
     title,
     snippet: hit.text,
     ...(hit.documentId ? { path: `chunk/${hit.documentId}` } : {}),
+    ...(hit.wikiPath !== undefined ? { wikiPath: hit.wikiPath } : {}),
+    ...(hit.sectionPath !== undefined ? { sectionPath: hit.sectionPath } : {}),
+    ...(hit.siblings && hit.siblings.length > 0 ? { siblings: hit.siblings } : {}),
     score: hit.score,
   };
 }

@@ -6,9 +6,10 @@ import {
   DOCUMENT_LABEL,
   ENTITY_LABEL,
   ENTITY_RELATION_TYPE,
+  WIKIPAGE_LABEL,
   type Neo4jDriverLike,
 } from "../../src/kb/store/schema.js";
-import { Neo4jIngestService } from "../../src/kb/store/ingest.js";
+import { Neo4jIngestService, parseHeadingPath } from "../../src/kb/store/ingest.js";
 
 interface RecordedCall {
   query: string;
@@ -90,7 +91,9 @@ test("ingest stores Chunk nodes with embedding, text, topic and heading_path", a
 
   await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc" });
 
-  const chunkQueries = calls.filter((c) => c.query.startsWith("MERGE") && c.query.includes(`${CHUNK_LABEL}`));
+  const chunkQueries = calls.filter(
+    (c) => c.query.startsWith("MERGE") && c.query.includes(`${CHUNK_LABEL}`) && !c.query.includes("UNWIND $sections"),
+  );
   assert.equal(chunkQueries.length, 2, "one MERGE per chunk");
   const first = chunkQueries[0]!.params!;
   assert.equal(first.id, "doc:c1", "chunk id namespaced by document id");
@@ -151,7 +154,12 @@ test("ingest stores the Document node with topic, type, md_ref, title and keywor
 
   await service.ingest({ ref: makeRef(), documentId: "doc", title: "Sommerseminar" });
 
-  const docQuery = calls.find((c) => c.query.startsWith("MERGE") && c.query.includes(`:${DOCUMENT_LABEL}`));
+  const docQuery = calls.find(
+    (c) =>
+      c.query.startsWith("MERGE") &&
+      c.query.includes(`:${DOCUMENT_LABEL}`) &&
+      !c.query.includes("UNWIND $sections"),
+  );
   assert.ok(docQuery, "Document MERGE issued");
   assert.deepEqual(docQuery!.params, {
     id: "doc",
@@ -173,11 +181,106 @@ test("ingest is idempotent-safe: MERGE (not CREATE) for chunks, entities and doc
 
   await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc" });
 
-  const chunkQueries = calls.filter((c) => c.query.startsWith("MERGE") && c.query.includes(`${CHUNK_LABEL}`));
+  const chunkQueries = calls.filter(
+    (c) => c.query.startsWith("MERGE") && c.query.includes(`${CHUNK_LABEL}`) && !c.query.includes("UNWIND $sections"),
+  );
   const entityQueries = calls.filter((c) => c.query.startsWith("MERGE") && c.query.includes(`:${ENTITY_LABEL}`));
-  const docQueries = calls.filter((c) => c.query.startsWith("MERGE") && c.query.includes(`:${DOCUMENT_LABEL}`));
+  const docQueries = calls.filter(
+    (c) =>
+      c.query.startsWith("MERGE") &&
+      c.query.includes(`:${DOCUMENT_LABEL}`) &&
+      !c.query.includes("UNWIND $sections"),
+  );
   for (const q of [...chunkQueries, ...entityQueries, ...docQueries]) {
     assert.match(q.query, /MERGE/, `MERGE used: ${q.query}`);
   }
   assert.equal(docQueries.length, 1);
+});
+
+test("parseHeadingPath splits a heading_path on '/' and strips markdown markers", () => {
+  assert.deepEqual(parseHeadingPath("Alpha / Beta / Gamma"), ["Alpha", "Beta", "Gamma"]);
+  assert.deepEqual(parseHeadingPath("  Sommerseminar  /  Workshops  "), ["Sommerseminar", "Workshops"]);
+  assert.deepEqual(parseHeadingPath("# Alpha"), ["Alpha"]);
+  assert.deepEqual(parseHeadingPath(""), []);
+});
+
+test("ingest creates the WikiPage node and bridges Document → WikiPage (IS_DOCUMENT)", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "x", heading_path: "# Alpha" }],
+  });
+
+  await service.ingest({
+    ref: makeRef(),
+    documentId: "doc",
+    title: "Sommerseminar",
+    wikiPath: "wiki/events/doc.md",
+  });
+
+  const wpQuery = calls.find((c) => c.query.includes(`:${WIKIPAGE_LABEL}`) && c.query.includes("MERGE"));
+  assert.ok(wpQuery, "WikiPage MERGE issued");
+  const params = wpQuery!.params!;
+  assert.equal(params.wikiPath, "wiki/events/doc.md", "WikiPage id = the wiki page path");
+  assert.equal(params.documentId, "doc");
+  assert.equal(params.title, "Sommerseminar");
+  assert.ok(wpQuery!.query.includes("IS_DOCUMENT"), "Document -[:IS_DOCUMENT]-> WikiPage bridge");
+});
+
+test("ingest skips WikiPage when no wikiPath is known (legacy direct ingest)", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "x", heading_path: "# X" }],
+  });
+
+  await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc" });
+
+  const wpQueries = calls.filter((c) => c.query.includes(`:${WIKIPAGE_LABEL}`) && c.query.includes("MERGE"));
+  assert.equal(wpQueries.length, 0, "no WikiPage nodes without a wiki path");
+});
+
+test("ingest parses heading_path into a Section chain and links Chunk → deepest Section", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "x", heading_path: "Alpha / Beta / Gamma" }],
+  });
+
+  await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc", wikiPath: "wiki/events/doc.md" });
+
+  const chainQuery = calls.find((c) => c.query.includes("UNWIND $sections"));
+  assert.ok(chainQuery, "section chain query issued");
+  assert.deepEqual(chainQuery!.params!.sections, [
+    { id: "doc:Alpha", title: "Alpha", path: "Alpha", documentId: "doc" },
+    { id: "doc:Alpha / Beta", title: "Beta", path: "Alpha / Beta", documentId: "doc" },
+    { id: "doc:Alpha / Beta / Gamma", title: "Gamma", path: "Alpha / Beta / Gamma", documentId: "doc" },
+  ]);
+  assert.equal(chainQuery!.params!.chunkId, "doc:c1", "Chunk linked to the deepest Section");
+  const q = chainQuery!.query;
+  assert.match(q, /HAS_SECTION/, "Document -[:HAS_SECTION]-> first Section");
+  assert.match(q, /HAS_SUBSECTION/, "Section -[:HAS_SUBSECTION]-> child Section");
+  assert.match(q, /PART_OF/, "Chunk -[:PART_OF]-> deepest Section");
+  assert.match(q, /MERGE/, "idempotent (MERGE) section chain");
+});
+
+test("ingest links a single-segment heading_path (# heading) to one Section", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "x", heading_path: "# Alpha" }],
+  });
+
+  await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc", wikiPath: "wiki/events/doc.md" });
+
+  const chainQuery = calls.find((c) => c.query.includes("UNWIND $sections"));
+  assert.ok(chainQuery, "section chain query issued");
+  assert.deepEqual(chainQuery!.params!.sections, [
+    { id: "doc:Alpha", title: "Alpha", path: "Alpha", documentId: "doc" },
+  ]);
+  assert.equal(chainQuery!.params!.chunkId, "doc:c1");
 });
