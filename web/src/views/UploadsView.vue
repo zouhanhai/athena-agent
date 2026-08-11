@@ -84,15 +84,28 @@ function friendlyStep(step: { name: string }): string {
   return step.name.replace(/_/g, " ");
 }
 
-/** Refinement summary for a task (G4.S1.T4): "type=topic" + quality action.
+/** Refinement summary for a task (G4.S1.T4): labeled type/topic/action + stats.
  *  Empty when the refinement stage has not produced output yet. */
 function refinementText(task: IngestTaskItem): string {
   const fm = task.refinement?.frontmatter;
   const quality = task.refinement?.quality;
   if (!fm) return "";
-  const parts = [`${fm.type}${fm.topic ? " / " + fm.topic : ""}`];
-  if (quality?.action) parts.push(quality.action === "review_required" ? "review needed" : "accepted");
+  const parts: string[] = [];
+  if (fm.type) parts.push(`Type: ${fm.type}`);
+  if (fm.topic) parts.push(`Topic: ${fm.topic}`);
+  if (quality?.action) parts.push(quality.action === "review_required" ? "Review needed" : "Accepted");
+  const chunks = task.refinement?.chunk_count;
+  if (chunks) parts.push(`${chunks} chunks`);
+  const entities = task.refinement?.entities?.length;
+  if (entities) parts.push(`${entities} entities`);
   return parts.join(" · ");
+}
+
+/** Human-readable elapsed time between createdAt and updatedAt (ms). */
+function formatDuration(task: IngestTaskItem): string {
+  const ms = Math.max(0, task.updatedAt - task.createdAt);
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 /** Operator-review flag (G4.S1.T5): true when Athena refinement emitted
@@ -204,8 +217,8 @@ function stepMark(status: string): string {
               </t-button>
             </div>
           </div>
-          <p v-if="refinementText(task)" class="task-refinement-note">
-            {{ refinementText(task) }}
+          <p v-if="refinementText(task) || task.createdAt" class="task-refinement-note">
+            {{ refinementText(task) }}<template v-if="refinementText(task) && task.updatedAt"> · </template>{{ formatDuration(task) }}
           </p>
           <t-progress
             :percentage="task.progress"
