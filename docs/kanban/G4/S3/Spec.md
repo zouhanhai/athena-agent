@@ -62,6 +62,8 @@ Two chat/front-end driven features that feed the KB lifecycle + retrieval:
    - Complements T1 Athena-extracted aliases (DE/EN) with user-curated mappings.
    - Lives on a NEW dedicated tab **"Terms & QA"** (separate from Uploads) that shows both the
      semantic mappings AND the stored Q&A pairs, with live query against the DB.
+   - The **Terms & QA** tab also lets a user **manually add Q&A pairs** (typed in directly as
+     knowledge injection, in addition to the Feedback-loop Q&A pairs that are auto-stored).
 
 ## Dependencies
 
