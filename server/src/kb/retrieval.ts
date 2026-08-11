@@ -12,6 +12,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { LlmWikiClient, LlmWikiFileNode, LlmWikiSearchResult } from "./llmwiki.js";
+import type { WikiFrontmatterSyncer } from "./wiki-frontmatter.js";
 import type {
   Neo4jRetrievalService,
   Neo4jSearchHit,
@@ -32,6 +33,10 @@ export interface KnowledgeRetrievalOptions {
   wikiDir?: string;
   /** Override reading image bytes from disk (tests). */
   readFile?: (path: string) => Promise<Buffer>;
+  /** Canonical wiki-frontmatter syncer (G4.S3.T1). Tracks read_count on BOTH
+   *  the wiki frontmatter and the Neo4j Document node (write-through) whenever
+   *  the retrieval service surfaces a page. Best-effort. */
+  frontmatter?: WikiFrontmatterSyncer;
 }
 
 export interface KnowledgeGraphNode {
@@ -96,6 +101,7 @@ export class KnowledgeRetrievalService {
   private readonly projectId?: string;
   private readonly wikiDir?: string;
   private readonly readFile: (path: string) => Promise<Buffer>;
+  private readonly frontmatter?: WikiFrontmatterSyncer;
   private resolved?: ResolvedProject;
 
   constructor(options: KnowledgeRetrievalOptions) {
@@ -104,6 +110,7 @@ export class KnowledgeRetrievalService {
     this.projectId = options.projectId;
     this.wikiDir = options.wikiDir;
     this.readFile = options.readFile ?? readFile;
+    this.frontmatter = options.frontmatter;
   }
 
   /** GET /api/kb/graph → the entity-relation graph from the Neo4j store
@@ -148,7 +155,9 @@ export class KnowledgeRetrievalService {
   /** GET /api/kb/wiki/page?path= → markdown content of a wiki page. */
   async readWikiPage(path: string): Promise<WikiPage> {
     const { id } = await this.resolveProject();
-    return this.llmwiki.readFile(id, path);
+    const page = await this.llmwiki.readFile(id, path);
+    await this.trackReadCount(path);
+    return page;
   }
 
   /** GET /api/kb/wiki/image?path= → the wiki page's source image bytes.
@@ -195,7 +204,31 @@ export class KnowledgeRetrievalService {
       }
     }
 
+    await this.trackSurfacePages(results);
+
     return { query, results };
+  }
+
+  /** Increment read_count (wiki frontmatter + Document node write-through) for
+   *  each distinct page the retrieval surfaced (G4.S3.T1). Best-effort: a
+   *  missing page or a failing store never fails the retrieval call. */
+  private async trackSurfacePages(results: KnowledgeSearchResult[]): Promise<void> {
+    const tracked = new Set<string>();
+    for (const hit of results) {
+      const wikiPath = hit.wikiPath ?? (hit.source === "llmwiki" ? hit.path : undefined);
+      if (!wikiPath || tracked.has(wikiPath)) continue;
+      tracked.add(wikiPath);
+      await this.trackReadCount(wikiPath);
+    }
+  }
+
+  private async trackReadCount(path: string): Promise<void> {
+    if (!this.frontmatter || !path.startsWith("wiki/")) return;
+    try {
+      await this.frontmatter.incrementReadCount(path);
+    } catch {
+      // read_count tracking is best-effort — never fail the retrieval call.
+    }
   }
 
   private async resolveProject(): Promise<ResolvedProject> {

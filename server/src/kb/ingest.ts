@@ -231,19 +231,45 @@ export function categoryDir(category: WikiCategory): string {
   return DOC_TYPE_DIRS[category];
 }
 
-/** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title + topic + summary). */
+/** Optional lifecycle fields for the wiki page frontmatter (G4.S3.T1). */
+export interface WikiFrontmatterLifecycle {
+  /** Times Athena/retrieval read this page. Default: 0. */
+  read_count?: number;
+  /** ISO date of the last Athena KB review. */
+  last_reviewed?: string;
+  /** Freshness confidence in 0..1 (decays over time). Default: 1. */
+  confidence?: number;
+  /** Ordered list of past topics (migration audit trail). */
+  topic_history?: string[];
+}
+
+/** Serialize a topic list as an inline YAML array (single-line frontmatter). */
+function serializeTopicHistory(topics: string[]): string {
+  return `[${topics.map((t) => `"${t}"`).join(", ")}]`;
+}
+
+/** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title +
+ *  topic + summary + created/updated + lifecycle fields read_count / confidence
+ *  / last_reviewed / topic_history). */
 export function withFrontmatter(
   category: WikiCategory,
   title: string,
   content: string,
   topic?: string,
   summary?: string,
+  lifecycle?: WikiFrontmatterLifecycle,
 ): string {
   const today = new Date().toISOString().slice(0, 10);
   const topicLine = topic && isValidTopic(topic) ? `topic: ${topic}\n` : "";
   // the summary is collapsed onto one line so the key:value frontmatter stays parseable
   const summaryLine = summary && summary.trim() ? `summary: ${summary.replace(/\s+/g, " ").trim()}\n` : "";
-  return `---\ntype: ${category}\ntitle: ${title}\n${topicLine}${summaryLine}created: ${today}\nupdated: ${today}\n---\n\n${content}`;
+  const readCountLine = `read_count: ${lifecycle?.read_count ?? 0}\n`;
+  const confidenceLine = `confidence: ${lifecycle?.confidence ?? 1}\n`;
+  const lastReviewedLine = lifecycle?.last_reviewed ? `last_reviewed: ${lifecycle.last_reviewed}\n` : "";
+  const topicHistoryLine = lifecycle?.topic_history?.length
+    ? `topic_history: ${serializeTopicHistory(lifecycle.topic_history)}\n`
+    : "";
+  return `---\ntype: ${category}\ntitle: ${title}\n${topicLine}${summaryLine}created: ${today}\nupdated: ${today}\n${readCountLine}${confidenceLine}${lastReviewedLine}${topicHistoryLine}---\n\n${content}`;
 }
 
 export interface WikiIndexPage {

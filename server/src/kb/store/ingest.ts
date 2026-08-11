@@ -150,7 +150,8 @@ export class Neo4jIngestService {
       await session.run(
         `MERGE (d:${DOCUMENT_LABEL} {id: $id})
          SET d.topic = $topic, d.type = $type, d.md_ref = $mdRef, d.title = $title,
-             d.keywords = $keywords, d.summary = $summary`,
+             d.keywords = $keywords, d.summary = $summary,
+             d.read_count = COALESCE(d.read_count, 0), d.confidence = COALESCE(d.confidence, 1.0)`,
         {
           id: input.documentId,
           topic: input.ref.frontmatter?.topic ?? "",

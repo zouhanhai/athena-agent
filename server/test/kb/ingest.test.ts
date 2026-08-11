@@ -249,9 +249,9 @@ test("ingestMarkdown reports partial status when llm_wiki fails", async () => {
   assert.match(result.systems.llmwiki.error ?? "", /rescan failed/);
 });
 
-test("withFrontmatter emits the llm_wiki schema frontmatter", () => {
+test("withFrontmatter emits the llm_wiki schema frontmatter with lifecycle defaults", () => {
   const out = withFrontmatter("concept", "Chain of Thought", "# Chain of Thought\n\nbody");
-  assert.match(out, /^---\ntype: concept\ntitle: Chain of Thought\ncreated: \d{4}-\d{2}-\d{2}\nupdated: \d{4}-\d{2}-\d{2}\n---\n\n# Chain of Thought\n\nbody$/);
+  assert.match(out, /^---\ntype: concept\ntitle: Chain of Thought\ncreated: \d{4}-\d{2}-\d{2}\nupdated: \d{4}-\d{2}-\d{2}\nread_count: 0\nconfidence: 1\n---\n\n# Chain of Thought\n\nbody$/);
 });
 
 test("withFrontmatter includes the topic field when provided", () => {
@@ -273,6 +273,39 @@ test("withFrontmatter includes the summary field when provided (single-line)", (
 test("withFrontmatter omits the summary field when not provided", () => {
   const out = withFrontmatter("concept", "Chain of Thought", "# Chain of Thought\n\nbody");
   assert.ok(!/^summary:/m.test(out), "no summary line without a summary");
+});
+
+test("withFrontmatter emits last_reviewed and topic_history when provided (G4.S3.T1)", () => {
+  const out = withFrontmatter(
+    "concept",
+    "Sommerseminar",
+    "# S\n\nbody",
+    "internal/events",
+    undefined,
+    { last_reviewed: "2026-08-11", topic_history: ["sommerseminar", "internal/events"] },
+  );
+  assert.match(
+    out,
+    /^---\ntype: concept\ntitle: Sommerseminar\ntopic: internal\/events\ncreated: \d{4}-\d{2}-\d{2}\nupdated: \d{4}-\d{2}-\d{2}\nread_count: 0\nconfidence: 1\nlast_reviewed: 2026-08-11\ntopic_history: \["sommerseminar", "internal\/events"\]\n---\n\n# S\n\nbody$/,
+  );
+});
+
+test("withFrontmatter honors explicit read_count and confidence lifecycle values", () => {
+  const out = withFrontmatter(
+    "concept",
+    "S",
+    "# S\n\nbody",
+    undefined,
+    undefined,
+    { read_count: 7, confidence: 0.8 },
+  );
+  assert.match(out, /read_count: 7\nconfidence: 0\.8\n---/);
+});
+
+test("withFrontmatter omits last_reviewed and topic_history when not provided", () => {
+  const out = withFrontmatter("concept", "Chain of Thought", "# Chain of Thought\n\nbody");
+  assert.ok(!/^last_reviewed:/m.test(out), "no last_reviewed line before a first review");
+  assert.ok(!/^topic_history:/m.test(out), "no topic_history line before any re-topic");
 });
 
 test("localTopic groups related Sommerseminar documents under internal/events", () => {

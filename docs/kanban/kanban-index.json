@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T20:19:10.045Z",
+  "generated_at": "2026-08-11T20:25:34.557Z",
   "goals": [
     {
       "ref": "G1",
@@ -2061,15 +2061,15 @@
               "id": "s3.1",
               "title": "G4.S3.T1: Wiki frontmatter schema — read_count / last_reviewed / confidence / topic_history",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_g4s3t1",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "progress_last_row": "Implemented + tests green: withFrontmatter emits read_count/confidence/last_reviewed/topic_history; new `WikiFrontmatterSyncer` canonical update (wiki md on disk + write-through to Neo4j Document via IS_DOCUMENT); read_count increments on search/readWikiPage; Document node COALESCE lifecycle defaults at ingest. Typecheck clean, 711/711 server tests pass",
+              "progress_updated_at": "2026-08-11T20:25:23Z"
             },
             {
               "ref": "G4.S3.T2",

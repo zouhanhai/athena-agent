@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { KnowledgeRetrievalService } from "../../src/kb/retrieval.js";
+import { WikiFrontmatterSyncer } from "../../src/kb/wiki-frontmatter.js";
 import type { LlmWikiClient } from "../../src/kb/llmwiki.js";
 import type { Neo4jRetrievalService } from "../../src/kb/store/retrieval.js";
 
@@ -308,4 +309,129 @@ test("search maps Neo4j hits with wikiPath + sectionPath + same-section siblings
   assert.equal(neoHit.wikiPath, "wiki/transport/bus.md");
   assert.equal(neoHit.sectionPath, "Alpha / Beta");
   assert.deepEqual(neoHit.siblings, ["same-section neighbor"]);
+});
+
+test("readWikiPage increments read_count on the surfaced page via the canonical syncer (G4.S3.T1)", async () => {
+  const files = new Map<string, string>([
+    [
+      "/data/wiki/concepts/runbook.md",
+      [
+        "---",
+        "type: manual",
+        "title: Runbook",
+        "created: 2026-01-01",
+        "updated: 2026-01-01",
+        "read_count: 2",
+        "confidence: 1",
+        "---",
+        "",
+        "# Runbook",
+        "body",
+      ].join("\n"),
+    ],
+  ]);
+  const syncer = new WikiFrontmatterSyncer({
+    wikiDir: "/data/wiki",
+    readFile: async (path) => files.get(path) ?? "",
+    writeFile: async (path, content) => {
+      files.set(path, content);
+    },
+  });
+  const llmwiki = stubLlmwiki({
+    readFile: async (_projectId, path) => ({
+      path,
+      content: files.get("/data/wiki/concepts/runbook.md")!,
+    }),
+  });
+  const service = new KnowledgeRetrievalService({ llmwiki, frontmatter: syncer });
+
+  const page = await service.readWikiPage("wiki/concepts/runbook.md");
+
+  assert.equal(page.path, "wiki/concepts/runbook.md");
+  assert.match(files.get("/data/wiki/concepts/runbook.md")!, /read_count: 3\n/, "wiki frontmatter read_count 2 → 3");
+});
+
+test("search increments read_count on each surfaced wiki page once (deduped), best-effort", async () => {
+  const files = new Map<string, string>([
+    [
+      "/data/wiki/transport/bus.md",
+      [
+        "---",
+        "type: concept",
+        "title: Bus",
+        "created: 2026-01-01",
+        "updated: 2026-01-01",
+        "read_count: 0",
+        "confidence: 1",
+        "---",
+        "",
+        "# Bus",
+        "body",
+      ].join("\n"),
+    ],
+  ]);
+  const syncer = new WikiFrontmatterSyncer({
+    wikiDir: "/data/wiki",
+    readFile: async (path) => files.get(path) ?? "",
+    writeFile: async (path, content) => {
+      files.set(path, content);
+    },
+  });
+  const neo4j = stubNeo4j([
+    {
+      id: "doc1:c1",
+      text: "bus station guide",
+      topic: "transport",
+      documentId: "doc1",
+      source: "bm25",
+      score: 0.9,
+      wikiPath: "wiki/transport/bus.md",
+    },
+    {
+      id: "doc1:c2",
+      text: "central bus station",
+      documentId: "doc1",
+      source: "graph",
+      score: 0.8,
+      wikiPath: "wiki/transport/bus.md",
+    },
+  ]);
+  const llmwiki = stubLlmwiki({
+    search: async () => ({
+      results: [{ path: "wiki/transport/bus.md", title: "Bus", snippet: "kw", score: 0.7 }],
+    }),
+  });
+  const service = new KnowledgeRetrievalService({ llmwiki, neo4j, frontmatter: syncer });
+
+  const result = await service.search("bus station");
+  assert.equal(result.results.length, 3);
+
+  const written = files.get("/data/wiki/transport/bus.md")!;
+  assert.match(written, /read_count: 1\n/, "read_count bumped exactly once despite multiple hits");
+});
+
+test("read_count tracking never fails the search when the wiki page is missing on disk", async () => {
+  const syncer = new WikiFrontmatterSyncer({
+    wikiDir: "/data/wiki",
+    readFile: async () => {
+      throw new Error("ENOENT");
+    },
+    writeFile: async () => {},
+  });
+  const neo4j = stubNeo4j([
+    {
+      id: "doc1:c1",
+      text: "bus station guide",
+      topic: "transport",
+      documentId: "doc1",
+      source: "bm25",
+      score: 0.9,
+      wikiPath: "wiki/transport/bus.md",
+    },
+  ]);
+  const llmwiki = stubLlmwiki({ search: async () => ({ results: [] }) });
+  const service = new KnowledgeRetrievalService({ llmwiki, neo4j, frontmatter: syncer });
+
+  const result = await service.search("bus station");
+  assert.equal(result.results.length, 1, "search still returns hits when read_count tracking fails");
 });

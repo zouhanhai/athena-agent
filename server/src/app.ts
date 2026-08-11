@@ -52,6 +52,7 @@ import {
 } from "./employees/employees.js";
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
+import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
 import { createAthenaRefiner } from "./kb/refiner.js";
@@ -62,6 +63,7 @@ import { Neo4jIngestService } from "./kb/store/ingest.js";
 import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
+import type { Neo4jDriverLike } from "./kb/store/schema.js";
 
 export interface BuildAppOptions {
   manager?: AgentManager;
@@ -91,25 +93,42 @@ export function defaultIngestService(): KnowledgeIngestService {
 }
 
 export function defaultRetrievalService(): KnowledgeRetrievalService {
+  const wikiDir = process.env.LLM_WIKI_WIKI_DIR ?? undefined;
+  const driver = defaultNeo4jDriver();
   return new KnowledgeRetrievalService({
     llmwiki: new LlmWikiClient(),
     // G4.S2.T7/T10: the Neo4j lean RAG store is the sole semantic + graph path;
     // llm_wiki stays the BM25 source.
-    neo4j: defaultNeo4jRetrieval(),
+    neo4j: driver
+      ? new Neo4jRetrievalService({
+          driver,
+          embedder: new OpenRouterEmbedder(),
+          reranker: createDefaultReranker(),
+        })
+      : undefined,
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
     // Match the ingest side (defaultIngestService) so wiki image reads resolve
     // against the same on-disk wiki dir (G3.S5.T5).
-    wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
+    wikiDir,
+    // G4.S3.T1: the canonical wiki-frontmatter syncer tracks read_count on the
+    // wiki md + Neo4j Document node (write-through) when pages are surfaced.
+    frontmatter: new WikiFrontmatterSyncer({ wikiDir, driver }),
   });
+}
+
+/** Neo4j driver from env (NEO4J_PASSWORD set), else undefined. */
+export function defaultNeo4jDriver(): Neo4jDriverLike | undefined {
+  const config = neo4jConfigFromEnv();
+  return config ? createNeo4jDriver(config) : undefined;
 }
 
 /** Neo4j lean RAG store retrieval (G4.S2.T5): fused vector + BM25 + graph.
  *  Returns undefined when NEO4J_PASSWORD is unset (store not deployed). */
 export function defaultNeo4jRetrieval(): Neo4jRetrievalService | undefined {
-  const config = neo4jConfigFromEnv();
-  if (!config) return undefined;
+  const driver = defaultNeo4jDriver();
+  if (!driver) return undefined;
   return new Neo4jRetrievalService({
-    driver: createNeo4jDriver(config),
+    driver,
     embedder: new OpenRouterEmbedder(),
     // G4.S2.T14: optional local cross-encoder rerank after RRF fusion. Off by default.
     reranker: createDefaultReranker(),
@@ -144,10 +163,10 @@ export function defaultTaskQueue(): IngestTaskQueue {
 /** Neo4j lean RAG store ingest (G4.S2.T4): embed + index Athena output. Returns
  *  undefined when NEO4J_PASSWORD is unset (store not deployed → stage no-op). */
 export function defaultNeo4jIngest(): Neo4jIngestService | undefined {
-  const config = neo4jConfigFromEnv();
-  if (!config) return undefined;
+  const driver = defaultNeo4jDriver();
+  if (!driver) return undefined;
   return new Neo4jIngestService({
-    driver: createNeo4jDriver(config),
+    driver,
     embedder: new OpenRouterEmbedder(),
   });
 }

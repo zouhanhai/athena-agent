@@ -180,6 +180,28 @@ test("ingest stores the Document node with topic, type, md_ref, title, keywords 
   });
 });
 
+test("ingest initializes the Document lifecycle fields with COALESCE defaults (G4.S3.T1)", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "x", heading_path: "# X" }],
+  });
+
+  await service.ingest({ ref: makeRef(), documentId: "doc", title: "Doc" });
+
+  const docQuery = calls.find(
+    (c) =>
+      c.query.startsWith("MERGE") &&
+      c.query.includes(`:${DOCUMENT_LABEL}`) &&
+      !c.query.includes("UNWIND $sections"),
+  );
+  assert.ok(docQuery, "Document MERGE issued");
+  const q = docQuery!.query;
+  assert.match(q, /d\.read_count = COALESCE\(d\.read_count, 0\)/, "read_count defaults to 0 without reset");
+  assert.match(q, /d\.confidence = COALESCE\(d\.confidence, 1\.0\)/, "confidence defaults to 1.0 without reset");
+});
+
 test("ingest stores each section summary on the matching Section node (matched by title)", async () => {
   const { driver, calls } = makeDriver();
   const service = new Neo4jIngestService({
