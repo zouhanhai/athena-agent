@@ -204,6 +204,9 @@ function stepMark(status: string): string {
               </t-button>
             </div>
           </div>
+          <p v-if="refinementText(task)" class="task-refinement-note">
+            {{ refinementText(task) }}
+          </p>
           <t-progress
             :percentage="task.progress"
             :status="taskProgressStatus(task)"
@@ -222,12 +225,6 @@ function stepMark(status: string): string {
             >
               <span class="task-stage-label">
                 {{ stage.label }}: {{ task.stages[stage.key].status }}
-              </span>
-              <span
-                v-if="stage.key === 'refinement' && refinementText(task)"
-                class="task-stage-chunk"
-              >
-                {{ refinementText(task) }}
               </span>
               <ul v-if="task.stages[stage.key].steps?.length" class="task-stage-steps">
                 <li
@@ -489,11 +486,12 @@ function stepMark(status: string): string {
   font-weight: 600;
 }
 
-.task-stage-chunk {
-  margin-left: 6px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--caleo-primary);
+.task-refinement-note {
+  margin: 4px 0 0;
+  padding: 0 10px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--caleo-text-secondary);
 }
 
 .task-stage-steps {
