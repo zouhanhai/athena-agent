@@ -170,6 +170,86 @@ test("Text2CypherRetriever traverses the entity graph (case-insensitive alias ma
   assert.equal(call.params.queryText, "zob münchen", "query folded to lowercase");
 });
 
+test("case-insensitive node lookup: searching lowercase 'zob münchen' matches the 'ZOB München' node", async () => {
+  const { driver, calls } = makeDriver((q, p) =>
+    q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "zob münchen"
+      ? [GRAPH_ENTITY("ZOB München", "central bus station", ["CALEO"])]
+      : [],
+  );
+  const retriever = new Text2CypherRetriever({ driver, topK: 5 });
+
+  const hits = await retriever.search("zob münchen");
+
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]!.id, "ZOB München", "lowercase query folds and matches the canonical node name");
+  assert.equal(hits[0]!.source, "graph");
+});
+
+test("case-insensitive node lookup: searching 'caleo' matches the 'CALEO' node (LightRAG bug not repeated)", async () => {
+  const { driver, calls } = makeDriver((q, p) =>
+    q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "caleo"
+      ? [GRAPH_ENTITY("CALEO", "the company", ["ZOB München"])]
+      : [],
+  );
+  const retriever = new Text2CypherRetriever({ driver, topK: 5 });
+
+  const hits = await retriever.search("caleo");
+
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]!.id, "CALEO", "lightrag caleo/CALEO case bug must not recur");
+  const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
+  assert.equal(call.params.queryText, "caleo", "query folded to lowercase before fulltext");
+});
+
+test("bilingual alias search: German term matches the EN node via its alias (DE→EN)", async () => {
+  const { driver, calls } = makeDriver((q, p) =>
+    q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "zentraler omnibusbahnhof"
+      ? [GRAPH_ENTITY("ZOB München", "central bus station", ["MVV"])]
+      : [],
+  );
+  const retriever = new Text2CypherRetriever({ driver, topK: 5 });
+
+  const hits = await retriever.search("Zentraler Omnibusbahnhof");
+
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]!.id, "ZOB München", "German term resolves to the EN canonical node via aliases");
+  const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
+  assert.equal(call.params.queryText, "zentraler omnibusbahnhof", "German query folded to lowercase");
+});
+
+test("bilingual alias search: English term matches the DE node via its alias (EN→DE)", async () => {
+  const { driver, calls } = makeDriver((q, p) =>
+    q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "munich central bus station"
+      ? [GRAPH_ENTITY("Zentraler Omnibusbahnhof München", "ZOB München", ["MVV"])]
+      : [],
+  );
+  const retriever = new Text2CypherRetriever({ driver, topK: 5 });
+
+  const hits = await retriever.search("Munich Central Bus Station");
+
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]!.id, "Zentraler Omnibusbahnhof München", "English term resolves to the DE canonical node via aliases");
+  const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
+  assert.equal(call.params.queryText, "munich central bus station", "English query folded to lowercase");
+});
+
+test("fused search surfaces bilingual alias graph hits: German query returns the EN node", async () => {
+  const { driver } = makeDriver((q, p) => {
+    if (q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "zentraler omnibusbahnhof") {
+      return [GRAPH_ENTITY("ZOB München", "central bus station", ["MVV"])];
+    }
+    return [];
+  });
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const response = await service.search("Zentraler Omnibusbahnhof");
+
+  assert.ok(
+    response.hits.some((h) => h.id === "ZOB München" && h.source === "graph"),
+    "German term fuses into the EN node via the alias fulltext graph retriever",
+  );
+});
+
 test("ToolsRetriever lets the picker choose the best retriever per query", async () => {
   const { driver, calls } = makeDriver((q) => (q.includes(CHUNK_TEXT_FTX) ? [CHUNK("c1", "runbook")] : []));
   const service = new Neo4jRetrievalService({
