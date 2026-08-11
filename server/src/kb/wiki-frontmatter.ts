@@ -35,6 +35,10 @@ export interface WikiFrontmatterPatch {
   confidence?: number;
   /** Ordered list of past topics (migration audit trail). */
   topic_history?: string[];
+  /** Re-topic: the current topic key (G4.S3.T2/T3). */
+  topic?: string;
+  /** Re-classify: the document type (one of DOC_TYPES, G4.S3.T2). */
+  type?: string;
 }
 
 /** The full lifecycle state carried by a wiki page (mirrored on the Document node). */
@@ -152,6 +156,8 @@ export function patchFrontmatter(content: string, patch: WikiFrontmatterPatch): 
   if (patch.last_reviewed !== undefined) upsert("last_reviewed", patch.last_reviewed);
   if (patch.confidence !== undefined) upsert("confidence", String(patch.confidence));
   if (patch.topic_history !== undefined) upsert("topic_history", serializeTopicHistory(patch.topic_history));
+  if (patch.topic !== undefined) upsert("topic", patch.topic);
+  if (patch.type !== undefined) upsert("type", patch.type);
   upsert("updated", today());
 
   return renderFrontmatter(pairs, body);

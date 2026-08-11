@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import type { KnowledgeIngestService } from "../kb/ingest.js";
 import type { KnowledgeRetrievalService } from "../kb/retrieval.js";
 import type { IngestTaskQueue } from "../kb/tasks.js";
+import type { KbReviewService } from "../kb/review.js";
 import {
   NothingToRetryError,
   TaskBusyError,
@@ -33,6 +34,8 @@ export interface KbRouteOptions {
   ingest: KnowledgeIngestService;
   retrieval?: KnowledgeRetrievalService;
   taskQueue?: IngestTaskQueue;
+  /** Athena KB review pass (G4.S3.T2): POST /api/kb/review. */
+  review?: KbReviewService;
   /** Directory to stage uploaded files before docling parsing. Default: os.tmpdir(). */
   uploadDir?: string;
   /** Max multipart upload size. Default: 50 MiB. */
@@ -196,6 +199,45 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
   };
   app.delete("/api/kb/doc", deleteDocHandler);
   app.post("/api/kb/doc/delete", deleteDocHandler);
+
+  /** POST /api/kb/review → run the Athena KB review pass (G4.S3.T2): scan every
+   *  wiki page's frontmatter and re-topic / re-classify / deprecate / reinforce.
+   *  Body (all optional): { dryRun?, retopics?, reclassify?, reinforce? }. */
+  const reviewHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.review) {
+      return reply.code(500).send({ error: "KB review service not configured" });
+    }
+    const body = (request.body ?? {}) as {
+      dryRun?: unknown;
+      retopics?: unknown;
+      reclassify?: unknown;
+      reinforce?: unknown;
+    };
+    const retopics =
+      typeof body.retopics === "object" && body.retopics !== null
+        ? (body.retopics as Record<string, string>)
+        : undefined;
+    const reclassify =
+      typeof body.reclassify === "object" && body.reclassify !== null
+        ? (body.reclassify as Record<string, string>)
+        : undefined;
+    const reinforce = Array.isArray(body.reinforce)
+      ? body.reinforce.filter((p): p is string => typeof p === "string")
+      : undefined;
+    try {
+      return await options.review.reviewAll({
+        ...(body.dryRun === true ? { dryRun: true } : {}),
+        ...(retopics ? { retopics } : {}),
+        ...(reclassify ? { reclassify } : {}),
+        ...(reinforce && reinforce.length > 0 ? { reinforce } : {}),
+      });
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.post("/api/kb/review", reviewHandler);
 
   if (!options.retrieval) return;
 

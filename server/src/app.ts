@@ -53,6 +53,7 @@ import {
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
+import { KbReviewService, scheduleKbReview } from "./kb/review.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
 import { createAthenaRefiner } from "./kb/refiner.js";
@@ -69,6 +70,8 @@ export interface BuildAppOptions {
   manager?: AgentManager;
   ingest?: KnowledgeIngestService;
   retrieval?: KnowledgeRetrievalService;
+  /** Athena KB review pass (G4.S3.T2). Default: defaultReviewService(). */
+  review?: KbReviewService;
   taskQueue?: IngestTaskQueue;
   registry?: AgentRegistry;
   logos?: LogoStore;
@@ -120,6 +123,19 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
 export function defaultNeo4jDriver(): Neo4jDriverLike | undefined {
   const config = neo4jConfigFromEnv();
   return config ? createNeo4jDriver(config) : undefined;
+}
+
+/** Default Athena KB review service (G4.S3.T2): scans wiki frontmatter and
+ *  re-topics / re-classifies / deprecates / reinforces, writing every change
+ *  through the canonical WikiFrontmatterSyncer (wiki md + Neo4j Document). */
+export function defaultReviewService(): KbReviewService {
+  const wikiDir = process.env.LLM_WIKI_WIKI_DIR ?? undefined;
+  const driver = defaultNeo4jDriver();
+  return new KbReviewService({
+    llmwiki: new LlmWikiClient(),
+    syncer: new WikiFrontmatterSyncer({ wikiDir, driver }),
+    projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
+  });
 }
 
 /** Neo4j lean RAG store retrieval (G4.S2.T5): fused vector + BM25 + graph.
@@ -286,6 +302,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const ops = options.ops ?? new MemoryGithubOpStore();
   const index = options.index ?? defaultKanbanIndex();
   const invitations = options.invitations ?? defaultInvitationService(employees, tokens!);
+  const review = options.review ?? defaultReviewService();
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -302,9 +319,18 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (!options.employees) {
       await employees.seed();
     }
+    // G4.S3.T2: scheduled Athena KB review (KB_REVIEW_INTERVAL_MS set → run
+    // every N ms on demand). Best-effort; a failing run never crashes the server.
+    const interval = Number(process.env.KB_REVIEW_INTERVAL_MS);
+    if (Number.isFinite(interval) && interval > 0) {
+      scheduledReview = scheduleKbReview(review, interval);
+    }
   });
 
+  let scheduledReview: ReturnType<typeof scheduleKbReview> | undefined;
+
   app.addHook("onClose", async () => {
+    scheduledReview?.stop();
     await registry.close();
     await logos.close();
     await employees.close();
@@ -327,6 +353,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
     retrieval: options.retrieval ?? defaultRetrievalService(),
+    review: options.review ?? defaultReviewService(),
     taskQueue: options.taskQueue ?? defaultTaskQueue(),
     maxFileSize: options.maxFileSize,
   });
