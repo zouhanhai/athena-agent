@@ -104,8 +104,10 @@ function refinementText(task: IngestTaskItem): string {
 /** Human-readable elapsed time between createdAt and updatedAt (ms). */
 function formatDuration(task: IngestTaskItem): string {
   const ms = Math.max(0, task.updatedAt - task.createdAt);
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(0)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
 /** Operator-review flag (G4.S1.T5): true when Athena refinement emitted
@@ -503,7 +505,6 @@ function stepMark(status: string): string {
   margin: 4px 0 0;
   padding: 0 10px;
   font-size: 11px;
-  font-style: italic;
   color: var(--caleo-text-secondary);
 }
 
