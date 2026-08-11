@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T14:27:18.882Z",
+  "generated_at": "2026-08-11T14:32:26.027Z",
   "goals": [
     {
       "ref": "G1",
@@ -2024,7 +2024,9 @@
               "owner": "consultant",
               "status": "backlog",
               "assignee": "",
-              "blocked_by": [],
+              "blocked_by": [
+                "G4.S2.T11"
+              ],
               "acceptance_criteria": [
                 "Entity nodes link to Chunk nodes that mention them (MENTIONED_IN)",
                 "Graph retrieval returns chunks (not just entities) and participates in RRF fusion",
