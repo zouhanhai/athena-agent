@@ -6,6 +6,7 @@ import {
   DOCUMENT_LABEL,
   ENTITY_LABEL,
   ENTITY_RELATION_TYPE,
+  SECTION_LABEL,
   WIKIPAGE_LABEL,
   type Neo4jDriverLike,
 } from "../../src/kb/store/schema.js";
@@ -54,8 +55,10 @@ function makeRef(overrides: Partial<RefineOutputRef> = {}): RefineOutputRef {
     ],
     keywords: ["bcs", "consolidation"],
     quality: { complete: true, confidence: 0.95, issues: [], action: "auto_accept" },
+    summary: "A BCS consolidation report covering the CALEO group.",
+    sections: [{ title: "Intro", summary: "About the BCS report." }],
     mode: "single",
-    sections: [],
+    section_paths: [],
     ...overrides,
   };
 }
@@ -144,7 +147,7 @@ test("ingest creates RELATION edges between entities (case-insensitive by nameUp
   assert.deepEqual(params.keywords, ["organisiert"]);
 });
 
-test("ingest stores the Document node with topic, type, md_ref, title and keywords", async () => {
+test("ingest stores the Document node with topic, type, md_ref, title, keywords and summary", async () => {
   const { driver, calls } = makeDriver();
   const service = new Neo4jIngestService({
     driver,
@@ -168,7 +171,50 @@ test("ingest stores the Document node with topic, type, md_ref, title and keywor
     mdRef: "/storage/doc/markdown.md",
     title: "Sommerseminar",
     keywords: ["bcs", "consolidation"],
+    summary: "A BCS consolidation report covering the CALEO group.",
   });
+});
+
+test("ingest stores each section summary on the matching Section node (matched by title)", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "x", heading_path: "Alpha / Beta" }],
+  });
+
+  await service.ingest({
+    ref: makeRef({ sections: [{ title: "Alpha", summary: "About Alpha." }, { title: "Missing", summary: "No node." }] }),
+    documentId: "doc",
+    title: "Doc",
+    wikiPath: "wiki/events/doc.md",
+  });
+
+  const summaryQuery = calls.find(
+    (c) => c.query.includes("UNWIND $sectionSummaries") && c.query.includes(`:${SECTION_LABEL}`),
+  );
+  assert.ok(summaryQuery, "section-summary update query issued");
+  assert.equal(summaryQuery!.params!.documentId, "doc");
+  assert.deepEqual(summaryQuery!.params!.sectionSummaries, [
+    { title: "Alpha", summary: "About Alpha." },
+    { title: "Missing", summary: "No node." },
+  ]);
+  assert.match(summaryQuery!.query, /SET sec\.summary = ss\.summary/, "sets summary on the matched Section");
+  assert.match(summaryQuery!.query, /toLower\(trim\(sec\.title\)\)/, "title matched case-insensitively");
+});
+
+test("ingest skips the section-summary update when the ref carries no sections", async () => {
+  const { driver, calls } = makeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => [{ id: "c1", text: "x", heading_path: "# X" }],
+  });
+
+  await service.ingest({ ref: makeRef({ sections: [] }), documentId: "doc", title: "Doc" });
+
+  const summaryQueries = calls.filter((c) => c.query.includes("$sectionSummaries"));
+  assert.equal(summaryQueries.length, 0, "no section-summary query without sections");
 });
 
 test("ingest is idempotent-safe: MERGE (not CREATE) for chunks, entities and document", async () => {

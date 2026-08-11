@@ -74,8 +74,10 @@ function makeFakes(opts: {
         relations: [],
         keywords: ["sommerseminar"],
         quality: { complete: true, confidence: 0.9, issues: [], action: opts.refineQualityAction ?? "auto_accept" },
+        summary: "CALEO's annual Sommerseminar.",
+        sections: [{ title: "Sommerseminar", summary: "The annual CALEO event." }],
         mode: "single",
-        sections: [],
+        section_paths: [],
         ...(opts.ref ?? {}),
       },
       markdown: opts.refinedMarkdown ?? "# Refined\n\nbody",
@@ -90,8 +92,8 @@ function makeFakes(opts: {
         frontmatterContent: `---\ntype: concept\ntitle: ${input.title}\ntopic: sommerseminar\n---\n\n${input.content}`,
       };
     },
-    async ingestLlmWiki(fileName: string, markdown: string, onStep?: (step: string, status: "running" | "done") => void, preclassified?: unknown, images?: unknown) {
-      calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown, onStep, preclassified, images] });
+    async ingestLlmWiki(fileName: string, markdown: string, onStep?: (step: string, status: "running" | "done") => void, preclassified?: unknown, images?: unknown, summary?: string) {
+      calls.push({ kind: "ingest.llmwiki", args: [fileName, markdown, onStep, preclassified, images, summary] });
       if (flags.llmwikiGate) await flags.llmwikiGate;
       if (!onStep) return flags.llmwikiOk ? { ok: true } : { ok: false, error: "wiki down" };
       // classify is folded into refinement (G4.S1.T4): the preclassified result
@@ -202,6 +204,22 @@ test("successful ingest marks every per-system sub-step done", async () => {
       assert.equal(step.status, "done", `${stage.name}.${step.name} done`);
     }
   }
+});
+
+test("the Athena file summary flows from the refinement ref into the llm_wiki page write (G4.S2.T13)", async () => {
+  const { queue, calls } = makeFakes({
+    ref: { summary: "CALEO's annual Sommerseminar covers workshops and talks." },
+  });
+  const { taskId } = queue.submitFile("/tmp/a.pdf", "a.pdf");
+  await untilDone(queue, taskId);
+
+  const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+  assert.ok(llmwiki, "llm_wiki ingest called");
+  assert.equal(
+    llmwiki!.args[5],
+    "CALEO's annual Sommerseminar covers workshops and talks.",
+    "refinement summary passed to the wiki page writer",
+  );
 });
 
 test("docling failure marks the parsing sub-steps failed", async () => {

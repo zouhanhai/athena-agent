@@ -444,7 +444,7 @@ export class IngestTaskQueue {
         const res = await this.safeIngest(() =>
           this.ingest.ingestLlmWiki(fileName!, refinedMarkdown ?? markdown!, (step, status) => {
             this.setStep(id, "ingesting_llmwiki", step, status);
-          }, preclassified, task.images),
+          }, preclassified, task.images, refinementRef?.summary),
         );
         console.log(`[tasks:${id}] llm_wiki ingest: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}`);
         this.patch(id, (t) => {

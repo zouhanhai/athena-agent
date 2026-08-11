@@ -80,8 +80,10 @@ function fakeStore(recorder: { stored?: RefinedDocument; storageDir?: string } =
       relations: doc.relations,
       keywords: doc.keywords,
       quality: doc.quality,
+      summary: doc.summary,
+      sections: doc.sections,
+      section_paths: opts.section_paths ?? [],
       mode: opts.mode ?? "single",
-      sections: opts.sections ?? [],
     };
   };
 }
@@ -93,6 +95,8 @@ function parseResult<T>(result: { content: { type: string; text?: string }[] }):
 
 const sectionDoc = (heading: string, body: string): RefinedDocument => ({
   markdown: `# ${heading}\n\n${body}`,
+  summary: `Summary of ${heading}.`,
+  sections: [{ title: heading, summary: `Section summary of ${heading}.` }],
   frontmatter: { type: "document", topic: "t" },
   chunks: [{ id: "c1", text: body, heading_path: heading }],
   entities: [{ name: heading.toUpperCase(), type: "concept", description: heading }],
@@ -201,7 +205,7 @@ test("extractHeaderLevels parses emit tool args and plain-text JSON", () => {
   assert.equal(empty.size, 0);
 });
 
-test("extractGlobalMerge returns the global frontmatter/entities/keywords/quality", () => {
+test("extractGlobalMerge returns the global frontmatter/entities/keywords/quality/summary/sections", () => {
   const g = extractGlobalMerge({
     role: "assistant",
     content: [
@@ -210,6 +214,8 @@ test("extractGlobalMerge returns the global frontmatter/entities/keywords/qualit
         id: "t",
         name: "emit_global_refinement",
         arguments: {
+          summary: "A consolidated report on SAP group reporting.",
+          sections: [{ title: "Intro", summary: "About the report." }],
           frontmatter: { type: "report", topic: "sap/consolidation/group-reporting" },
           entities: [{ name: "CALEO", type: "org", description: "org" }],
           relations: [],
@@ -222,6 +228,8 @@ test("extractGlobalMerge returns the global frontmatter/entities/keywords/qualit
   assert.ok(g);
   assert.deepEqual(g!.frontmatter, { type: "report", topic: "sap/consolidation/group-reporting" });
   assert.deepEqual(g!.keywords, ["group", "reporting"]);
+  assert.equal(g!.summary, "A consolidated report on SAP group reporting.");
+  assert.deepEqual(g!.sections, [{ title: "Intro", summary: "About the report." }]);
 });
 
 test("refine_document routes a >1MB doc through the two-stage path and returns the small ref", async () => {
@@ -256,13 +264,24 @@ test("refine_document routes a >1MB doc through the two-stage path and returns t
 
   assert.equal(ref.mode, "two-stage");
   // sections 0-1 fit; section 2 (the rest of the 1.2MB doc) is hard-split under the 1MB budget
-  assert.deepEqual(ref.sections, ["Section 0", "Section 1", "Section 2", "Section 2 (part 2)"]);
+  assert.deepEqual(ref.section_paths, ["Section 0", "Section 1", "Section 2", "Section 2 (part 2)"]);
   assert.equal(ref.frontmatter.topic, "internal/events");
   assert.equal(sectionsRefined.length, 4);
   assert.ok(ref.preview.length < 1000, "only a short preview in context");
   // full merged markdown + all chunks land in storage, not in the returned ref
   assert.ok(recorder.stored, "full output stored to disk/storage");
   assert.equal(recorder.stored!.chunks.length, 4);
+  assert.equal(recorder.stored!.summary, "Summary of Section 0.", "two-stage merge keeps a doc-level summary");
+  assert.deepEqual(
+    recorder.stored!.sections,
+    [
+      { title: "Section 0", summary: "Section summary of Section 0." },
+      { title: "Section 1", summary: "Section summary of Section 1." },
+      { title: "Section 2", summary: "Section summary of Section 2." },
+      { title: "Section 2 (part 2)", summary: "Section summary of Section 2 (part 2)." },
+    ],
+    "two-stage merge keeps per-section summaries",
+  );
   assert.ok(Buffer.byteLength(recorder.stored!.markdown, "utf8") > 1024 * 1024);
   assert.ok(!JSON.stringify(ref).includes("ENDMARKER-9a3c"), "full md body not in the returned ref");
 });
@@ -279,6 +298,8 @@ test("refine_document single path stores the full output and returns the small r
           name: "emit_refined_document",
           arguments: {
             markdown: "# Sommerseminar\n\n## Workshops\n\ndetails",
+            summary: "CALEO's annual Sommerseminar.",
+            sections: [{ title: "Sommerseminar", summary: "The annual CALEO event." }],
             frontmatter: { type: "event", topic: "internal/events" },
             chunks: [{ id: "c1", text: "details", heading_path: "Sommerseminar / Workshops" }],
             entities: [{ name: "CALEO", type: "org", description: "An organization" }],
@@ -299,6 +320,8 @@ test("refine_document single path stores the full output and returns the small r
 
   assert.equal(ref.mode, "single");
   assert.deepEqual(ref.frontmatter, { type: "event", topic: "internal/events" });
+  assert.equal(ref.summary, "CALEO's annual Sommerseminar.");
+  assert.deepEqual(ref.sections, [{ title: "Sommerseminar", summary: "The annual CALEO event." }]);
   assert.equal(ref.chunk_count, 1);
   assert.equal(ref.entities[0].name, "CALEO");
   assert.equal(recorder.stored!.markdown, "# Sommerseminar\n\n## Workshops\n\ndetails");

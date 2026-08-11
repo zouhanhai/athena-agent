@@ -20,6 +20,7 @@ import type {
   RefinementFrontmatter,
   RefinementQuality,
   RefinementRelation,
+  RefinementSectionSummary,
   RefinedDocument,
 } from "./refine-document.js";
 
@@ -92,17 +93,22 @@ export interface RefineOutputRef {
   relations: RefinementRelation[];
   keywords: string[];
   quality: RefinementQuality;
+  /** File-level document summary (~2-3 sentences), emitted by the single full-doc read. */
+  summary: string;
+  /** One summary per top-level H1 section — the layered/hierarchical summary (G4.S2.T13). */
+  sections: RefinementSectionSummary[];
   /** Which refinement path produced the output: "single" (sub-1MB) or "two-stage" (>1MB). */
   mode: RefinementMode;
   /** h1 section heading paths produced by the two-stage split (two-stage mode only). */
-  sections: string[];
+  section_paths: string[];
 }
 
 export interface StoreRefinementOptions {
   /** Storage sub-directory name. Default: derived from the first h1 heading. */
   stem?: string;
   mode?: RefinementMode;
-  sections?: string[];
+  /** h1 section heading paths produced by the two-stage split (two-stage mode only). */
+  section_paths?: string[];
   /**
    * RAG working copy (File B — refined markdown without image refs). Written to
    * `rag.md` only when it differs from the durable doc.markdown (File A′); the ref's
@@ -353,6 +359,8 @@ function splitSectionBySize(section: MarkdownSection, maxBytes: number): Markdow
  * Merge per-section refinements back into one document (stage-2 reduce). Chunks are re-numbered
  * c1..cn; entities/relations are deduped case-insensitively (first canonical name wins — avoids
  * "CALEO"/"caleo" variants); keywords are unioned; quality is aggregated (any review_required wins).
+ * The file-level `summary` keeps the first non-empty section summary; per-section summaries are
+ * merged by title (non-empty wins over an empty duplicate), preserving order.
  */
 export function mergeRefinements(sections: RefinedDocument[]): RefinedDocument {
   const chunks: RefinedDocument["chunks"] = [];
@@ -377,8 +385,22 @@ export function mergeRefinements(sections: RefinedDocument[]): RefinedDocument {
     ? "review_required"
     : "auto_accept";
 
+  const summary = sections.find((s) => s.summary?.trim())?.summary ?? "";
+  const byTitle = new Map<string, RefinementSectionSummary>();
+  for (const section of sections) {
+    for (const sec of section.sections ?? []) {
+      const key = sec.title.trim().toLowerCase();
+      const existing = byTitle.get(key);
+      if (!existing || (existing.summary.trim().length === 0 && sec.summary.trim().length > 0)) {
+        byTitle.set(key, sec);
+      }
+    }
+  }
+
   return {
     markdown: sections.map((s) => s.markdown.trim()).filter(Boolean).join("\n\n"),
+    summary,
+    sections: [...byTitle.values()],
     frontmatter: sections.find((s) => s.frontmatter)?.frontmatter ?? { type: "document", topic: "unclassified" },
     chunks,
     entities,
@@ -447,7 +469,9 @@ export async function storeRefinementOutput(
     relations: doc.relations ?? [],
     keywords: doc.keywords ?? [],
     quality: doc.quality,
+    summary: doc.summary ?? "",
+    sections: doc.sections ?? [],
     mode: options.mode ?? "single",
-    sections: options.sections ?? [],
+    section_paths: options.section_paths ?? [],
   };
 }

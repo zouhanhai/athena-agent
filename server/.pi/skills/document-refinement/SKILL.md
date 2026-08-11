@@ -1,13 +1,14 @@
 ---
 name: document-refinement
-description: Athena document-refinement pass (G4.S1) — re-level headers, classify type/topic (docs/taxonomy.md), chunk paragraph-semantic, extract entities/relations/keywords, and quality-check a docling markdown document in ONE full-document LLM read, emitting the structured refinement output contract.
+description: Athena document-refinement pass (G4.S1) — re-level headers, classify type/topic (docs/taxonomy.md), chunk paragraph-semantic, extract entities/relations/keywords, emit file-level + per-section summaries, and quality-check a docling markdown document in ONE full-document LLM read, emitting the structured refinement output contract.
 ---
 
 # document-refinement — Athena refinement pass (G4.S1)
 
 Athena is the **single full-document LLM pass** of the athena ingest chain. It reads the whole docling
 markdown once and emits everything downstream needs — re-leveled markdown, frontmatter(type+topic),
-chunks, entities, relations, keywords, quality — in **ONE full-doc read**. No other LLM re-reads the
+chunks, entities, relations, keywords, quality, and file-level + per-section summaries — in **ONE
+full-doc read**. No other LLM re-reads the
 document (only the final embedding, which is vector encoding, not reasoning).
 
 Output is constrained by the refinement JSON contract (see §8) via provider-side constrained sampling
@@ -81,7 +82,19 @@ Extract **binary** relations only, `source -> target`:
 Emit retrieval keywords: **relationship** keywords (edge vocabulary, e.g. "hosts", "part of") **and**
 **query** keywords, high-level + low-level (e.g. "sommerseminar", "schedule", "workshop").
 
-## 7. Quality checklist
+## 7. Document summary (file-level + per-section) — G4.S2.T13
+
+You already read the whole document, so summarize it in the same pass at two levels:
+
+- **summary**: a FILE-LEVEL summary of ~2-3 sentences stating what the document is about and its
+  most important points.
+- **sections**: ONE entry per TOP-LEVEL section — `title` = the top-level H1 heading text (verbatim),
+  `summary` = a concise 1-2 sentence summary of that section. This enables layered/hierarchical
+  retrieval: search the file summary to locate the document, then a section summary to locate the
+  section, then its chunks. Emit sections for every top-level section; use an empty array only for a
+  sectionless document.
+
+## 8. Quality checklist
 
 - **Completeness**: does the refined markdown capture the whole source — all sections, tables, figures?
 - **Tables/figures**: note any table split across pages, figure/caption dropped, image alt missing.
@@ -90,11 +103,13 @@ Emit retrieval keywords: **relationship** keywords (edge vocabulary, e.g. "hosts
 - **issues**: concrete list (e.g. "table on p3 split", "image caption missing").
 - **action**: `auto_accept` (clean) or `review_required` (any doubt).
 
-## 8. Output contract (JSON, constrained sampling)
+## 9. Output contract (JSON, constrained sampling)
 
 ```jsonc
 {
   "markdown": "...",                       // re-leveled markdown (header hierarchy fixed)
+  "summary": "...",                        // file-level, ~2-3 sentences
+  "sections": [{ "title": "...", "summary": "..." }],  // one per top-level H1 section
   "frontmatter": { "type": "...", "topic": "..." },   // from docs/taxonomy.md
   "chunks": [{ "id": "c1", "text": "...", "heading_path": "..." }],  // paragraph-semantic, ~1200 tok
   "entities": [{ "name": "...", "type": "org|person|...", "description": "...", "aliases": ["..."] }],
@@ -109,7 +124,7 @@ Emit retrieval keywords: **relationship** keywords (edge vocabulary, e.g. "hosts
 
 Emit the **entire** re-leveled markdown and every chunk; do not truncate.
 
-## 9. Size budget (single read)
+## 10. Size budget (single read)
 
 One Athena call's context = input (full md) + output (re-leveled md + chunks + entities + keywords +
 quality). Output ≥ input, so usable input ≈ half the context. Conservative single-read cap ≈

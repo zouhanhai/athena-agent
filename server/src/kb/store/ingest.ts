@@ -123,7 +123,7 @@ export class Neo4jIngestService {
       await session.run(
         `MERGE (d:${DOCUMENT_LABEL} {id: $id})
          SET d.topic = $topic, d.type = $type, d.md_ref = $mdRef, d.title = $title,
-             d.keywords = $keywords`,
+             d.keywords = $keywords, d.summary = $summary`,
         {
           id: input.documentId,
           topic: input.ref.frontmatter?.topic ?? "",
@@ -131,6 +131,7 @@ export class Neo4jIngestService {
           mdRef: input.ref.md_ref,
           title: input.title,
           keywords: input.ref.keywords ?? [],
+          summary: input.ref.summary ?? "",
         },
       );
 
@@ -195,6 +196,20 @@ export class Neo4jIngestService {
             { documentId: input.documentId, sections, chunkId },
           );
         }
+      }
+
+      // Layered summaries (G4.S2.T13): set each section summary on its matching Section node
+      // (matched by title, case-insensitive, within this document). The Section nodes above are
+      // keyed by `documentId` so nested sections are covered too. Skipped when the ref has none.
+      if ((input.ref.sections ?? []).length > 0) {
+        await session.run(
+          `UNWIND $sectionSummaries AS ss
+           MATCH (d:${DOCUMENT_LABEL} {id: $documentId})
+           MATCH (sec:${SECTION_LABEL} {documentId: d.id})
+           WHERE toLower(trim(sec.title)) = toLower(trim(ss.title))
+           SET sec.summary = ss.summary`,
+          { sectionSummaries: input.ref.sections ?? [], documentId: input.documentId },
+        );
       }
 
       for (const entity of input.ref.entities ?? []) {

@@ -77,6 +77,8 @@ Die Workshops finden im Hörsaal statt.`,
     },
   ],
   keywords: ["sommerseminar", "workshop", "campus"],
+  summary: "CALEO's Sommerseminar 2026 with an SAP Group Reporting workshop.",
+  sections: [{ title: "Infos Sommerseminar 2026", summary: "CALEO's annual Sommerseminar 2026." }],
   quality: { complete: true, confidence: 0.85, issues: [], action: "auto_accept" },
 };
 
@@ -151,8 +153,10 @@ function fakeStore(recorder: FakeStoreRecorder = {}) {
       relations: doc.relations,
       keywords: doc.keywords,
       quality: doc.quality,
+      summary: doc.summary,
+      sections: doc.sections,
+      section_paths: opts.section_paths ?? [],
       mode: opts.mode ?? "single",
-      sections: opts.sections ?? [],
     };
   };
 }

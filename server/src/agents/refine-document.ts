@@ -13,7 +13,10 @@
  *
  * Big-output handling (G4.S1.T3): the FULL re-leveled markdown + chunks land on disk/storage
  * (`storeRefinementOutput`); `refine_document` returns only the SMALL metadata + refs
- * (frontmatter/entities/keywords/quality/md_ref/preview — pi-docparser pattern). >1MB docs use the
+ * (frontmatter/entities/keywords/quality/summary/sections/md_ref/preview — pi-docparser pattern).
+ * The same full-doc read also emits the layered summaries (G4.S2.T13): a file-level `summary`
+ * (~2-3 sentences) + one `sections[{title, summary}]` entry per top-level H1 section.
+ * >1MB docs use the
  * TWO-STAGE path: local header re-level (batched) → split by refined h1 boundary → per-section full pass
  * → global merge. Sub-1MB docs use a single full-doc pass.
  */
@@ -112,8 +115,20 @@ export interface RefinementQuality {
   action: "auto_accept" | "review_required";
 }
 
+/** One summary per top-level H1 section (G4.S2.T13 — layered/hierarchical summary). */
+export interface RefinementSectionSummary {
+  /** The top-level H1 heading text of the section. */
+  title: string;
+  /** A concise 1-2 sentence summary of that section. */
+  summary: string;
+}
+
 export interface RefinedDocument {
   markdown: string;
+  /** File-level document summary (~2-3 sentences), emitted by the same single full-doc read. */
+  summary: string;
+  /** One summary per top-level H1 section — layered summary for hierarchical retrieval. */
+  sections: RefinementSectionSummary[];
   frontmatter: RefinementFrontmatter;
   chunks: RefinementChunk[];
   entities: RefinementEntity[];
@@ -125,6 +140,13 @@ export interface RefinedDocument {
 /** JSON schema (TypeBox) of the refinement output contract, used as the constrained emit tool params. */
 export const REFINED_DOCUMENT_SCHEMA = Type.Object({
   markdown: Type.String(),
+  summary: Type.String(),
+  sections: Type.Array(
+    Type.Object({
+      title: Type.String(),
+      summary: Type.String(),
+    }),
+  ),
   frontmatter: Type.Object({
     type: Type.String(),
     topic: Type.String(),
@@ -168,6 +190,13 @@ export const HEADER_LEVELS_SCHEMA = Type.Object({
 
 /** Global-merge emit schema: the final single-document view (type/topic + deduped extraction). */
 export const GLOBAL_MERGE_SCHEMA = Type.Object({
+  summary: Type.String(),
+  sections: Type.Array(
+    Type.Object({
+      title: Type.String(),
+      summary: Type.String(),
+    }),
+  ),
   frontmatter: Type.Object({
     type: Type.String(),
     topic: Type.String(),
@@ -199,6 +228,8 @@ export const GLOBAL_MERGE_SCHEMA = Type.Object({
 
 /** The global-view slice of the contract emitted by the two-stage global merge pass (T3). */
 export interface GlobalRefinement {
+  summary?: string;
+  sections?: RefinementSectionSummary[];
   frontmatter?: RefinementFrontmatter;
   entities?: RefinementEntity[];
   relations?: RefinementRelation[];
@@ -246,7 +277,7 @@ export interface RefineDocumentOptions {
 export type RefinementStore = (
   doc: RefinedDocument,
   storageDir: string,
-  options?: { stem?: string; mode?: RefinementMode; sections?: string[] },
+  options?: { stem?: string; mode?: RefinementMode; section_paths?: string[] },
 ) => Promise<RefineOutputRef>;
 
 /** Default big-output storage root (T3). Override with REFINEMENT_OUTPUT_DIR. */
@@ -264,7 +295,8 @@ export const DOCUMENT_REFINEMENT_SKILL_GUIDANCE = `# document-refinement — Ath
 
 You are the SINGLE full-document LLM pass of the athena ingest pipeline. You read the whole docling
 markdown once and emit everything downstream needs — re-leveled markdown, frontmatter(type+topic),
-chunks, entities, relations, keywords, quality — in ONE read. No other LLM re-reads the document.
+chunks, entities, relations, keywords, quality, and file-level + per-section summaries — in ONE read.
+No other LLM re-reads the document.
 
 ## 1. Header re-level (semantic hierarchy)
 Restore a semantic # / ## / ### hierarchy from document structure, not the raw docling levels.
@@ -311,7 +343,16 @@ meaningful relations (graph-RAG best practice) — skip speculative ones.
 Emit retrieval keywords: relationship keywords (edge vocabulary, e.g. "hosts", "part of") AND query
 keywords, high-level + low-level (e.g. "sommerseminar", "schedule", "workshop").
 
-## 7. Quality checklist
+## 7. Document summary (file-level + per-section) — layered/hierarchical summaries (G4.S2.T13)
+You already read the whole document, so summarize it in the same pass at two levels:
+- summary: a FILE-LEVEL summary of ~2-3 sentences stating what the document is about and its most
+  important points.
+- sections: ONE entry per TOP-LEVEL section of the document — title = the top-level H1 heading text
+  (verbatim), summary = a concise 1-2 sentence summary of that section. This lets retrieval locate
+  the right document by file summary, then the right section by its summary, then the chunks.
+  Emit sections for every top-level section; use an empty array only for a sectionless document.
+
+## 8. Quality checklist
 - completeness: did the refined markdown capture the whole source (all sections, tables, figures)?
 - tables/figures: note any table split across pages or figure caption dropped.
 - garbled text: flag OCR/layout garbage, encoding issues.
@@ -426,6 +467,13 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
     Array.isArray(v) && v.every((item) => typeof item === "string") ? v : undefined;
 
   const markdown = typeof args.markdown === "string" ? args.markdown : undefined;
+  const summary = typeof args.summary === "string" ? args.summary : "";
+  const sections = Array.isArray(args.sections)
+    ? args.sections.filter(isRecord).map((s) => ({
+        title: String(s.title ?? ""),
+        summary: String(s.summary ?? ""),
+      }))
+    : [];
   const frontmatter =
     isRecord(args.frontmatter) && typeof args.frontmatter.type === "string" && typeof args.frontmatter.topic === "string"
       ? { type: args.frontmatter.type, topic: args.frontmatter.topic }
@@ -468,7 +516,32 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
     throw new Error("refine_document: output does not match the refinement contract (markdown/frontmatter/quality)");
   }
 
-  return { markdown, frontmatter, chunks, entities, relations, keywords, quality };
+  return { markdown, summary, sections, frontmatter, chunks, entities, relations, keywords, quality };
+}
+
+/** First non-heading paragraph of a markdown, whitespace-collapsed (fallback summary source). */
+function firstParagraph(markdown: string, maxChars: number): string {
+  const text =
+    markdown
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .find((p) => p.length > 0 && !/^#{1,6}\s+/.test(p)) ?? "";
+  return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
+}
+
+/** Deterministic zero-cost fallback summary: the first content paragraph (no LLM). */
+function deriveFallbackSummary(markdown: string): string {
+  return firstParagraph(markdown, 240);
+}
+
+/** Deterministic zero-cost fallback section summaries: one per top-level H1 (h2 fallback). */
+function deriveFallbackSections(markdown: string): RefinementSectionSummary[] {
+  return splitByRefinedH1(markdown)
+    .map((section) => ({
+      title: section.heading_path,
+      summary: firstParagraph(section.markdown, 200),
+    }))
+    .filter((s) => s.title.length > 0);
 }
 
 /** Fallback refinement when the LLM pass fails — never worse than the raw docling output (G4.S1 Spec). */
@@ -476,6 +549,8 @@ export function fallbackRefinement(markdown: string, topicHint: string | undefin
   const message = error instanceof Error ? error.message : String(error);
   return {
     markdown,
+    summary: deriveFallbackSummary(markdown),
+    sections: deriveFallbackSections(markdown),
     frontmatter: { type: "document", topic: topicHint ?? "unclassified" },
     chunks: [],
     entities: [],
@@ -516,7 +591,10 @@ export function buildHeaderJudgePrompt(batch: HeaderBlock[]): string {
 /** Global-merge system prompt — final type/topic + dedup of the per-section extractions. */
 export const GLOBAL_MERGE_SYSTEM_PROMPT = `You are the global merge pass of the Athena TWO-STAGE document
 refinement. A large document was refined section-by-section; each section produced its own frontmatter,
-entities, relations, keywords and quality. Produce the FINAL single-document view:
+entities, relations, keywords, quality and section summary. Produce the FINAL single-document view:
+  - summary: a FILE-LEVEL summary of ~2-3 sentences for the whole document.
+  - sections: ONE entry per top-level H1 section — title = the H1 heading text (verbatim), summary =
+    a concise 1-2 sentence summary. Merge/dedupe the per-section summaries.
   - frontmatter: ONE type + ONE hierarchical topic for the whole document (docs/taxonomy.md).
   - entities: deduplicated with consistent TITLE-CASE naming (one canonical form per entity).
     Preserve each entity's bilingual (DE+EN) aliases for RAG retrieval.
@@ -539,7 +617,7 @@ export function buildGlobalMergePrompt(
     .join("\n");
   return `The document was refined in ${sectionCount} section(s). Here is the merged extraction.\n\n${
     topicHint ? `Topic hint from the operator: ${topicHint}\n\n` : ""
-  }Section headings:\n${headings || "(none)"}\n\nMerged entities:\n${JSON.stringify(merged.entities, null, 2)}\n\nMerged relations:\n${JSON.stringify(merged.relations, null, 2)}\n\nMerged keywords:\n${JSON.stringify(merged.keywords)}\n\nMerged quality:\n${JSON.stringify(merged.quality)}\n\nEmit the final global view via emit_global_refinement.`;
+  }Section headings:\n${headings || "(none)"}\n\nMerged section summaries:\n${JSON.stringify(merged.sections)}\n\nMerged entities:\n${JSON.stringify(merged.entities, null, 2)}\n\nMerged relations:\n${JSON.stringify(merged.relations, null, 2)}\n\nMerged keywords:\n${JSON.stringify(merged.keywords)}\n\nMerged quality:\n${JSON.stringify(merged.quality)}\n\nEmit the final global view via emit_global_refinement.`;
 }
 
 /** Extract the per-header corrected levels from a stage-1 assistant response (emit tool or text JSON). */
@@ -625,6 +703,13 @@ export function extractGlobalMerge(message: AssistantMessageLike): GlobalRefinem
       }))
     : [];
   const keywords = asStringArray(args.keywords) ?? [];
+  const summary = typeof args.summary === "string" ? args.summary : undefined;
+  const sections = Array.isArray(args.sections)
+    ? args.sections.filter(isRecord).map((s) => ({
+        title: String(s.title ?? ""),
+        summary: String(s.summary ?? ""),
+      }))
+    : [];
   const quality =
     isRecord(args.quality) && typeof args.quality.complete === "boolean" && typeof args.quality.confidence === "number"
       ? {
@@ -634,10 +719,18 @@ export function extractGlobalMerge(message: AssistantMessageLike): GlobalRefinem
           action: args.quality.action === "review_required" ? ("review_required" as const) : ("auto_accept" as const),
         }
       : undefined;
-  if (!frontmatter && entities.length === 0 && relations.length === 0 && keywords.length === 0 && !quality) {
+  if (
+    !frontmatter &&
+    entities.length === 0 &&
+    relations.length === 0 &&
+    keywords.length === 0 &&
+    summary === undefined &&
+    sections.length === 0 &&
+    !quality
+  ) {
     return undefined;
   }
-  return { frontmatter, entities, relations, keywords, quality };
+  return { frontmatter, entities, relations, keywords, summary, sections, quality };
 }
 
 /** Stage-1 production implementation: judge header levels in batches (LOCAL, no full doc). */
@@ -798,6 +891,8 @@ async function runGlobalMerge(
     if (!global) return merged;
     return {
       ...merged,
+      summary: global.summary ?? merged.summary,
+      sections: global.sections && global.sections.length > 0 ? global.sections : merged.sections,
       frontmatter: global.frontmatter ?? merged.frontmatter,
       entities: global.entities && global.entities.length > 0 ? global.entities : merged.entities,
       relations: global.relations && global.relations.length > 0 ? global.relations : merged.relations,
@@ -874,7 +969,7 @@ export function createRefineDocumentTool(
 
       try {
         let document: RefinedDocument;
-        let sections: string[] = [];
+        let sectionPaths: string[] = [];
         if (mode === "two-stage") {
           const result = await refineLargeDocument(
             textMarkdown,
@@ -892,7 +987,7 @@ export function createRefineDocumentTool(
             params.topic_hint,
           );
           document = result.document;
-          sections = result.sections;
+          sectionPaths = result.sections;
         } else {
           const single = await runRefinePass(modelRuntime, model, textMarkdown, params.topic_hint, options);
           document = single.document;
@@ -906,7 +1001,7 @@ export function createRefineDocumentTool(
         const ref = await store({ ...document, markdown: fileAPrime }, storageDir, {
           stem: deriveStem(fileAPrime),
           mode,
-          sections,
+          section_paths: sectionPaths,
           ...(imageRefsStripped ? { ragMarkdown } : {}),
         });
         return {

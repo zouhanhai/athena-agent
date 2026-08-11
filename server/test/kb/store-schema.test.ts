@@ -5,6 +5,7 @@ import {
   ENTITY_LABEL,
   DOCUMENT_LABEL,
   WIKIPAGE_LABEL,
+  SECTION_LABEL,
   ENTITY_RELATION_TYPE,
   EMBEDDING_DIMENSIONS,
   foldName,
@@ -85,6 +86,22 @@ test("storeSchemaStatements creates a fulltext index over Chunk.text for BM25 re
   assert.ok(
     statements.some((s) => s.includes("FULLTEXT INDEX") && s.includes("n.text")),
     "fulltext index over Chunk.text present",
+  );
+});
+
+test("storeSchemaStatements creates a fulltext index over Document.summary so summaries are searchable", () => {
+  const statements = storeSchemaStatements();
+  assert.ok(
+    statements.some((s) => s.includes("FULLTEXT INDEX") && s.includes(`:${DOCUMENT_LABEL}`) && s.includes("n.summary")),
+    "fulltext index over Document.summary present",
+  );
+});
+
+test("storeSchemaStatements creates a fulltext index over Section.summary for hierarchical summary lookup", () => {
+  const statements = storeSchemaStatements();
+  assert.ok(
+    statements.some((s) => s.includes("FULLTEXT INDEX") && s.includes(`:${SECTION_LABEL}`) && s.includes("n.summary")),
+    "fulltext index over Section.summary present",
   );
 });
 

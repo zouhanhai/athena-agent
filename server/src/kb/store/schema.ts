@@ -44,6 +44,10 @@ export const CHUNK_EMBEDDING_INDEX = "chunk_embedding_idx";
 export const ENTITY_NAME_UPPER_INDEX = "entity_name_upper_idx";
 export const ENTITY_NAME_ALIASES_FTX = "entity_name_aliases_ftx";
 export const CHUNK_TEXT_FTX = "chunk_text_ftx";
+/** Hierarchical-summary fulltext indexes (G4.S2.T13): search file summary → doc,
+ *  then section summary → section, then chunks. */
+export const DOCUMENT_SUMMARY_FTX = "document_summary_ftx";
+export const SECTION_SUMMARY_FTX = "section_summary_ftx";
 
 /**
  * Fold a name to a case-insensitive canonical form (`toUpper`, Unicode-aware so German umlauts
@@ -82,6 +86,11 @@ export function storeSchemaStatements(): string[] {
     `CREATE FULLTEXT INDEX ${ENTITY_NAME_ALIASES_FTX} IF NOT EXISTS FOR (n:${ENTITY_LABEL}) ON EACH [n.name, n.aliases]`,
     // BM25 retrieval over chunk text (neo4j-graphrag HybridRetriever full-text half, G4.S2.T5).
     `CREATE FULLTEXT INDEX ${CHUNK_TEXT_FTX} IF NOT EXISTS FOR (n:${CHUNK_LABEL}) ON EACH [n.text]`,
+    // Layered summary retrieval (G4.S2.T13): file-level Document.summary + per-section
+    // Section.summary fulltext — hierarchical lookup: search file summary → locate the doc,
+    // then section summary → locate the section, then its chunks.
+    `CREATE FULLTEXT INDEX ${DOCUMENT_SUMMARY_FTX} IF NOT EXISTS FOR (n:${DOCUMENT_LABEL}) ON EACH [n.summary]`,
+    `CREATE FULLTEXT INDEX ${SECTION_SUMMARY_FTX} IF NOT EXISTS FOR (n:${SECTION_LABEL}) ON EACH [n.summary]`,
   ];
 }
 
@@ -119,6 +128,8 @@ const INTENDED_INDEXES: IntendedIndex[] = [
   { name: ENTITY_NAME_UPPER_INDEX, labels: [ENTITY_LABEL], properties: ["nameUpper"], type: "RANGE" },
   { name: ENTITY_NAME_ALIASES_FTX, labels: [ENTITY_LABEL], properties: ["name", "aliases"], type: "FULLTEXT" },
   { name: CHUNK_TEXT_FTX, labels: [CHUNK_LABEL], properties: ["text"], type: "FULLTEXT" },
+  { name: DOCUMENT_SUMMARY_FTX, labels: [DOCUMENT_LABEL], properties: ["summary"], type: "FULLTEXT" },
+  { name: SECTION_SUMMARY_FTX, labels: [SECTION_LABEL], properties: ["summary"], type: "FULLTEXT" },
 ];
 
 function sameSet(a: string[], b: string[]): boolean {

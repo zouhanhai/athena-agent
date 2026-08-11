@@ -231,16 +231,19 @@ export function categoryDir(category: WikiCategory): string {
   return DOC_TYPE_DIRS[category];
 }
 
-/** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title + topic). */
+/** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title + topic + summary). */
 export function withFrontmatter(
   category: WikiCategory,
   title: string,
   content: string,
   topic?: string,
+  summary?: string,
 ): string {
   const today = new Date().toISOString().slice(0, 10);
   const topicLine = topic && isValidTopic(topic) ? `topic: ${topic}\n` : "";
-  return `---\ntype: ${category}\ntitle: ${title}\n${topicLine}created: ${today}\nupdated: ${today}\n---\n\n${content}`;
+  // the summary is collapsed onto one line so the key:value frontmatter stays parseable
+  const summaryLine = summary && summary.trim() ? `summary: ${summary.replace(/\s+/g, " ").trim()}\n` : "";
+  return `---\ntype: ${category}\ntitle: ${title}\n${topicLine}${summaryLine}created: ${today}\nupdated: ${today}\n---\n\n${content}`;
 }
 
 export interface WikiIndexPage {
@@ -463,6 +466,8 @@ export class KnowledgeIngestService {
    * refs `images/<stem>/image_x.png` resolve relative to the page. The refs
    * themselves are NOT rewritten — the copy preserves the relative layout the
    * refs already use.
+   * G4.S2.T13: `summary` (the Athena file-level summary) is written to the page
+   * frontmatter as `summary:` when provided.
    */
   async ingestLlmWiki(
     fileName: string,
@@ -470,6 +475,7 @@ export class KnowledgeIngestService {
     onStep?: LlmWikiProgress,
     preclassified?: WikiClassification,
     images?: { sourceDir: string; relativeDir: string },
+    summary?: string,
   ): Promise<SystemIngestStatus> {
     try {
       const { id, wikiDir } = await this.resolveProject();
@@ -485,7 +491,7 @@ export class KnowledgeIngestService {
       const targetDir = join(wikiDir, subDir);
       onStep?.("write_page", "running");
       await this.mkdir(targetDir);
-      await this.writeFile(join(targetDir, fileName), withFrontmatter(category, title, content, topic));
+      await this.writeFile(join(targetDir, fileName), withFrontmatter(category, title, content, topic, summary));
       if (images) {
         await this.copyPageImages(images.sourceDir, join(targetDir, images.relativeDir));
       }

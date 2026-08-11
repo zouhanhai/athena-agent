@@ -259,6 +259,22 @@ test("withFrontmatter includes the topic field when provided", () => {
   assert.match(out, /^---\ntype: concept\ntitle: Sommerseminar\ntopic: sommerseminar\ncreated: \d{4}-\d{2}-\d{2}\n/);
 });
 
+test("withFrontmatter includes the summary field when provided (single-line)", () => {
+  const out = withFrontmatter(
+    "concept",
+    "Sommerseminar",
+    "# S\n\nbody",
+    "sommerseminar",
+    "CALEO's annual event with\n workshops and talks.",
+  );
+  assert.match(out, /^---\ntype: concept\ntitle: Sommerseminar\ntopic: sommerseminar\nsummary: CALEO's annual event with workshops and talks\.\ncreated: /);
+});
+
+test("withFrontmatter omits the summary field when not provided", () => {
+  const out = withFrontmatter("concept", "Chain of Thought", "# Chain of Thought\n\nbody");
+  assert.ok(!/^summary:/m.test(out), "no summary line without a summary");
+});
+
 test("localTopic groups related Sommerseminar documents under internal/events", () => {
   assert.equal(localTopic("Sommerseminar Lüsen/Südtirol 2026", "C-Day für die CALEOs"), "internal/events");
   assert.equal(localTopic("Infos Sommerseminar 2026", "Sommerseminar vom 12. - 14. Juni 2026"), "internal/events");
@@ -455,6 +471,34 @@ test("ingestLlmWiki skips image copying when the doc has no images (missing sour
 
   assert.equal(result.ok, true);
   assert.equal(copied, 0);
+});
+
+test("ingestLlmWiki writes the Athena document summary to the wiki page frontmatter", async () => {
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  const result = await service.ingestLlmWiki(
+    "sommerseminar.md",
+    "# Sommerseminar\n\nbody",
+    undefined,
+    { category: "event", pagePath: "wiki/events/sommerseminar.md", topic: "internal/events" },
+    undefined,
+    "CALEO's annual Sommerseminar covers workshops and talks.",
+  );
+
+  assert.equal(result.ok, true);
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  assert.equal(write?.args[0], "/data/wiki/internal/events/sommerseminar.md");
+  assert.match(
+    write?.args[1] as string,
+    /^---\ntype: event\ntitle: Sommerseminar\ntopic: internal\/events\nsummary: CALEO's annual Sommerseminar covers workshops and talks\.\ncreated:/,
+  );
 });
 
 test("buildWikiIndex groups pages by frontmatter type", () => {

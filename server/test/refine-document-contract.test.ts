@@ -16,15 +16,29 @@ function schemaJson(schema: unknown): {
   return JSON.parse(JSON.stringify(schema));
 }
 
-test("output contract schema defines markdown/frontmatter/chunks/entities/relations/keywords/quality", () => {
+test("output contract schema defines markdown/frontmatter/chunks/entities/relations/keywords/quality/summary/sections", () => {
   const s = schemaJson(REFINED_DOCUMENT_SCHEMA);
   assert.equal(s.type, "object");
   const top = Object.keys(s.properties).sort();
-  assert.deepEqual(top, ["chunks", "entities", "frontmatter", "keywords", "markdown", "quality", "relations"]);
+  assert.deepEqual(top, ["chunks", "entities", "frontmatter", "keywords", "markdown", "quality", "relations", "sections", "summary"]);
 
   assert.ok(s.properties.markdown.type === "string");
   assert.ok(s.properties.frontmatter.properties?.type);
   assert.ok(s.properties.frontmatter.properties?.topic);
+});
+
+test("output contract summary is a string (~2-3 sentences)", () => {
+  const s = schemaJson(REFINED_DOCUMENT_SCHEMA);
+  assert.equal(s.properties.summary.type, "string");
+});
+
+test("output contract sections is {title, summary}[] (one per top-level H1)", () => {
+  const s = schemaJson(REFINED_DOCUMENT_SCHEMA);
+  assert.equal(s.properties.sections.type, "array");
+  const props = s.properties.sections.items?.properties ?? {};
+  assert.deepEqual(Object.keys(props).sort(), ["summary", "title"]);
+  assert.equal(props.title.type, "string");
+  assert.equal(props.summary.type, "string");
 });
 
 test("chunk contract: id/text/heading_path (paragraph-semantic ~1200tok)", () => {
@@ -51,9 +65,11 @@ test("quality contract: complete/confidence/issues/action (auto_accept|review_re
   assert.deepEqual(action.anyOf?.map((x) => x.const), ["auto_accept", "review_required"]);
 });
 
-test("normalizeRefinedDocument maps heading_path + source/target/keywords/description", () => {
+test("normalizeRefinedDocument maps heading_path + source/target/keywords/description + summary + sections", () => {
   const doc = normalizeRefinedDocument({
     markdown: "# Sommerseminar\n\n## Workshops\n\nDetails.",
+    summary: "CALEO's annual Sommerseminar covers workshops and talks.",
+    sections: [{ title: "Sommerseminar", summary: "The annual CALEO event with workshops and talks." }],
     frontmatter: { type: "event", topic: "internal/events" },
     chunks: [{ id: "c1", text: "Details.", heading_path: "Workshops" }],
     entities: [
@@ -88,6 +104,8 @@ test("normalizeRefinedDocument maps heading_path + source/target/keywords/descri
   });
   assert.deepEqual(doc.keywords, ["sommerseminar", "workshop"]);
   assert.equal(doc.quality.action, "auto_accept");
+  assert.equal(doc.summary, "CALEO's annual Sommerseminar covers workshops and talks.");
+  assert.deepEqual(doc.sections, [{ title: "Sommerseminar", summary: "The annual CALEO event with workshops and talks." }]);
 });
 
 test("normalizeRefinedDocument defaults entity aliases to [] when absent", () => {
@@ -101,6 +119,20 @@ test("normalizeRefinedDocument defaults entity aliases to [] when absent", () =>
     quality: { complete: true, confidence: 0.5, issues: [], action: "auto_accept" },
   });
   assert.deepEqual(doc.entities[0].aliases, []);
+});
+
+test("normalizeRefinedDocument defaults summary to empty string when absent", () => {
+  const doc = normalizeRefinedDocument({
+    markdown: "# D",
+    frontmatter: { type: "document", topic: "unclassified" },
+    chunks: [],
+    entities: [],
+    relations: [],
+    keywords: [],
+    quality: { complete: true, confidence: 0.5, issues: [], action: "auto_accept" },
+  });
+  assert.equal(doc.summary, "");
+  assert.deepEqual(doc.sections, []);
 });
 
 test("refinement prompt embeds docs/taxonomy.md (type criteria + hierarchical topic tree)", () => {
@@ -126,6 +158,18 @@ test("refinement prompt emits bilingual (DE+EN) entity aliases for RAG retrieval
   assert.match(p, /aliases/i);
   assert.match(p, /German.*English|DE.*EN|bilingual|same node/i);
   assert.match(p, /canonical/i);
+});
+
+test("refinement prompt instructs a concise 2-3 sentence document summary", () => {
+  const p = REFINE_DOCUMENT_SYSTEM_PROMPT;
+  assert.match(p, /summar/i);
+  assert.match(p, /2-3 sentences|two or three|concise/i);
+});
+
+test("refinement prompt emits per-H1-section summaries ({title, summary})", () => {
+  const p = REFINE_DOCUMENT_SYSTEM_PROMPT;
+  assert.match(p, /sections/i);
+  assert.match(p, /per.*section|one.*section|each.*section/i);
 });
 
 test("document-refinement SKILL.md exists with required guidance sections", () => {

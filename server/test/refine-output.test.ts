@@ -24,6 +24,8 @@ import {
 function refinedSection(heading: string, body: string): RefinedDocument {
   return {
     markdown: `# ${heading}\n\n${body}`,
+    summary: `Summary of ${heading}.`,
+    sections: [{ title: heading, summary: `Section summary of ${heading}.` }],
     frontmatter: { type: "document", topic: "t" },
     chunks: [{ id: "c1", text: body, heading_path: heading }],
     entities: [],
@@ -129,6 +131,8 @@ test("storeRefinementOutput writes markdown.md + chunks.json and returns the sma
   try {
     const doc: RefinedDocument = {
       markdown: "# Sommerseminar\n\n## Workshops\n\n" + "details\n".repeat(400),
+      summary: "CALEO's annual Sommerseminar.",
+      sections: [{ title: "Sommerseminar", summary: "The annual CALEO event." }],
       frontmatter: { type: "event", topic: "internal/events" },
       chunks: [{ id: "c1", text: "details", heading_path: "Sommerseminar / Workshops" }],
       entities: [{ name: "CALEO", type: "org", description: "An organization" }],
@@ -139,7 +143,7 @@ test("storeRefinementOutput writes markdown.md + chunks.json and returns the sma
     const ref = await storeRefinementOutput(doc, dir, {
       stem: "sommerseminar",
       mode: "two-stage",
-      sections: ["Workshops"],
+      section_paths: ["Workshops"],
     });
     const mdPath = join(dir, "sommerseminar", "markdown.md");
     const chunksPath = join(dir, "sommerseminar", "chunks.json");
@@ -156,8 +160,10 @@ test("storeRefinementOutput writes markdown.md + chunks.json and returns the sma
     assert.deepEqual(ref.entities, doc.entities);
     assert.deepEqual(ref.keywords, ["sommerseminar"]);
     assert.deepEqual(ref.quality, doc.quality);
+    assert.equal(ref.summary, "CALEO's annual Sommerseminar.", "ref carries the document summary");
+    assert.deepEqual(ref.sections, [{ title: "Sommerseminar", summary: "The annual CALEO event." }]);
     assert.equal(ref.mode, "two-stage");
-    assert.deepEqual(ref.sections, ["Workshops"]);
+    assert.deepEqual(ref.section_paths, ["Workshops"]);
 
     assert.equal(await readFile(mdPath, "utf8"), doc.markdown);
     assert.deepEqual(JSON.parse(await readFile(chunksPath, "utf8")), doc.chunks);
@@ -173,6 +179,7 @@ test("storeRefinementOutput writes the File B RAG working copy only when it diff
     const fileB = "# Doc\n\nThe image displays a bright sky.\n\nbody";
     const doc: RefinedDocument = {
       markdown: fileAPrime,
+      summary: "A doc with an image ref.",
       frontmatter: { type: "event", topic: "internal/events" },
       chunks: [{ id: "c1", text: "body", heading_path: "Doc" }],
       entities: [],
@@ -201,6 +208,8 @@ test("storeRefinementOutput writes the File B RAG working copy only when it diff
 test("mergeRefinements concats markdown/chunks, dedupes entities/relations/keywords, aggregates quality", () => {
   const a: RefinedDocument = {
     markdown: "# A\n\naa",
+    summary: "Section A summary.",
+    sections: [{ title: "A", summary: "A summary." }],
     frontmatter: { type: "event", topic: "t" },
     chunks: [{ id: "c1", text: "aa", heading_path: "A" }],
     entities: [
@@ -213,6 +222,8 @@ test("mergeRefinements concats markdown/chunks, dedupes entities/relations/keywo
   };
   const b: RefinedDocument = {
     markdown: "# B\n\nbb",
+    summary: "",
+    sections: [{ title: "A", summary: "" }, { title: "B", summary: "B summary." }],
     frontmatter: { type: "event", topic: "t" },
     chunks: [{ id: "c1", text: "bb", heading_path: "B" }],
     entities: [{ name: "CALEO", type: "org", description: "org" }],
@@ -235,6 +246,12 @@ test("mergeRefinements concats markdown/chunks, dedupes entities/relations/keywo
   assert.equal(m.quality.confidence, 0.7);
   assert.deepEqual(m.quality.issues, ["table split"]);
   assert.equal(m.quality.action, "review_required");
+  assert.equal(m.summary, "Section A summary.", "first non-empty section summary kept on merge");
+  // section summaries merged by title, non-empty wins over empty dup
+  assert.deepEqual(m.sections, [
+    { title: "A", summary: "A summary." },
+    { title: "B", summary: "B summary." },
+  ]);
 });
 
 test("storeRefinementOutput ref carries small metadata only (no full markdown/chunks)", async () => {

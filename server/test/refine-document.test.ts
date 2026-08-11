@@ -11,6 +11,8 @@ import type { RefineOutputRef, RefinementMode } from "../src/agents/refine-outpu
 
 const sampleRefined: RefinedDocument = {
   markdown: "# Sommerseminar\n\n## Workshops\n\nDetails about the workshops.",
+  summary: "CALEO's annual Sommerseminar covers workshops and talks.",
+  sections: [{ title: "Sommerseminar", summary: "The annual CALEO event with workshops and talks." }],
   frontmatter: { type: "event", topic: "internal/events" },
   chunks: [{ id: "c1", text: "Details about the workshops.", heading_path: "Sommerseminar / Workshops" }],
   entities: [{ name: "CALEO", type: "org", description: "An organization" }],
@@ -71,8 +73,10 @@ function makeFakeStore(recorder?: FakeStoreRecorder) {
       relations: doc.relations,
       keywords: doc.keywords,
       quality: doc.quality,
+      summary: doc.summary,
+      sections: doc.sections,
+      section_paths: opts.section_paths ?? [],
       mode: opts.mode ?? "single",
-      sections: opts.sections ?? [],
     };
   };
 }
@@ -162,6 +166,7 @@ test("execute stores the full output and returns the small ref (pi-docparser big
   });
   assert.ok(Array.isArray(ref.keywords));
   assert.equal(ref.quality.action, "auto_accept");
+  assert.equal(ref.summary, "CALEO's annual Sommerseminar covers workshops and talks.", "summary emitted in the ref");
   assert.equal(ref.mode, "single");
 });
 
@@ -247,6 +252,7 @@ test("falls back to raw docling markdown when the LLM pass fails (never worse th
   assert.equal(ref.quality.complete, false);
   assert.equal(ref.quality.action, "review_required");
   assert.ok(ref.quality.issues.length > 0, "issues records the failure");
+  assert.ok(ref.summary.length > 0, "fallback still emits a derived summary");
 });
 
 test("falls back when the model output is not schema-parseable", async () => {
