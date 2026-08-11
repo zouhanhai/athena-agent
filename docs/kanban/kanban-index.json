@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T21:38:40.499Z",
+  "generated_at": "2026-08-11T21:38:46.264Z",
   "goals": [
     {
       "ref": "G1",
@@ -2091,8 +2091,9 @@
               "id": "s3.3",
               "title": "G4.S3.T3: Incremental re-curation tool — re-topic + topic_history + index rebuild",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t3",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
