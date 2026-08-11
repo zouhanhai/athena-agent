@@ -8,6 +8,7 @@ import type { KnowledgeIngestService } from "../kb/ingest.js";
 import type { KnowledgeRetrievalService } from "../kb/retrieval.js";
 import type { IngestTaskQueue } from "../kb/tasks.js";
 import type { KbReviewService } from "../kb/review.js";
+import type { WikiReCurator } from "../kb/recurate.js";
 import {
   NothingToRetryError,
   TaskBusyError,
@@ -36,6 +37,8 @@ export interface KbRouteOptions {
   taskQueue?: IngestTaskQueue;
   /** Athena KB review pass (G4.S3.T2): POST /api/kb/review. */
   review?: KbReviewService;
+  /** Incremental re-curation tool (G4.S3.T3): POST /api/kb/wiki/retopic. */
+  recurator?: WikiReCurator;
   /** Directory to stage uploaded files before docling parsing. Default: os.tmpdir(). */
   uploadDir?: string;
   /** Max multipart upload size. Default: 50 MiB. */
@@ -238,6 +241,29 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     }
   };
   app.post("/api/kb/review", reviewHandler);
+
+  /** POST /api/kb/wiki/retopic → re-curate a wiki page into a deeper topic dir
+   *  (G4.S3.T3): move the file, update topic + topic_history + last_reviewed,
+   *  rebuild wiki/index.md + llm_wiki rescan. No Neo4j re-chunk / re-embed.
+   *  Body: { path, topic }. */
+  const retopicHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.recurator) {
+      return reply.code(500).send({ error: "KB re-curation service not configured" });
+    }
+    const body = (request.body ?? {}) as { path?: unknown; topic?: unknown };
+    if (typeof body.path !== "string" || body.path.trim().length === 0) {
+      return reply.code(400).send({ error: "path is required" });
+    }
+    if (typeof body.topic !== "string" || body.topic.trim().length === 0) {
+      return reply.code(400).send({ error: "topic is required" });
+    }
+    try {
+      return await options.recurator.reTopic({ path: body.path.trim(), topic: body.topic.trim() });
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.post("/api/kb/wiki/retopic", retopicHandler);
 
   if (!options.retrieval) return;
 

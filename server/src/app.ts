@@ -54,6 +54,7 @@ import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
 import { KbReviewService, scheduleKbReview } from "./kb/review.js";
+import { WikiReCurator } from "./kb/recurate.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
 import { createAthenaRefiner } from "./kb/refiner.js";
@@ -72,6 +73,8 @@ export interface BuildAppOptions {
   retrieval?: KnowledgeRetrievalService;
   /** Athena KB review pass (G4.S3.T2). Default: defaultReviewService(). */
   review?: KbReviewService;
+  /** Incremental re-curation tool (G4.S3.T3). Default: defaultReCurator(). */
+  recurator?: WikiReCurator;
   taskQueue?: IngestTaskQueue;
   registry?: AgentRegistry;
   logos?: LogoStore;
@@ -134,6 +137,17 @@ export function defaultReviewService(): KbReviewService {
   return new KbReviewService({
     llmwiki: new LlmWikiClient(),
     syncer: new WikiFrontmatterSyncer({ wikiDir, driver }),
+    projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
+  });
+}
+
+/** Default incremental re-curation tool (G4.S3.T3): moves a wiki page into a
+ *  deeper topic dir + updates topic/topic_history/last_reviewed + rebuilds the
+ *  wiki index + rescans llm_wiki. Wiki-only — no Neo4j re-chunk / re-embed. */
+export function defaultReCurator(): WikiReCurator {
+  return new WikiReCurator({
+    wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
+    llmwiki: new LlmWikiClient(),
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
   });
 }
@@ -354,6 +368,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     ingest: options.ingest ?? defaultIngestService(),
     retrieval: options.retrieval ?? defaultRetrievalService(),
     review: options.review ?? defaultReviewService(),
+    recurator: options.recurator ?? defaultReCurator(),
     taskQueue: options.taskQueue ?? defaultTaskQueue(),
     maxFileSize: options.maxFileSize,
   });
