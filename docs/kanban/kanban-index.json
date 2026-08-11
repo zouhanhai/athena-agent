@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T14:55:22.737Z",
+  "generated_at": "2026-08-11T15:21:01.241Z",
   "goals": [
     {
       "ref": "G1",
@@ -1981,7 +1981,7 @@
               "owner": "consultant",
               "status": "in_progress",
               "assignee": "opencode",
-              "session_id": "ses_g4s2t10_retry",
+              "session_id": "ses_t10_opencode_0821",
               "blocked_by": [],
               "acceptance_criteria": [
                 "No LightRAG references remain in server code/tests/deps",
