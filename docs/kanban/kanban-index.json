@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T16:40:39.857Z",
+  "generated_at": "2026-08-11T17:03:06.799Z",
   "goals": [
     {
       "ref": "G1",
@@ -1996,7 +1996,7 @@
               "id": "s2.11",
               "title": "G4.S2.T11: RAG↔Wiki fusion — Section/WikiPage nodes + chunk retrieval with wikiPath/sectionPath + same-section context",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_t11_opencode_0821",
               "blocked_by": [],
@@ -2005,7 +2005,9 @@
                 "Chunk retrieval results carry wikiPath + sectionPath",
                 "Context enrichment returns same-section chunks",
                 "Server tests green + typecheck clean"
-              ]
+              ],
+              "progress_last_row": "All green: 668 server tests, 347 web tests, server+web typecheck clean → marked T11 done, index regenerated",
+              "progress_updated_at": "2026-08-11T18:30:00Z"
             },
             {
               "ref": "G4.S2.T13",
