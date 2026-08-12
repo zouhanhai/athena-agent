@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T11:11:06.757Z",
+  "generated_at": "2026-08-12T12:10:48.335Z",
   "goals": [
     {
       "ref": "G1",
@@ -2178,6 +2178,22 @@
               ],
               "progress_last_row": "all acceptance met (embedder onBatch, per-batch ingest, task/API progress, Uploads X/Y+ETA); server+web tests + typecheck green; committed + pushed",
               "progress_updated_at": "2026-08-12T11:16:00Z"
+            },
+            {
+              "ref": "G4.S3.T9",
+              "id": "G4.S3.T9",
+              "title": "G4.S3.T9: Uploads — live elapsed timer + RAG chunk progress ETA",
+              "owner": "consultant",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "20260812T120926Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Uploads task note shows a LIVE elapsed timer (updates every ~1s) from the moment a task starts, so it never shows a frozen 0s.",
+                "During the RAG/Neo4j stage the note also shows an ETA estimate (remaining chunks × avg per-chunk time), refreshed as chunks embed.",
+                "The elapsed timer covers parsing+refinement too (not just RAG); before RAG no ETA is shown (no per-chunk baseline yet), only the elapsed time.",
+                "Server + web tests green, vue-tsc + typecheck clean."
+              ]
             }
           ]
         },
