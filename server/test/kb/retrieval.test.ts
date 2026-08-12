@@ -487,3 +487,123 @@ test("read_count tracking never fails the search when the wiki page is missing o
   const result = await service.search("bus station");
   assert.equal(result.results.length, 1, "search still returns hits when read_count tracking fails");
 });
+
+// ---- G4.S3.T6: search integration (term query expansion + QA reference) ----
+
+function stubMappings(
+  rows: Array<{ term: string; canonical: string }> = [
+    { term: "C-Day", canonical: "CALEO Day" },
+    { term: "HW", canonical: "Haushaltswaren" },
+  ],
+) {
+  return {
+    upsert: async () => {
+      throw new Error("not used");
+    },
+    list: async () =>
+      rows.map((r) => ({
+        id: r.term,
+        term: r.term,
+        canonical: r.canonical,
+        created_at: "",
+        updated_at: "",
+      })),
+    remove: async () => false,
+    findByTerm: async () => null,
+    seed: async () => {},
+    close: async () => {},
+  };
+}
+
+function stubQaReference(overrides: Record<string, unknown> = {}) {
+  return {
+    findReference: async (question: string) => {
+      if (question.toLowerCase().includes("c-day") || question.toLowerCase().includes("c day")) {
+        return {
+          id: "pair-1",
+          question: "What is C-Day?",
+          answer: "C-Day is the CALEO Day.",
+          score: 0.95,
+        };
+      }
+      return null;
+    },
+    ...overrides,
+  };
+}
+
+test("search expands colloquial terms into the canonical form for BOTH the Neo4j and llm_wiki queries", async () => {
+  let neo4jQuery = "";
+  let wikiQuery = "";
+  const neo4j = stubNeo4j([
+    { id: "doc1:c1", text: "CALEO Day planning guide", documentId: "doc1", source: "bm25", score: 0.9 },
+  ] as never);
+  // re-wrap to capture the query text
+  const neo4jWithCapture = {
+    ...neo4j,
+    search: async (query: string) => {
+      neo4jQuery = query;
+      return {
+        query,
+        hits: [
+          { id: "doc1:c1", text: "CALEO Day planning guide", documentId: "doc1", source: "bm25", score: 0.9 },
+        ],
+      };
+    },
+  } as unknown as Neo4jRetrievalService;
+  const llmwiki = stubLlmwiki({
+    search: async (_projectId, query) => {
+      wikiQuery = query;
+      return {
+        results: [{ path: "wiki/c-day.md", title: "CALEO Day", snippet: "kw", score: 0.7 }],
+      };
+    },
+  });
+  const service = new KnowledgeRetrievalService({
+    llmwiki,
+    neo4j: neo4jWithCapture,
+    mappings: stubMappings(),
+  });
+
+  await service.search("when is C-Day?");
+
+  assert.equal(neo4jQuery, "when is CALEO Day?", "Neo4j query gets the expanded canonical term");
+  assert.equal(wikiQuery, "when is CALEO Day?", "llm_wiki query gets the expanded canonical term");
+});
+
+test("search attaches a matching QA reference but STILL runs the RAG search (not a short-circuit)", async () => {
+  let neo4jCalled = 0;
+  const neo4j = {
+    search: async () => {
+      neo4jCalled += 1;
+      return {
+        query: "",
+        hits: [{ id: "doc1:c1", text: "fresh retrieval", documentId: "doc1", source: "bm25", score: 0.9 }],
+      };
+    },
+  } as unknown as Neo4jRetrievalService;
+  const llmwiki = stubLlmwiki({ search: async () => ({ results: [] }) });
+  const service = new KnowledgeRetrievalService({
+    llmwiki,
+    neo4j,
+    qa: stubQaReference(),
+  });
+
+  const result = await service.search("What is C-Day?");
+
+  assert.ok(result.qaReference, "the QA pair is surfaced as reference context");
+  assert.equal(result.qaReference!.answer, "C-Day is the CALEO Day.");
+  assert.equal(result.results.length, 1, "RAG results still present — QA is NOT a short-circuit");
+  assert.equal(neo4jCalled, 1, "the RAG search still ran");
+});
+
+test("search omits qaReference when no stored question is similar", async () => {
+  const neo4j = stubNeo4j([
+    { id: "doc1:c1", text: "bus guide", documentId: "doc1", source: "bm25", score: 0.9 },
+  ] as never);
+  const llmwiki = stubLlmwiki({ search: async () => ({ results: [] }) });
+  const service = new KnowledgeRetrievalService({ llmwiki, neo4j, qa: stubQaReference() });
+
+  const result = await service.search("public transport timetables");
+  assert.equal(result.qaReference, undefined);
+});

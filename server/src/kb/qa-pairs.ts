@@ -47,7 +47,8 @@ export interface QaPairUpsertInput {
   question: string;
   answer: string;
   sources?: QaSource[];
-  feedback: FeedbackDirection;
+  /** Nullable for manual Q&A entries (no rating). */
+  feedback: FeedbackDirection | null;
 }
 
 export interface QaPairStore {
@@ -56,6 +57,11 @@ export interface QaPairStore {
   /** Merge a semantically-similar new Q&A into an existing pair: append the new
    *  answer, union sources, aggregate the feedback. Falls back to insert. */
   merge(id: string, input: QaPairUpsertInput): Promise<QaPair>;
+  /** Replace an existing pair's answer + sources in place (G4.S3.T6 manual
+   *  entry "overwrite"). Keeps the row id. Falls back to insert. */
+  overwrite(id: string, input: QaPairUpsertInput): Promise<QaPair>;
+  /** Delete a pair by id. Returns true when a row was removed. */
+  remove(id: string): Promise<boolean>;
   findByQuestion(question: string): Promise<QaPair | null>;
   getById(id: string): Promise<QaPair | null>;
   setFeedback(id: string, feedback: FeedbackDirection): Promise<QaPair | null>;
@@ -160,6 +166,29 @@ export class MemoryQaPairStore implements QaPairStore {
     this.byId.set(id, merged);
     this.byQuestion.set(normalizeQuestion(merged.question), merged);
     return merged;
+  }
+
+  async overwrite(id: string, input: QaPairUpsertInput): Promise<QaPair> {
+    const existing = this.byId.get(id);
+    if (!existing) return this.setRecord(input);
+    const overwritten: QaPair = {
+      ...existing,
+      answer: input.answer,
+      sources: input.sources ?? [],
+      feedback: input.feedback,
+      updated_at: now(),
+    };
+    this.byId.set(id, overwritten);
+    this.byQuestion.set(normalizeQuestion(overwritten.question), overwritten);
+    return overwritten;
+  }
+
+  async remove(id: string): Promise<boolean> {
+    const existing = this.byId.get(id);
+    if (!existing) return false;
+    this.byId.delete(id);
+    this.byQuestion.delete(normalizeQuestion(existing.question));
+    return true;
   }
 
   async findByQuestion(question: string): Promise<QaPair | null> {
@@ -295,6 +324,27 @@ export class PostgresQaPairStore implements QaPairStore {
     );
     if (result.rows.length === 0) return this.upsert(input);
     return rowToPair(result.rows[0]);
+  }
+
+  async overwrite(id: string, input: QaPairUpsertInput): Promise<QaPair> {
+    await this.ensureReady();
+    const existing = await this.getById(id);
+    if (!existing) return this.upsert(input);
+    const result = await this.pool.query<QaPairRow>(
+      `UPDATE qa_pairs
+       SET answer = $2, sources = $3, feedback = $4, updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [id, input.answer, JSON.stringify(input.sources ?? []), input.feedback],
+    );
+    if (result.rows.length === 0) return this.upsert(input);
+    return rowToPair(result.rows[0]);
+  }
+
+  async remove(id: string): Promise<boolean> {
+    await this.ensureReady();
+    const result = await this.pool.query(`DELETE FROM qa_pairs WHERE id = $1`, [id]);
+    return (result.rowCount ?? 0) > 0;
   }
 
   async findByQuestion(question: string): Promise<QaPair | null> {

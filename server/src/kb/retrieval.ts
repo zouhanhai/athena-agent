@@ -13,6 +13,8 @@ import { join } from "node:path";
 
 import type { LlmWikiClient, LlmWikiFileNode, LlmWikiSearchResult } from "./llmwiki.js";
 import type { WikiFrontmatterSyncer } from "./wiki-frontmatter.js";
+import type { SemanticMappingStore } from "./semantic-mappings.js";
+import { expandTerms } from "./semantic-mappings.js";
 import type {
   Neo4jRetrievalService,
   Neo4jSearchHit,
@@ -37,6 +39,12 @@ export interface KnowledgeRetrievalOptions {
    *  the wiki frontmatter and the Neo4j Document node (write-through) whenever
    *  the retrieval service surfaces a page. Best-effort. */
   frontmatter?: WikiFrontmatterSyncer;
+  /** Custom semantic mappings (G4.S3.T6): colloquial term → canonical, applied
+   *  at search time so a colloquial query also recalls the canonical text. */
+  mappings?: SemanticMappingStore;
+  /** QA reference provider (G4.S3.T6): a matching stored Q&A is surfaced as
+   *  reference context — the RAG search ALWAYS runs and never short-circuits. */
+  qa?: QaReferenceProvider;
 }
 
 export interface KnowledgeGraphNode {
@@ -86,7 +94,27 @@ export interface KnowledgeSearchResult {
 
 export interface KnowledgeSearchResponse {
   query: string;
+  /** The query after semantic-mapping expansion (G4.S3.T6), when it changed. */
+  expandedQuery?: string;
   results: KnowledgeSearchResult[];
+  /** A matching stored Q&A pair as REFERENCE context only (G4.S3.T6) — never a
+   *  short-circuit answer; the RAG search always runs. */
+  qaReference?: {
+    id: string;
+    question: string;
+    answer: string;
+    score: number;
+  };
+}
+
+/** Anything that can vector-search the stored Q&A for a query-similar question. */
+export interface QaReferenceProvider {
+  findReference(question: string): Promise<{
+    id: string;
+    question: string;
+    answer: string;
+    score: number;
+  } | null>;
 }
 
 interface ResolvedProject {
@@ -102,6 +130,8 @@ export class KnowledgeRetrievalService {
   private readonly wikiDir?: string;
   private readonly readFile: (path: string) => Promise<Buffer>;
   private readonly frontmatter?: WikiFrontmatterSyncer;
+  private readonly mappings?: SemanticMappingStore;
+  private readonly qa?: QaReferenceProvider;
   private resolved?: ResolvedProject;
 
   constructor(options: KnowledgeRetrievalOptions) {
@@ -111,6 +141,8 @@ export class KnowledgeRetrievalService {
     this.wikiDir = options.wikiDir;
     this.readFile = options.readFile ?? readFile;
     this.frontmatter = options.frontmatter;
+    this.mappings = options.mappings;
+    this.qa = options.qa;
   }
 
   /** GET /api/kb/graph → the entity-relation graph from the Neo4j store
@@ -187,20 +219,26 @@ export class KnowledgeRetrievalService {
    * scope is expanded into the concrete list of topics under it (scope + every
    * known `scope/...` descendant), which pre-filters Neo4j candidates before
    * semantic scoring and drops out-of-subtree llm_wiki keyword hits.
+   *
+   * G4.S3.T6: the query is first expanded through the semantic-mapping table
+   * (colloquial → canonical, feeding BOTH the Neo4j search and the llm_wiki
+   * keyword search), and a matching stored Q&A pair is surfaced as
+   * `qaReference` — reference context only, never a short-circuit.
    */
   async search(query: string, options: { topic?: string } = {}): Promise<KnowledgeSearchResponse> {
+    const expandedQuery = await this.expandQuery(query);
     const results: KnowledgeSearchResult[] = [];
     const project = await this.resolveProject();
     const scope = options.topic ? await this.loadScope(options.topic, project.id) : undefined;
     const [neo4jResult, wiki] = await Promise.allSettled([
       this.neo4j
-        ? this.neo4j.search(query, {
+        ? this.neo4j.search(expandedQuery, {
             ...(scope ? { topics: scope.topics } : {}),
             topK: 5,
             enrichContext: true,
           })
         : Promise.resolve(null),
-      this.llmwiki.search(project.id, query, { topK: 5 }),
+      this.llmwiki.search(project.id, expandedQuery, { topK: 5 }),
     ]);
 
     if (neo4jResult.status === "fulfilled" && neo4jResult.value) {
@@ -217,7 +255,27 @@ export class KnowledgeRetrievalService {
 
     await this.trackSurfacePages(results);
 
-    return { query, results };
+    const qaReference = this.qa ? await this.qa.findReference(query) : undefined;
+    return {
+      query,
+      ...(expandedQuery !== query ? { expandedQuery } : {}),
+      results,
+      ...(qaReference ? { qaReference } : {}),
+    };
+  }
+
+  /** Apply the custom semantic-mapping table to a query (G4.S3.T6): replace every
+   *  colloquial term with its canonical form. Best-effort: a mapping-store
+   *  failure keeps the query untouched. */
+  private async expandQuery(query: string): Promise<string> {
+    if (!this.mappings) return query;
+    try {
+      const mappings = await this.mappings.list();
+      if (mappings.length === 0) return query;
+      return expandTerms(query, mappings);
+    } catch {
+      return query;
+    }
   }
 
   /** Load the topic subtree for a scope from the wiki frontmatter (G4.S3.T4):

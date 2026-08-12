@@ -58,6 +58,11 @@ import { WikiReCurator } from "./kb/recurate.js";
 import { FeedbackService } from "./kb/feedback.js";
 import { MemoryQaPairStore, PostgresQaPairStore } from "./kb/qa-pairs.js";
 import { Neo4jQaEmbeddingIndex } from "./kb/qa-index.js";
+import {
+  MemorySemanticMappingStore,
+  PostgresSemanticMappingStore,
+  type SemanticMappingStore,
+} from "./kb/semantic-mappings.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
 import { createAthenaRefiner } from "./kb/refiner.js";
@@ -80,6 +85,8 @@ export interface BuildAppOptions {
   recurator?: WikiReCurator;
   /** Feedback loop service (G4.S3.T5). Default: defaultFeedbackService(). */
   feedback?: FeedbackService;
+  /** Custom semantic mappings (G4.S3.T6). Default: defaultSemanticMappings(). */
+  mappings?: SemanticMappingStore;
   taskQueue?: IngestTaskQueue;
   registry?: AgentRegistry;
   logos?: LogoStore;
@@ -124,7 +131,20 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
     // G4.S3.T1: the canonical wiki-frontmatter syncer tracks read_count on the
     // wiki md + Neo4j Document node (write-through) when pages are surfaced.
     frontmatter: new WikiFrontmatterSyncer({ wikiDir, driver }),
+    // G4.S3.T6: the search path consumes the semantic mappings (term query
+    // expansion) + the stored Q&A (reference context). Default wiring happens
+    // in buildApp() so retrieval shares the feedback service's QA store/index.
   });
+}
+
+/** Default custom semantic mappings store (G4.S3.T6): Postgres when DATABASE_URL
+ *  is set, else in-memory. */
+export function defaultSemanticMappings(): SemanticMappingStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new PostgresSemanticMappingStore({ connectionString });
+  }
+  return new MemorySemanticMappingStore();
 }
 
 /** Neo4j driver from env (NEO4J_PASSWORD set), else undefined. */
@@ -347,6 +367,31 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const invitations = options.invitations ?? defaultInvitationService(employees, tokens!);
   const review = options.review ?? defaultReviewService();
   const feedback = options.feedback ?? defaultFeedbackService();
+  const mappings = options.mappings ?? defaultSemanticMappings();
+  // G4.S3.T6: the default retrieval shares the feedback service's QA store/index
+  // as the search-path reference provider + the semantic mappings store for term
+  // query expansion. An injected retrieval keeps its own wiring.
+  const retrieval =
+    options.retrieval ??
+    (() => {
+      const wikiDir = process.env.LLM_WIKI_WIKI_DIR ?? undefined;
+      const driver = defaultNeo4jDriver();
+      return new KnowledgeRetrievalService({
+        llmwiki: new LlmWikiClient(),
+        neo4j: driver
+          ? new Neo4jRetrievalService({
+              driver,
+              embedder: new OpenRouterEmbedder(),
+              reranker: createDefaultReranker(),
+            })
+          : undefined,
+        projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
+        wikiDir,
+        frontmatter: new WikiFrontmatterSyncer({ wikiDir, driver }),
+        mappings,
+        qa: feedback,
+      });
+    })();
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -397,10 +442,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerInvitationRoutes(app, { invitations, auth });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),
-    retrieval: options.retrieval ?? defaultRetrievalService(),
+    retrieval,
     review: options.review ?? defaultReviewService(),
     recurator: options.recurator ?? defaultReCurator(),
     feedback: options.feedback ?? defaultFeedbackService(),
+    mappings,
     taskQueue: options.taskQueue ?? defaultTaskQueue(),
     maxFileSize: options.maxFileSize,
   });

@@ -23,6 +23,34 @@ import type {
 } from "./qa-pairs.js";
 import type { WikiFrontmatterSyncer } from "./wiki-frontmatter.js";
 
+/** Manual Q&A entry (G4.S3.T6): typed straight into the Terms & QA tab. */
+export interface ManualQaInput {
+  question: string;
+  answer: string;
+  sources?: QaSource[];
+}
+
+/** How the user resolves a manual entry that vector-matches an existing pair. */
+export type ManualQaMode = "merge" | "overwrite" | "add-anyway";
+
+export interface ManualAddResult {
+  pair: QaPair | null;
+  /** The vector-matched existing pair, when one exists at/above the threshold. */
+  similar?: { id: string; question: string; score: number };
+  /** How the manual entry landed. `needs_decision` = a similar pair exists and
+   *  no mode was chosen → the front-end shows a merge/overwrite/add-anyway dialog. */
+  action: "inserted" | "merged" | "overwritten" | "added_anyway" | "needs_decision";
+}
+
+/** A QA pair surfaced to search as reference context (G4.S3.T6) — reference
+ *  only, never a short-circuit answer. */
+export interface QaReference {
+  id: string;
+  question: string;
+  answer: string;
+  score: number;
+}
+
 /** Tuning knobs for the feedback confidence rule. */
 export interface FeedbackConfig {
   /** Upvote (reinforce) raises confidence by this. */
@@ -79,6 +107,9 @@ export interface FeedbackServiceOptions {
   /** Cosine similarity at/above which a stored question counts as a duplicate.
    *  Default: 0.9. */
   dedupThreshold?: number;
+  /** Cosine similarity at/above which a stored question is surfaced to search
+   *  as reference context (G4.S3.T6). Default: 0.85. */
+  referenceThreshold?: number;
 }
 
 /** The pure confidence rule: upvote adds reinforceBoost, downvote subtracts
@@ -102,6 +133,7 @@ export class FeedbackService {
   private readonly index?: QaEmbeddingIndex;
   private readonly config: FeedbackConfig;
   private readonly dedupThreshold: number;
+  private readonly referenceThreshold: number;
 
   constructor(options: FeedbackServiceOptions) {
     this.store = options.store;
@@ -109,6 +141,7 @@ export class FeedbackService {
     this.index = options.index;
     this.config = { ...DEFAULT_FEEDBACK_CONFIG, ...options.config };
     this.dedupThreshold = options.dedupThreshold ?? 0.9;
+    this.referenceThreshold = options.referenceThreshold ?? 0.85;
   }
 
   /** The Q&A table backing this service (exposed for listing, e.g. GET /api/kb/qa). */
@@ -180,5 +213,89 @@ export class FeedbackService {
     const to = round3(adjustConfidence(state.confidence, feedback, this.config));
     await this.syncer.update(path, { confidence: to });
     return { path, feedback, from: state.confidence, to };
+  }
+
+  /**
+   * Manual Q&A entry (G4.S3.T6): type a Q&A pair straight into the Terms & QA
+   *  tab. Reuses the T5 vector-dedup (`QaEmbeddingIndex`): the existing
+   *  questions are vector-searched first; when a similar one exists the caller
+   *  chooses how to resolve it — `merge` (append the answer), `overwrite`
+   *  (replace the answer) or `add-anyway` (insert a new row). Without a mode a
+   *  similar match returns `needs_decision` and nothing is written.
+   */
+  async manualAdd(input: ManualQaInput, mode?: ManualQaMode): Promise<ManualAddResult> {
+    const question = input.question.trim();
+    const similar = this.index
+      ? await this.index.findSimilar(question, this.dedupThreshold)
+      : null;
+
+    if (similar) {
+      if (!mode) {
+        return {
+          pair: null,
+          similar: { id: similar.id, question: similar.question, score: similar.score },
+          action: "needs_decision",
+        };
+      }
+      const upsertInput = {
+        question,
+        answer: input.answer,
+        sources: input.sources ?? [],
+        feedback: null,
+      };
+      let pair: QaPair;
+      if (mode === "merge") {
+        pair = await this.store.merge(similar.id, upsertInput);
+      } else if (mode === "overwrite") {
+        pair = await this.store.overwrite(similar.id, upsertInput);
+      } else {
+        pair = await this.store.upsert(upsertInput);
+      }
+      await this.index?.upsert(pair.id, pair.question);
+      return {
+        pair,
+        similar: { id: similar.id, question: similar.question, score: similar.score },
+        action: mode === "merge" ? "merged" : mode === "overwrite" ? "overwritten" : "added_anyway",
+      };
+    }
+
+    const pair = await this.store.upsert({
+      question,
+      answer: input.answer,
+      sources: input.sources ?? [],
+      feedback: null,
+    });
+    await this.index?.upsert(pair.id, pair.question);
+    return { pair, action: "inserted" };
+  }
+
+  /** Delete a Q&A pair (manual cleanup in the Terms & QA tab). Also drops its
+   *  embedding so the vector index stays deduped. */
+  async deletePair(id: string): Promise<boolean> {
+    const removed = await this.store.remove(id);
+    if (removed) {
+      await this.index?.remove(id);
+    }
+    return removed;
+  }
+
+  /**
+   * QA lookup as REFERENCE for the search path (G4.S3.T6): vector-search the
+   *  stored questions for one similar to the query. A match is returned as
+   *  reference context only — the RAG search still always runs and the LLM
+   *  grounds on the fresh retrieval + this reference (never a short-circuit).
+   */
+  async findReference(question: string): Promise<QaReference | null> {
+    if (!this.index) return null;
+    const similar = await this.index.findSimilar(question, this.referenceThreshold);
+    if (!similar) return null;
+    const pair = await this.store.getById(similar.id);
+    if (!pair) return null;
+    return {
+      id: pair.id,
+      question: pair.question,
+      answer: pair.answer,
+      score: similar.score,
+    };
   }
 }

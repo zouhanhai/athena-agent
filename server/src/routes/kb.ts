@@ -10,6 +10,8 @@ import type { IngestTaskQueue } from "../kb/tasks.js";
 import type { KbReviewService } from "../kb/review.js";
 import type { WikiReCurator } from "../kb/recurate.js";
 import type { FeedbackService } from "../kb/feedback.js";
+import type { ManualQaMode } from "../kb/feedback.js";
+import type { SemanticMappingStore } from "../kb/semantic-mappings.js";
 import { isFeedbackDirection, toSources } from "../kb/qa-pairs.js";
 import {
   NothingToRetryError,
@@ -43,10 +45,18 @@ export interface KbRouteOptions {
   recurator?: WikiReCurator;
   /** Feedback loop (G4.S3.T5): POST /api/kb/feedback + GET /api/kb/qa. */
   feedback?: FeedbackService;
+  /** Custom semantic mappings (G4.S3.T6): GET/POST/DELETE /api/kb/mappings. */
+  mappings?: SemanticMappingStore;
   /** Directory to stage uploaded files before docling parsing. Default: os.tmpdir(). */
   uploadDir?: string;
   /** Max multipart upload size. Default: 50 MiB. */
   maxFileSize?: number;
+}
+
+const MANUAL_QA_MODES: readonly ManualQaMode[] = ["merge", "overwrite", "add-anyway"];
+
+function isManualQaMode(value: unknown): value is ManualQaMode {
+  return typeof value === "string" && (MANUAL_QA_MODES as readonly string[]).includes(value);
 }
 
 function invalidField(value: unknown): boolean {
@@ -318,6 +328,127 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
+
+  /** POST /api/kb/qa/manual → manual Q&A entry (G4.S3.T6): type a Q&A pair
+   *  straight into the Terms & QA tab. Body: { question, answer, sources?,
+   *  mode? }. Reuses the T5 vector-dedup — when a similar question exists and
+   *  no mode is given, returns `needs_decision` + the similar pair so the
+   *  front-end can offer merge / overwrite / add-anyway. */
+  const manualQaHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.feedback) {
+      return reply.code(500).send({ error: "feedback service not configured" });
+    }
+    const body = (request.body ?? {}) as {
+      question?: unknown;
+      answer?: unknown;
+      sources?: unknown;
+      mode?: unknown;
+    };
+    if (typeof body.question !== "string" || body.question.trim().length === 0) {
+      return reply.code(400).send({ error: "question is required" });
+    }
+    if (typeof body.answer !== "string" || body.answer.trim().length === 0) {
+      return reply.code(400).send({ error: "answer is required" });
+    }
+    const mode = body.mode;
+    if (mode !== undefined && !isManualQaMode(mode)) {
+      return reply.code(400).send({ error: "mode must be 'merge', 'overwrite' or 'add-anyway'" });
+    }
+    try {
+      return await options.feedback.manualAdd(
+        {
+          question: body.question.trim(),
+          answer: body.answer.trim(),
+          sources: toSources(body.sources),
+        },
+        mode,
+      );
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.post("/api/kb/qa/manual", manualQaHandler);
+
+  /** DELETE /api/kb/qa/:id → delete a stored Q&A pair (manual cleanup in the
+   *  Terms & QA tab). Also drops its vector embedding. */
+  const deleteQaHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.feedback) {
+      return reply.code(500).send({ error: "feedback service not configured" });
+    }
+    const { id } = request.params as { id?: string };
+    if (typeof id !== "string" || id.trim().length === 0) {
+      return reply.code(400).send({ error: "id is required" });
+    }
+    try {
+      const removed = await options.feedback.deletePair(id.trim());
+      if (!removed) {
+        return reply.code(404).send({ error: "Q&A pair not found" });
+      }
+      return { ok: true };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.delete("/api/kb/qa/:id", deleteQaHandler);
+
+  /** GET /api/kb/mappings → list the custom semantic mappings (G4.S3.T6). */
+  const listMappingsHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.mappings) {
+      return reply.code(500).send({ error: "semantic mappings store not configured" });
+    }
+    try {
+      const mappings = await options.mappings.list();
+      return { mappings };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.get("/api/kb/mappings", listMappingsHandler);
+
+  /** POST /api/kb/mappings { term, canonical } → upsert a semantic mapping. */
+  const addMappingHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.mappings) {
+      return reply.code(500).send({ error: "semantic mappings store not configured" });
+    }
+    const body = (request.body ?? {}) as { term?: unknown; canonical?: unknown };
+    if (typeof body.term !== "string" || body.term.trim().length === 0) {
+      return reply.code(400).send({ error: "term is required" });
+    }
+    if (typeof body.canonical !== "string" || body.canonical.trim().length === 0) {
+      return reply.code(400).send({ error: "canonical is required" });
+    }
+    try {
+      const mapping = await options.mappings.upsert({
+        term: body.term.trim(),
+        canonical: body.canonical.trim(),
+      });
+      return { mapping };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.post("/api/kb/mappings", addMappingHandler);
+
+  /** DELETE /api/kb/mappings/:id → remove a semantic mapping. */
+  const deleteMappingHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.mappings) {
+      return reply.code(500).send({ error: "semantic mappings store not configured" });
+    }
+    const { id } = request.params as { id?: string };
+    if (typeof id !== "string" || id.trim().length === 0) {
+      return reply.code(400).send({ error: "id is required" });
+    }
+    try {
+      const removed = await options.mappings.remove(id.trim());
+      if (!removed) {
+        return reply.code(404).send({ error: "mapping not found" });
+      }
+      return { ok: true };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.delete("/api/kb/mappings/:id", deleteMappingHandler);
 
   if (!options.retrieval) return;
 
