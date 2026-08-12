@@ -53,13 +53,17 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     // answer — and don't narrate intermediate web-access failures (e.g. a 403)
     // in the reply; answer from what the KB/web actually returned.
     const knowledgeGuidance =
-      "Knowledge-first: when the question concerns the CALEO knowledge base " +
-      "(documents, processes, wiki, entities, past events like the Sommerseminar), " +
-      "start with the `search_knowledge` tool and answer from the retrieved KB " +
-      "hits. Do NOT use web tools to check or re-derive an answer the KB already " +
-      "provides. Only fall back to web search/extract when search_knowledge " +
-      "explicitly says the KB does not answer. Do not mention intermediate tool " +
-      "failures (like a URL returning 403) in your reply.";
+      "Knowledge-first: `search_knowledge` is an AVAILABLE local tool in this " +
+      "session (not an MCP server — it needs NO initialization) that answers from " +
+      "the athena knowledge base: Neo4j entities/chunks, the llm_wiki, stored Q&A " +
+      "pairs (qa_pairs), and semantic-term expansion. For ANY question about CALEO " +
+      "(company, documents, processes, wiki, entities, stored Q&A, past events like " +
+      "the Sommerseminar), CALL `search_knowledge` first and answer from its result. " +
+      "Do NOT claim you lack Neo4j/search_knowledge access — you have it. Do NOT use " +
+      "web tools to check or re-derive an answer the KB already provides. Only fall " +
+      "back to web search/extract when search_knowledge explicitly says the KB does " +
+      "not answer. Do not mention intermediate tool failures (like a URL returning " +
+      "403) in your reply.";
     const finalPrompt = `${knowledgeGuidance}\n\n${prompt}`;
 
     const wantsStream =
