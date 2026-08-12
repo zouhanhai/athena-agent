@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import type { ChatParticipant } from "@/stores/chat";
 
-defineProps<{ participant: ChatParticipant; expanded?: boolean }>();
+defineProps<{
+  participant: ChatParticipant;
+  active?: boolean;
+  stackIndex?: number;
+}>();
 
 const emit = defineEmits<{
   "speak-change": [speak: boolean];
@@ -19,12 +23,13 @@ function onCardClick(e: MouseEvent) {
 <template>
   <article
     class="agent-card"
-    :class="{ expanded }"
-    :title="expanded ? undefined : participant.name"
+    :class="{ active }"
+    :style="{ '--stack': stackIndex ?? 0 }"
+    :title="active ? undefined : participant.name"
     @click="onCardClick"
   >
     <img class="agent-card-logo" :src="participant.logoUrl" :alt="participant.name" />
-    <div v-if="expanded" class="agent-card-body">
+    <div class="agent-card-body">
       <header class="agent-card-head">
         <span class="agent-card-name">{{ participant.name }}</span>
         <span class="agent-card-kind">{{ participant.kind }}</span>
@@ -55,12 +60,13 @@ function onCardClick(e: MouseEvent) {
         </span>
       </label>
     </div>
-    <span v-else class="agent-card-name agent-card-name-collapsed">{{ participant.name }}</span>
   </article>
 </template>
 
 <style scoped>
 .agent-card {
+  position: absolute;
+  inset: 0;
   display: flex;
   gap: 10px;
   align-items: flex-start;
@@ -70,24 +76,54 @@ function onCardClick(e: MouseEvent) {
   border-radius: 8px;
   box-shadow: var(--caleo-shadow);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  /* Stack: inactive cards slide down behind the active card, only logo+name visible.
+     transform + opacity only (GPU). --stack drives the vertical offset. */
+  transform: translateY(calc(var(--stack, 0) * 46px)) scale(1);
+  opacity: 1;
+  transition: transform 200ms cubic-bezier(0.77, 0, 0.175, 1),
+    opacity 200ms ease-out, border-color 0.15s ease, background 0.15s ease;
+  z-index: calc(10 - var(--stack, 0));
+}
+
+/* Active card sits on top, fully visible, no offset. */
+.agent-card.active {
+  transform: translateY(0) scale(1);
+  border-color: var(--caleo-primary);
+  background: color-mix(in srgb, var(--caleo-primary) 6%, var(--caleo-surface));
+  z-index: 10;
 }
 
 .agent-card:hover {
   border-color: var(--caleo-primary);
 }
 
-.agent-card.expanded {
-  border-color: var(--caleo-primary);
-  background: color-mix(in srgb, var(--caleo-primary) 6%, var(--caleo-surface));
+/* Non-active cards: collapse to a slim strip (logo + name) peeking behind. */
+.agent-card:not(.active) {
+  align-items: center;
+  overflow: hidden;
 }
 
-.agent-card-name-collapsed {
-  align-self: center;
+.agent-card:not(.active) .agent-card-head {
+  gap: 4px;
+}
+
+.agent-card:not(.active) .agent-card-kind,
+.agent-card:not(.active) .card-remove,
+.agent-card:not(.active) .cap-chip-list,
+.agent-card:not(.active) .speak-toggle-wrap {
+  display: none;
+}
+
+.agent-card:not(.active) .agent-card-name {
   font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-card:not(.active) .agent-card-logo {
+  width: 30px;
+  height: 30px;
 }
 
 .agent-card-logo {

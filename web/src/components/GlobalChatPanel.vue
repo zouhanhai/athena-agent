@@ -127,11 +127,12 @@ function addEmployee(emp: EmployeeRecord) {
       <h3 class="participants-title">In conversation</h3>
       <div class="agent-cards">
         <AgentCard
-          v-for="participant in chat.participants"
+          v-for="(participant, idx) in chat.participants"
           :key="participant.id"
           :participant="participant"
-          :expanded="expandedAgentId === participant.id"
-          @toggle="expandedAgentId = expandedAgentId === participant.id ? null : participant.id"
+          :active="expandedAgentId === participant.id || chat.participants.length === 1"
+          :stack-index="idx"
+          @toggle="expandedAgentId = participant.id"
           @speak-change="(speak) => chat.onSpeakToggleChanged(participant.id, speak)"
           @left="chat.onAgentLeft(participant.id)"
         />
@@ -290,9 +291,10 @@ function addEmployee(emp: EmployeeRecord) {
 }
 
 .agent-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
+  position: relative;
+  /* Height fits the active (full) card + the stacked strip peeking below.
+     min-height keeps room for the inactive cards' offset. */
+  min-height: 108px;
 }
 
 .add-entries {
