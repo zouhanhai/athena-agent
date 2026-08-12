@@ -115,6 +115,46 @@ test("VectorRetriever applies an in-index topic filter when a topic is given", a
   assert.deepEqual(call.params.topK, 5);
 });
 
+test("VectorRetriever scopes to a topic-subtree topics list (G4.S3.T4)", async () => {
+  const { driver, calls } = makeDriver((q) => (q.includes("VECTOR INDEX") ? [CHUNK("c1", "fiori guide", "sap/fiori")] : []));
+  const retriever = new VectorRetriever({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const hits = await retriever.search("fiori", { topics: ["sap", "sap/fiori", "sap/s4hana"] });
+
+  assert.equal(hits.length, 1);
+  const call = calls.find((c) => c.query.includes("VECTOR INDEX"))!;
+  assert.deepEqual(call.params.topics, ["sap", "sap/fiori", "sap/s4hana"], "subtree topic list applied");
+  assert.match(call.query, /WHERE c\.topic IN \$topics/, "in-index predicate uses the expanded list");
+});
+
+test("Bm25Retriever scopes to a topic-subtree topics list (G4.S3.T4)", async () => {
+  const { driver, calls } = makeDriver((q) => (q.includes(CHUNK_TEXT_FTX) ? [CHUNK("c1", "fiori guide", "sap/fiori")] : []));
+  const retriever = new Bm25Retriever({ driver, topK: 5 });
+
+  const hits = await retriever.search("fiori", { topics: ["sap", "sap/fiori"] });
+
+  assert.equal(hits.length, 1);
+  const call = calls.find((c) => c.query.includes(CHUNK_TEXT_FTX))!;
+  assert.deepEqual(call.params.topics, ["sap", "sap/fiori"], "subtree topic list applied");
+  assert.match(call.query, /WHERE c\.topic IN \$topics/, "BM25 predicate uses the expanded list");
+});
+
+test("Text2CypherRetriever scopes graph chunk hits to a topic-subtree topics list (G4.S3.T4)", async () => {
+  const { driver, calls } = makeDriver((q, p) =>
+    q.includes(ENTITY_NAME_ALIASES_FTX) && p.queryText === "sap"
+      ? [GRAPH_CHUNK("doc:c1", "SAP runbook", "SAP", [], { topic: "sap/fiori" })]
+      : [],
+  );
+  const retriever = new Text2CypherRetriever({ driver, topK: 5 });
+
+  const hits = await retriever.search("sap", { topics: ["sap", "sap/fiori"] });
+
+  assert.equal(hits.length, 1);
+  const call = calls.find((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX))!;
+  assert.deepEqual(call.params.topics, ["sap", "sap/fiori"], "graph retriever scopes by the subtree topics");
+  assert.match(call.query, /c\.topic IN \$topics/, "graph chunk predicate present");
+});
+
 test("Bm25Retriever queries the Chunk.text fulltext index and returns scored hits", async () => {
   const { driver, calls } = makeDriver((q, p) =>
     q.includes(CHUNK_TEXT_FTX) && p.queryText?.includes("omnibusbahnhof")
@@ -383,6 +423,30 @@ test("Neo4jRetrievalService.search propagates the topic filter to chunk retrieve
     if (call.query.includes(CHUNK_TEXT_FTX) || call.query.includes("VECTOR INDEX")) {
       assert.deepEqual(call.params.topics, ["transport"], "topic filter applied");
     }
+  }
+});
+
+test("Neo4jRetrievalService.search propagates the topic-subtree list to chunk + graph retrievers (G4.S3.T4)", async () => {
+  const { driver, calls } = makeDriver((q) => {
+    if (q.includes("VECTOR INDEX")) return [CHUNK("c1", "tram", "sap/fiori")];
+    if (q.includes(CHUNK_TEXT_FTX)) return [CHUNK("c2", "tram", "sap/s4hana")];
+    if (q.includes(ENTITY_NAME_ALIASES_FTX)) return [GRAPH_CHUNK("doc:c3", "tram", "SAP", [], { topic: "sap" })];
+    return [];
+  });
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const response = await service.search("tram", { topics: ["sap", "sap/fiori", "sap/s4hana"] });
+
+  assert.equal(response.hits.length, 3);
+  const topicCalls = calls.filter(
+    (c) =>
+      c.query.includes(CHUNK_TEXT_FTX) ||
+      c.query.includes("VECTOR INDEX") ||
+      c.query.includes(ENTITY_NAME_ALIASES_FTX),
+  );
+  assert.ok(topicCalls.length >= 3, "all three retrievers ran");
+  for (const call of topicCalls) {
+    assert.deepEqual(call.params.topics, ["sap", "sap/fiori", "sap/s4hana"], "subtree topics propagated");
   }
 });
 

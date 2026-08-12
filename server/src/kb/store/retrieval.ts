@@ -72,6 +72,10 @@ export interface Neo4jSearchResponse {
 export interface Neo4jSearchOptions {
   /** Converge to a document domain: exact chunk.topic filter (case-insensitive). */
   topic?: string;
+  /** Topic-subtree scope (G4.S3.T4): chunk.topic must be one of these. Preferred
+   *  over `topic` — the caller expands the scope into the concrete subtree list
+   *  from the wiki frontmatter so candidates are pre-filtered before scoring. */
+  topics?: string[];
   topK?: number;
   /** Attach same-section sibling chunk texts to each chunk hit (context enrichment). Default false. */
   enrichContext?: boolean;
@@ -185,10 +189,12 @@ const CHUNK_WIKI_JOIN =
   `OPTIONAL MATCH (c)-[:${PART_OF_TYPE}]->(sec:${SECTION_LABEL})\n` +
   `OPTIONAL MATCH (d:${DOCUMENT_LABEL} {id: c.documentId})-[:${IS_DOCUMENT_TYPE}]->(wp:${WIKIPAGE_LABEL})\n`;
 
-/** Build the (optional) in-index topic predicate for a SEARCH…WHERE filter. */
-function topicWhereParam(topic: string | undefined): { clause: string; topics?: string[] } {
-  if (!topic) return { clause: "" };
-  return { clause: "\n      WHERE c.topic IN $topics", topics: [topic] };
+/** Build the (optional) topic predicate for a SEARCH…WHERE / WHERE filter.
+ *  `topics` (subtree list) wins over `topic`; when both absent no filter is built. */
+function topicWhereParam(topic: string | undefined, topics?: string[]): { clause: string; topics?: string[] } {
+  const list = topics ?? (topic ? [topic] : undefined);
+  if (!list || list.length === 0) return { clause: "" };
+  return { clause: "\n      WHERE c.topic IN $topics", topics: list };
 }
 
 export class VectorRetriever {
@@ -205,7 +211,7 @@ export class VectorRetriever {
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchHit[]> {
     const topK = options.topK ?? this.topK;
     const [embedding] = await this.embedder.embed([query]);
-    const { clause, topics } = topicWhereParam(options.topic);
+    const { clause, topics } = topicWhereParam(options.topic, options.topics);
     const params: Record<string, unknown> = {
       embedding,
       topK,
@@ -241,12 +247,13 @@ export class Bm25Retriever {
 
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchHit[]> {
     const topK = options.topK ?? this.topK;
+    const { clause, topics } = topicWhereParam(options.topic, options.topics);
     const params: Record<string, unknown> = {
       queryText: foldQuery(query),
       topK,
-      ...(options.topic ? { topics: [options.topic] } : {}),
+      ...(topics ? { topics } : {}),
     };
-    const topicFilter = options.topic ? "\n  WHERE c.topic IN $topics" : "";
+    const topicFilter = clause ? clause.replace(/^[ \t]+/, "\n  ") : "";
     const cypher =
       `CALL db.index.fulltext.queryNodes('${CHUNK_TEXT_FTX}', $queryText) YIELD node AS c, score` +
       topicFilter +
@@ -281,10 +288,17 @@ export class Text2CypherRetriever {
 
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchHit[]> {
     const topK = options.topK ?? this.topK;
-    const params: Record<string, unknown> = { queryText: foldQuery(query), topK };
+    const { clause, topics } = topicWhereParam(options.topic, options.topics);
+    const params: Record<string, unknown> = {
+      queryText: foldQuery(query),
+      topK,
+      ...(topics ? { topics } : {}),
+    };
+    const topicFilter = clause ? `${clause}\n` : "";
     const cypher =
       `CALL db.index.fulltext.queryNodes('${ENTITY_NAME_ALIASES_FTX}', $queryText) YIELD node AS e, score\n` +
       `MATCH (e)-[:${MENTIONED_IN_TYPE}]->(c:${CHUNK_LABEL})\n` +
+      topicFilter +
       `OPTIONAL MATCH (e)-[r:${ENTITY_RELATION_TYPE}]-(n:${ENTITY_LABEL})\n` +
       `WITH e, c, score, collect(DISTINCT n.name) AS neighbors\n` +
       CHUNK_WIKI_JOIN +

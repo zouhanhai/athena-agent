@@ -252,7 +252,7 @@ test("search with a Neo4j store fuses Neo4j + llm_wiki hits", async () => {
   ]);
   const llmwiki = stubLlmwiki({
     search: async () => ({
-      results: [{ path: "bus.md", title: "Bus", snippet: "keyword hit", score: 0.7 }],
+      results: [{ path: "wiki/transport/bus.md", title: "Bus", snippet: "keyword hit", score: 0.7 }],
     }),
   });
   const service = makeService({ llmwiki, neo4j });
@@ -265,6 +265,58 @@ test("search with a Neo4j store fuses Neo4j + llm_wiki hits", async () => {
   const neoHits = result.results.filter((r) => r.source === "neo4j");
   assert.equal(neoHits[0]!.snippet, "bus station guide");
   assert.equal(neoHits[1]!.title, "ZOB München → CALEO, MVV", "graph hit renders the relation neighborhood");
+});
+
+test("topic-scoped search expands the scope into the wiki frontmatter topic subtree and scopes the Neo4j store (G4.S3.T4)", async () => {
+  const seenTopics: string[][] = [];
+  const neo4j = {
+    search: async (_query: string, options: { topics?: string[] }) => {
+      seenTopics.push(options.topics ?? []);
+      return { query: "", hits: [] };
+    },
+    toolsSearch: async () => ({ query: "", hits: [] }),
+    getGraph: async () => ({ nodes: [], edges: [] }),
+  } as unknown as Neo4jRetrievalService;
+  const llmwiki = stubLlmwiki({
+    listWikiPages: async () => [
+      { path: "a.md", topic: "sap" },
+      { path: "b.md", topic: "sap/fiori" },
+      { path: "c.md", topic: "sap/s4hana/abap" },
+      { path: "d.md", topic: "transport" },
+    ],
+    search: async () => ({ results: [] }),
+  });
+  const service = makeService({ llmwiki, neo4j });
+
+  await service.search("fiori", { topic: "sap" });
+
+  assert.deepEqual(
+    seenTopics[0],
+    ["sap", "sap/fiori", "sap/s4hana/abap"],
+    "scope expanded to the full frontmatter subtree and handed to the Neo4j store",
+  );
+});
+
+test("topic-scoped search filters out llm_wiki keyword hits outside the topic subtree (G4.S3.T4)", async () => {
+  const neo4j = stubNeo4j([]);
+  const llmwiki = stubLlmwiki({
+    listWikiPages: async () => [
+      { path: "a.md", topic: "sap/fiori" },
+      { path: "b.md", topic: "transport" },
+    ],
+    search: async () => ({
+      results: [
+        { path: "a.md", title: "Fiori", snippet: "in-subtree", score: 0.7 },
+        { path: "b.md", title: "Bus", snippet: "out-of-subtree", score: 0.9 },
+      ],
+    }),
+  });
+  const service = makeService({ llmwiki, neo4j });
+
+  const result = await service.search("guide", { topic: "sap" });
+
+  const paths = result.results.map((r) => r.path);
+  assert.deepEqual(paths, ["a.md"], "only the in-subtree keyword hit survives the scope");
 });
 
 test("search with a failing Neo4j store still returns llm_wiki hits", async () => {

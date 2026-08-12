@@ -182,13 +182,23 @@ export class KnowledgeRetrievalService {
    * The Neo4j store (G4.S2.T5) is the sole semantic path — fused vector + BM25 +
    * graph + topic — and llm_wiki stays the BM25 keyword source. When the Neo4j
    * store is not wired (NEO4J_PASSWORD unset) search degrades to llm_wiki keyword hits.
+   *
+   * `topic` scopes the search to a wiki-frontmatter topic subtree (G4.S3.T4): the
+   * scope is expanded into the concrete list of topics under it (scope + every
+   * known `scope/...` descendant), which pre-filters Neo4j candidates before
+   * semantic scoring and drops out-of-subtree llm_wiki keyword hits.
    */
   async search(query: string, options: { topic?: string } = {}): Promise<KnowledgeSearchResponse> {
     const results: KnowledgeSearchResult[] = [];
     const project = await this.resolveProject();
+    const scope = options.topic ? await this.loadScope(options.topic, project.id) : undefined;
     const [neo4jResult, wiki] = await Promise.allSettled([
       this.neo4j
-        ? this.neo4j.search(query, { topic: options.topic, topK: 5, enrichContext: true })
+        ? this.neo4j.search(query, {
+            ...(scope ? { topics: scope.topics } : {}),
+            topK: 5,
+            enrichContext: true,
+          })
         : Promise.resolve(null),
       this.llmwiki.search(project.id, query, { topK: 5 }),
     ]);
@@ -200,6 +210,7 @@ export class KnowledgeRetrievalService {
     }
     if (wiki.status === "fulfilled") {
       for (const hit of wiki.value.results) {
+        if (scope && !this.hitInScope(hit.path, scope)) continue;
         results.push(mapWikiHit(hit));
       }
     }
@@ -207,6 +218,37 @@ export class KnowledgeRetrievalService {
     await this.trackSurfacePages(results);
 
     return { query, results };
+  }
+
+  /** Load the topic subtree for a scope from the wiki frontmatter (G4.S3.T4):
+   *  the expanded topic list + a path → topic map for keyword-hit scoping.
+   *  Best-effort: a wiki scan failure keeps only the scope itself. */
+  private async loadScope(
+    scope: string,
+    projectId: string,
+  ): Promise<{ topics: string[]; byPath: Map<string, string> }> {
+    const topics = new Set<string>([scope]);
+    const byPath = new Map<string, string>();
+    try {
+      const pages = await this.llmwiki.listWikiPages(projectId);
+      for (const page of pages) {
+        if (!page.topic) continue;
+        byPath.set(page.path, page.topic);
+        if (isDescendant(page.topic, scope)) topics.add(page.topic);
+      }
+    } catch {
+      // topic-scoped search stays scoped to the exact topic on wiki failure.
+    }
+    return { topics: Array.from(topics).sort(), byPath };
+  }
+
+  /** True when a keyword hit's wiki page topic is inside the scoped subtree. */
+  private hitInScope(
+    path: string,
+    scope: { topics: string[]; byPath: Map<string, string> },
+  ): boolean {
+    const topic = scope.byPath.get(path) ?? topicFromPath(path);
+    return topic !== undefined && scope.topics.includes(topic);
   }
 
   /** Increment read_count (wiki frontmatter + Document node write-through) for
@@ -315,4 +357,19 @@ function attachWikiMetadata(
       ...(page.topic ? { topic: page.topic } : {}),
     };
   });
+}
+
+/** True when `topic` is `scope` or a `scope/...` descendant (G4.S3.T4). */
+function isDescendant(topic: string, scope: string): boolean {
+  return topic === scope || topic.startsWith(`${scope}/`);
+}
+
+/** Best-effort topic derived from a wiki page path, tolerant of the `wiki/` prefix
+ *  ("wiki/sap/fiori/x.md" and "sap/fiori/x.md" both → "sap/fiori"). */
+function topicFromPath(path: string): string | undefined {
+  const normalized = path.startsWith("wiki/") ? path.slice("wiki/".length) : path;
+  const match = normalized.match(/^(.+)\/[^/]+\.md$/);
+  if (!match) return undefined;
+  const dir = match[1]!;
+  return dir.length > 0 ? dir : undefined;
 }
