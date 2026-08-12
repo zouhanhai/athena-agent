@@ -152,7 +152,8 @@ Why this spec exists, what problem it solves...
 
 ## Design / Approach
 The design decisions, output contract, architecture notes, and any implementation specifics...
-(May reference `docs/spec-<name>.md` for the full design; keep the key points inline.)
+(May reference a design doc in `docs/` — e.g. `docs/spec-m4-<name>.md` or `docs/<name>-design.md` —
+for the full design; keep the key points inline.)
 
 ## Dependencies
 - Other specs this depends on (may reference planned specs — the spec-level ordering is already
