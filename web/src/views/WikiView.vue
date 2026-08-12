@@ -42,6 +42,11 @@ const canEdit = computed(
 );
 const editing = ref(false);
 const editingContent = ref("");
+// G3.S5: preserve the reader's scroll position when entering edit mode. The
+// rendered pane and the textarea have different line heights, so we carry over
+// the *ratio* (scrollTop / scrollHeight) rather than an absolute pixel offset.
+const editorEl = ref<HTMLElement | null>(null);
+const editScrollRatio = ref(0);
 const saving = ref(false);
 const saveError = ref("");
 const saveNotice = ref("");
@@ -236,7 +241,20 @@ function startEdit(): void {
   editingContent.value = content.value;
   saveError.value = "";
   saveNotice.value = "";
+  // Capture the reader's scroll ratio so the editor can open at the same place.
+  const pane = contentPane.value;
+  editScrollRatio.value =
+    pane && pane.scrollHeight > pane.clientHeight
+      ? pane.scrollTop / (pane.scrollHeight - pane.clientHeight)
+      : 0;
   editing.value = true;
+  // Restore the scroll position once the textarea is mounted.
+  requestAnimationFrame(() => {
+    const el = editorEl.value;
+    if (el && editScrollRatio.value > 0) {
+      el.scrollTop = editScrollRatio.value * (el.scrollHeight - el.clientHeight);
+    }
+  });
 }
 
 function cancelEdit(): void {
@@ -402,6 +420,7 @@ watch(
         <div v-else-if="editing" class="wiki-editor-pane" data-testid="wiki-editor-pane">
           <textarea
             v-model="editingContent"
+            ref="editorEl"
             class="wiki-editor"
             data-testid="wiki-editor"
             aria-label="Wiki page markdown"
