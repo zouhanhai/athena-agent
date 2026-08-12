@@ -20,28 +20,17 @@ const loading = ref(false);
 const error = ref("");
 const graphRef = ref<VNetworkGraphInstance>();
 
-/** Fit the canvas to all nodes AFTER the force layout has settled. The built-in
- *  `autoPanAndZoomOnLoad: "fit-content"` fires too early (force layout is async,
- *  nodes are still stacked at the origin), so only ~2 overlapping nodes show.
- *  We re-fit after the layout has had a beat to spread out, using transitionWhile
- *  so the fit is a smooth zoom rather than a hard jump from the stacked state. */
+/** Set the canvas to a fixed viewBox (~100-node-sized field) as soon as the graph
+ *  loads, so the topic graph is visible at a comfortable scale FROM THE START —
+ *  not zoomed onto the 2 nodes stacked at the origin. The force layout spreads
+ *  nodes within this fixed field; the view does not re-fit as they move. */
 function fitGraph(): void {
-  // Defer to next tick so the <v-network-graph> component is mounted and the
-  // graphRef is populated before we fit; then run a two-stage smooth zoom as the
-  // force layout spreads the nodes (120ms early + 650ms after layout settles).
   void nextTick(() => {
-    const fit = (delay: number) =>
-      setTimeout(() => {
-        const inst = graphRef.value;
-        if (!inst?.fitToContents) return;
-        inst.transitionWhile(
-          () => void inst.fitToContents?.({ margin: 24 }),
-          450,
-          "cubic-bezier(0.77, 0, 0.175, 1)",
-        );
-      }, delay);
-    fit(120);
-    fit(650);
+    const inst = graphRef.value;
+    // A fixed, generous field (~100-node view): left/right/top/bottom chosen so a
+    // topic graph renders at a readable size without filling the whole canvas
+    // with a single node. Adjust if the graph typically has more nodes.
+    inst?.setViewBox?.({ left: -1000, right: 1000, top: -600, bottom: 600 });
   });
 }
 const selectedNodeId = ref<string | null>(null);
@@ -90,48 +79,15 @@ const typeColors = computed<Record<string, string>>(() => {
   return buildTypeColors(types, colors.value.palette);
 });
 
-const forceLayout = new ForceLayout({
-  positionFixedByDrag: true,
-  // "Big-bang" reveal: nodes start stacked at the origin, then the force
-  // simulation spreads them out. We listen to every simulation tick and re-fit
-  // the view so the camera zooms out smoothly along with the expanding graph,
-  // instead of a hard 2-node-then-snap. Throttled to once per ~90ms so it stays
-  // smooth without re-fitting every frame.
-  createSimulation(d3, nodes, edges) {
-    const sim = d3
-      .forceSimulation(nodes)
-      .force(
-        "edge",
-        d3.forceLink(edges).id((n) => (n as { id: string }).id).distance(100),
-      )
-      .force("charge", d3.forceManyBody())
-      .force("collide", d3.forceCollide(50).strength(0.2))
-      .force("center", d3.forceCenter().strength(0.05))
-      .alphaMin(1e-3);
-    let last = 0;
-    sim.on("tick", () => {
-      const now = Date.now();
-      if (now - last < 120) return;
-      last = now;
-      const inst = graphRef.value;
-      if (!inst?.fitToContents) return;
-      // transitionWhile eases the zoom from the current size to the fitted size
-      // (never snaps). Use a strong ease-in-out curve for on-screen movement
-      // (animate skill: morphing in view = ease-in-out, cubic-bezier(0.77,0,0.175,1)).
-      inst.transitionWhile(
-        () => void inst.fitToContents?.({ margin: 24 }),
-        450,
-        "cubic-bezier(0.77, 0, 0.175, 1)",
-      );
-    });
-    return sim;
-  },
-});
+const forceLayout = new ForceLayout({ positionFixedByDrag: true });
 
 const configs = computed<UserConfigs>(() => ({
   view: {
     layoutHandler: forceLayout,
-    autoPanAndZoomOnLoad: "fit-content",
+    // No autoPanAndZoomOnLoad: it fires while nodes are still stacked at the
+    // origin (only ~2 overlapping nodes) and then fights the manual fitGraph.
+    // fitGraph() fits once the force layout has settled so the whole topic graph
+    // is visible (a ~100-node-sized view), not zoomed onto 2 nodes.
     fitContentMargin: 24,
     panEnabled: true,
     zoomEnabled: true,
