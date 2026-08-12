@@ -12,7 +12,11 @@ import {
   type GithubCredentialType,
 } from "../employees/employees.js";
 import type { AgentRegistry } from "../agents/registry.js";
-import { roleHasPermission, type Permission } from "../employees/rbac.js";
+import {
+  ALL_PERMISSIONS,
+  roleHasPermission,
+  type Permission,
+} from "../employees/rbac.js";
 import { currentEmployee } from "./helpers.js";
 
 export interface EmployeeRouteOptions {
@@ -304,8 +308,13 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
     if (typeof email !== "string" || email.trim().length === 0) {
       return reply.code(400).send({ error: "email is required" });
     }
-    const body = (request.body ?? {}) as { display_name?: unknown; logo_url?: unknown; role?: unknown };
-    const patch: { display_name?: string; logo_url?: string; role?: "admin" | "member" } = {};
+    const body = (request.body ?? {}) as {
+      display_name?: unknown;
+      logo_url?: unknown;
+      role?: unknown;
+      permissions?: unknown;
+    };
+    const patch: { display_name?: string; logo_url?: string; role?: "admin" | "member"; permissions?: Permission[] } = {};
     if (body.display_name !== undefined) {
       if (typeof body.display_name !== "string") {
         return reply.code(400).send({ error: "display_name must be a string" });
@@ -323,6 +332,22 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
         return reply.code(400).send({ error: `role must be one of: ${EMPLOYEE_ROLES.join(", ")}` });
       }
       patch.role = body.role;
+    }
+    // G4.S3.T10: an admin grants/revokes extra permissions (e.g. kb.edit to a member).
+    if (body.permissions !== undefined) {
+      if (
+        !Array.isArray(body.permissions) ||
+        !body.permissions.every((p): p is string => typeof p === "string")
+      ) {
+        return reply.code(400).send({ error: "permissions must be an array of permission names" });
+      }
+      const unknown = (body.permissions as string[]).filter((p) => !ALL_PERMISSIONS.includes(p as Permission));
+      if (unknown.length > 0) {
+        return reply.code(400).send({
+          error: `unknown permission${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`,
+        });
+      }
+      patch.permissions = body.permissions as Permission[];
     }
     try {
       const employee = await requireEmployee(request, reply, "employees.update");

@@ -287,6 +287,65 @@ test("PUT /api/employees/:email updates role for admins", async () => {
   assert.equal(res.json().display_name, "Promoted");
 });
 
+test("PUT /api/employees/:email grants and revokes kb.edit for admins (G4.S3.T10)", async () => {
+  const sessionToken = await login("admin@caleo.com");
+  const granted = await app.inject({
+    method: "PUT",
+    url: "/api/employees/member@caleo.com",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { permissions: ["kb.edit"] },
+  });
+  assert.equal(granted.statusCode, 200);
+  assert.deepEqual(granted.json().permissions, ["kb.edit"]);
+
+  // The grant shows up via GET /api/employees/:email and the member's own /api/me.
+  const listed = await app.inject({
+    method: "GET",
+    url: "/api/employees/member@caleo.com",
+    headers: { authorization: `Bearer ${sessionToken}` },
+  });
+  assert.deepEqual(listed.json().permissions, ["kb.edit"]);
+
+  const memberSession = await login("member@caleo.com");
+  const me = await app.inject({
+    method: "GET",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${memberSession}` },
+  });
+  assert.deepEqual(me.json().permissions, ["kb.edit"], "the member's own profile carries the grant");
+
+  const revoked = await app.inject({
+    method: "PUT",
+    url: "/api/employees/member@caleo.com",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { permissions: [] },
+  });
+  assert.deepEqual(revoked.json().permissions, []);
+});
+
+test("PUT /api/employees/:email rejects an unknown permission (G4.S3.T10)", async () => {
+  const sessionToken = await login("admin@caleo.com");
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/employees/member@caleo.com",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { permissions: ["kb.edit", "nonsense"] },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().error, /unknown permission/i);
+});
+
+test("a member cannot grant permissions via PUT /api/employees/:email (RBAC: 403)", async () => {
+  const sessionToken = await login("member@caleo.com");
+  const res = await app.inject({
+    method: "PUT",
+    url: "/api/employees/member@caleo.com",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { permissions: ["kb.edit"] },
+  });
+  assert.equal(res.statusCode, 403);
+});
+
 test("PUT /api/me updates display_name and logo_url for self", async () => {
   const sessionToken = await login("member@caleo.com");
   const res = await app.inject({

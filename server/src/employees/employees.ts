@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import type { SecretCipher } from "./crypto.js";
+import type { Permission } from "./rbac.js";
 
 export const EMPLOYEE_ROLES = ["admin", "member"] as const;
 export type EmployeeRole = (typeof EMPLOYEE_ROLES)[number];
@@ -31,6 +32,8 @@ export interface EmployeeRecord {
   display_name: string;
   logo_url: string;
   role: EmployeeRole;
+  /** Admin-granted extra permissions beyond the role defaults (G4.S3.T10), e.g. `kb.edit`. */
+  permissions: Permission[];
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +43,8 @@ export interface EmployeeCreateInput {
   display_name?: string;
   logo_url?: string;
   role?: EmployeeRole;
+  /** Admin-granted extra permissions beyond the role defaults (G4.S3.T10). */
+  permissions?: Permission[];
   /** GitHub credential provided at registration; stored encrypted at rest. */
   github_credential?: GithubCredential;
 }
@@ -48,6 +53,8 @@ export interface EmployeeUpdateInput {
   display_name?: string;
   logo_url?: string;
   role?: EmployeeRole;
+  /** Overwrite the admin-granted extra permissions (G4.S3.T10). Omitted → unchanged. */
+  permissions?: Permission[];
   /** Re-encrypt/overwrite the employee's GitHub credential. Never returned in responses. */
   github_credential?: GithubCredential;
 }
@@ -90,6 +97,7 @@ function toRecord(input: EmployeeCreateInput): EmployeeRecord {
     display_name: input.display_name ?? "",
     logo_url: input.logo_url ?? "",
     role: input.role && isEmployeeRole(input.role) ? input.role : "member",
+    permissions: input.permissions ?? [],
     created_at: timestamp,
     updated_at: timestamp,
   };
@@ -162,6 +170,7 @@ export class MemoryEmployeeRegistry implements EmployeeRegistry {
       display_name: patch.display_name ?? existing.display_name,
       logo_url: patch.logo_url ?? existing.logo_url,
       role: patch.role ?? existing.role,
+      permissions: patch.permissions ?? existing.permissions,
       updated_at: now(),
     };
     this.byId.set(updated.id, updated);
@@ -213,6 +222,7 @@ interface EmployeeRow {
   display_name: string;
   logo_url: string;
   role: EmployeeRole;
+  permissions: Permission[] | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -228,6 +238,7 @@ function rowToRecord(row: EmployeeRow): EmployeeRecord {
     display_name: row.display_name,
     logo_url: row.logo_url,
     role: row.role,
+    permissions: row.permissions ?? [],
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
   };
@@ -281,6 +292,10 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
       `ALTER TABLE employees ADD COLUMN IF NOT EXISTS github_credential_type TEXT`,
     );
     await this.pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS github_credential_enc TEXT`);
+    // G4.S3.T10: admin-granted extra permissions (beyond the role defaults).
+    await this.pool.query(
+      `ALTER TABLE employees ADD COLUMN IF NOT EXISTS permissions TEXT[] NOT NULL DEFAULT '{}'`,
+    );
   }
 
   /** Eagerly ensure table + seed the first admin when ADMIN_EMAIL is set. Idempotent. */
@@ -307,8 +322,8 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
       : null;
     try {
       const result = await this.pool.query<EmployeeRow>(
-        `INSERT INTO employees (id, email, display_name, logo_url, role, github_credential_type, github_credential_enc)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO employees (id, email, display_name, logo_url, role, permissions, github_credential_type, github_credential_enc)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
         [
           randomUUID(),
@@ -316,6 +331,7 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
           input.display_name ?? "",
           input.logo_url ?? "",
           input.role ?? "member",
+          input.permissions ?? [],
           encrypted?.type ?? null,
           encrypted?.enc ?? null,
         ],
@@ -371,8 +387,9 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
        SET display_name = COALESCE($2, display_name),
            logo_url = COALESCE($3, logo_url),
            role = COALESCE($4, role),
-           github_credential_type = COALESCE($5, github_credential_type),
-           github_credential_enc = COALESCE($6, github_credential_enc),
+           permissions = COALESCE($5, permissions),
+           github_credential_type = COALESCE($6, github_credential_type),
+           github_credential_enc = COALESCE($7, github_credential_enc),
            updated_at = now()
        WHERE email = $1
        RETURNING *`,
@@ -381,6 +398,7 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
         patch.display_name ?? null,
         patch.logo_url ?? null,
         patch.role ?? null,
+        patch.permissions ?? null,
         encrypted?.type ?? null,
         encrypted?.enc ?? null,
       ],

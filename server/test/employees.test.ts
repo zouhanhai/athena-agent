@@ -93,6 +93,33 @@ test("updateByEmail patches display_name, logo_url and role", async () => {
   assert.equal((await registry.getById(created.id))?.display_name, "Alice Adams");
 });
 
+test("updateByEmail grants an admin-granted permission (kb.edit) and it round-trips (G4.S3.T10)", async () => {
+  const registry = new MemoryEmployeeRegistry();
+  const created = await registry.create({ email: "alice@example.com", role: "member" });
+  assert.deepEqual(created.permissions ?? [], [], "member starts with no extra permissions");
+
+  const granted = await registry.updateByEmail("alice@example.com", {
+    permissions: ["kb.edit"],
+  });
+  assert.deepEqual(granted.permissions, ["kb.edit"]);
+  assert.deepEqual((await registry.getByEmail("alice@example.com"))?.permissions, ["kb.edit"]);
+
+  // Updating an unrelated field preserves the grant.
+  const renamed = await registry.updateByEmail("alice@example.com", { display_name: "Alice" });
+  assert.deepEqual(renamed.permissions, ["kb.edit"]);
+
+  // Revoking is explicit.
+  const revoked = await registry.updateByEmail("alice@example.com", { permissions: [] });
+  assert.deepEqual(revoked.permissions, []);
+});
+
+test("create stores explicit permissions (G4.S3.T10)", async () => {
+  const registry = new MemoryEmployeeRegistry();
+  const record = await registry.create({ email: "bob@example.com", permissions: ["kb.edit"] });
+  assert.deepEqual(record.permissions, ["kb.edit"]);
+  assert.deepEqual((await registry.getById(record.id))?.permissions, ["kb.edit"]);
+});
+
 test("updateByEmail on an unknown email throws EmployeeNotFoundError", async () => {
   const registry = new MemoryEmployeeRegistry();
   await assert.rejects(
@@ -178,6 +205,11 @@ test(
 
     const updated = await registry.updateByEmail(email, { role: "member" });
     assert.equal(updated.role, "member");
+
+    // G4.S3.T10: admin-granted permissions round-trip through the DB.
+    const granted = await registry.updateByEmail(email, { permissions: ["kb.edit"] });
+    assert.deepEqual(granted.permissions, ["kb.edit"]);
+    assert.deepEqual((await registry.getByEmail(email))?.permissions, ["kb.edit"]);
 
     const all = await registry.list();
     assert.ok(all.some((r) => r.email === email), "listed employees should include the created one");
