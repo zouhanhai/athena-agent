@@ -48,6 +48,24 @@ See `docs/knowledge-rag-design.md` + M4 federation items in `TODO.md`. Key point
   SSE, OpenCode `/global/event`), streaming tool progress into the panel.
 - **KB as MCP server**: wrap `KnowledgeRetrievalService` (LightRAG + llm_wiki + semantic) into an MCP server;
   each local agent adds one `mcpServers` entry over Tailscale. Bonus: Workbench GitHub + kanban ops as MCP tools.
+
+### KB-as-MCP: topic-scoped search contract for external agents
+
+When building the MCP server, the **topic contract for external agents MUST be documented** so any
+MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
+
+- **Tool**: `search_knowledge(query, topic?)` — `topic` is a wiki frontmatter topic subtree (e.g.
+  `internal/events`, `sap`, or `sap/group_reporting`). Omit/empty = whole-corpus search.
+- **How an agent chooses `topic`**: the agent's LLM decides the relevant domain(s) from the question
+  (topic = Athena's knowledge-navigation: determine topic → converge document domain → search within it).
+  The MCP tool description should teach this: "if the question is about a specific domain, pass its
+  topic subtree to scope the search; otherwise omit for a whole-corpus search."
+- **Sibling tools**: `get_wiki_page(path)` (read a wiki page's content + frontmatter), `get_graph()`
+  (knowledge-graph nodes/edges). Retrieval results carry `wikiPath`/`sectionPath` so an agent can
+  group chunks by source page and fuse analysis.
+- **Auth**: MCP server auth'd (per-employee/agent token); agents reach it over Tailscale.
+- Alias mapping (G4.S3.T6) + bilingual aliases (G4.S2.T1) apply at query time, so a
+  colloquial/cross-language term in `query` still matches canonical text within the scoped topic.
 - A2A deferred to M6.
 
 ## Dependencies

@@ -65,25 +65,6 @@ Two chat/front-end driven features that feed the KB lifecycle + retrieval:
    - The **Terms & QA** tab also lets a user **manually add Q&A pairs** (typed in directly as
      knowledge injection, in addition to the Feedback-loop Q&A pairs that are auto-stored).
 
-## KB-as-MCP: topic-scoped search contract for external agents (G4.S6)
-
-The KB will be exposed as an **MCP server** (primary path for agents — OpenCode/Claude Code/Codex/
-Hermes all speak MCP client). T4 (topic-scoped search) is the retrieval capability it wraps. When
-building the MCP server, the **topic contract for external agents MUST be documented**:
-
-- **Tool**: `search_knowledge(query, topic?)` — `topic` is a wiki frontmatter topic subtree (e.g.
-  `internal/events`, `sap`, or `sap/group_reporting`). Omit/empty = whole-corpus search.
-- **How an agent chooses `topic`**: the agent's LLM decides the relevant domain(s) from the question
-  (topic = Athena's knowledge-navigation: determine topic → converge document domain → search within it).
-  The MCP tool description should teach this: "if the question is about a specific domain, pass its
-  topic subtree to scope the search; otherwise omit for a whole-corpus search."
-- **Sibling tools**: `get_wiki_page(path)` (read a wiki page's content + frontmatter), `get_graph()`
-  (knowledge-graph nodes/edges). Retrieval results carry `wikiPath`/`sectionPath` so an agent can
-  group chunks by source page and fuse analysis.
-- **Auth**: MCP server auth'd (per-employee/agent token); agents reach it over Tailscale.
-- Alias mapping (T6) + bilingual aliases (S2.T1) apply at query time, so a colloquial/cross-language
-  term in `query` still matches canonical text within the scoped topic.
-
 ## Dependencies
 
 - G4.S1 (refinement), G4.S2 (RAG).
