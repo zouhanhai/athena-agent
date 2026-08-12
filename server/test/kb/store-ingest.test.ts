@@ -244,6 +244,54 @@ test("ingest skips the section-summary update when the ref carries no sections",
   assert.equal(summaryQueries.length, 0, "no section-summary query without sections");
 });
 
+test("ingest streams chunk progress {done,total} after each embed+write batch (G4.S3.T8)", async () => {
+  const { driver, calls } = makeDriver();
+  const embedCalls: string[][] = [];
+  const chunks = Array.from({ length: 5 }, (_, i) => ({
+    id: `c${i + 1}`,
+    text: `chunk ${i + 1}`,
+    heading_path: "# H",
+  }));
+  const service = new Neo4jIngestService({
+    driver,
+    batchSize: 2,
+    embedder: {
+      embed: async (texts) => {
+        embedCalls.push(texts);
+        return texts.map(() => [1, 2, 3]);
+      },
+    },
+    readChunks: async () => chunks,
+  });
+
+  const progress: Array<{ chunksStored: number; chunksTotal: number; progress: number }> = [];
+  await service.ingest({
+    ref: makeRef({ chunk_count: 5 }),
+    documentId: "doc",
+    title: "Doc",
+    onProgress: (p) => progress.push({ ...p }),
+  });
+
+  assert.deepEqual(
+    progress,
+    [
+      { chunksStored: 2, chunksTotal: 5, progress: 0.4 },
+      { chunksStored: 4, chunksTotal: 5, progress: 0.8 },
+      { chunksStored: 5, chunksTotal: 5, progress: 1 },
+    ],
+    "one progress report per batch, cumulative done against the chunk total",
+  );
+  assert.deepEqual(embedCalls, [
+    ["chunk 1", "chunk 2"],
+    ["chunk 3", "chunk 4"],
+    ["chunk 5"],
+  ], "embed runs per batch (not once for all chunks), so writes stream through");
+  const chunkWrites = calls.filter(
+    (c) => c.query.startsWith("MERGE") && c.query.includes(`${CHUNK_LABEL}`) && !c.query.includes("UNWIND $sections"),
+  );
+  assert.equal(chunkWrites.length, 5, "every chunk is still stored");
+});
+
 test("ingest is idempotent-safe: MERGE (not CREATE) for chunks, entities and document", async () => {
   const { driver, calls } = makeDriver();
   const service = new Neo4jIngestService({

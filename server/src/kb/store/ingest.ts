@@ -42,6 +42,18 @@ export interface Neo4jIngestOptions {
   readChunks?: (chunksRef: string) => Promise<RefinementChunk[]>;
   /** Apply the store schema (constraints + indexes) before ingesting. Default true. */
   applySchema?: boolean;
+  /** Chunks embedded + written per batch (G4.S3.T8). Default 64 (the embedder's
+   *  internal batch size), so one batch = one embed request + write-through. */
+  batchSize?: number;
+}
+
+export interface Neo4jIngestProgress {
+  /** Chunks embedded + written so far (cumulative across batches). */
+  chunksStored: number;
+  /** Total chunks to embed + write. */
+  chunksTotal: number;
+  /** Fraction 0..1 of chunks done. */
+  progress: number;
 }
 
 export interface Neo4jIngestInput {
@@ -54,6 +66,9 @@ export interface Neo4jIngestInput {
   /** The llm_wiki page path written for this doc (e.g. "wiki/events/doc.md"). When
    *  present, a WikiPage node is created and bridged to the Document (G4.S2.T11). */
   wikiPath?: string;
+  /** Called after each embed + write batch with cumulative chunk progress
+   *  (G4.S3.T8). Optional — ingest still reports the final result on completion. */
+  onProgress?: (progress: Neo4jIngestProgress) => void;
 }
 
 export interface Neo4jIngestResult {
@@ -125,17 +140,24 @@ export class Neo4jIngestService {
   private readonly embedder: TextEmbedder;
   private readonly readChunks: (chunksRef: string) => Promise<RefinementChunk[]>;
   private readonly applySchema: boolean;
+  private readonly batchSize: number;
 
   constructor(options: Neo4jIngestOptions) {
     this.driver = options.driver;
     this.embedder = options.embedder;
     this.readChunks = options.readChunks ?? DEFAULT_READ_CHUNKS;
     this.applySchema = options.applySchema !== false;
+    this.batchSize = options.batchSize ?? 64;
   }
 
   /**
    * Embed Athena's chunks + store Document/Chunk/Entity/Relation into Neo4j.
    * Idempotent-safe (MERGE + IF NOT EXISTS schema). No LLM extraction.
+   *
+   * Chunks are embedded + written in `batchSize` slices (G4.S3.T8): each batch
+   * is embedded, its Chunk nodes + Section chains are stored, then the
+   * `onProgress` callback fires with cumulative {chunksStored, chunksTotal,
+   * progress} — so callers stream X/Y instead of waiting for one big embed.
    */
   async ingest(input: Neo4jIngestInput): Promise<Neo4jIngestResult> {
     if (this.applySchema) {
@@ -143,7 +165,7 @@ export class Neo4jIngestService {
     }
 
     const chunks = await this.readChunks(input.ref.chunks_ref);
-    const embeddings = chunks.length > 0 ? await this.embedder.embed(chunks.map((c) => c.text)) : [];
+    const total = chunks.length;
 
     const session = this.driver.session();
     try {
@@ -181,49 +203,65 @@ export class Neo4jIngestService {
         );
       }
 
-      for (let i = 0; i < chunks.length; i += 1) {
-        const chunk = chunks[i]!;
-        const chunkId = `${input.documentId}:${chunk.id}`;
-        await session.run(
-          `MERGE (c:${CHUNK_LABEL} {id: $id})
-           SET c.text = $text, c.embedding = $embedding, c.topic = $topic, c.heading_path = $heading_path,
-               c.documentId = $documentId`,
-          {
-            id: chunkId,
-            text: chunk.text,
-            embedding: embeddings[i] ?? [],
-            topic: input.ref.frontmatter?.topic ?? "",
-            heading_path: chunk.heading_path,
-            documentId: input.documentId,
-          },
-        );
+      const report = (stored: number): void => {
+        input.onProgress?.({
+          chunksStored: stored,
+          chunksTotal: total,
+          progress: total > 0 ? stored / total : 1,
+        });
+      };
 
-        // Section chain (H1 → H2 → … → deepest): Document -[:HAS_SECTION]-> H1,
-        // Section -[:HAS_SUBSECTION]-> child, Chunk -[:PART_OF]-> deepest. MERGE
-        // everywhere = idempotent on re-ingest. The Document/Chunk are MATCHed
-        // (already created by the queries above) — MERGE-ing them inside a
-        // multi-node pattern would trip the unique-constraint conflict when the
-        // node exists but the pattern doesn't yet. A chunk with no heading
-        // segments simply keeps no PART_OF edge (matches pre-T11 behavior).
-        const sections = sectionChain(input.documentId, chunk.heading_path ?? "");
-        if (sections.length > 0) {
+      // Embed + write chunks in batches so progress streams X/Y (G4.S3.T8).
+      for (let start = 0; start < chunks.length; start += this.batchSize) {
+        const slice = chunks.slice(start, start + this.batchSize);
+        const embeddings =
+          slice.length > 0 ? await this.embedder.embed(slice.map((c) => c.text)) : [];
+
+        for (let i = 0; i < slice.length; i += 1) {
+          const chunk = slice[i]!;
+          const chunkId = `${input.documentId}:${chunk.id}`;
           await session.run(
-            `MATCH (d:${DOCUMENT_LABEL} {id: $documentId})
-             UNWIND $sections AS s
-             MERGE (sec:${SECTION_LABEL} {id: s.id})
-             SET sec.title = s.title, sec.path = s.path, sec.documentId = s.documentId
-             WITH d, collect(sec) AS chain
-             WITH d, chain, chain[0] AS first, chain[size(chain) - 1] AS deepest
-             MATCH (c:${CHUNK_LABEL} {id: $chunkId})
-             MERGE (d)-[:${HAS_SECTION_TYPE}]->(first)
-             MERGE (c)-[:${PART_OF_TYPE}]->(deepest)
-             WITH c, chain
-             UNWIND [i IN range(0, size(chain) - 2)] AS i
-             WITH c, chain[i] AS parent, chain[i + 1] AS child
-             MERGE (parent)-[:${HAS_SUBSECTION_TYPE}]->(child)`,
-            { documentId: input.documentId, sections, chunkId },
+            `MERGE (c:${CHUNK_LABEL} {id: $id})
+             SET c.text = $text, c.embedding = $embedding, c.topic = $topic, c.heading_path = $heading_path,
+                 c.documentId = $documentId`,
+            {
+              id: chunkId,
+              text: chunk.text,
+              embedding: embeddings[i] ?? [],
+              topic: input.ref.frontmatter?.topic ?? "",
+              heading_path: chunk.heading_path,
+              documentId: input.documentId,
+            },
           );
+
+          // Section chain (H1 → H2 → … → deepest): Document -[:HAS_SECTION]-> H1,
+          // Section -[:HAS_SUBSECTION]-> child, Chunk -[:PART_OF]-> deepest. MERGE
+          // everywhere = idempotent on re-ingest. The Document/Chunk are MATCHed
+          // (already created by the queries above) — MERGE-ing them inside a
+          // multi-node pattern would trip the unique-constraint conflict when the
+          // node exists but the pattern doesn't yet. A chunk with no heading
+          // segments simply keeps no PART_OF edge (matches pre-T11 behavior).
+          const sections = sectionChain(input.documentId, chunk.heading_path ?? "");
+          if (sections.length > 0) {
+            await session.run(
+              `MATCH (d:${DOCUMENT_LABEL} {id: $documentId})
+               UNWIND $sections AS s
+               MERGE (sec:${SECTION_LABEL} {id: s.id})
+               SET sec.title = s.title, sec.path = s.path, sec.documentId = s.documentId
+               WITH d, collect(sec) AS chain
+               WITH d, chain, chain[0] AS first, chain[size(chain) - 1] AS deepest
+               MATCH (c:${CHUNK_LABEL} {id: $chunkId})
+               MERGE (d)-[:${HAS_SECTION_TYPE}]->(first)
+               MERGE (c)-[:${PART_OF_TYPE}]->(deepest)
+               WITH c, chain
+               UNWIND [i IN range(0, size(chain) - 2)] AS i
+               WITH c, chain[i] AS parent, chain[i + 1] AS child
+               MERGE (parent)-[:${HAS_SUBSECTION_TYPE}]->(child)`,
+              { documentId: input.documentId, sections, chunkId },
+            );
+          }
         }
+        report(Math.min(start + slice.length, total));
       }
 
       // Layered summaries (G4.S2.T13): set each section summary on its matching Section node

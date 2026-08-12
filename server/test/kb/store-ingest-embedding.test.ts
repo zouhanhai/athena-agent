@@ -44,6 +44,32 @@ test("OpenRouterEmbedder throws without an API key", () => {
   }
 });
 
+test("OpenRouterEmbedder fires onBatch(done, total) after each internal batch (G4.S3.T8)", async () => {
+  const fetchImpl = async (_url: string, init: { body: string }) => {
+    const body = JSON.parse(init.body) as { input: string[] };
+    return {
+      ok: true,
+      status: 200,
+      text: async () => "",
+      json: async () => ({ data: body.input!.map((_, i) => ({ embedding: [i] })) }),
+    } as Response;
+  };
+  const embedder = new OpenRouterEmbedder({ apiKey: "sk-test", fetchImpl, batchSize: 2 });
+  const calls: Array<{ done: number; total: number }> = [];
+  const vectors = await embedder.embed(["a", "b", "c", "d", "e"], (done, total) => calls.push({ done, total }));
+
+  assert.deepEqual(
+    calls,
+    [
+      { done: 2, total: 5 },
+      { done: 4, total: 5 },
+      { done: 5, total: 5 },
+    ],
+    "one callback per internal batch with cumulative done against the full total",
+  );
+  assert.equal(vectors.length, 5, "all vectors still returned in order");
+});
+
 test("OpenRouterEmbedder surfaces a non-ok response", async () => {
   const fetchImpl = async () =>
     ({ ok: false, status: 401, text: async () => "unauthorized" }) as Response;

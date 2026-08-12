@@ -9,9 +9,15 @@
  * output dimensionality (qwen3-embedding-8b @ 1024).
  */
 
+/** Chunk embed progress (G4.S3.T8): cumulative `done` against the total text
+ *  count, reported after each internal embedder batch so callers can stream
+ *  X/Y progress instead of waiting for the whole embed to finish. */
+export type EmbedBatchProgress = (done: number, total: number) => void;
+
 export interface TextEmbedder {
-  /** Embed a batch of texts into float vectors (one per input text). */
-  embed(texts: string[]): Promise<number[][]>;
+  /** Embed a batch of texts into float vectors (one per input text). When
+   *  `onBatch` is given, it fires after every internal batch (G4.S3.T8). */
+  embed(texts: string[], onBatch?: EmbedBatchProgress): Promise<number[][]>;
 }
 
 export const DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b";
@@ -52,7 +58,7 @@ export class OpenRouterEmbedder implements TextEmbedder {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[], onBatch?: EmbedBatchProgress): Promise<number[][]> {
     const out: number[][] = [];
     for (let i = 0; i < texts.length; i += this.batchSize) {
       const batch = texts.slice(i, i + this.batchSize);
@@ -74,6 +80,7 @@ export class OpenRouterEmbedder implements TextEmbedder {
         if (!embedding) throw new Error("embedding response missing vector");
         out.push(embedding);
       }
+      onBatch?.(out.length, texts.length);
     }
     return out;
   }

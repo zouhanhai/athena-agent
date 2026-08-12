@@ -63,8 +63,15 @@ function makeTaskQueue(opts: {
     ...(opts.neo4j
       ? {
           neo4j: {
-            async ingest() {
-              return { chunksStored: 1, entitiesStored: 0, relationsStored: 0 };
+            async ingest(input: {
+              ref: unknown;
+              documentId: string;
+              title: string;
+              onProgress?: (p: { chunksStored: number; chunksTotal: number; progress: number }) => void;
+            }) {
+              input.onProgress?.({ chunksStored: 1, chunksTotal: 2, progress: 0.5 });
+              input.onProgress?.({ chunksStored: 2, chunksTotal: 2, progress: 1 });
+              return { chunksStored: 2, entitiesStored: 0, relationsStored: 0 };
             },
           } as never,
         }
@@ -194,6 +201,27 @@ test("GET /api/kb/task/:id returns the task and 404 for unknown ids", async () =
     assert.equal(taskRes.statusCode, 200);
     const task = taskRes.json() as { id: string };
     assert.equal(task.id, taskId);
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/task/:id surfaces ingesting_neo4j chunk progress (G4.S3.T8)", async () => {
+  const app = buildApp({ taskQueue: makeTaskQueue({ neo4j: true }) });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest-url",
+      payload: { url: "https://example.com/progress" },
+    });
+    const { taskId } = res.json() as { taskId: string };
+    const task = await pollTask(app, taskId);
+    const stage = (task.stages as { ingesting_neo4j: { status: string; chunksStored?: number; chunksTotal?: number; progress?: number } })
+      .ingesting_neo4j;
+    assert.equal(stage.status, "done");
+    assert.equal(stage.chunksStored, 2);
+    assert.equal(stage.chunksTotal, 2);
+    assert.equal(stage.progress, 1);
   } finally {
     await app.close();
   }

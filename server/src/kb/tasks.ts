@@ -53,6 +53,12 @@ export interface TaskStage {
   status: StageStatus;
   error?: string;
   steps: TaskStep[];
+  /** Neo4j chunk ingest progress (G4.S3.T8), carried on the ingesting_neo4j
+   *  stage: chunks embedded + stored so far vs the total, plus the 0..1
+   *  fraction. Set while the stage runs and preserved once it completes. */
+  chunksStored?: number;
+  chunksTotal?: number;
+  progress?: number;
 }
 
 const NEO4J_STEPS: Neo4jStepName[] = ["embed_store"];
@@ -465,6 +471,8 @@ export class IngestTaskQueue {
         // G4.S2.T4: embed + index the Athena refinement output into Neo4j — no
         // LLM extraction here. Requires a Neo4j store AND the refinement output
         // (no ref = nothing to store); otherwise the stage is a no-op marked done.
+        // G4.S3.T8: the store streams chunk progress via onProgress → the stage
+        // exposes chunksStored/chunksTotal/progress so the API returns X/Y.
         const res = this.neo4j && refinementRef
           ? await this.safeIngest(() => {
               const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
@@ -475,6 +483,13 @@ export class IngestTaskQueue {
                 documentId,
                 title,
                 ...(wikiPath ? { wikiPath } : {}),
+                onProgress: (p) => {
+                  this.patch(id, (t) => {
+                    t.stages.ingesting_neo4j.chunksStored = p.chunksStored;
+                    t.stages.ingesting_neo4j.chunksTotal = p.chunksTotal;
+                    t.stages.ingesting_neo4j.progress = p.progress;
+                  });
+                },
               }).then((r) => ({ ok: true, count: r.chunksStored }));
             })
           : { ok: true };
@@ -483,7 +498,11 @@ export class IngestTaskQueue {
             (res.ok && "count" in res ? ` (${res.count} chunks embedded)` : ""),
         );
         this.patch(id, (t) => {
-          t.stages.ingesting_neo4j = { name: "ingesting_neo4j", status: res.ok ? "done" : "failed", ...(res.ok ? {} : { error: res.error }), steps: t.stages.ingesting_neo4j.steps };
+          t.stages.ingesting_neo4j = {
+            ...t.stages.ingesting_neo4j,
+            status: res.ok ? "done" : "failed",
+            ...(res.ok ? {} : { error: res.error }),
+          };
           // Only a real store write counts as a success for the finalize decision;
           // a no-op (no store configured / no refinement output) must not alone
           // mark the task done when every other system failed.

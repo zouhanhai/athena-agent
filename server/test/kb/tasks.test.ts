@@ -130,9 +130,16 @@ function makeFakes(opts: {
     ...(opts.neo4j
       ? {
           neo4j: {
-            async ingest(input: { ref: unknown; documentId: string; title: string }) {
+            async ingest(input: {
+              ref: unknown;
+              documentId: string;
+              title: string;
+              onProgress?: (p: { chunksStored: number; chunksTotal: number; progress: number }) => void;
+            }) {
               calls.push({ kind: "neo4j.ingest", args: [input.documentId, input.title] });
               if (flags.neo4jError) throw flags.neo4jError;
+              input.onProgress?.({ chunksStored: 1, chunksTotal: 2, progress: 0.5 });
+              input.onProgress?.({ chunksStored: 2, chunksTotal: 2, progress: 1 });
               return { chunksStored: 2, entitiesStored: 1, relationsStored: 1 };
             },
           } as never,
@@ -450,6 +457,21 @@ test("Neo4j stage failure is per-system: task done if another system ok, stage f
   assert.equal(task.stages.ingesting_neo4j.status, "failed");
   assert.match(task.stages.ingesting_neo4j.error ?? "", /neo4j down/);
   assert.equal(task.neo4jStored, undefined);
+});
+
+test("ingesting_neo4j stage exposes chunk progress (chunksStored/chunksTotal/progress) as batches complete (G4.S3.T8)", async () => {
+  const { queue } = makeFakes({ neo4j: true });
+  const { taskId } = queue.submitFile("/tmp/report.pdf", "report.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  const stage = task.stages.ingesting_neo4j;
+  assert.equal(stage.status, "done");
+  // The fake store reports 1/2 then 2/2; the task stage keeps the running totals
+  // even after the stage flips to done (final patch preserves them).
+  assert.equal(stage.chunksStored, 2);
+  assert.equal(stage.chunksTotal, 2);
+  assert.equal(stage.progress, 1);
 });
 
 test("Neo4j stage is a no-op (done) without a wired store or refinement output (G4.S2.T4)", async () => {
