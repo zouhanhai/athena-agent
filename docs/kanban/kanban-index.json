@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T10:55:18.476Z",
+  "generated_at": "2026-08-12T10:55:41.575Z",
   "goals": [
     {
       "ref": "G1",
@@ -2166,8 +2166,9 @@
               "id": "s3.8",
               "title": "G4.S3.T8: Chunk ingest progress — X/Y + ETA on the Uploads page",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "20260812T150700Z",
               "blocked_by": [],
               "acceptance_criteria": [
                 "Neo4j ingest reports chunk progress (X/Y) as it embeds, not just on completion",
