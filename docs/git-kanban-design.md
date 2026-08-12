@@ -84,8 +84,9 @@ Mutual exclusion via git push atomicity.
 
 **Auto-claim (S4 plugin / hook)** (D1/D21/D23): in opencode the claim is automated — the plugin
 claims on the first `tool.execute` call (git lock takes effect immediately, before any work), parsing
-the ticket ref from the structured dispatch prompt. Other agents implement the same via their hook
-systems or fall back to AGENTS.md instructions (D5).
+the ticket ref from the structured dispatch prompt. The plugin also regenerates + commits the kanban
+index on the claim (so the board reflects `in_progress` immediately). Other agents implement the same
+via their hook systems or fall back to AGENTS.md instructions (D5).
 
 ## 5. Ticket Markdown Format
 
