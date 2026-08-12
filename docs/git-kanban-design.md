@@ -396,7 +396,24 @@ Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 ## 16. Roles (souls) — responsibility model, not strict role-play (D10/D26)
 
 Six soul roles (Consultant / PM / Eng Director / Worker / Reviewer / Writer), each with duty /
-stages / output + state-machine bindings (`server/src/kanban/roles.ts`).
+stages / output + state-machine bindings. Source of truth: `server/src/kanban/roles.ts`.
+
+| Role | Duty | Stage | Output | Builds |
+|------|------|-------|--------|--------|
+| Consultant | grill requirements into a Goal | pre-plan | `Goal.md` | Goal |
+| PM | to-spec: decompose the Goal into Specs | planning | `Spec.md` | Spec |
+| Eng Director | to-ticket: decompose specs into tickets; re-decompose a rejected ticket | planning, rework | `T{n}.md` tickets + rework tickets | Ticket |
+| Worker | implement a ticket: claim via git, develop, report done/in_review | execution | implementation + status report | — |
+| Reviewer | review done/in_review tickets; approve or reject with qa_feedback | review | review verdict (approved / rejected) | — |
+| Writer | write the docs, PR description and wrap-up deliverables | wrap-up | docs + PR description | — |
+
+**Layer → planner owner** (who builds each layer's planning output):
+
+| Layer | Owner |
+|-------|-------|
+| Goal | Consultant |
+| Spec | PM |
+| Ticket | Eng Director |
 
 - **Role definitions stay** (as a responsibility model).
 - **Do NOT force soul-switching in solo/small-team mode** — one LLM (Hermes) playing all roles:
