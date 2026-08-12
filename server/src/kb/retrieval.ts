@@ -19,6 +19,7 @@ import type {
   Neo4jRetrievalService,
   Neo4jSearchHit,
   Neo4jSearchResponse,
+  RetrieverName,
 } from "./store/retrieval.js";
 
 export interface KnowledgeRetrievalOptions {
@@ -224,8 +225,15 @@ export class KnowledgeRetrievalService {
    * (colloquial → canonical, feeding BOTH the Neo4j search and the llm_wiki
    * keyword search), and a matching stored Q&A pair is surfaced as
    * `qaReference` — reference context only, never a short-circuit.
+   *
+   * G4.S3.T7.3: `retriever` (agentic picker) forwards the chosen retriever to
+   * the Neo4j store — it runs ONLY that retriever instead of the fused search.
+   * When unset the fused (vector+BM25+graph) search runs as before.
    */
-  async search(query: string, options: { topic?: string } = {}): Promise<KnowledgeSearchResponse> {
+  async search(
+    query: string,
+    options: { topic?: string; retriever?: RetrieverName } = {},
+  ): Promise<KnowledgeSearchResponse> {
     const expandedQuery = await this.expandQuery(query);
     const results: KnowledgeSearchResult[] = [];
     const project = await this.resolveProject();
@@ -236,6 +244,7 @@ export class KnowledgeRetrievalService {
             ...(scope ? { topics: scope.topics } : {}),
             topK: 5,
             enrichContext: true,
+            ...(options.retriever ? { retriever: options.retriever } : {}),
           })
         : Promise.resolve(null),
       this.llmwiki.search(project.id, expandedQuery, { topK: 5 }),

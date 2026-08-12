@@ -267,6 +267,22 @@ test("search with a Neo4j store fuses Neo4j + llm_wiki hits", async () => {
   assert.equal(neoHits[1]!.title, "ZOB München → CALEO, MVV", "graph hit renders the relation neighborhood");
 });
 
+test("search forwards the agentic retriever choice to the Neo4j store (G4.S3.T7.3)", async () => {
+  const seen: Array<{ retriever?: string }> = [];
+  const neo4j = {
+    search: async (_query: string, options: { retriever?: string; topics?: string[] }) => {
+      seen.push({ retriever: options.retriever });
+      return { query: "", hits: [] };
+    },
+    toolsSearch: async () => ({ query: "", hits: [] }),
+    getGraph: async () => ({ nodes: [], edges: [] }),
+  } as unknown as Neo4jRetrievalService;
+  const service = makeService({ neo4j });
+
+  await service.search("bus", { retriever: "bm25" });
+  assert.deepEqual(seen, [{ retriever: "bm25" }], "picked retriever forwarded to the Neo4j store");
+});
+
 test("topic-scoped search expands the scope into the wiki frontmatter topic subtree and scopes the Neo4j store (G4.S3.T4)", async () => {
   const seenTopics: string[][] = [];
   const neo4j = {

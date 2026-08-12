@@ -365,6 +365,22 @@ test("Neo4jRetrievalService.search returns fused results and tolerates a failing
   assert.ok(response.hits.find((h) => h.source === "graph"));
 });
 
+test("Neo4jRetrievalService.search honors the picked retriever option (G4.S3.T7.3)", async () => {
+  const { driver, calls } = makeDriver((q) => {
+    if (q.includes(CHUNK_TEXT_FTX)) return [CHUNK("c1", "bus runbook")];
+    return [];
+  });
+  const service = new Neo4jRetrievalService({ driver, embedder: stubEmbedder, topK: 5 });
+
+  const response = await service.search("bus", { retriever: "bm25" });
+
+  assert.equal(response.hits.length, 1);
+  assert.equal(response.hits[0]!.source, "bm25");
+  assert.ok(calls.some((c) => c.query.includes(CHUNK_TEXT_FTX)), "bm25 retriever ran");
+  assert.ok(!calls.some((c) => c.query.includes("VECTOR INDEX")), "vector retriever skipped when bm25 picked");
+  assert.ok(!calls.some((c) => c.query.includes(ENTITY_NAME_ALIASES_FTX)), "graph retriever skipped when bm25 picked");
+});
+
 test("fused search RRF-fuses graph chunks into the ranking (not appended last)", async () => {
   const { driver } = makeDriver((q) => {
     if (q.includes("VECTOR INDEX")) return [CHUNK("c1", "tram line 1"), CHUNK("c2", "tram line 2")];

@@ -85,6 +85,10 @@ export interface Neo4jSearchOptions {
   reranker?: Reranker;
   /** Max fused hits the reranker sees for this search. Default: 20. */
   rerankTopN?: number;
+  /** Agentic picker override (G4.S3.T7.3): run ONLY this retriever instead of the
+   *  fused vector+BM25+graph search. Options flow through to the chosen retriever
+   *  (topic/topics/topK/enrichContext still apply). */
+  retriever?: RetrieverName;
 }
 
 /** Tool names a ToolsRetriever picker can select. */
@@ -391,9 +395,10 @@ export class ToolsRetriever {
     this.hybrid = new HybridRetriever(options);
   }
 
-  /** Pick + run the best retriever for this query. */
+  /** Pick + run the best retriever for this query. An explicit `options.retriever`
+   *  (agentic picker override, G4.S3.T7.3) wins over the injected picker. */
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchHit[]> {
-    const choice = await this.picker(query, ["vector", "bm25", "graph", "hybrid"]);
+    const choice = options.retriever ?? (await this.picker(query, ["vector", "bm25", "graph", "hybrid"]));
     switch (choice) {
       case "vector":
         return new VectorRetriever(this.options).search(query, options);
@@ -446,8 +451,16 @@ export class Neo4jRetrievalService {
   /** Fused search: vector + BM25 + graph (RRF over all three, all chunk hits) + optional
    *  cross-encoder rerank of the fused top-k, topic-scoped, tolerant of failures. With
    *  `enrichContext`, each chunk hit is enriched with its same-section sibling chunk texts
-   *  (G4.S2.T11) — best-effort, a failing enrichment never kills the search. */
+   *  (G4.S2.T11) — best-effort, a failing enrichment never kills the search. When
+   *  `options.retriever` is set (agentic picker, G4.S3.T7.3) ONLY that retriever runs. */
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchResponse> {
+    if (options.retriever) {
+      const picked = await new ToolsRetriever(this.options).search(query, {
+        ...options,
+        retriever: options.retriever,
+      });
+      return { query, hits: picked };
+    }
     const topK = options.topK ?? this.topK;
     const [vector, bm25, graph] = await Promise.allSettled([
       new VectorRetriever(this.options).search(query, options),
