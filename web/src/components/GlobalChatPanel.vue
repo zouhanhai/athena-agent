@@ -481,6 +481,12 @@ function addEmployee(emp: EmployeeRecord) {
   transition: color 0.15s var(--caleo-ease-out), background-color 0.15s var(--caleo-ease-out);
 }
 
+/* The thumbs-up/down SVG paths have no fill attribute; force them to inherit
+   the button's color (currentColor) so they are not solid black on dark mode. */
+.feedback-btn svg {
+  fill: currentColor;
+}
+
 .feedback-btn:hover {
   background: var(--caleo-hover);
   color: var(--caleo-text);
