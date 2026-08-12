@@ -17,6 +17,25 @@ const pairs = ref<QaPair[]>([]);
 const loading = ref(false);
 const error = ref("");
 
+const mappingSearch = ref("");
+const qaSearch = ref("");
+
+const filteredMappings = computed(() => {
+  const q = mappingSearch.value.trim().toLowerCase();
+  if (!q) return mappings.value;
+  return mappings.value.filter(
+    (m) => m.term.toLowerCase().includes(q) || m.canonical.toLowerCase().includes(q),
+  );
+});
+const filteredPairs = computed(() => {
+  const q = qaSearch.value.trim().toLowerCase();
+  if (!q) return pairs.value;
+  return pairs.value.filter(
+    (p) =>
+      p.question.toLowerCase().includes(q) || p.answer.toLowerCase().includes(q),
+  );
+});
+
 const termInput = ref("");
 const canonicalInput = ref("");
 const addingMapping = ref(false);
@@ -187,9 +206,18 @@ onMounted(() => {
         </div>
         <p v-if="mappingError" class="card-error">{{ mappingError }}</p>
 
+        <t-input
+          v-model="mappingSearch"
+          size="small"
+          placeholder="Search mappings (term or canonical)"
+          clearable
+          class="list-search"
+        />
         <div class="mapping-list">
-          <p v-if="mappings.length === 0" class="list-empty">No mappings yet.</p>
-          <div v-for="mapping in mappings" :key="mapping.id" class="mapping-row">
+          <p v-if="filteredMappings.length === 0" class="list-empty">
+            {{ mappings.length === 0 ? "No mappings yet." : "No matching mappings." }}
+          </p>
+          <div v-for="mapping in filteredMappings" :key="mapping.id" class="mapping-row">
             <span class="mapping-term">{{ mapping.term }}</span>
             <span class="mapping-arrow">→</span>
             <span class="mapping-canonical">{{ mapping.canonical }}</span>
@@ -238,9 +266,18 @@ onMounted(() => {
         </div>
         <p v-if="qaError" class="card-error">{{ qaError }}</p>
 
+        <t-input
+          v-model="qaSearch"
+          size="small"
+          placeholder="Search Q&amp;A (question or answer)"
+          clearable
+          class="list-search"
+        />
         <div class="qa-list">
-          <p v-if="pairs.length === 0" class="list-empty">No Q&amp;A pairs yet.</p>
-          <div v-for="pair in pairs" :key="pair.id" class="qa-row">
+          <p v-if="filteredPairs.length === 0" class="list-empty">
+            {{ pairs.length === 0 ? "No Q&amp;A pairs yet." : "No matching Q&amp;A." }}
+          </p>
+          <div v-for="pair in filteredPairs" :key="pair.id" class="qa-row">
             <div class="qa-row-head">
               <span class="qa-question">{{ pair.question }}</span>
               <t-button
@@ -418,6 +455,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.list-search {
+  margin: 8px 0 4px;
 }
 
 .list-empty {

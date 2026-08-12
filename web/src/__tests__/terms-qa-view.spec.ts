@@ -128,7 +128,7 @@ describe("TermsQaView", () => {
   it("adds a manual Q&A pair", async () => {
     const wrapper = await mountView();
     const inputs = wrapper.findAll("input");
-    await inputs[2]!.setValue("Who founded CALEO?");
+    await inputs[3]!.setValue("Who founded CALEO?");
     const textarea = wrapper.find("textarea");
     await textarea.setValue("The founders did.");
     const addButton = wrapper
@@ -165,7 +165,7 @@ describe("TermsQaView", () => {
     const wrapper = await mountView();
 
     const inputs = wrapper.findAll("input");
-    await inputs[2]!.setValue("What is C Day?");
+    await inputs[3]!.setValue("What is C Day?");
     await wrapper.find("textarea").setValue("A new answer.");
     await wrapper
       .findAll("button")
