@@ -4,7 +4,7 @@
 > what to continue" via markdown file state in GitHub + git commit history.
 > This is a pure git + markdown model (no local SQLite source of truth).
 
-> **Protocol vs implementation** (D4/D5): this is the athena platform's **recommended workflow
+> **Protocol vs implementation**: this is the athena platform's **recommended workflow
 > protocol**, NOT tied to any one agent. Each user has their own local agent + own code-worker agent.
 > opencode is the concrete example used here; other agents (Claude Code / Codex / Pi) implement the
 > same integration points via their own hook systems (see §17). The plugin is opencode's automation;
@@ -18,7 +18,7 @@
 3. **GitHub is the shared hub** — all agents push/pull the same repo.
 4. **Each person/agent has an independent git identity** — git commits distinguish who did what.
 5. **Protocol is agent-agnostic** — the workflow spec is defined here; each agent implements the
-   integration points with its own tooling (D4/D5).
+   integration points with its own tooling.
 
 ## 2. Directory Structure = Gx.Sx.Tx Three Layers
 
@@ -44,7 +44,7 @@ docs/                              ← design documents (see §3)
 └── ...
 ```
 
-**Three layers only — the Milestone (M1-M5) layer is removed** (D25): it duplicated the Goal layer.
+**Three layers only — the Milestone (M1-M5) layer is removed**: it duplicated the Goal layer.
 Goal is the top-level completion granularity. M4 (etc.) may stay as a semantic label on Goals, but
 there is no separate milestone completion layer.
 
@@ -70,7 +70,7 @@ implemented. Naming follows whether the design is already mapped to a board item
 - **Still exploratory** (predates any Goal/Spec assignment) → semantic name
   `docs/<topic>-design.md` (e.g. `docs/knowledge-rag-design.md`).
 
-There is no milestone prefix (M4 etc.) — the Milestone layer was removed (D25), so design docs are
+There is no milestone prefix (M4 etc.) — the Milestone layer was removed, so design docs are
 named by Goal/Spec or topic, not by milestone.
 
 The board templates (§6) reference these: a Spec's `## Design / Approach` points to its
@@ -107,11 +107,11 @@ Any Worker claiming a ticket:
 
 Mutual exclusion via git push atomicity.
 
-**Auto-claim (S4 plugin / hook)** (D1/D21/D23): in opencode the claim is automated — the plugin
+**Auto-claim (S4 plugin / hook)**: in opencode the claim is automated — the plugin
 claims on the first `tool.execute` call (git lock takes effect immediately, before any work), parsing
 the ticket ref from the structured dispatch prompt. The plugin also regenerates + commits the kanban
 index on the claim (so the board reflects `in_progress` immediately). Other agents implement the same
-via their hook systems or fall back to AGENTS.md instructions (D5).
+via their hook systems or fall back to AGENTS.md instructions.
 
 ## 6. Markdown Templates (Goal / Spec / Ticket)
 
@@ -127,7 +127,7 @@ via their hook systems or fall back to AGENTS.md instructions (D5).
 id: G1
 title: "G1: <goal title>"
 layer: G
-owner: consultant          # Consultant builds the Goal (role-model; see D10)
+owner: consultant          # Consultant builds the Goal (role-model)
 status: active             # active → done
 created_at: 2026-08-12
 acceptance_criteria:
@@ -163,7 +163,7 @@ id: G1.S1
 title: "G1.S1: <spec title>"
 layer: S
 parent: G1
-owner: pm                  # PM builds the Spec (role-model; see D10)
+owner: pm                  # PM builds the Spec (role-model)
 status: backlog            # backlog → active → done
 acceptance_criteria:
   - "<criterion 1>"
@@ -198,7 +198,7 @@ id: G1.S1.T1
 title: "G1.S1.T1: Implement login API"
 layer: T
 parent: G1.S1
-owner: eng-director       # Eng Director builds tickets (role-model; see D10)
+owner: eng-director       # Eng Director builds tickets (role-model)
 status: backlog           # backlog → in_progress → done → in_review* → approved / rejected
 assignee: ""              # set by the plugin on auto-claim
 session_id: ""            # set by the plugin on auto-claim
@@ -242,18 +242,18 @@ Implementation details...
 | 2026-08-09 12:00:00Z | in_progress | Reading code, understood ticket |
 ```
 
-**Auto-claim (S4 plugin / hook)** (D1/D21/D23): the plugin sets `status: in_progress` +
+**Auto-claim (S4 plugin / hook)**: the plugin sets `status: in_progress` +
 `assignee` + `session_id` and does the git commit/push on the first `tool.execute` call (parsing the
 ticket ref from the structured dispatch prompt). The worker's Worker Workflow **starts after the
 claim** — no manual status edit or claim commit. Other agents implement the same via their hook
-systems or fall back to AGENTS.md instructions (D5).
+systems or fall back to AGENTS.md instructions.
 
-**`## Log` vs `## Progress Log`** (D1):
+**`## Log` vs `## Progress Log`**:
 - `## Log` = lifecycle audit (claim / complete / review / reject events), LLM-written.
 - `## Progress Log` = real-time progress table, **plugin-written** (real wall-clock UTC timestamp +
-  rate limit), with the worker occasionally adding a **semantic milestone** line (D19).
+  rate limit), with the worker occasionally adding a **semantic milestone** line.
 - Claim/complete also go into the Progress Log (plugin writes them so the LLM can't forget).
-- Progress Log is kept in full (history audit / crash recovery) — never cleaned on completion (D20).
+- Progress Log is kept in full (history audit / crash recovery) — never cleaned on completion.
 
 ## 6bis. Layer Definition of Done (three layers, no milestone)
 
@@ -265,7 +265,7 @@ Goal → acceptance criteria (top-level completion)
 
 Ticket approved → Spec complete → Goal complete. Bottom-up judgment.
 
-## 7. State Machine (branches by workflow mode, D9)
+## 7. State Machine (branches by workflow mode)
 
 ```
 single mode (solo / small team):
@@ -297,9 +297,9 @@ T1 done (branch feat/t1-login-api):
   → Reviewer reviews → Pass → merge → approved → Reject → PR updated → re-review
 ```
 
-**single mode**: no PR — direct master, reviewer reviews commits/diff (D8).
+**single mode**: no PR — direct master, reviewer reviews commits/diff.
 
-## 9. Workflow Modes (single vs collab, D8)
+## 9. Workflow Modes (single vs collab)
 
 The protocol supports **two modes, selected per project** (a project config / flag):
 
@@ -308,9 +308,9 @@ The protocol supports **two modes, selected per project** (a project config / fl
 - **collab** (multiple people): each person forks + develops independently + merges via PR.
 
 Mode-dependent behavior:
-- State machine (D9): `in_review` only in collab.
-- Issues sync (D27): S5 only enabled in collab (solo work needs no Issues).
-- Review granularity (D16): small team reviews each ticket (user + Hermes, tests green); large team
+- State machine: `in_review` only in collab.
+- Issues sync: S5 only enabled in collab (solo work needs no Issues).
+- Review granularity: small team reviews each ticket (user + Hermes, tests green); large team
   reviews at Goal/Spec granularity (another user, batch).
 
 ## 10. Progress Log + Real-Time Monitoring (S4)
@@ -319,18 +319,18 @@ Mode-dependent behavior:
 a glance who's progressing / stuck / done — without polling the opencode session API routinely.
 
 - **Written by an OpenCode plugin** (`tool.execute.after` + `session.status`), NOT an AGENTS.md
-  instruction (LLM may forget). (D6 confirms opencode exposes `tool.execute.before/after`,
-  `session.*`, `message.*`, `command.*`; plugin context has `project/directory/worktree/client/$`.)
+  instruction (LLM may forget). opencode exposes `tool.execute.before/after`, `session.*`,
+  `message.*`, `command.*`; plugin context has `project/directory/worktree/client/$`.
 - **REAL wall-clock timestamps** — critical (2026-08-09): LLM-written logs fabricate timestamps. The
   plugin stamps the actual time at each tool execute.
 - **Append a row ONLY on a real change** (a tool ran / status moved / milestone) — not a fixed tick.
   A stale last-row timestamp IS the stalled signal.
 - Rate-limit (~1 row / N sec) to avoid spam.
 
-**Progress row content (D19)**: mixed — plugin records tool actions ("edited X / ran Y") +
+**Progress row content**: mixed — plugin records tool actions ("edited X / ran Y") +
 worker occasionally writes a semantic milestone ("implemented the shared repo selector").
 
-## 11. Kanban Index (D2)
+## 11. Kanban Index
 
 - `docs/kanban/kanban-index.json` (generated by `server/scripts/write-index.ts`) is the fast-read
   view served by `GET /api/kanban`.
@@ -340,22 +340,22 @@ worker occasionally writes a semantic milestone ("implemented the shared repo se
   also run `write-index.ts` to update kanban-index.json (no extra commits; those changes were going to
   be committed anyway).
 - Triggers: S4 plugin on claim (one commit with the claim) and on completion (a separate index
-  commit after the worker's done commit — D29); planner on G/S/T creation.
+  commit after the worker's done commit); planner on G/S/T creation.
 - Frontend Refresh → `rescan=1` rebuilds at runtime; the committed index keeps the remote repo fresh.
 
-## 12. Stalled Workers (D3)
+## 12. Stalled Workers
 
 - **stalled is an ED observation signal** (board shows it from the Progress Log last-row timestamp
   going stale) — it does NOT change the ticket frontmatter status.
 - Handling: **ED wakes the worker** (monitor posts a wake message to break the reasoning loop) → if
   wake fails → **restart opencode serve + re-dispatch a new worker**.
-- **Complementary + tiered with monitor (D15)**:
+- **Complementary + tiered with monitor**:
   - Normal: read the Progress Log (plugin-written, real-time).
   - Stall signal (no log for ~3 min): the monitor script (uses opencode server API — the same API
     used to dispatch workers) probes the session (stuck / waiting / long test) + wakes.
 - The monitor is not deleted; it's only needed when Progress Log stalls.
 
-## 13. Dispatch (D12)
+## 13. Dispatch
 
 Two modes:
 - **Interactive (default)**: one ticket at a time. Each ticket ends → test + feedback → possibly
@@ -365,7 +365,7 @@ Two modes:
   continuously — scans claimable tickets + dispatches them in sequence (`claimableTickets` +
   `dispatchNext`).
 
-**Structured dispatch prompt (D23)** — so the plugin can reliably parse the ticket ref:
+**Structured dispatch prompt** — so the plugin can reliably parse the ticket ref:
 ```
 TICKET: G4.S3.T12
 PATH: docs/kanban/G4/S3/T12.md
@@ -376,24 +376,24 @@ Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 
 ## 14. Ticket Granularity + Parallel Workers
 
-- **Ticket granularity (D14)**: one ticket = one testable feature change (feature-level commit).
+- **Ticket granularity**: one ticket = one testable feature change (feature-level commit).
   Spec discussion splits by feature size; two tightly-coupled tickets get merged into one.
-- **Parallel workers (D13)**: unlimited (multiple in YOLO mode), rely on git claim-lock (prevents
+- **Parallel workers**: unlimited (multiple in YOLO mode), rely on git claim-lock (prevents
   same-ticket concurrency) + file isolation (different files don't conflict).
 
-## 15. Verification + Review (D7 / D16 / D17)
+## 15. Verification + Review 
 
-- **Testing (D17)**: worker runs tests (on 6900XT) + reviewer (Hermes/user) independently verifies
+- **Testing**: worker runs tests (on 6900XT) + reviewer (Hermes/user) independently verifies
   tests green before approved. The 6900XT environment is authoritative.
-- **done → approved (D24)**: formally mark `approved` (make it a protocol step — Hermes + user often
+- **done → approved**: formally mark `approved` (make it a protocol step — Hermes + user often
   forget). Testing is hard to standardize; approve is a contextual "user + Hermes agree tests pass"
   judgment. **Dual-track**:
   - Manual mode: at the next dispatch, check prior tickets are `approved` (gate before dependent work).
   - YOLO mode: auto-approve when tests green + deps pass (risk accepted); user re-tests after returning.
-- **Reviewer granularity (D16)**: small team reviews each ticket (user + Hermes); large team reviews
+- **Reviewer granularity**: small team reviews each ticket (user + Hermes); large team reviews
   at Goal/Spec granularity (another user), not every ticket.
 
-## 16. Roles (souls) — responsibility model, not strict role-play (D10/D26)
+## 16. Roles (souls) — responsibility model, not strict role-play
 
 Six soul roles (Consultant / PM / Eng Director / Worker / Reviewer / Writer), each with duty /
 stages / output + state-machine bindings. Source of truth: `server/src/kanban/roles.ts`.
@@ -420,10 +420,10 @@ stages / output + state-machine bindings. Source of truth: `server/src/kanban/ro
   switching souls is just prompt swapping (same model, no real change of perspective).
 - Soul role-playing has real value only in **multi-person / multi-agent collaboration** (distinct
   agents each own a role).
-- **Writer (D26)**: only produces the project report / summary at project completion. Mid-project md
+- **Writer**: only produces the project report / summary at project completion. Mid-project md
   files do NOT use the Writer role.
 
-## 17. Reject Flow (D11)
+## 17. Reject Flow
 
 Flexible, **decided by the user based on fix size** — not a fixed single flow:
 - Small fix → user (or Hermes) fixes directly, or returns to the same worker.
@@ -432,22 +432,22 @@ Flexible, **decided by the user based on fix size** — not a fixed single flow:
 Not mandated as "always EngD re-decompose"; the user chooses per size. (The EngD re-decompose path
 with parent_id / qa_feedback / reopen_reason remains available for larger issues.)
 
-## 18. Other Agent Onboarding (D4 / D5 / D28)
+## 18. Other Agent Onboarding 
 
 **The protocol is the contract; each agent implements the integration points with its own tooling.**
 
 - **opencode** (current example): S4 plugin (`tool.execute.before` auto-claim + `tool.execute.after`
   progress + `session.*`). Plugin is global/resident (loaded at serve startup from
   `.opencode/plugins/`), distinguishes workers by sessionID, parses ticket from the first dispatch
-  message (D18/D22).
+  message.
 - **Claude Code** → hooks; **Codex** → custom tool; **Pi** → extensions.
 - With no hook capability → **fall back to AGENTS.md instructions** (LLM manually claims / writes
   progress, best-effort).
-- **Federation agents (D28)**: remote agents registering via federation (G4.S6) see the full
+- **Federation agents**: remote agents registering via federation (G4.S6) see the full
   git-driven flow on onboarding, then internally analyze how to apply it to their own local setup +
   their local code agent. The protocol is complementary to federation (a platform feature).
 
-## 19. Issues Sync (S5) — collab mode only (D27)
+## 19. Issues Sync (S5) — collab mode only
 
 - GitHub Issues are the **shared discussion surface** — only meaningful in collab mode. solo work
   needs no Issues.
@@ -466,7 +466,7 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
 
 ## Reference
 
-- `docs/git-driven-protocol-review.md` — the grill record (D1-D28) behind this design.
+- `docs/git-driven-protocol-review.md` — the grill record (all decisions, formerly D1-D28) behind this design.
 - `server/src/kanban/protocol.ts` + `git-lock.ts` + `roles.ts` + `state-machine.ts` — the backend
   implementations of claim/report/dispatch, git lock, role souls, state transitions.
 - `server/scripts/write-index.ts` — kanban index builder.
