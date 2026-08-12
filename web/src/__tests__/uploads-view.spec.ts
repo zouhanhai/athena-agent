@@ -15,6 +15,7 @@ import {
   ingestUrl,
   retryTask,
 } from "@/api/kb";
+import { nextTick } from "vue";
 
 vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
@@ -42,6 +43,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   getGraphMock.mockReset();
   getGraphTopicsMock.mockReset();
   ingestFileMock.mockReset();
@@ -364,6 +366,80 @@ describe("uploads page", () => {
 
     expect(retryTaskMock).toHaveBeenCalledWith("t-1");
     expect(wrapper.text()).toContain("Neo4j (RAG): running");
+    wrapper.unmount();
+  });
+
+  it("shows Neo4j chunk progress X / Y chunks with an ETA while running (G4.S3.T8)", async () => {
+    vi.useFakeTimers();
+    ingestFileMock.mockResolvedValue("t-1");
+    const runningStage = (stored: number) => ({
+      name: "ingesting_neo4j",
+      status: "running",
+      chunksStored: stored,
+      chunksTotal: 20,
+    });
+    getTaskMock
+      .mockResolvedValueOnce(
+        makeTask({
+          status: "ingesting",
+          progress: 50,
+          stages: {
+            parsing: { name: "parsing", status: "done" },
+            refinement: { name: "refinement", status: "done" },
+            ingesting_neo4j: runningStage(2),
+            ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
+          },
+        }),
+      )
+      .mockResolvedValue(
+        makeTask({
+          status: "ingesting",
+          progress: 50,
+          stages: {
+            parsing: { name: "parsing", status: "done" },
+            refinement: { name: "refinement", status: "done" },
+            ingesting_neo4j: runningStage(6),
+            ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
+          },
+        }),
+      );
+    const wrapper = await mountApp();
+    await submitFile(wrapper);
+
+    // second poll (interval) → rate sample → ETA
+    await vi.advanceTimersByTimeAsync(1500);
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("6 / 20 chunks");
+    expect(wrapper.text()).toContain("ETA");
+    wrapper.unmount();
+  });
+
+  it("shows the total chunk count once the Neo4j (RAG) stage completes (G4.S3.T8)", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "done",
+        progress: 100,
+        stages: {
+          parsing: { name: "parsing", status: "done" },
+          refinement: { name: "refinement", status: "done" },
+          ingesting_neo4j: {
+            name: "ingesting_neo4j",
+            status: "done",
+            chunksStored: 20,
+            chunksTotal: 20,
+          },
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "done" },
+        },
+      }),
+    );
+    const wrapper = await mountApp();
+    await submitFile(wrapper);
+
+    expect(wrapper.text()).toContain("Neo4j (RAG): done");
+    expect(wrapper.text()).toContain("20 chunks");
     wrapper.unmount();
   });
 

@@ -176,4 +176,37 @@ describe("useIngestTasks", () => {
 
     expect(submitError.value).toContain("retry rejected");
   });
+
+  it("streams Neo4j chunk progress with an ETA across polls (G4.S3.T8)", async () => {
+    ingestFileMock.mockResolvedValue("t-7");
+    const stage = (stored: number) => ({
+      name: "ingesting_neo4j",
+      status: "running",
+      chunksStored: stored,
+      chunksTotal: 20,
+    });
+    const running = (stored: number) =>
+      task("t-7", {
+        status: "ingesting",
+        progress: 50,
+        stages: {
+          parsing: { name: "parsing", status: "done" },
+          refinement: { name: "refinement", status: "done" },
+          ingesting_neo4j: stage(stored),
+          ingesting_llmwiki: { name: "ingesting_llmwiki", status: "pending" },
+        },
+      });
+    getTaskMock
+      .mockResolvedValueOnce(running(2))
+      .mockResolvedValue(running(6));
+
+    const { tasks, addFile, chunkProgress } = useIngestTasks();
+    await addFile(new File(["x"], "g.pdf"));
+    await vi.advanceTimersByTimeAsync(1500);
+    await nextTick();
+
+    const text = chunkProgress(tasks.value[0]!);
+    expect(text).toContain("6 / 20 chunks");
+    expect(text).toContain("ETA");
+  });
 });

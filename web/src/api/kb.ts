@@ -109,6 +109,12 @@ export interface IngestTaskStage {
   status: StageStatus;
   error?: string;
   steps: IngestTaskStep[];
+  /** Neo4j chunk ingest progress (G4.S3.T8): chunks embedded + stored so far
+   *  vs the total, plus the 0..1 fraction. Present on the ingesting_neo4j stage
+   *  while it runs and kept once it completes. */
+  chunksStored?: number;
+  chunksTotal?: number;
+  progress?: number;
 }
 
 export interface IngestTask {

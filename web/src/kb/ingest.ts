@@ -6,6 +6,7 @@
 import { getCurrentInstance, onBeforeUnmount, ref } from "vue";
 import { getTask, ingestFile, ingestUrl, retryTask as retryTaskApi } from "@/api/kb";
 import type { IngestTask, TaskStatus } from "@/api/kb";
+import { chunkProgressText, type ChunkProgressSample } from "./progress";
 
 export interface IngestTaskItem {
   id: string;
@@ -107,6 +108,9 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
   const timers = new Map<string, ReturnType<typeof setInterval>>();
   /** Metadata of persisted tasks, mirroring `tasks` for localStorage recovery. */
   const storedMetas = ref<StoredTaskMeta[]>(loadStoredTasks());
+  /** Per-task (chunksStored, time) samples taken on each poll, used to estimate
+   *  the Neo4j chunk ingest ETA (G4.S3.T8). */
+  const chunkSamples = new Map<string, ChunkProgressSample[]>();
 
   function persist(): void {
     persistStoredTasks(storedMetas.value);
@@ -155,7 +159,13 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
 
   async function poll(taskId: string): Promise<void> {
     try {
-      replaceTask(await getTask(taskId));
+      const updated = await getTask(taskId);
+      replaceTask(updated);
+      const stage = updated.stages.ingesting_neo4j;
+      if (typeof stage.chunksStored === "number" && typeof stage.chunksTotal === "number") {
+        const samples = chunkSamples.get(taskId) ?? [];
+        chunkSamples.set(taskId, [...samples, { stored: stage.chunksStored, at: Date.now() }].slice(-10));
+      }
     } catch {
       // Stop polling on repeated errors; surface as failed later if terminal.
       stopPolling(taskId);
@@ -223,8 +233,18 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
   function removeTask(taskId: string): void {
     stopPolling(taskId);
     forgetTask(taskId);
+    chunkSamples.delete(taskId);
     const index = tasks.value.findIndex((task) => task.id === taskId);
     if (index !== -1) tasks.value.splice(index, 1);
+  }
+
+  /**
+   * Uploads-page text for a task's Neo4j (RAG) stage (G4.S3.T8): "X / Y chunks",
+   * "Y chunks" once done, plus an " · ETA …" while running once the chunk rate
+   * across polls can be measured. Empty when the stage has no chunk totals yet.
+   */
+  function chunkProgress(task: IngestTaskItem): string {
+    return chunkProgressText(task.stages.ingesting_neo4j, chunkSamples.get(task.id) ?? []);
   }
 
   /**
@@ -276,5 +296,5 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
     });
   }
 
-  return { tasks, submitting, submitError, addFile, addUrl, removeTask, retryTask };
+  return { tasks, submitting, submitError, addFile, addUrl, removeTask, retryTask, chunkProgress };
 }

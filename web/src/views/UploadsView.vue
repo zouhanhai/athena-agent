@@ -15,6 +15,7 @@ const {
   addUrl,
   removeTask,
   retryTask,
+  chunkProgress,
 } = useIngestTasks();
 
 const ACCEPT_HINT = "application/pdf,.docx,.xlsx,.pptx,image/*,.html,.epub,.csv,.md,.txt";
@@ -78,6 +79,13 @@ function taskProgressStatus(task: IngestTaskItem): "success" | "error" | "active
 
 function stageStatus(stage: IngestTaskStage): string {
   return stage.status;
+}
+
+/** Chunk-progress text (G4.S3.T8) for the Neo4j (RAG) stage: "X / Y chunks" +
+ *  " · ETA …" while running, "Y chunks" once done. Empty for other stages. */
+function stageProgress(task: IngestTaskItem, key: string): string {
+  if (key !== "ingesting_neo4j") return "";
+  return chunkProgress(task);
 }
 
 function friendlyStep(step: { name: string }): string {
@@ -240,6 +248,7 @@ function stepMark(status: string): string {
             >
               <span class="task-stage-label">
                 {{ stage.label }}: {{ task.stages[stage.key].status }}
+                <template v-if="stageProgress(task, stage.key)"> · {{ stageProgress(task, stage.key) }}</template>
               </span>
               <ul v-if="task.stages[stage.key].steps?.length" class="task-stage-steps">
                 <li
