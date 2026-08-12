@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T09:03:29.222Z",
+  "generated_at": "2026-08-12T09:34:11.595Z",
   "goals": [
     {
       "ref": "G1",
@@ -2136,9 +2136,9 @@
               "id": "s3.6",
               "title": "G4.S3.T6: Terms & QA tab — semantic mappings + Q&A pairs (live query + manual entry)",
               "owner": "consultant",
-              "status": "done",
+              "status": "in_progress",
               "assignee": "opencode",
-              "session_id": "6d2f9c1e-t6-terms-qa",
+              "session_id": "ses_t6_otm_2026-08-12",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
