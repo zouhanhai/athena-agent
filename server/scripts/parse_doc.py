@@ -146,6 +146,16 @@ def build_pipeline_options() -> PdfPipelineOptions:
             # Describe small images too: default threshold is 5% of page area (0.05);
             # lower to 1% so small figures/logos still get a VLM description (RAG-searchable).
             picture_area_threshold=0.01,
+            # Ask the VLM to wrap its description in FIXED start/end markers so we can
+            # reliably italicise it downstream regardless of which model/words it uses
+            # (the old "Based on the image..." first line was model-specific and breaks
+            # if the picture-description model changes). mark_vlm_descriptions() finds
+            # these markers, not a phrase.
+            prompt=(
+                "Describe this image in a few sentences. Begin your response with exactly "
+                "'[IMG_DESC_START]' and end it with exactly '[IMG_DESC_END]'. Put only the "
+                "description text between the two markers."
+            ),
         )
         log.info(
             "picture descriptions enabled via OpenRouter VLM (%s)",
@@ -219,61 +229,35 @@ def derive_stem(source: str) -> str:
 
 
 def mark_vlm_descriptions(markdown: str) -> str:
-    """Wrap docling's VLM picture-description blocks in `<em>` italics so a human
-    viewing the wiki can tell a machine-generated image description apart from the
-    source text (G4.S3 post-M4 polish). docling's PictureDescriptionApiOptions has
-    no prompt/output-format control (black box), so we post-process the markdown.
+    """Italicise docling's VLM picture-description blocks so a human viewing the
+    wiki can tell a machine-generated image description apart from the source text.
 
-    The VLM description block starts right after an image ref and begins with a
-    "Based on the ..." line; it runs until the next image ref, a markdown heading
-    (`#`), or a blank-line-terminated paragraph that clearly is prose. We italicise
-    each paragraph of the block with `<em>…</em>` (inline HTML, preserved by
-    markdown-it). Non-description content is left untouched.
+    We ask the picture-description model (build_pipeline_options) to wrap its output
+    in fixed `[IMG_DESC_START]` … `[IMG_DESC_END]` markers, so recognition here does
+    NOT depend on the model's phrasing (the old "Based on the image…" first line was
+    model-specific and would break if the model changed). Each non-empty line between
+    the markers is wrapped in `<em>…</em>` (inline HTML, preserved by markdown-it).
     """
+    START = "[IMG_DESC_START]"
+    END = "[IMG_DESC_END]"
     lines = markdown.split("\n")
     out: list[str] = []
-    i = 0
-    n = len(lines)
-    while i < n:
-        line = lines[i]
+    in_desc = False
+    for line in lines:
+        if START in line:
+            in_desc = True
+            stripped = line.replace(START, "").strip()
+            out.append(f"<em>{stripped}</em>" if stripped else "")
+            continue
+        if END in line:
+            stripped = line.replace(END, "").strip()
+            out.append(f"<em>{stripped}</em>" if stripped else "")
+            in_desc = False
+            continue
+        if in_desc:
+            out.append(f"<em>{line}</em>" if line.strip() else line)
+            continue
         out.append(line)
-        i += 1
-        # An image ref may be followed by a VLM description block.
-        if not line.startswith("![") :
-            continue
-        # Find the next non-blank line after the image ref.
-        j = i
-        while j < n and not lines[j].strip():
-            j += 1
-        if j >= n or not re.match(r"^\s*Based on the (image|visual)", lines[j], re.IGNORECASE):
-            continue
-        # Collect the description block: from j until the next image ref or heading.
-        block_end = j
-        while block_end < n:
-            l = lines[block_end].strip()
-            if block_end > j and (l.startswith("![") or l.startswith("#")):
-                break
-            if not l and block_end > j:
-                # blank line: if the NEXT non-blank is a ref/heading, stop here
-                k = block_end + 1
-                while k < n and not lines[k].strip():
-                    k += 1
-                if k >= n or lines[k].strip().startswith("![") or lines[k].strip().startswith("#"):
-                    break
-                # Also stop if the next non-blank looks like a short title heading
-                # (<=30 chars, no terminal period) — VLM descriptions are long prose,
-                # so a short line after a blank is the next section, not the description.
-                nxt = lines[k].strip()
-                if len(nxt) <= 30 and not nxt.endswith((".", ":")):
-                    break
-            block_end += 1
-        # Wrap each non-empty paragraph of [j, block_end) in <em>.
-        for m in range(j, block_end):
-            if lines[m].strip():
-                out.append(f"<em>{lines[m]}</em>")
-            else:
-                out.append(lines[m])
-        i = block_end
     return "\n".join(out)
 
 
