@@ -120,15 +120,10 @@ branch: ""                # collab mode only
    (`docs/kanban/G1/Goal.md`).
 3. **Use codegraph MCP**: `codegraph explore "<area>"` before editing.
 4. **Use `implement` + `tdd` skills**: TDD (RED-GREEN-REFACTOR), write failing test first.
-5. **Milestone report**: the plugin auto-appends a Progress Log row on each tool call (real
-   wall-clock timestamp). The worker adds a **semantic Progress Log row ONLY when a milestone is
-   complete** (e.g. "implemented the shared repo selector") — not on every change. (REAL timestamps,
-   do NOT fabricate.)
+5. **Milestone report**: add a semantic Progress Log row when a milestone is complete (e.g.
+   "implemented the shared repo selector") — not on every change. (REAL timestamps, do NOT fabricate.)
 6. **Commit convention**: feature-level English commits; `codegraph sync` after.
-7. **Verify + mark done**: tests green → set `status: done` → commit + push. (The completion
-   Progress Log row is plugin-written on the `done` status change; the plugin then separately
-   regenerates + commits the kanban index — so done produces two commits: the worker's done commit +
-   the plugin's index commit, see D29.)
+7. **Verify + mark done**: tests green → set `status: done` → commit + push.
 
 Full: `docs/kanban/TICKET-WORKFLOW.md`
 
