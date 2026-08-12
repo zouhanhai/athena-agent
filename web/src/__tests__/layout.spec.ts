@@ -44,7 +44,7 @@ function navItemByText(wrapper: AppWrapper, label: string) {
 }
 
 describe("portal sidebar navigation", () => {
-  it("renders the 6 nav items in exact order and no Chat / Agents", async () => {
+  it("renders the 7 nav items in exact order and no Chat / Agents", async () => {
     const wrapper = await mountApp();
     const labels = navItems(wrapper).map((item) => item.text().trim());
     expect(labels).toEqual([
@@ -53,6 +53,7 @@ describe("portal sidebar navigation", () => {
       "Workbench",
       "Output",
       "Uploads",
+      "Terms & QA",
       "Settings",
     ]);
     expect(labels.some((text) => text.includes("Chat"))).toBe(false);

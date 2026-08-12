@@ -6,6 +6,12 @@ import {
   getWikiTree,
   readWikiPage,
   searchKnowledge,
+  searchKnowledgeFull,
+  listSemanticMappings,
+  addSemanticMapping,
+  deleteSemanticMapping,
+  addManualQa,
+  deleteQaPair,
   ingestFile,
   ingestUrl,
   getTask,
@@ -238,5 +244,120 @@ describe("retryTask", () => {
       }),
     );
     expect(got).toEqual(task);
+  });
+});
+
+// ---- G4.S3.T6: semantic mappings + manual Q&A + full search ----
+
+describe("semantic mappings API", () => {
+  it("listSemanticMappings GETs /api/kb/mappings and returns the list", async () => {
+    const mappings = [{ id: "m1", term: "C-Day", canonical: "CALEO Day" }];
+    stubFetch(jsonResponse({ mappings }));
+    const got = await listSemanticMappings();
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith("/api/kb/mappings", undefined);
+    expect(got).toEqual(mappings);
+  });
+
+  it("addSemanticMapping POSTs { term, canonical }", async () => {
+    const mapping = { id: "m1", term: "HW", canonical: "Haushaltswaren" };
+    stubFetch(jsonResponse({ mapping }));
+    const got = await addSemanticMapping("HW", "Haushaltswaren");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/mappings",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ term: "HW", canonical: "Haushaltswaren" }),
+      }),
+    );
+    expect(got).toEqual(mapping);
+  });
+
+  it("deleteSemanticMapping DELETEs /api/kb/mappings/:id", async () => {
+    stubFetch(jsonResponse({ ok: true }));
+    const ok = await deleteSemanticMapping("m1");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/mappings/m1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(ok).toBe(true);
+  });
+});
+
+describe("manual Q&A API", () => {
+  it("addManualQa POSTs /api/kb/qa/manual and returns the dedup decision", async () => {
+    const result = {
+      action: "needs_decision",
+      pair: null,
+      similar: { id: "p1", question: "What is C-Day?", score: 0.93 },
+    };
+    stubFetch(jsonResponse(result));
+    const got = await addManualQa({ question: "What is C Day?", answer: "A new answer." });
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/qa/manual",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ question: "What is C Day?", answer: "A new answer." }),
+      }),
+    );
+    expect(got.action).toBe("needs_decision");
+    expect(got.similar?.score).toBe(0.93);
+  });
+
+  it("addManualQa forwards the chosen merge/overwrite/add-anyway mode", async () => {
+    stubFetch(jsonResponse({ action: "merged", pair: { id: "p1" } }));
+    await addManualQa({ question: "q", answer: "a", mode: "merge" });
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/qa/manual",
+      expect.objectContaining({ body: JSON.stringify({ question: "q", answer: "a", mode: "merge" }) }),
+    );
+  });
+
+  it("deleteQaPair DELETEs /api/kb/qa/:id", async () => {
+    stubFetch(jsonResponse({ ok: true }));
+    const ok = await deleteQaPair("p1");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/qa/p1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(ok).toBe(true);
+  });
+});
+
+describe("searchKnowledgeFull", () => {
+  it("returns the full response including expandedQuery and qaReference", async () => {
+    const body = {
+      query: "What is C-Day?",
+      expandedQuery: "What is CALEO Day?",
+      results: [{ source: "neo4j", title: "doc1:c1", snippet: "CALEO Day" }],
+      qaReference: {
+        id: "p1",
+        question: "What is C-Day?",
+        answer: "C-Day is the CALEO Day.",
+        score: 0.95,
+      },
+    };
+    stubFetch(jsonResponse(body));
+    const got = await searchKnowledgeFull("What is C-Day?");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/search",
+      expect.objectContaining({ body: JSON.stringify({ query: "What is C-Day?" }) }),
+    );
+    expect(got.results.length).toBe(1);
+    expect(got.expandedQuery).toBe("What is CALEO Day?");
+    expect(got.qaReference?.answer).toBe("C-Day is the CALEO Day.");
   });
 });

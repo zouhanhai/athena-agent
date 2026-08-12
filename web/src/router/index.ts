@@ -47,6 +47,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/UploadsView.vue"),
   },
   {
+    path: "/terms-qa",
+    name: "terms-qa",
+    component: () => import("../views/TermsQaView.vue"),
+  },
+  {
     path: "/output",
     name: "output",
     component: () => import("../views/OutputView.vue"),

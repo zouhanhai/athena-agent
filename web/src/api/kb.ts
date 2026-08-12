@@ -3,6 +3,8 @@
  * service (G2.S4). Mirrors the request/error conventions of `./chat.ts`.
  */
 
+import type { QaPair, QaSource } from "./feedback";
+
 const KB_BASE = "/api/kb";
 
 export interface KnowledgeGraphNode {
@@ -54,6 +56,40 @@ export interface KnowledgeSearchResult {
   /** Same-section sibling chunk texts (context enrichment, G4.S2.T11). */
   siblings?: string[];
 }
+
+/** A matching stored Q&A pair surfaced as reference context (G4.S3.T6) — the
+ *  RAG search always runs and never short-circuits to this answer. */
+export interface QaReference {
+  id: string;
+  question: string;
+  answer: string;
+  score: number;
+}
+
+export interface KnowledgeSearchResponse {
+  query: string;
+  expandedQuery?: string;
+  results: KnowledgeSearchResult[];
+  qaReference?: QaReference;
+}
+
+/** Custom semantic mapping (G4.S3.T6): colloquial/company term → canonical. */
+export interface SemanticMapping {
+  id: string;
+  term: string;
+  canonical: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** How a manual Q&A entry resolved against a vector-similar stored pair. */
+export interface ManualAddResult {
+  pair: QaPair | null;
+  similar?: { id: string; question: string; score: number };
+  action: "inserted" | "merged" | "overwritten" | "added_anyway" | "needs_decision";
+}
+
+export type ManualQaMode = "merge" | "overwrite" | "add-anyway";
 
 export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -172,6 +208,64 @@ export async function searchKnowledge(query: string, topic?: string): Promise<Kn
     body: JSON.stringify({ query, ...(topic ? { topic } : {}) }),
   });
   return data.results;
+}
+
+/** POST /api/kb/search → full response including the expanded query + any QA
+ *  reference (G4.S3.T6): term query expansion + QA reference, never short-circuit. */
+export async function searchKnowledgeFull(query: string, topic?: string): Promise<KnowledgeSearchResponse> {
+  return request<KnowledgeSearchResponse>(`${KB_BASE}/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, ...(topic ? { topic } : {}) }),
+  });
+}
+
+/** GET /api/kb/mappings → the stored semantic mappings (G4.S3.T6). */
+export async function listSemanticMappings(): Promise<SemanticMapping[]> {
+  const data = await request<{ mappings: SemanticMapping[] }>(`${KB_BASE}/mappings`);
+  return data.mappings;
+}
+
+/** POST /api/kb/mappings { term, canonical } → upsert a semantic mapping. */
+export async function addSemanticMapping(term: string, canonical: string): Promise<SemanticMapping> {
+  const data = await request<{ mapping: SemanticMapping }>(`${KB_BASE}/mappings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ term, canonical }),
+  });
+  return data.mapping;
+}
+
+/** DELETE /api/kb/mappings/:id → remove a semantic mapping. */
+export async function deleteSemanticMapping(id: string): Promise<boolean> {
+  await request<{ ok: boolean }>(`${KB_BASE}/mappings/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  return true;
+}
+
+/** POST /api/kb/qa/manual { question, answer, sources?, mode? } → manual Q&A
+ *  entry (G4.S3.T6). Without a mode a vector-similar match returns
+ *  `needs_decision` so the UI can offer merge / overwrite / add-anyway. */
+export async function addManualQa(input: {
+  question: string;
+  answer: string;
+  sources?: QaSource[];
+  mode?: ManualQaMode;
+}): Promise<ManualAddResult> {
+  return request<ManualAddResult>(`${KB_BASE}/qa/manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/** DELETE /api/kb/qa/:id → delete a stored Q&A pair. */
+export async function deleteQaPair(id: string): Promise<boolean> {
+  await request<{ ok: boolean }>(`${KB_BASE}/qa/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  return true;
 }
 
 /** POST /api/kb/ingest (multipart file) → 202 { taskId }. */

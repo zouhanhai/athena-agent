@@ -9,6 +9,7 @@ import {
   FileIcon,
   UploadIcon,
   SettingIcon,
+  ChatBubbleHelpIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { label: "Workbench", path: "/workbench", icon: TerminalIcon },
   { label: "Output", path: "/output", icon: FileIcon },
   { label: "Uploads", path: "/uploads", icon: UploadIcon },
+  { label: "Terms & QA", path: "/terms-qa", icon: ChatBubbleHelpIcon },
   { label: "Settings", path: "/settings", icon: SettingIcon },
 ];
 
