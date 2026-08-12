@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T16:47:09.377Z",
+  "generated_at": "2026-08-12T16:53:20.131Z",
   "goals": [
     {
       "ref": "G1",
@@ -2214,6 +2214,25 @@
               ],
               "progress_last_row": "acceptance met: Admin sidebar entry only for role=admin (reactive navItems); Admin page = employee list (role select + kb.edit switch per row via PUT /api/employees/:email, expandable 2nd level shows owned agents grouped by owner) + invite generation (POST /api/invitations returns inviteUrl, copy button, 7-day TTL note); server RBAC enforces admin-only (existing employees.update/list/invite permissions), UI hides admin controls for members, /admin route guarded (non-admin → /knowledge) + in-page check; server 907/907 + web 410/410 (14 new) + server tsc + web vue-tsc clean; codegraph synced; committed + pushed",
               "progress_updated_at": "2026-08-12T14:10:00Z"
+            },
+            {
+              "ref": "G4.S3.T12",
+              "id": "G4.S3.T12",
+              "title": "Wire Agentic RAG (search_knowledge) into the Athena chat agent",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_opencode_g4s3t12",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The `search_knowledge` tool is registered on the Athena chat agent session (createAgent) so Athena can call it for knowledge-base questions.",
+                "A default AgenticRetrievalService is built inside createAgent when no agenticRetrieval option is supplied (LLM judge + KB retrieval + web fallback).",
+                "Asking a stored Q&A question (e.g. 'what is caleo') reuses the QA pair (qa_pairs + Neo4j QaPair) instead of falling back to web.",
+                "Term (semantic_mappings) expansion applies to the agentic search path.",
+                "Server tests pass (incl. createAgent registers search_knowledge + a stored QA pair is reused) + typecheck clean."
+              ],
+              "progress_last_row": "committed + pushed (origin + caleo); status=done, index rebuild pending",
+              "progress_updated_at": "2026-08-12T16:53Z"
             }
           ]
         },
@@ -2250,10 +2269,6 @@
   "errors": [
     {
       "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
-      "error": "layer must be one of: G, S, T"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T12.md",
       "error": "layer must be one of: G, S, T"
     }
   ]
