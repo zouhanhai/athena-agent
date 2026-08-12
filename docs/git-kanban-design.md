@@ -126,8 +126,9 @@ branch: ""                # collab mode only
    do NOT fabricate.)
 6. **Commit convention**: feature-level English commits; `codegraph sync` after.
 7. **Verify + mark done**: tests green → set `status: done` → commit + push. (The completion
-   Progress Log row AND the kanban-index regeneration are **plugin-handled** on the `done` status
-   change — the worker does NOT manually run `write-index.ts`.)
+   Progress Log row is plugin-written on the `done` status change; the plugin then separately
+   regenerates + commits the kanban index — so done produces two commits: the worker's done commit +
+   the plugin's index commit, see D29.)
 
 Full: `docs/kanban/TICKET-WORKFLOW.md`
 
@@ -313,7 +314,8 @@ worker occasionally writes a semantic milestone ("implemented the shared repo se
 - **The index commits on every board change**: creating G/S/T, claiming, completing — in those commits
   also run `write-index.ts` to update kanban-index.json (no extra commits; those changes were going to
   be committed anyway).
-- Triggers: S4 plugin on claim AND on completion (status → done); planner on G/S/T creation.
+- Triggers: S4 plugin on claim (one commit with the claim) and on completion (a separate index
+  commit after the worker's done commit — D29); planner on G/S/T creation.
 - Frontend Refresh → `rescan=1` rebuilds at runtime; the committed index keeps the remote repo fresh.
 
 ## 11. Stalled Workers (D3)

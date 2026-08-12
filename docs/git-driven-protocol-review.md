@@ -192,3 +192,28 @@
 ### D26. Writer role (confirmed by user)
 - Writer only produces the **project report / summary at project completion**.
 - Mid-project md files do NOT use the Writer role.
+
+### D27. Issues sync (S5) only in collab mode (confirmed by user)
+- **GitHub Issues sync (G4.S5) is only meaningful in collab mode** — writing Issues for solo work is
+  useless (no one to discuss with).
+- **single mode: skip Issues**. **collab mode: enable** — Issues as the shared discussion surface
+  (reporting bugs, discussing features).
+- Consistent with D8 (single vs collab).
+
+### D28. Federation agents adopt the protocol (confirmed by user)
+- Remote agents registering via federation (G4.S6) **see the full git-driven development flow** on
+  onboarding, then **internally analyze how to apply the workflow to their own local setup + their
+  local code agent**.
+- This extends "protocol defined, each agent implements" to remote agents: they follow the same
+  protocol, but the implementation approach is their own decision.
+- Federation (platform feature) and the protocol (workflow spec) are complementary — remote agents
+  onboard to both.
+
+### D29. done index commit — two commits accepted (confirmed by user)
+- **Completion**: the worker decides `done` (quality judgment) and commits code with `status: done`.
+  The plugin then detects the done status and regenerates + commits the kanban index separately.
+  → **Two commits** (worker's done commit + plugin's index commit). Reliability wins over a single
+  commit — the plugin guarantees the index updates even if the worker forgets.
+- **Claim**: the plugin auto-claims AND regenerates + commits the index in ONE commit (the plugin
+  does both itself). No extra commit.
+- Net: claim = 1 commit (plugin), done = 2 commits (worker code + plugin index).
