@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T09:34:11.595Z",
+  "generated_at": "2026-08-12T09:40:11.162Z",
   "goals": [
     {
       "ref": "G1",
@@ -2136,15 +2136,15 @@
               "id": "s3.6",
               "title": "G4.S3.T6: Terms & QA tab — semantic mappings + Q&A pairs (live query + manual entry)",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_t6_otm_2026-08-12",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "DONE. Server 809/809 tests + tsc clean; web 371/371 tests + vue-tsc clean. codegraph sync done.",
-              "progress_updated_at": "2026-08-12T09:03:16Z"
+              "progress_last_row": "One-to-many DONE. Server 818/818 tests + tsc clean (semantic-mappings, -pg, routes-terms-qa, retrieval incl. OR-expansion into Neo4j+llm_wiki); web 372/372 tests + vue-tsc clean (TermsQaView one-to-many display + filters, api/kb.ts canonicals). codegraph sync done.",
+              "progress_updated_at": "2026-08-12T09:40:01Z"
             },
             {
               "ref": "G4.S3.T7",

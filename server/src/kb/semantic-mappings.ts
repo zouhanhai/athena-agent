@@ -7,6 +7,13 @@
  * canonical text in BM25/vector recall. Complements the Athena-extracted
  * bilingual aliases (G4.S2) with human-authored mappings.
  *
+ * One-to-many (added 2026-08-12): a term can map to MULTIPLE canonical forms
+ * (e.g. `EDay` → `Expert Day`, `Principle Day`). The store keeps them as an
+ * array (`semantic_mappings.canonical TEXT[]`) and `expandTerms` expands a
+ * matched term into an OR alternative (`EDay` → `(Expert Day OR Principle Day)`)
+ * so BM25/vector recall any of the canonicals. A single canonical still
+ * expands plainly (backward-compatible).
+ *
  * Implementations:
  *   - `MemorySemanticMappingStore`    — dev fallback / unit tests
  *   - `PostgresSemanticMappingStore`  — the real `semantic_mappings` table
@@ -18,19 +25,25 @@ export interface SemanticMapping {
   id: string;
   /** The colloquial/company term, e.g. "C-Day". */
   term: string;
-  /** The canonical form the term expands to at query time, e.g. "CALEO Day". */
-  canonical: string;
+  /** The canonical forms the term expands to at query time, e.g. ["CALEO Day"].
+   *  One-to-many (G4.S3.T6): a term may expand to several canonicals. */
+  canonicals: string[];
   created_at: string;
   updated_at: string;
 }
 
 export interface SemanticMappingInput {
   term: string;
-  canonical: string;
+  /** Backward-compatible single input: a canonical form, possibly comma- or
+   *  `/`-separated (split into the canonicals array). Ignored when
+   *  `canonicals` is provided. */
+  canonical?: string;
+  /** One-to-many input (G4.S3.T6): explicit canonical list. */
+  canonicals?: string[];
 }
 
 export interface SemanticMappingStore {
-  /** Insert a new mapping or update the canonical of an existing term. */
+  /** Insert a new mapping or update the canonicals of an existing term. */
   upsert(input: SemanticMappingInput): Promise<SemanticMapping>;
   list(): Promise<SemanticMapping[]>;
   /** Delete a mapping by id. Returns true when a row was removed. */
@@ -49,16 +62,70 @@ function normalizeTerm(term: string): string {
   return term.trim();
 }
 
-/** Replace every colloquial term in `query` with its canonical form
- *  (case-insensitive, word-boundary). Unknown terms and the canonical forms
- *  themselves are left untouched, so repeated expansion is idempotent. */
+/** Split a canonical input (comma- or `/`-separated) into a deduped list of
+ *  canonical forms (G4.S3.T6 one-to-many). */
+export function parseCanonicals(input: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of input.split(/[,/]/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/** Normalize a mapping record's canonical field (TEXT[] in the store) into a
+ *  string list, tolerating a legacy single-string value. */
+function toCanonicals(value: { canonical?: unknown; canonicals?: unknown }): string[] {
+  const raw =
+    Array.isArray(value.canonicals) && (value.canonicals as unknown[]).length > 0
+      ? (value.canonicals as unknown[])
+      : value.canonical;
+  if (Array.isArray(raw)) {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const entry of raw) {
+      const trimmed = String(entry ?? "").trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(trimmed);
+    }
+    return out;
+  }
+  return parseCanonicals(String(raw ?? ""));
+}
+
+function resolveCanonicals(input: SemanticMappingInput): string[] {
+  const source =
+    Array.isArray(input.canonicals) && input.canonicals.length > 0
+      ? input.canonicals.join(",")
+      : (input.canonical ?? "");
+  return parseCanonicals(source);
+}
+
+/** Replace every colloquial term in `query` with its canonical form(s)
+ *  (case-insensitive, word-boundary). A term mapping to several canonicals
+ *  expands to an OR alternative — `EDay` → `(Expert Day OR Principle Day)` —
+ *  so BM25/vector recall any of them; a single canonical expands plainly
+ *  (backward-compatible). Unknown terms and the canonical forms themselves are
+ *  left untouched, so repeated expansion is idempotent. */
 export function expandTerms(query: string, mappings: SemanticMapping[]): string {
   let out = query;
   for (const mapping of mappings) {
     const term = mapping.term.trim();
     if (!term) continue;
+    const canonicals = toCanonicals(mapping);
+    if (canonicals.length === 0) continue;
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    out = out.replace(new RegExp(`\\b${escaped}\\b`, "gi"), mapping.canonical);
+    const replacement =
+      canonicals.length === 1 ? canonicals[0]! : `(${canonicals.join(" OR ")})`;
+    out = out.replace(new RegExp(`\\b${escaped}\\b`, "gi"), replacement);
   }
   return out;
 }
@@ -73,7 +140,7 @@ function toMapping(value: unknown, id: string): SemanticMapping {
   return {
     id,
     term: String(obj.term ?? ""),
-    canonical: String(obj.canonical ?? ""),
+    canonicals: toCanonicals(obj),
     created_at: obj.created_at ? String(obj.created_at) : timestamp,
     updated_at: timestamp,
   };
@@ -87,11 +154,11 @@ export class MemorySemanticMappingStore implements SemanticMappingStore {
   private setRecord(input: SemanticMappingInput, existing?: SemanticMapping): SemanticMapping {
     const timestamp = now();
     const record: SemanticMapping = existing
-      ? { ...existing, canonical: input.canonical, updated_at: timestamp }
+      ? { ...existing, canonicals: resolveCanonicals(input), updated_at: timestamp }
       : {
           id: randomUUID(),
           term: normalizeTerm(input.term),
-          canonical: input.canonical,
+          canonicals: resolveCanonicals(input),
           created_at: timestamp,
           updated_at: timestamp,
         };
@@ -142,7 +209,7 @@ export interface PostgresSemanticMappingStoreOptions {
 interface SemanticMappingRow {
   id: string;
   term: string;
-  canonical: string;
+  canonical: string[] | string;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -155,13 +222,15 @@ function rowToMapping(row: SemanticMappingRow): SemanticMapping {
   return {
     id: row.id,
     term: row.term,
-    canonical: row.canonical,
+    canonicals: toCanonicals(row),
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
   };
 }
 
-/** Postgres-backed semantic mapping table: lazy CREATE TABLE on first use. */
+/** Postgres-backed semantic mapping table: lazy CREATE TABLE on first use.
+ *  The canonical column is `TEXT[]` (one-to-many, G4.S3.T6); a legacy table
+ *  created with a single `TEXT` canonical is migrated in place. */
 export class PostgresSemanticMappingStore implements SemanticMappingStore {
   private readonly pool: pg.Pool;
   private ready: Promise<void> | null = null;
@@ -182,11 +251,32 @@ export class PostgresSemanticMappingStore implements SemanticMappingStore {
       CREATE TABLE IF NOT EXISTS semantic_mappings (
         id TEXT PRIMARY KEY,
         term TEXT UNIQUE NOT NULL,
-        canonical TEXT NOT NULL,
+        canonical TEXT[] NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await this.migrateLegacyColumn();
+  }
+
+  /** Best-effort migration for tables created before the one-to-many change
+   *  (canonical was a single TEXT): widen it to TEXT[] so existing rows keep
+   *  working and the new array writes succeed. */
+  private async migrateLegacyColumn(): Promise<void> {
+    try {
+      const res = await this.pool.query<{ data_type: string; udt_name: string }>(
+        `SELECT data_type, udt_name FROM information_schema.columns
+         WHERE table_name = 'semantic_mappings' AND column_name = 'canonical'`,
+      );
+      const column = res.rows[0];
+      if (column && column.data_type !== "ARRAY" && column.udt_name !== "_text") {
+        await this.pool.query(
+          `ALTER TABLE semantic_mappings ALTER COLUMN canonical TYPE TEXT[] USING ARRAY[canonical]`,
+        );
+      }
+    } catch {
+      // best-effort — a locked/missing table never blocks mapping CRUD.
+    }
   }
 
   async seed(): Promise<void> {
@@ -202,7 +292,7 @@ export class PostgresSemanticMappingStore implements SemanticMappingStore {
          canonical = EXCLUDED.canonical,
          updated_at = now()
        RETURNING *`,
-      [randomUUID(), normalizeTerm(input.term), input.canonical],
+      [randomUUID(), normalizeTerm(input.term), resolveCanonicals(input)],
     );
     return rowToMapping(result.rows[0]!);
   }
@@ -244,7 +334,7 @@ export function toMappingList(value: unknown): SemanticMapping[] {
       return {
         id: String(obj.id ?? `mapping-${index}`),
         term: String(obj.term ?? ""),
-        canonical: String(obj.canonical ?? ""),
+        canonicals: toCanonicals(obj),
         created_at: String(obj.created_at ?? ""),
         updated_at: String(obj.updated_at ?? ""),
       };

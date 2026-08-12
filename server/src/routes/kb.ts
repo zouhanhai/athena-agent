@@ -405,22 +405,36 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
   };
   app.get("/api/kb/mappings", listMappingsHandler);
 
-  /** POST /api/kb/mappings { term, canonical } → upsert a semantic mapping. */
+  /** POST /api/kb/mappings { term, canonical | canonicals } → upsert a semantic
+   *  mapping. `canonical` may be comma- or `/`-separated (one-to-many, G4.S3.T6);
+   *  an explicit `canonicals` array is also accepted. */
   const addMappingHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     if (!options.mappings) {
       return reply.code(500).send({ error: "semantic mappings store not configured" });
     }
-    const body = (request.body ?? {}) as { term?: unknown; canonical?: unknown };
+    const body = (request.body ?? {}) as {
+      term?: unknown;
+      canonical?: unknown;
+      canonicals?: unknown;
+    };
     if (typeof body.term !== "string" || body.term.trim().length === 0) {
       return reply.code(400).send({ error: "term is required" });
     }
-    if (typeof body.canonical !== "string" || body.canonical.trim().length === 0) {
+    const canonicalOk =
+      (typeof body.canonical === "string" && body.canonical.trim().length > 0) ||
+      (Array.isArray(body.canonicals) &&
+        body.canonicals.length > 0 &&
+        body.canonicals.every((c) => typeof c === "string" && c.trim().length > 0));
+    if (!canonicalOk) {
       return reply.code(400).send({ error: "canonical is required" });
     }
     try {
       const mapping = await options.mappings.upsert({
         term: body.term.trim(),
-        canonical: body.canonical.trim(),
+        ...(typeof body.canonical === "string" ? { canonical: body.canonical.trim() } : {}),
+        ...(Array.isArray(body.canonicals)
+          ? { canonicals: (body.canonicals as string[]).map((c) => c.trim()) }
+          : {}),
       });
       return { mapping };
     } catch (err) {

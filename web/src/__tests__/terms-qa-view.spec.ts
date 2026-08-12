@@ -62,7 +62,7 @@ async function mountView() {
 beforeEach(() => {
   listMappingsMock.mockResolvedValue([]);
   listPairsMock.mockResolvedValue([]);
-  addMappingMock.mockResolvedValue({ id: "m1", term: "C-Day", canonical: "CALEO Day" });
+  addMappingMock.mockResolvedValue({ id: "m1", term: "C-Day", canonicals: ["CALEO Day"] });
   addManualMock.mockResolvedValue({ action: "inserted", pair: { id: "p1" } });
   deleteMappingMock.mockResolvedValue(true);
   deletePairMock.mockResolvedValue(true);
@@ -71,7 +71,7 @@ beforeEach(() => {
 describe("TermsQaView", () => {
   it("loads and lists semantic mappings + Q&A pairs on mount", async () => {
     listMappingsMock.mockResolvedValue([
-      { id: "m1", term: "C-Day", canonical: "CALEO Day", created_at: "", updated_at: "" },
+      { id: "m1", term: "C-Day", canonicals: ["CALEO Day"], created_at: "", updated_at: "" },
     ]);
     listPairsMock.mockResolvedValue([
       {
@@ -93,9 +93,26 @@ describe("TermsQaView", () => {
     expect(wrapper.text()).toContain("C-Day is the CALEO Day.");
   });
 
+  it("shows every canonical of a one-to-many mapping (comma/slash input)", async () => {
+    listMappingsMock.mockResolvedValue([
+      {
+        id: "m1",
+        term: "EDay",
+        canonicals: ["Expert Day", "Principle Day"],
+        created_at: "",
+        updated_at: "",
+      },
+    ]);
+    const wrapper = await mountView();
+
+    expect(wrapper.text()).toContain("EDay");
+    expect(wrapper.text()).toContain("Expert Day");
+    expect(wrapper.text()).toContain("Principle Day");
+  });
+
   it("adds a semantic mapping and refreshes the list", async () => {
     listMappingsMock.mockResolvedValue([
-      { id: "m1", term: "HW", canonical: "Haushaltswaren", created_at: "", updated_at: "" },
+      { id: "m1", term: "HW", canonicals: ["Haushaltswaren"], created_at: "", updated_at: "" },
     ]);
     const wrapper = await mountView();
 
@@ -114,7 +131,7 @@ describe("TermsQaView", () => {
 
   it("deletes a semantic mapping", async () => {
     listMappingsMock.mockResolvedValue([
-      { id: "m1", term: "C-Day", canonical: "CALEO Day", created_at: "", updated_at: "" },
+      { id: "m1", term: "C-Day", canonicals: ["CALEO Day"], created_at: "", updated_at: "" },
     ]);
     const wrapper = await mountView();
 

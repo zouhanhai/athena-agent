@@ -491,9 +491,9 @@ test("read_count tracking never fails the search when the wiki page is missing o
 // ---- G4.S3.T6: search integration (term query expansion + QA reference) ----
 
 function stubMappings(
-  rows: Array<{ term: string; canonical: string }> = [
-    { term: "C-Day", canonical: "CALEO Day" },
-    { term: "HW", canonical: "Haushaltswaren" },
+  rows: Array<{ term: string; canonicals: string[] }> = [
+    { term: "C-Day", canonicals: ["CALEO Day"] },
+    { term: "HW", canonicals: ["Haushaltswaren"] },
   ],
 ) {
   return {
@@ -504,7 +504,7 @@ function stubMappings(
       rows.map((r) => ({
         id: r.term,
         term: r.term,
-        canonical: r.canonical,
+        canonicals: r.canonicals,
         created_at: "",
         updated_at: "",
       })),
@@ -569,6 +569,45 @@ test("search expands colloquial terms into the canonical form for BOTH the Neo4j
 
   assert.equal(neo4jQuery, "when is CALEO Day?", "Neo4j query gets the expanded canonical term");
   assert.equal(wikiQuery, "when is CALEO Day?", "llm_wiki query gets the expanded canonical term");
+});
+
+test("search expands a one-to-many term into an OR alternative for BOTH search paths (G4.S3.T6)", async () => {
+  let neo4jQuery = "";
+  let wikiQuery = "";
+  const neo4j = stubNeo4j([] as never);
+  const neo4jWithCapture = {
+    ...neo4j,
+    search: async (query: string) => {
+      neo4jQuery = query;
+      return { query, hits: [] };
+    },
+  } as unknown as Neo4jRetrievalService;
+  const llmwiki = stubLlmwiki({
+    search: async (_projectId, query) => {
+      wikiQuery = query;
+      return { results: [] };
+    },
+  });
+  const service = new KnowledgeRetrievalService({
+    llmwiki,
+    neo4j: neo4jWithCapture,
+    mappings: stubMappings([
+      { term: "EDay", canonicals: ["Expert Day", "Principle Day"] },
+    ]),
+  });
+
+  await service.search("what is EDay?");
+
+  assert.equal(
+    neo4jQuery,
+    "what is (Expert Day OR Principle Day)?",
+    "Neo4j query expands the one-to-many term to an OR alternative",
+  );
+  assert.equal(
+    wikiQuery,
+    "what is (Expert Day OR Principle Day)?",
+    "llm_wiki query expands the one-to-many term to an OR alternative",
+  );
 });
 
 test("search attaches a matching QA reference but STILL runs the RAG search (not a short-circuit)", async () => {

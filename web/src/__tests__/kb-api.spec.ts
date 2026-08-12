@@ -251,7 +251,7 @@ describe("retryTask", () => {
 
 describe("semantic mappings API", () => {
   it("listSemanticMappings GETs /api/kb/mappings and returns the list", async () => {
-    const mappings = [{ id: "m1", term: "C-Day", canonical: "CALEO Day" }];
+    const mappings = [{ id: "m1", term: "C-Day", canonicals: ["CALEO Day"] }];
     stubFetch(jsonResponse({ mappings }));
     const got = await listSemanticMappings();
 
@@ -260,17 +260,17 @@ describe("semantic mappings API", () => {
     expect(got).toEqual(mappings);
   });
 
-  it("addSemanticMapping POSTs { term, canonical }", async () => {
-    const mapping = { id: "m1", term: "HW", canonical: "Haushaltswaren" };
+  it("addSemanticMapping POSTs { term, canonical } (comma/slash-separated for one-to-many)", async () => {
+    const mapping = { id: "m1", term: "EDay", canonicals: ["Expert Day", "Principle Day"] };
     stubFetch(jsonResponse({ mapping }));
-    const got = await addSemanticMapping("HW", "Haushaltswaren");
+    const got = await addSemanticMapping("EDay", "Expert Day / Principle Day");
 
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/kb/mappings",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ term: "HW", canonical: "Haushaltswaren" }),
+        body: JSON.stringify({ term: "EDay", canonical: "Expert Day / Principle Day" }),
       }),
     );
     expect(got).toEqual(mapping);

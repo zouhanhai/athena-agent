@@ -73,11 +73,13 @@ export interface KnowledgeSearchResponse {
   qaReference?: QaReference;
 }
 
-/** Custom semantic mapping (G4.S3.T6): colloquial/company term → canonical. */
+/** Custom semantic mapping (G4.S3.T6): colloquial/company term → one or more
+ *  canonical forms. Input accepts comma- or `/`-separated values; the store
+ *  keeps them as an array and query expansion ORs them. */
 export interface SemanticMapping {
   id: string;
   term: string;
-  canonical: string;
+  canonicals: string[];
   created_at: string;
   updated_at: string;
 }
@@ -226,7 +228,9 @@ export async function listSemanticMappings(): Promise<SemanticMapping[]> {
   return data.mappings;
 }
 
-/** POST /api/kb/mappings { term, canonical } → upsert a semantic mapping. */
+/** POST /api/kb/mappings { term, canonical } → upsert a semantic mapping.
+ *  `canonical` may be comma- or `/`-separated to map a term to MULTIPLE
+ *  canonical forms (one-to-many, G4.S3.T6). */
 export async function addSemanticMapping(term: string, canonical: string): Promise<SemanticMapping> {
   const data = await request<{ mapping: SemanticMapping }>(`${KB_BASE}/mappings`, {
     method: "POST",

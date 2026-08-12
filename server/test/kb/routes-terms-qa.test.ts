@@ -61,7 +61,7 @@ test("GET /api/kb/mappings lists the stored semantic mappings", async () => {
     const body = res.json();
     assert.equal(body.mappings.length, 1);
     assert.equal(body.mappings[0].term, "C-Day");
-    assert.equal(body.mappings[0].canonical, "CALEO Day");
+    assert.deepEqual(body.mappings[0].canonicals, ["CALEO Day"]);
   } finally {
     await app.close();
   }
@@ -78,7 +78,38 @@ test("POST /api/kb/mappings upserts a term→canonical mapping", async () => {
     assert.equal(res.statusCode, 200);
     const body = res.json();
     assert.equal(body.mapping.term, "HW");
-    assert.equal(body.mapping.canonical, "Haushaltswaren");
+    assert.deepEqual(body.mapping.canonicals, ["Haushaltswaren"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/kb/mappings stores comma/slash-separated canonicals as an array (one-to-many)", async () => {
+  const app = await appWith();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/mappings",
+      payload: { term: "EDay", canonical: "Expert Day / Principle Day, Expert Day 2" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.deepEqual(body.mapping.canonicals, ["Expert Day", "Principle Day", "Expert Day 2"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/kb/mappings accepts an explicit canonicals array", async () => {
+  const app = await appWith();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/mappings",
+      payload: { term: "EDay", canonicals: ["Expert Day", "Principle Day"] },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json().mapping.canonicals, ["Expert Day", "Principle Day"]);
   } finally {
     await app.close();
   }
@@ -99,6 +130,12 @@ test("POST /api/kb/mappings rejects a missing term or canonical", async () => {
       payload: { term: "C-Day" },
     });
     assert.equal(noCanonical.statusCode, 400);
+    const emptyArray = await app.inject({
+      method: "POST",
+      url: "/api/kb/mappings",
+      payload: { term: "C-Day", canonicals: [] },
+    });
+    assert.equal(emptyArray.statusCode, 400);
   } finally {
     await app.close();
   }

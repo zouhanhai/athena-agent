@@ -24,7 +24,9 @@ const filteredMappings = computed(() => {
   const q = mappingSearch.value.trim().toLowerCase();
   if (!q) return mappings.value;
   return mappings.value.filter(
-    (m) => m.term.toLowerCase().includes(q) || m.canonical.toLowerCase().includes(q),
+    (m) =>
+      m.term.toLowerCase().includes(q) ||
+      m.canonicals.some((c) => c.toLowerCase().includes(q)),
   );
 });
 const filteredPairs = computed(() => {
@@ -178,20 +180,21 @@ onMounted(() => {
           <span class="card-count">{{ mappingCount }}</span>
         </h3>
         <p class="card-hint">
-          Map a colloquial / company term to its canonical form (e.g. "C-Day" →
-          "CALEO Day"). Applied at search time as query expansion.
+          Map a colloquial / company term to its canonical form(s) (e.g. "EDay" →
+          "Expert Day / Principle Day"). Use commas or "/" to map a term to
+          multiple canonicals. Applied at search time as query expansion.
         </p>
 
         <div class="mapping-form">
           <t-input
             v-model="termInput"
             size="small"
-            placeholder="Colloquial term, e.g. C-Day"
+            placeholder="Colloquial term, e.g. EDay"
           />
           <t-input
             v-model="canonicalInput"
             size="small"
-            placeholder="Canonical form, e.g. CALEO Day"
+            placeholder="Canonical form(s), comma or / separated"
             @enter="submitMapping"
           />
           <t-button
@@ -220,7 +223,11 @@ onMounted(() => {
           <div v-for="mapping in filteredMappings" :key="mapping.id" class="mapping-row">
             <span class="mapping-term">{{ mapping.term }}</span>
             <span class="mapping-arrow">→</span>
-            <span class="mapping-canonical">{{ mapping.canonical }}</span>
+            <span class="mapping-canonicals">
+              <span v-for="c in mapping.canonicals" :key="c" class="mapping-canonical">
+                {{ c }}
+              </span>
+            </span>
             <t-button
               size="small"
               variant="text"
@@ -486,10 +493,19 @@ onMounted(() => {
   color: var(--caleo-text-secondary);
 }
 
-.mapping-canonical {
+.mapping-canonicals {
   flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mapping-canonical {
   color: var(--caleo-primary);
   font-size: 13px;
+  background: color-mix(in srgb, var(--caleo-primary) 10%, transparent);
+  padding: 1px 8px;
+  border-radius: 10px;
 }
 
 .qa-row {
