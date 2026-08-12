@@ -178,3 +178,32 @@ test("not-found: without a web search provider still says not found (no hallucin
   assert.equal(answer.webResults.length, 0);
   assert.equal(answer.kbUpdateSuggestion, undefined);
 });
+
+test("a stored Q&A pair (qaReference) is surfaced as a hit so the answer is reused, not dropped", async () => {
+  // search returns a qaReference alongside results; the agentic pipeline must
+  // fold it into `hits` so the relevance judge + compressor actually see it.
+  const search = async (query: string): Promise<KnowledgeSearchResponse> => ({
+    query,
+    results: [hit("c1")],
+    qaReference: {
+      id: "qa-1",
+      question: "what is caleo",
+      answer: "CALEO is the SAP & finance consultancy.",
+      score: 0.95,
+    },
+  });
+  const seenHits: KnowledgeSearchResult[] = [];
+  const service = new AgenticRetrievalService({
+    search,
+    judge: makeJudge({
+      compress: async (_q, hits) => {
+        seenHits.push(...hits);
+        return "compressed";
+      },
+    }).judge,
+  });
+  await service.answer("what is caleo");
+  const qaHit = seenHits.find((h) => h.title?.startsWith("QA:"));
+  assert.ok(qaHit, "QA pair should appear as a hit");
+  assert.equal(qaHit!.snippet, "CALEO is the SAP & finance consultancy.");
+});

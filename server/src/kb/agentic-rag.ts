@@ -191,6 +191,23 @@ export class AgenticRetrievalService {
     const responses = await Promise.all(queries.map((q) => this.search(q, searchOptions)));
     let hits = fuseHits(responses.map((r) => r.results));
 
+    // Include any matching stored Q&A pair (G4.S3.T6) as a first-class hit so the
+    // relevance judge and the compressor actually see it (previously qaReference
+    // was dropped, so a saved answer like "what is CALEO" was never reused and the
+    // agent fell back to web). It stays a reference hit — the RAG search still runs.
+    const qaHits: KnowledgeSearchResult[] = responses
+      .map((r) => r.qaReference)
+      .filter((q): q is NonNullable<typeof q> => Boolean(q))
+      .map((qa) => ({
+        title: `QA: ${qa.question}`,
+        snippet: qa.answer,
+        source: "llmwiki" as const,
+        path: `qa-pairs/${qa.id}`,
+      }));
+    if (qaHits.length > 0) {
+      hits = fuseHits([qaHits, hits]);
+    }
+
     // Multi-hop graph reasoning: let the LLM walk the Entity/Relation graph and
     // run its follow-up queries through the graph retriever, then fuse.
     if (this.graph) {
