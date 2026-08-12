@@ -218,6 +218,59 @@ def derive_stem(source: str) -> str:
     return sanitize_stem(Path(name).name)
 
 
+def mark_vlm_descriptions(markdown: str) -> str:
+    """Wrap docling's VLM picture-description blocks in `<em>` italics so a human
+    viewing the wiki can tell a machine-generated image description apart from the
+    source text (G4.S3 post-M4 polish). docling's PictureDescriptionApiOptions has
+    no prompt/output-format control (black box), so we post-process the markdown.
+
+    The VLM description block starts right after an image ref and begins with a
+    "Based on the ..." line; it runs until the next image ref, a markdown heading
+    (`#`), or a blank-line-terminated paragraph that clearly is prose. We italicise
+    each paragraph of the block with `<em>…</em>` (inline HTML, preserved by
+    markdown-it). Non-description content is left untouched.
+    """
+    lines = markdown.split("\n")
+    out: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        out.append(line)
+        i += 1
+        # An image ref may be followed by a VLM description block.
+        if not line.startswith("![") :
+            continue
+        # Find the next non-blank line after the image ref.
+        j = i
+        while j < n and not lines[j].strip():
+            j += 1
+        if j >= n or not re.match(r"^\s*Based on the (image|visual)", lines[j], re.IGNORECASE):
+            continue
+        # Collect the description block: from j until the next image ref or heading.
+        block_end = j
+        while block_end < n:
+            l = lines[block_end].strip()
+            if block_end > j and (l.startswith("![") or l.startswith("#")):
+                break
+            if not l and block_end > j:
+                # blank line: if the NEXT non-blank is a ref/heading, stop here
+                k = block_end + 1
+                while k < n and not lines[k].strip():
+                    k += 1
+                if k >= n or lines[k].strip().startswith("![") or lines[k].strip().startswith("#"):
+                    break
+            block_end += 1
+        # Wrap each non-empty paragraph of [j, block_end) in <em>.
+        for m in range(j, block_end):
+            if lines[m].strip():
+                out.append(f"<em>{lines[m]}</em>")
+            else:
+                out.append(lines[m])
+        i = block_end
+    return "\n".join(out)
+
+
 def parse_document(
     source: str, output_dir: Path, images_dir: Path | None, stem: str
 ) -> str:
@@ -242,8 +295,8 @@ def parse_document(
             artifacts_dir=rel_artifacts,
             image_mode=ImageRefMode.REFERENCED,
         )
-        return out_path.read_text(encoding="utf-8")
-    return result.document.export_to_markdown()
+        return mark_vlm_descriptions(out_path.read_text(encoding="utf-8"))
+    return mark_vlm_descriptions(result.document.export_to_markdown())
 
 
 def main(argv: list[str]) -> int:
