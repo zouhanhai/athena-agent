@@ -97,14 +97,20 @@ function onCardClick(e: MouseEvent) {
   border-color: var(--caleo-primary);
 }
 
-/* Non-active cards: collapse to a slim strip (logo + name) peeking behind. */
+/* Non-active cards: collapse to a slim logo-only strip peeking behind the active
+   card. Override inset (no bottom) so the strip is natural-height, stacked below. */
 .agent-card:not(.active) {
   align-items: center;
   overflow: hidden;
+  inset: auto 0 0 0; /* pin to bottom, auto height */
+  height: 44px;
+  padding: 6px 10px;
+  background: var(--caleo-surface);
+  transform: translateY(calc(-1 * var(--stack, 0) * 12px));
 }
 
 .agent-card:not(.active) .agent-card-head {
-  gap: 4px;
+  gap: 6px;
 }
 
 .agent-card:not(.active) .agent-card-kind,
@@ -115,7 +121,7 @@ function onCardClick(e: MouseEvent) {
 }
 
 .agent-card:not(.active) .agent-card-name {
-  font-size: 12.5px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
