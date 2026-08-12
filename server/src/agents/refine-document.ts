@@ -461,11 +461,6 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
   const args: Record<string, unknown> =
     typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
 
-  const isRecord = (v: unknown): v is Record<string, unknown> =>
-    typeof v === "object" && v !== null && !Array.isArray(v);
-  const asStringArray = (v: unknown): string[] | undefined =>
-    Array.isArray(v) && v.every((item) => typeof item === "string") ? v : undefined;
-
   const markdown = typeof args.markdown === "string" ? args.markdown : undefined;
   const summary = typeof args.summary === "string" ? args.summary : "";
   const sections = Array.isArray(args.sections)
@@ -485,22 +480,8 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
         heading_path: String(c.heading_path ?? c.topic ?? ""),
       }))
     : [];
-  const entities = Array.isArray(args.entities)
-    ? args.entities.filter(isRecord).map((e) => ({
-        name: String(e.name ?? ""),
-        type: String(e.type ?? "other"),
-        description: String(e.description ?? ""),
-        aliases: asStringArray(e.aliases) ?? [],
-      }))
-    : [];
-  const relations = Array.isArray(args.relations)
-    ? args.relations.filter(isRecord).map((r) => ({
-        source: String(r.source ?? r.from ?? ""),
-        target: String(r.target ?? r.to ?? ""),
-        keywords: asStringArray(r.keywords) ?? [],
-        description: String(r.description ?? ""),
-      }))
-    : [];
+  const entities = normalizeEntityList(args.entities);
+  const relations = normalizeRelationList(args.relations);
   const keywords = asStringArray(args.keywords) ?? [];
   const quality =
     isRecord(args.quality) && typeof args.quality.complete === "boolean" && typeof args.quality.confidence === "number"
@@ -517,6 +498,36 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
   }
 
   return { markdown, summary, sections, frontmatter, chunks, entities, relations, keywords, quality };
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const asStringArray = (v: unknown): string[] | undefined =>
+  Array.isArray(v) && v.every((item) => typeof item === "string") ? v : undefined;
+
+/** Coerce a parsed entities array into the refinement contract. */
+export function normalizeEntityList(raw: unknown): RefinementEntity[] {
+  return Array.isArray(raw)
+    ? raw.filter(isRecord).map((e) => ({
+        name: String(e.name ?? ""),
+        type: String(e.type ?? "other"),
+        description: String(e.description ?? ""),
+        aliases: asStringArray(e.aliases) ?? [],
+      }))
+    : [];
+}
+
+/** Coerce a parsed relations array into the refinement contract. */
+export function normalizeRelationList(raw: unknown): RefinementRelation[] {
+  return Array.isArray(raw)
+    ? raw.filter(isRecord).map((r) => ({
+        source: String(r.source ?? r.from ?? ""),
+        target: String(r.target ?? r.to ?? ""),
+        keywords: asStringArray(r.keywords) ?? [],
+        description: String(r.description ?? ""),
+      }))
+    : [];
 }
 
 /** First non-heading paragraph of a markdown, whitespace-collapsed (fallback summary source). */
@@ -1029,4 +1040,300 @@ export function createRefineDocumentTool(
   };
 
   return tool as RefineDocumentTool;
+}
+
+// --- G4.S3.T10: incremental wiki-edit refine mode ---
+//
+// NOT the full `refine_document` (raw docling) pass. Input = the corrected wiki
+// markdown (ragMarkdown form — image refs stripped, VLM alt-text kept) + the
+// minimal diff of what the user changed. Athena PRESERVES the corrected text
+// verbatim, detects NEW entities/relations the correction introduces, re-derives
+// the full chunks/entities/relations for the corrected doc and decides whether
+// re-chunking is required (localized edit vs structural change).
+
+/** Name of the constrained emit tool for the wiki-edit incremental refine. */
+export const EMIT_WIKI_EDIT_REFINE_TOOL = "emit_wiki_edit_refinement";
+
+export interface WikiEditRefineInput {
+  /** Corrected page BODY in ragMarkdown form — the SOURCE OF TRUTH (preserve verbatim). */
+  markdown: string;
+  /** Previous page BODY in the same ragMarkdown form. */
+  before: string;
+  /** Minimal unified diff text (before → after). */
+  diff: string;
+  /** Whether the diff touched heading structure (forces a re-chunk decision). */
+  structural: boolean;
+}
+
+/** The incremental wiki-edit refinement output contract: RefinedDocument + what the edit introduced. */
+export interface WikiEditRefinement extends RefinedDocument {
+  /** Entities the correction introduced (each is a member of `entities`). */
+  new_entities: RefinementEntity[];
+  /** Relations the correction introduced (each is a member of `relations`). */
+  new_relations: RefinementRelation[];
+  /** Whether the model decided re-chunking was required (structural/large edit). */
+  rechunked: boolean;
+}
+
+/** JSON schema (TypeBox) of the wiki-edit refine output — constrained emit tool params. */
+export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
+  markdown: Type.String(),
+  summary: Type.String(),
+  sections: Type.Array(
+    Type.Object({
+      title: Type.String(),
+      summary: Type.String(),
+    }),
+  ),
+  frontmatter: Type.Object({
+    type: Type.String(),
+    topic: Type.String(),
+  }),
+  chunks: Type.Array(
+    Type.Object({
+      id: Type.String(),
+      text: Type.String(),
+      heading_path: Type.String(),
+    }),
+  ),
+  entities: Type.Array(
+    Type.Object({
+      name: Type.String(),
+      type: Type.String(),
+      description: Type.String(),
+      aliases: Type.Optional(Type.Array(Type.String())),
+    }),
+  ),
+  relations: Type.Array(
+    Type.Object({
+      source: Type.String(),
+      target: Type.String(),
+      keywords: Type.Array(Type.String()),
+      description: Type.String(),
+    }),
+  ),
+  keywords: Type.Array(Type.String()),
+  new_entities: Type.Array(
+    Type.Object({
+      name: Type.String(),
+      type: Type.String(),
+      description: Type.String(),
+      aliases: Type.Optional(Type.Array(Type.String())),
+    }),
+  ),
+  new_relations: Type.Array(
+    Type.Object({
+      source: Type.String(),
+      target: Type.String(),
+      keywords: Type.Array(Type.String()),
+      description: Type.String(),
+    }),
+  ),
+  rechunked: Type.Boolean(),
+  quality: Type.Object({
+    complete: Type.Boolean(),
+    confidence: Type.Number(),
+    issues: Type.Array(Type.String()),
+    action: Type.Union([Type.Literal("auto_accept"), Type.Literal("review_required")]),
+  }),
+});
+
+/** The incremental wiki-edit refine system prompt (G4.S3.T10). */
+export const WIKI_EDIT_REFINE_SYSTEM_PROMPT = `You are Athena, the INCREMENTAL wiki-edit refine pass of the athena KB (G4.S3.T10).
+
+A user manually corrected a wiki page — typically fixing a VLM/OCR mis-description in an image
+description. You are NOT re-refining raw docling output; the input is the already-refined wiki plus
+the exact diff of the user's correction.
+
+You receive (in the user message):
+  - CORRECTED markdown — the user's edit is the SOURCE OF TRUTH;
+  - the PREVIOUS version of the page;
+  - the DIFF showing exactly what changed (before -> after);
+  - whether the change was STRUCTURAL (headings added/removed/renamed).
+
+RULES:
+1. PRESERVE THE USER'S EDIT. Emit the corrected markdown VERBATIM. NEVER rewrite, rephrase,
+   reformat, "improve" or "correct" the user's corrected text — not a single word.
+2. The correction is INTENTIONAL. Do NOT "fix it back" to the previous version.
+3. Compare before vs after using the DIFF. Detect every NEW entity and NEW relation the correction
+   introduces and list them in new_entities / new_relations (each must ALSO appear in the full
+   entities / relations list of the corrected document).
+4. Re-derive the corrected document's FULL entities, relations, keywords and chunks.
+   - A LOCALIZED edit inside one section: keep the existing chunk boundaries, re-emit the chunks with
+     the corrected text substituted, and set rechunked=false.
+   - A STRUCTURAL change (heading added/removed/renamed) or a large rewrite: re-chunk the affected
+     region(s) and set rechunked=true.
+5. Reuse the existing type/topic when the edit did not change the document's classification.
+6. Quality-check the corrected document as usual (completeness, confidence, issues, action).
+
+Emit the COMPLETE corrected document via the emit_wiki_edit_refinement tool — do not truncate.`;
+
+/** Build the user prompt for the incremental wiki-edit refine pass. */
+export function buildWikiEditRefinePrompt(
+  input: WikiEditRefineInput,
+  existing: { type?: string; topic?: string } | undefined,
+  attempt = 1,
+): string {
+  const retryNudge =
+    attempt === 1
+      ? ""
+      : `\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_wiki_edit_refinement tool call carrying the COMPLETE corrected document.`;
+  return `A user corrected this wiki page. The CORRECTED markdown is the source of truth — preserve it VERBATIM.
+
+## CORRECTED markdown (preserve verbatim)
+${input.markdown}
+
+## PREVIOUS version
+${input.before || "(empty page)"}
+
+## DIFF (exactly what the user changed)
+${input.diff || "(no textual change detected)"}
+
+## Edit metadata
+- structural (heading structure changed): ${String(input.structural)}
+${existing?.type ? `- existing type: ${existing.type}` : ""}
+${existing?.topic ? `- existing topic: ${existing.topic}` : ""}
+
+Emit the corrected markdown VERBATIM, the re-derived chunks/entities/relations/keywords, the NEW
+entities/relations the correction introduced (new_entities/new_relations), whether re-chunking was
+required (rechunked), and the quality check.${retryNudge}`;
+}
+
+/** Coerce a parsed wiki-edit refine payload into the contract (JSON-string args accepted). */
+export function normalizeWikiEditRefinement(raw: unknown): WikiEditRefinement {
+  const args: Record<string, unknown> =
+    typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
+  const base = normalizeRefinedDocument(args);
+  return {
+    ...base,
+    new_entities: normalizeEntityList(args.new_entities),
+    new_relations: normalizeRelationList(args.new_relations),
+    rechunked: args.rechunked === true,
+  };
+}
+
+/** Extract the structured wiki-edit refinement from an assistant response (emit tool or text JSON). */
+export function extractWikiEditRefinement(message: AssistantMessageLike): WikiEditRefinement {
+  for (const part of message.content ?? []) {
+    if (
+      part.type === "toolCall" &&
+      (part as AssistantToolCallPart).name === EMIT_WIKI_EDIT_REFINE_TOOL &&
+      "arguments" in part
+    ) {
+      return normalizeWikiEditRefinement((part as AssistantToolCallPart).arguments);
+    }
+  }
+  const text = (message.content ?? [])
+    .filter((part): part is AssistantTextPart => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+  if (text) {
+    const parsed = tryParseNestedJson(text);
+    if (parsed !== undefined) {
+      return normalizeWikiEditRefinement(parsed);
+    }
+  }
+  throw new Error("wiki edit refine: assistant returned no structured output");
+}
+
+/** Mechanical fallback chunker: one chunk per top-level section of the corrected body. */
+export function mechanicalWikiEditChunks(markdown: string): RefinementChunk[] {
+  return splitByRefinedH1(markdown)
+    .map((section, index) => ({
+      id: `c${index + 1}`,
+      text: section.markdown.trim(),
+      heading_path: section.heading_path,
+    }))
+    .filter((chunk) => chunk.text.length > 0);
+}
+
+/**
+ * Fallback for a failed wiki-edit refine — never worse than no refine: the
+ * corrected text is kept verbatim, chunks come from the (unchanged) heading
+ * structure, entities/relations are not fabricated, and the task is flagged
+ * review_required so an operator knows the graph was not re-derived.
+ */
+export function fallbackWikiEditRefinement(
+  input: WikiEditRefineInput,
+  existing: { type?: string; topic?: string } | undefined,
+  error: unknown,
+): WikiEditRefinement {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    markdown: input.markdown,
+    summary: deriveFallbackSummary(input.markdown),
+    sections: deriveFallbackSections(input.markdown),
+    frontmatter: { type: existing?.type ?? "document", topic: existing?.topic ?? "unclassified" },
+    chunks: mechanicalWikiEditChunks(input.markdown),
+    entities: [],
+    relations: [],
+    keywords: [],
+    new_entities: [],
+    new_relations: [],
+    // A structural edit always re-chunks; a localized edit keeps the structure.
+    rechunked: input.structural,
+    quality: {
+      complete: false,
+      confidence: 0,
+      issues: [`wiki edit refine LLM pass failed: ${message}`],
+      action: "review_required",
+    },
+  };
+}
+
+function emitWikiEditRefinementTool() {
+  return {
+    name: EMIT_WIKI_EDIT_REFINE_TOOL,
+    description:
+      "Emit the incremental wiki-edit refinement as a single structured JSON value matching the wiki-edit refine contract.",
+    parameters: WIKI_EDIT_REFINE_SCHEMA,
+    constrainedSampling: { type: "json_schema" as const, strict: "require" as const },
+  };
+}
+
+export interface WikiEditRefineOptions {
+  /** Reasoning level for the incremental pass (default "high"). */
+  thinkingLevel?: AthenaThinkingLevel;
+  /** Override the wiki-edit refine system prompt. */
+  systemPrompt?: string;
+  /** Retries before giving up (default 3 — up to 4 attempts). */
+  retries?: number;
+}
+
+/**
+ * Run the incremental wiki-edit refine LLM pass: input = corrected markdown +
+ * the diff. Preserves the corrected text (contract-enforced via the emit tool),
+ * re-derives the full structure and flags new entities/relations. Retries on a
+ * transient non-structured output; throws on persistent failure (caller falls
+ * back to `fallbackWikiEditRefinement`).
+ */
+export async function runWikiEditRefine(
+  modelRuntime: ModelRuntime,
+  model: RefineModel,
+  input: WikiEditRefineInput,
+  existing?: { type?: string; topic?: string },
+  options: WikiEditRefineOptions = {},
+): Promise<{ document: WikiEditRefinement; retries: number }> {
+  const retries = options.retries ?? 3;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
+    try {
+      const assistant = await modelRuntime.completeSimple(
+        model,
+        {
+          systemPrompt: options.systemPrompt ?? WIKI_EDIT_REFINE_SYSTEM_PROMPT,
+          messages: [
+            { role: "user", content: buildWikiEditRefinePrompt(input, existing, attempt), timestamp: Date.now() },
+          ],
+          tools: [emitWikiEditRefinementTool()],
+        },
+        { reasoning: options.thinkingLevel ?? "high" },
+      );
+      return { document: extractWikiEditRefinement(assistant), retries: attempt - 1 };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
