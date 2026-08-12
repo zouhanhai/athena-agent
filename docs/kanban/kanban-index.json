@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T10:55:41.575Z",
+  "generated_at": "2026-08-12T11:06:49.369Z",
   "goals": [
     {
       "ref": "G1",
@@ -2158,15 +2158,15 @@
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "progress_last_row": "RED→GREEN: AgenticRetrievalService orchestrator (query transform clarify/decompose, retriever picker + topic convergence, multi-hop, relevance judge, compress, not-found→web fallback + KB update suggestion; non-agentic S2 fallback). agentic-rag.test.ts 9/9; kb suite 360/360; typecheck clean.",
+              "progress_updated_at": "2026-08-12T11:20:00Z"
             },
             {
               "ref": "G4.S3.T8",
               "id": "s3.8",
               "title": "G4.S3.T8: Chunk ingest progress — X/Y + ETA on the Uploads page",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "20260812T150700Z",
               "blocked_by": [],
@@ -2175,7 +2175,9 @@
                 "Frontend Uploads shows X/Y chunks + estimated time for the Neo4j (RAG) stage",
                 "Large docs (1000+ chunks) stream progress instead of a single done",
                 "Server + web tests green, typecheck clean"
-              ]
+              ],
+              "progress_last_row": "all acceptance met (embedder onBatch, per-batch ingest, task/API progress, Uploads X/Y+ETA); server+web tests + typecheck green; committed + pushed",
+              "progress_updated_at": "2026-08-12T11:16:00Z"
             }
           ]
         },
