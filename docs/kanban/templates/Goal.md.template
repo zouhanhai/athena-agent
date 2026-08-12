@@ -16,16 +16,16 @@ acceptance_criteria:
 Why this goal, what problem it solves...
 
 ## Spec dependency order
-- **G1.S1 <name> FIRST** — why it must come first
-- G1.S2 <name> — depends on S1
-- G1.S3 <name> — independent
+- **<S1 name> FIRST** — why it must come first
+- <S2 name> — depends on S1
+- <S3 name> — independent
 
 ## Reference design docs
 - `docs/...`
 
 ## Progress
-- **G1.S1 <name>: DONE <date>** — summary
-- **G1.S2 <name>: backlog** — next
+- **<S1 name>: DONE <date>** — summary
+- **<S2 name>: backlog** — next
 
 ## Post-G enhancement backlog (recorded, not scheduled)
 - *None currently open.*
