@@ -47,3 +47,24 @@ See `docs/spec-m4-worker-progress.md`. Key points:
 - OpenCode plugin (tool.execute.after → append Progress Log row, rate-limited).
 - Kanban parser reads the Progress Log; KanbanTab shows last row + stalled.
 - Git strategy (local write, commit on completion).
+
+## Auto-claim extension (2026-08-12)
+
+The plugin is extended beyond just progress logging to make the git claim-lock reliable (see
+G3.S6.T3 `GitClaimLock` + `claimTicket`). Today the claim (status=in_progress + assignee +
+session_id, then git add/commit/push) is a manual LLM step that workers sometimes forget or do
+late — risking two workers claiming the same ticket.
+
+**Plugin auto-claims on first tool call**:
+- On the first `tool.execute` of a session, the plugin detects the current ticket ref (from the
+  dispatch prompt / session metadata) and calls `claimTicket` — writes status=in_progress +
+  assignee + session_id and does the git add/commit/push, so the git push is the mutual-exclusion
+  lock that takes effect *immediately*, before the worker does anything.
+- If another worker already claimed (push race lost), the plugin surfaces `ClaimConflictError` so
+  the worker backs off — no double-claim.
+
+**Completion commit stays manual**: the worker decides when work is actually done (code quality,
+tests green) and does the final status=done commit + push itself. The plugin never auto-commits
+the final state — that's the worker's judgment call.
+
+So the plugin owns: claim (lock) + progress logging. The worker owns: completion commit.
