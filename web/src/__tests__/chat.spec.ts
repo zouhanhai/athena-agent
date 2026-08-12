@@ -306,9 +306,11 @@ describe("GlobalChatPanel agent cards", () => {
     wrapper.unmount();
   });
 
-  it("renders a speak-toggle and an X remove button on each agent card", () => {
+  it("renders a speak-toggle and an X remove button on each agent card", async () => {
     const wrapper = mountChat();
     const card = wrapper.find(".agent-card");
+    // collapsed card shows logo + name; click to expand for the controls
+    await card.trigger("click");
     expect(card.find(".speak-toggle").exists()).toBe(true);
     expect(card.find(".card-remove").exists()).toBe(true);
     wrapper.unmount();
@@ -330,6 +332,7 @@ describe("GlobalChatPanel agent cards", () => {
       .findAll(".agent-card")
       .find((c) => c.text().includes("Hermes"));
     expect(hermesCard).toBeDefined();
+    await hermesCard!.trigger("click"); // expand to reveal capabilities
     expect(hermesCard!.findAll(".cap-chip")).toHaveLength(1);
     expect(hermesCard!.text()).toContain("github");
     wrapper.unmount();
@@ -381,6 +384,7 @@ describe("GlobalChatPanel agent cards", () => {
     const hermesCard = wrapper
       .findAll(".agent-card")
       .find((c) => c.text().includes("Hermes"))!;
+    await hermesCard.trigger("click"); // expand to reveal the X remove button
     await hermesCard.find(".card-remove").trigger("click");
 
     expect(store.participants.some((p) => p.name === "Hermes")).toBe(false);
@@ -437,6 +441,7 @@ describe("GlobalChatPanel agent cards", () => {
     const hermesCard = wrapper
       .findAll(".agent-card")
       .find((c) => c.text().includes("Hermes"))!;
+    await hermesCard.trigger("click"); // expand to reveal the speak-toggle
     await hermesCard.find(".speak-toggle").setValue(false);
     await wrapper.vm.$nextTick();
 

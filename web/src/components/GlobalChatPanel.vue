@@ -19,6 +19,7 @@ const employeePickerOpen = ref(false);
 const availableAgents = ref<AgentRecord[]>([]);
 const availableEmployees = ref<EmployeeRecord[]>([]);
 const pickerError = ref("");
+const expandedAgentId = ref<string | null>(null);
 
 // The signed-in employee is the human behind the user bubbles (G3.S2 identity).
 // userId (sent with each message so the server attributes who is speaking) is
@@ -129,6 +130,8 @@ function addEmployee(emp: EmployeeRecord) {
           v-for="participant in chat.participants"
           :key="participant.id"
           :participant="participant"
+          :expanded="expandedAgentId === participant.id"
+          @toggle="expandedAgentId = expandedAgentId === participant.id ? null : participant.id"
           @speak-change="(speak) => chat.onSpeakToggleChanged(participant.id, speak)"
           @left="chat.onAgentLeft(participant.id)"
         />
@@ -287,8 +290,8 @@ function addEmployee(emp: EmployeeRecord) {
 }
 
 .agent-cards {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
 }
 

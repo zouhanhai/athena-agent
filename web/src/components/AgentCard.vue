@@ -1,18 +1,30 @@
 <script setup lang="ts">
 import type { ChatParticipant } from "@/stores/chat";
 
-defineProps<{ participant: ChatParticipant }>();
+defineProps<{ participant: ChatParticipant; expanded?: boolean }>();
 
 const emit = defineEmits<{
   "speak-change": [speak: boolean];
   left: [];
+  toggle: [];
 }>();
+
+function onCardClick(e: MouseEvent) {
+  const t = e.target as HTMLElement;
+  if (t.closest("button, input, label")) return; // don't toggle on inner controls
+  emit("toggle");
+}
 </script>
 
 <template>
-  <article class="agent-card">
+  <article
+    class="agent-card"
+    :class="{ expanded }"
+    :title="expanded ? undefined : participant.name"
+    @click="onCardClick"
+  >
     <img class="agent-card-logo" :src="participant.logoUrl" :alt="participant.name" />
-    <div class="agent-card-body">
+    <div v-if="expanded" class="agent-card-body">
       <header class="agent-card-head">
         <span class="agent-card-name">{{ participant.name }}</span>
         <span class="agent-card-kind">{{ participant.kind }}</span>
@@ -43,6 +55,7 @@ const emit = defineEmits<{
         </span>
       </label>
     </div>
+    <span v-else class="agent-card-name agent-card-name-collapsed">{{ participant.name }}</span>
   </article>
 </template>
 
@@ -56,6 +69,25 @@ const emit = defineEmits<{
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
   box-shadow: var(--caleo-shadow);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.agent-card:hover {
+  border-color: var(--caleo-primary);
+}
+
+.agent-card.expanded {
+  border-color: var(--caleo-primary);
+  background: color-mix(in srgb, var(--caleo-primary) 6%, var(--caleo-surface));
+}
+
+.agent-card-name-collapsed {
+  align-self: center;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-card-logo {
