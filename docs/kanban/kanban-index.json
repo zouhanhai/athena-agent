@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T10:11:09.709Z",
+  "generated_at": "2026-08-12T10:55:18.476Z",
   "goals": [
     {
       "ref": "G1",
@@ -2151,8 +2151,9 @@
               "id": "s3.7",
               "title": "G4.S3.T7: Agentic RAG — query transformation / compression / picker / multi-hop",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "a8b2cbf2-d52a-4cf3-94ff-e38a4c0f43fd",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
