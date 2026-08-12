@@ -131,6 +131,24 @@ export function fuseHits(lists: KnowledgeSearchResult[][]): KnowledgeSearchResul
   return fused;
 }
 
+/**
+ * G4.S3.T13: is the question definitional / entity-seeking ("what is X", "who is
+ * X", "define X")? A user asking this is BY DEFINITION unfamiliar with X and
+ * cannot answer a clarifying question — such queries must NEVER be `clarify`.
+ * This is a deterministic safety net on top of the plan prompt: even if the
+ * judge misbehaves and emits clarify for one of these, we search the KB instead
+ * of dead-ending. Ambiguity is answered via the most-likely interpretation, not
+ * by asking the user.
+ */
+export function looksDefinitional(query: string): boolean {
+  const q = query.trim().toLowerCase().replace(/[?!.]+$/, "");
+  return /^(what|who|which|where|when|whose|how)\s+(is|are|was|were|does|do|did)\s+/.test(q)
+    || /^(what|who|which|where|when)\s+.*\b(is|are|was|were)\b.*/.test(q)
+    || /^define\s+/.test(q)
+    || /^what\s+does\s+\S+\s+mean/.test(q)
+    || /\bis\s+[a-z0-9_-]+\s*[?.]?$/.test(q);
+}
+
 /** Join hits into a plain-text fallback answer (non-agentic path + empty-hit compression). */
 export function plainAnswer(query: string, hits: KnowledgeSearchResult[]): string {
   if (hits.length === 0) {
@@ -179,7 +197,16 @@ export class AgenticRetrievalService {
     }
 
     const topics = this.topics ? await this.topics() : [];
-    const plan = await this.judge.transformQuery(query, topics);
+    let plan = await this.judge.transformQuery(query, topics);
+
+    // G4.S3.T13 safety net: a definitional/entity question ("what is X", "who is
+    // X") is NEVER a clarify dead-end — the user is unfamiliar with X and cannot
+    // answer a clarifying question. Override a misbehaving judge to `direct` and
+    // search the KB (reusing a stored Q&A pair when present). Ambiguity is
+    // answered via the most-likely interpretation, not by asking the user.
+    if (plan.action === "clarify" && looksDefinitional(query)) {
+      plan = { action: "direct", retriever: plan.retriever ?? "hybrid" };
+    }
 
     if (plan.action === "clarify") {
       return {

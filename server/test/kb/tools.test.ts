@@ -177,7 +177,7 @@ test("search_knowledge tool surfaces a clarification (needsClarification) as a s
     webSearch: { search: async () => [] },
   });
   const tool = createSearchKnowledgeTool(service);
-  const result = await tool.execute("c", { query: "what is caleo" }, undefined, undefined, {} as never);
+  const result = await tool.execute("c", { query: "help me with something" }, undefined, undefined, {} as never);
   const text = (result.content[0] as { text: string }).text;
   assert.match(text, /CLARIFICATION_REQUESTED/);
   assert.match(text, /Which do you mean\?/);
@@ -186,7 +186,7 @@ test("search_knowledge tool surfaces a clarification (needsClarification) as a s
   assert.deepEqual(details.clarification, {
     question: "Which do you mean?",
     options: ["the company", "a person", "the Latin word"],
-    query: "what is caleo",
+    query: "help me with something",
   });
 });
 

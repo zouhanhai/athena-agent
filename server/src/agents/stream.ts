@@ -148,7 +148,14 @@ export async function* streamAgentChat(agent: Agent, message: string): AsyncGene
         resolveWait = resolve;
       });
     }
-    await pending;
+    // After a clarify we already have what the caller needs and the run was
+    // aborted on purpose — a rejection from the aborted run must not surface
+    // as a spurious SSE error frame. Normal runs propagate errors as before.
+    if (clarifyEmitted) {
+      await pending.catch(() => {});
+    } else {
+      await pending;
+    }
   } finally {
     closed = true;
     wake();

@@ -120,7 +120,13 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
       try {
         for await (const event of streamAgentChat(agent, finalPrompt)) {
           if (event.type === "clarify") {
-            raw.write(sseFrame({ clarify: { question: event.clarification.question, options: event.clarification.options } }));
+            raw.write(sseFrame({
+              clarify: {
+                question: event.clarification.question,
+                options: event.clarification.options,
+                query: event.clarification.query,
+              },
+            }));
           } else {
             raw.write(sseFrame({ delta: event.text }));
           }

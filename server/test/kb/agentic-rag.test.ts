@@ -77,7 +77,7 @@ test("clarify: the judge's options are carried to the caller for the front-end f
       }),
     }).judge,
   });
-  const answer = await service.answer("what is caleo");
+  const answer = await service.answer("help me with something");
   assert.equal(answer.needsClarification, true);
   assert.deepEqual(answer.clarificationOptions, ["the company", "a person", "the Latin word"]);
   assert.equal(answer.answer, "Which do you mean?");
@@ -111,6 +111,42 @@ test("definitional queries answered from the KB: direct plan runs search + reuse
   assert.match(answer.answer, /CALEO ist eine Unternehmensberatung\./);
   const qaHit = seenHits.find((h) => h.title?.startsWith("QA:"));
   assert.ok(qaHit, "stored Q&A pair is surfaced as a hit so it can be reused");
+});
+
+test("definitional queries never dead-end in clarify even if the judge misbehaves (safety net)", async () => {
+  const calls: Array<{ query: string }> = [];
+  const service = new AgenticRetrievalService({
+    search: makeSearch(calls, { "what is RAG": [hit("c1")] }),
+    judge: makeJudge({
+      // A misbehaving judge that still emits clarify for a definitional query.
+      transformQuery: async () => ({
+        action: "clarify",
+        clarification: "Do you mean Retrieval Augmented Generation or a rag fabric?",
+        options: ["RAG tech", "rag fabric"],
+      }),
+      compress: async () => "RAG = Retrieval Augmented Generation.",
+    }).judge,
+  });
+  const answer = await service.answer("what is RAG");
+  assert.equal(answer.needsClarification, undefined, "definitional query must not clarify even when judge says clarify");
+  assert.equal(calls.length, 1, "search must run for a definitional query");
+  assert.match(answer.answer, /Retrieval Augmented Generation/);
+});
+
+test("clarify survives for genuinely subject-less queries (not definitional)", async () => {
+  const service = new AgenticRetrievalService({
+    search: makeSearch({}, {}),
+    judge: makeJudge({
+      transformQuery: async () => ({
+        action: "clarify",
+        clarification: "What would you like help with?",
+        options: ["a process", "an event", "something else"],
+      }),
+    }).judge,
+  });
+  const answer = await service.answer("help me with something");
+  assert.equal(answer.needsClarification, true, "subject-less query still clarifies");
+  assert.deepEqual(answer.clarificationOptions, ["a process", "an event", "something else"]);
 });
 
 test("decompose: sub-queries run in parallel and their hits are fused", async () => {

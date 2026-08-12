@@ -279,7 +279,7 @@ test("POST /api/chat streaming relays a legitimate clarify as an SSE clarify fra
     });
     assert.equal(res.statusCode, 200);
     assert.ok(
-      res.body.includes(`data: ${JSON.stringify({ clarify: { question: "Which do you mean?", options: ["company", "person"] } })}\n\n`),
+      res.body.includes(`data: ${JSON.stringify({ clarify: { question: "Which do you mean?", options: ["company", "person"], query: "help me with something" } })}\n\n`),
       "should relay the clarification question + options to the front-end chat",
     );
     assert.ok(res.body.includes(`data: ${JSON.stringify({ done: true })}\n\n`), "stream should end after the clarify");
