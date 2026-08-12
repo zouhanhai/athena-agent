@@ -113,9 +113,15 @@ function ragEta(task: IngestTaskItem): string {
 }
 
 /** Live elapsed timer (G4.S3.T9): ticks from `createdAt` via the 1s `now` ref,
- *  so it never freezes at 0s between polls. */
+ *  so it never freezes at 0s between polls. Once the task is DONE or FAILED the
+ *  timer freezes at the final duration (uses updatedAt) instead of continuing to
+ *  tick forever. */
 function elapsed(task: IngestTaskItem): string {
-  return formatDuration(Math.max(0, now.value - task.createdAt));
+  const end =
+    task.status === "done" || task.status === "failed"
+      ? task.updatedAt
+      : now.value;
+  return formatDuration(Math.max(0, end - task.createdAt));
 }
 
 function friendlyStep(step: { name: string }): string {
