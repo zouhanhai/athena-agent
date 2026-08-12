@@ -3,13 +3,20 @@ import { createPinia, setActivePinia } from "pinia";
 
 import { useChatStore } from "@/stores/chat";
 import { streamChat } from "@/api/chat";
+import { sendFeedback } from "@/api/feedback";
 
 vi.mock("@/api/chat", () => ({
   streamChat: vi.fn(),
   sendChat: vi.fn(),
 }));
 
+vi.mock("@/api/feedback", () => ({
+  sendFeedback: vi.fn(),
+  listQaPairs: vi.fn(),
+}));
+
 const streamChatMock = streamChat as unknown as ReturnType<typeof vi.fn>;
+const sendFeedbackMock = sendFeedback as unknown as ReturnType<typeof vi.fn>;
 
 interface StreamArgs {
   onDelta: (delta: string) => void;
@@ -41,6 +48,7 @@ function controllableStream(): { push: (d: string) => void; fail: (msg: string) 
 beforeEach(() => {
   setActivePinia(createPinia());
   streamChatMock.mockReset();
+  sendFeedbackMock.mockReset();
 });
 
 describe("chat store", () => {
@@ -180,6 +188,71 @@ describe("chat store", () => {
     expect(store.messages).toEqual([]);
     expect(store.loading).toBe(false);
     expect(store.error).toBe("");
+  });
+});
+
+describe("chat store feedback loop (G4.S3.T5)", () => {
+  function qaPair(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "pair-1",
+      question: "what is C-Day?",
+      answer: "the CALEO Day",
+      sources: [],
+      feedback: "up",
+      created_at: "2026-08-12T00:00:00.000Z",
+      updated_at: "2026-08-12T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  it("rateMessage posts the Q&A pair + feedback and stores the direction on the message", async () => {
+    sendFeedbackMock.mockResolvedValue({ pair: qaPair(), deduped: false, confidenceUpdates: [] });
+    const store = useChatStore();
+    store.messages = [
+      { role: "user", content: "What is C-Day?", speaker: { id: "hermes", kind: "employee", name: "Hermes", logoUrl: "" } },
+      { role: "assistant", content: "C-Day is the CALEO Day.", speaker: { id: "athena", kind: "agent", name: "Athena", logoUrl: "" } },
+    ];
+
+    await store.rateMessage(1, "up");
+
+    expect(sendFeedbackMock).toHaveBeenCalledWith({
+      question: "What is C-Day?",
+      answer: "C-Day is the CALEO Day.",
+      sources: [],
+      feedback: "up",
+    });
+    expect(store.messages[1]!.feedback).toBe("up");
+    expect(store.error).toBe("");
+  });
+
+  it("rateMessage ignores non-assistant messages and repeated same-direction clicks", async () => {
+    sendFeedbackMock.mockResolvedValue({ pair: qaPair(), deduped: false, confidenceUpdates: [] });
+    const store = useChatStore();
+    store.messages = [
+      { role: "user", content: "What is C-Day?" },
+      { role: "assistant", content: "C-Day is the CALEO Day.", feedback: "up" },
+    ];
+
+    await store.rateMessage(0, "up"); // user row → no-op
+    await store.rateMessage(1, "up"); // already rated up → no-op
+    await store.rateMessage(99, "down"); // out of range → no-op
+
+    expect(sendFeedbackMock).not.toHaveBeenCalled();
+    expect(store.messages[1]!.feedback).toBe("up");
+  });
+
+  it("rateMessage records an error when the feedback API fails", async () => {
+    sendFeedbackMock.mockRejectedValue(new Error("network down"));
+    const store = useChatStore();
+    store.messages = [
+      { role: "user", content: "What is C-Day?" },
+      { role: "assistant", content: "C-Day is the CALEO Day." },
+    ];
+
+    await store.rateMessage(1, "down");
+
+    expect(store.error).toBe("network down");
+    expect(store.messages[1]!.feedback).toBeUndefined();
   });
 });
 

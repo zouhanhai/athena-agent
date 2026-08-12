@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T07:54:56.678Z",
+  "generated_at": "2026-08-12T08:07:11.118Z",
   "goals": [
     {
       "ref": "G1",
@@ -2121,15 +2121,15 @@
               "id": "s3.5",
               "title": "G4.S3.T5: Feedback loop — thumbs up/down → Q&A pairs + confidence update",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_g4s3t5",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "progress_last_row": "Web done: thumbs up/down on Chat assistant answers (GlobalChatPanel) → `rateMessage` store action → `sendFeedback` API (question/answer/sources/feedback) → POST /api/kb/feedback; active-state highlighting; `listQaPairs` for the Terms & QA tab. Server 780/780 + web 358/358 tests green, server + web typecheck clean. Acceptance met — chat shows thumbs up/down, Q&A pairs stored (deduped by vector similarity), confidence reacts per feedback direction via the canonical syncer. Marking done.",
+              "progress_updated_at": "2026-08-12T08:07:10Z"
             },
             {
               "ref": "G4.S3.T6",

@@ -10,10 +10,16 @@ import { useChatStore } from "@/stores/chat";
 import { streamChat } from "@/api/chat";
 import { listAgents } from "@/api/agents";
 import { listEmployees } from "@/api/invitations";
+import { sendFeedback } from "@/api/feedback";
 
 vi.mock("@/api/chat", () => ({
   streamChat: vi.fn(),
   sendChat: vi.fn(),
+}));
+
+vi.mock("@/api/feedback", () => ({
+  sendFeedback: vi.fn(),
+  listQaPairs: vi.fn(),
 }));
 
 vi.mock("@/api/agents", () => ({
@@ -27,6 +33,7 @@ vi.mock("@/api/invitations", () => ({
 const streamChatMock = streamChat as unknown as ReturnType<typeof vi.fn>;
 const listAgentsMock = listAgents as unknown as ReturnType<typeof vi.fn>;
 const listEmployeesMock = listEmployees as unknown as ReturnType<typeof vi.fn>;
+const sendFeedbackMock = sendFeedback as unknown as ReturnType<typeof vi.fn>;
 
 const HERMES_AGENT = {
   id: "a2",
@@ -117,6 +124,7 @@ afterEach(() => {
   streamChatMock.mockReset();
   listAgentsMock.mockReset();
   listEmployeesMock.mockReset();
+  sendFeedbackMock.mockReset();
 });
 
 describe("GlobalChatPanel personal chat panel (store-backed)", () => {
@@ -446,6 +454,52 @@ describe("GlobalChatPanel agent cards", () => {
     expect(rows[0]!.find(".speaker-logo").exists()).toBe(true);
     expect(rows[1]!.find(".speaker-logo").exists()).toBe(true);
     expect(rows[1]!.find(".speaker-logo img").attributes("src")).toBe("/athena-logo-ai.png");
+    wrapper.unmount();
+  });
+});
+
+describe("GlobalChatPanel feedback loop (G4.S3.T5)", () => {
+  it("shows thumbs up/down controls on assistant answers (not on user rows)", async () => {
+    stubStream();
+    const wrapper = mountChat();
+    await send(wrapper, "What is C-Day?");
+
+    const assistant = wrapper.find(".message-row.assistant");
+    expect(assistant.find(".feedback-up").exists()).toBe(true);
+    expect(assistant.find(".feedback-down").exists()).toBe(true);
+    expect(wrapper.find(".message-row.user .feedback-controls").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("clicking thumbs up rates the answer through the feedback API", async () => {
+    stubStream();
+    sendFeedbackMock.mockResolvedValue({ pair: {}, deduped: false, confidenceUpdates: [] });
+    const wrapper = mountChat();
+    await send(wrapper, "What is C-Day?");
+
+    await wrapper.find(".message-row.assistant .feedback-up").trigger("click");
+    await flushPromises();
+
+    expect(sendFeedbackMock).toHaveBeenCalledWith({
+      question: "What is C-Day?",
+      answer: "Hello, human.",
+      sources: [],
+      feedback: "up",
+    });
+    wrapper.unmount();
+  });
+
+  it("highlights the active thumbs down after rating", async () => {
+    stubStream();
+    sendFeedbackMock.mockResolvedValue({ pair: {}, deduped: false, confidenceUpdates: [] });
+    const wrapper = mountChat();
+    await send(wrapper, "What is C-Day?");
+
+    await wrapper.find(".message-row.assistant .feedback-down").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".message-row.assistant .feedback-down.active").exists()).toBe(true);
+    expect(wrapper.find(".message-row.assistant .feedback-up.active").exists()).toBe(false);
     wrapper.unmount();
   });
 });

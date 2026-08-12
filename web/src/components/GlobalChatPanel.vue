@@ -199,8 +199,39 @@ function addEmployee(emp: EmployeeRecord) {
             />
             <span v-else class="speaker-fallback">{{ msg.speaker.name.charAt(0).toUpperCase() }}</span>
           </span>
-          <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
-            {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
+          <div class="bubble-block">
+            <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
+              {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
+            </div>
+            <div
+              v-if="msg.role === 'assistant' && msg.content"
+              class="feedback-controls"
+            >
+              <button
+                type="button"
+                class="feedback-btn feedback-up"
+                :class="{ active: msg.feedback === 'up' }"
+                title="Helpful answer — reinforce the sources"
+                aria-label="Upvote answer"
+                @click="chat.rateMessage(index, 'up')"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path d="M2 21h3v-9H2v9zM22 11c0-.9-.8-1.6-1.7-1.5H14l.6-2.8.1-1.1c0-1.2-.9-2.1-2.1-2.1L9 7.9c-.6.6-1 1.5-1 2.4V19c0 .9.7 1.6 1.6 1.6h7.4c.7 0 1.3-.4 1.5-1.1l1.4-5.6c.1-.3.1-.6.1-.9v-2z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="feedback-btn feedback-down"
+                :class="{ active: msg.feedback === 'down' }"
+                title="Not helpful — fade the sources"
+                aria-label="Downvote answer"
+                @click="chat.rateMessage(index, 'down')"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path d="M2 3h3v9H2V3zm20 10c0 .9-.8 1.6-1.7 1.5H14l.6 2.8.1 1.1c0 1.2-.9 2.1-2.1 2.1l-3.6-3.4c-.6-.6-1-1.5-1-2.4V5c0-.9.7-1.6 1.6-1.6h7.4c.7 0 1.3.4 1.5 1.1l1.4 5.6c.1.3.1.6.1.9v2z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </template>
       </div>
@@ -409,6 +440,58 @@ function addEmployee(emp: EmployeeRecord) {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* G4.S3.T5: the assistant bubble block groups the bubble with its thumbs
+   up/down feedback controls (constrained to the same width as the bubble). */
+.bubble-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 70%;
+  min-width: 0;
+}
+
+.bubble-block .bubble {
+  max-width: 100%;
+}
+
+.feedback-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.feedback-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--caleo-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s var(--caleo-ease-out), background-color 0.15s var(--caleo-ease-out);
+}
+
+.feedback-btn:hover {
+  background: var(--caleo-hover);
+  color: var(--caleo-text);
+}
+
+.feedback-btn.active.feedback-up {
+  color: var(--caleo-primary);
+  border-color: color-mix(in srgb, var(--caleo-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--caleo-primary) 10%, transparent);
+}
+
+.feedback-btn.active.feedback-down {
+  color: var(--caleo-error);
+  border-color: color-mix(in srgb, var(--caleo-error) 45%, transparent);
+  background: color-mix(in srgb, var(--caleo-error) 10%, transparent);
 }
 
 .message-row.user .bubble {

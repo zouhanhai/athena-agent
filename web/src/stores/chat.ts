@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { streamChat } from "@/api/chat";
+import { sendFeedback, type FeedbackDirection } from "@/api/feedback";
 
 export type ChatSpeakerKind = "agent" | "employee";
 export type ChatMessageRole = "user" | "assistant" | "system";
@@ -25,6 +26,8 @@ export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
   speaker?: ChatSpeaker;
+  /** G4.S3.T5: the user's thumbs up/down on this assistant answer (set via rateMessage). */
+  feedback?: FeedbackDirection | null;
 }
 
 interface ChatState {
@@ -165,6 +168,31 @@ export const useChatStore = defineStore("chat", {
         this.loading = false;
       }
     },
+    /**
+     * G4.S3.T5: rate the assistant answer at `index` (thumbs up/down). Persists
+     * the Q&A pair + feedback server-side (deduped by vector similarity) and
+     * stores the chosen direction on the message so the button stays active.
+     * Re-rating the same direction is a no-op.
+     */
+    async rateMessage(index: number, feedback: FeedbackDirection) {
+      const assistant = this.messages[index];
+      if (!assistant || assistant.role !== "assistant" || assistant.feedback === feedback) {
+        return;
+      }
+      const question = this.messages[index - 1];
+      try {
+        await sendFeedback({
+          question: question?.role === "user" ? question.content : "",
+          answer: assistant.content,
+          sources: [],
+          feedback,
+        });
+        assistant.feedback = feedback;
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : String(err);
+      }
+    },
+
     reset() {
       this.messages = [];
       this.loading = false;
