@@ -3,3 +3,7 @@ server/.env.local
 
 # Local Neo4j spike data volume (G4.S2.T2) — DB data + auth, never commit
 .neo4j-spike/
+
+# Python bytecode / caches — never track .pyc (caused 6900XT merge conflicts)
+__pycache__/
+*.pyc
