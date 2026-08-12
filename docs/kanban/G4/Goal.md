@@ -60,6 +60,14 @@ Corresponds to Milestone M4. Three thrusts:
   layered summaries; Entity→Chunk + graph in RRF + cross-encoder rerank (llama.cpp BGE-Reranker-v2-M3).
   Server **693/693** tests, typecheck 0. LightRAG fully removed (T10).
   See `docs/kanban/G4/S2/Spec.md` "Status: DONE" for verification details.
+- **G4.S3 (KB confidence & lifecycle + agentic RAG): DONE (2026-08-12)** — T1-T13 all complete.
+  KB confidence/lifecycle (read_count/last_reviewed/confidence/topic_history, Athena re-curation,
+  topic-scoped search); semantic terms (CDay→CALEO Day) + stored Q&A pairs (PG text + Neo4j vector
+  index); `search_knowledge` Agentic RAG wired into Athena chat (QA reuse, term expansion, multi-hop,
+  not-found→web fallback, clarify only for subject-less queries with a real chat follow-up);
+  wiki edit→diff-refine→RAG re-embedding (kb.edit RBAC) + Admin console (employee/permission/invite).
+  Server **928/928**, web **421/421**, vue-tsc 0. End-to-end verified: QA reuse, web fallback, clarify,
+  Edit→re-ingest (refinement + 4 chunks re-embedded).
 - **G4.S3+ (KB intelligence, worker progress, issues sync, federation): backlog** — next.
 
 ## Post-G4 enhancement backlog (recorded, not scheduled)
