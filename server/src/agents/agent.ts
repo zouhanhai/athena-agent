@@ -14,6 +14,7 @@ import {
 import { LlmWikiClient } from "../kb/llmwiki.js";
 import { createRefineDocumentTool } from "./refine-document.js";
 import type { AgenticRetrievalService } from "../kb/agentic-rag.js";
+import { createDefaultAgenticRetrieval } from "../kb/agentic-defaults.js";
 
 export interface CreateAgentOptions {
   /** Provider id. Default: "openrouter" */
@@ -32,8 +33,9 @@ export interface CreateAgentOptions {
   refineDocumentTool?: boolean;
   /** Services backing the knowledge tools. Default: live llm_wiki client. */
   knowledgeToolServices?: KnowledgeToolServices;
-  /** Agentic RAG service (G4.S3.T7). When provided, the `search_knowledge` tool
-   *  is registered. Default: none (tool omitted). */
+  /** Agentic RAG service (G4.S3.T7). When provided, the `search_knowledge`
+   *  tool uses it. Default: a service built from env + the session's
+   *  modelRuntime (G4.S3.T12) — KB retrieval + LLM judge + web fallback. */
   agenticRetrieval?: AgenticRetrievalService;
   /** Additional custom tools registered on the session. */
   customTools?: ToolDefinition[];
@@ -102,10 +104,27 @@ export async function createAgent(options: CreateAgentOptions = {}): Promise<Age
   // wrapper is needed for the agent; the server-side agentic fallback uses the
   // DuckDuckGoWebSearchProvider directly (web-search.ts).
 
-  // G4.S3.T7: `search_knowledge` — the agentic RAG retrieval tool, registered
-  // when an AgenticRetrievalService is wired in.
-  if (options.agenticRetrieval) {
-    customTools.push(createSearchKnowledgeTool(options.agenticRetrieval));
+  // G4.S3.T7/T12: `search_knowledge` — the agentic RAG retrieval tool. When no
+  // AgenticRetrievalService is supplied we build the default (env-wired KB
+  // retrieval with semantic mappings + stored-QA reference, the per-session
+  // modelRuntime judge and a DuckDuckGo web fallback) so every Athena chat
+  // agent reuses stored Q&A pairs + term expansion instead of falling back to
+  // web. Best-effort: a wiring failure logs and omits the tool — agent
+  // creation never crashes on it.
+  let agenticRetrieval = options.agenticRetrieval;
+  if (!agenticRetrieval) {
+    try {
+      agenticRetrieval = createDefaultAgenticRetrieval(modelRuntime).service;
+    } catch (error) {
+      console.warn(
+        `[agent] default AgenticRetrievalService wiring failed — search_knowledge omitted: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  if (agenticRetrieval) {
+    customTools.push(createSearchKnowledgeTool(agenticRetrieval));
   }
 
   const { session, extensionsResult } = await createAgentSession({

@@ -55,11 +55,14 @@ test("createAgent registers search_knowledge (agentic RAG) and the SDK's web_sea
   }
 });
 
-test("createAgent omits search_knowledge when no agentic service is wired", async () => {
-  const agent = await createAgent({ agenticRetrieval: undefined });
+test("createAgent wires a DEFAULT search_knowledge (agentic RAG) when no agentic service is supplied (G4.S3.T12)", async () => {
+  const agent = await createAgent();
   try {
     const names = agent.session.getAllTools().map((t) => t.name);
-    assert.ok(!names.includes("search_knowledge"), "search_knowledge tool should be omitted by default");
+    assert.ok(names.includes("search_knowledge"), "default wiring registers search_knowledge");
+    assert.ok(names.includes("wiki_search"), "llm_wiki tools stay registered (additive)");
+    assert.ok(names.includes("wiki_read_page"), "wiki_read_page stays registered (additive)");
+    assert.ok(names.includes("wiki_graph"), "wiki_graph stays registered (additive)");
   } finally {
     agent.dispose();
   }
