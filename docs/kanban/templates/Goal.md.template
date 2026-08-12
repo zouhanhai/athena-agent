@@ -15,17 +15,13 @@ acceptance_criteria:
 ## Background / Context
 Why this goal, what problem it solves...
 
-## Spec dependency order
-- **<spec 1 name> FIRST** — why it must come first
-- <spec 2 name> — depends on spec 1
-- <spec 3 name> — independent
+## Goal
+1. <sub-goal 1>
+2. <sub-goal 2>
+3. <sub-goal 3>
 
-## Reference design docs
-- `docs/...`
+## Confirmed Decisions
+- <decision 1>
 
-## Progress
-- **<spec 1 name>: DONE <date>** — summary
-- **<spec 2 name>: backlog** — next
-
-## Post-G enhancement backlog (recorded, not scheduled)
-- *None currently open.*
+## Completion Criteria
+See frontmatter acceptance_criteria. All Specs under G1 and their Tickets must be approved.
