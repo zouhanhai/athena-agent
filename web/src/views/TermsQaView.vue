@@ -397,6 +397,11 @@ onMounted(() => {
   align-items: center;
 }
 
+.mapping-form .t-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .qa-form {
   flex-direction: column;
   align-items: stretch;
