@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T11:06:49.369Z",
+  "generated_at": "2026-08-12T11:11:06.757Z",
   "goals": [
     {
       "ref": "G1",
@@ -2151,15 +2151,15 @@
               "id": "s3.7",
               "title": "G4.S3.T7: Agentic RAG — query transformation / compression / picker / multi-hop",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "a8b2cbf2-d52a-4cf3-94ff-e38a4c0f43fd",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "RED→GREEN: AgenticRetrievalService orchestrator (query transform clarify/decompose, retriever picker + topic convergence, multi-hop, relevance judge, compress, not-found→web fallback + KB update suggestion; non-agentic S2 fallback). agentic-rag.test.ts 9/9; kb suite 360/360; typecheck clean.",
-              "progress_updated_at": "2026-08-12T11:20:00Z"
+              "progress_last_row": "Committed + pushed (5c9a874), codegraph synced. Acceptance met: query transform (clarify/decompose→parallel→fuse), compression, retriever picker (vector/bm25/graph/hybrid), topic convergence (T4 topic-scoped search, omit for cross-domain), multi-hop graph reasoning, not-found → explicit \"not found in KB\" + web-search fallback + KB-update suggestion. search_knowledge tool = retrieval-side of KB-as-MCP contract (G4.S6). Server 857/857 tests, typecheck 0.",
+              "progress_updated_at": "2026-08-12T12:05:00Z"
             },
             {
               "ref": "G4.S3.T8",
