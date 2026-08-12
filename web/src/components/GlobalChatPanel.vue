@@ -130,7 +130,7 @@ function addEmployee(emp: EmployeeRecord) {
           v-for="(participant, idx) in chat.participants"
           :key="participant.id"
           :participant="participant"
-          :active="expandedAgentId === participant.id || chat.participants.length === 1"
+          :active="(expandedAgentId ?? chat.participants[0]?.id) === participant.id"
           :stack-index="idx"
           @toggle="expandedAgentId = participant.id"
           @speak-change="(speak) => chat.onSpeakToggleChanged(participant.id, speak)"
