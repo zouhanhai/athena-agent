@@ -8,10 +8,14 @@
  *
  * G4.S2.T10: the semantic knowledge tools (knowledge_search / query_graph) were
  * removed with their backend; llm_wiki remains the knowledge source.
+ *
+ * G4.S3.T7.6: `web_search` is the not-found fallback tool (the Pi SDK exposes
+ * no built-in web search, so this wraps an injectable WebSearchProvider).
  */
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { LlmWikiClient } from "./llmwiki.js";
+import type { AgenticRetrievalService, WebSearchProvider } from "./agentic-rag.js";
 
 export type Capability = "vector" | "keyword" | "graph" | "wiki";
 
@@ -178,4 +182,77 @@ export function buildCapabilitiesSystemSection(): string {
     "- Page / topic links exploration -> wiki_graph (llm_wiki)",
     "- Simple chit-chat -> answer directly without querying",
   ].join("\n");
+}
+
+/**
+ * `web_search` Pi tool (G4.S3.T7.6) — the not-found fallback + web comparison
+ * source for agentic RAG. The Pi SDK exposes no built-in web search, so this is
+ * a thin wrapper around an injectable WebSearchProvider. Returns up to `topK`
+ * results as {title, url, snippet} lines for the LLM to answer from.
+ */
+export function createWebSearchTool(provider: WebSearchProvider): ToolDefinition {
+  return {
+    name: "web_search",
+    label: "Web Search",
+    description:
+      "Search the open web for the latest / external information when the knowledge base does not " +
+      "contain the answer (or to compare against KB results).",
+    promptGuidelines: [
+      "Use when the KB returns nothing relevant or the user asks for up-to-date / external facts.",
+      "The result is a list of {title, url, snippet} — answer from it and cite the urls.",
+    ],
+    parameters: Type.Object({
+      query: Type.String(),
+      topK: Type.Optional(Type.Number()),
+    }),
+    async execute(_toolCallId, params: { query: string; topK?: number }, _signal?, _onUpdate?, _ctx?) {
+      const results = await provider.search(params.query).then((r) => (params.topK ? r.slice(0, params.topK) : r));
+      if (results.length === 0) {
+        return textResult("(no web results)");
+      }
+      const rows = results.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`);
+      return textResult(`Web search results:\n${rows.join("\n")}`);
+    },
+  };
+}
+
+/**
+ * `search_knowledge` Pi tool (G4.S3.T7) — the agentic RAG retrieval tool (the
+ * retrieval-side of the KB-as-MCP `search_knowledge(query, topic?)` contract,
+ * G4.S6). Runs the full AgenticRetrievalService pipeline (query transform /
+ * retriever picker + topic convergence / multi-hop / compression / not-found →
+ * web fallback + KB-update suggestion) and returns the final answer. Optional
+ * `topic` scopes the search to a topic subtree.
+ */
+export function createSearchKnowledgeTool(service: AgenticRetrievalService): ToolDefinition {
+  return {
+    name: "search_knowledge",
+    label: "Search Knowledge (Agentic RAG)",
+    description:
+      "Answer from the Athena knowledge base with agentic RAG: query transformation, the best " +
+      "retriever picker, topic convergence, multi-hop graph reasoning and compression. When the KB " +
+      "does not answer, says so explicitly and falls back to web search with a KB-update suggestion.",
+    promptGuidelines: [
+      "Use for knowledge-base questions that need retrieval + synthesis (processes, standards, concepts, entity relations).",
+      "When the answer says 'not found in the knowledge base', read the web-fallback + KB-update suggestion and follow up.",
+    ],
+    parameters: Type.Object({
+      query: Type.String(),
+      topic: Type.Optional(Type.String()),
+    }),
+    async execute(_toolCallId, params: { query: string; topic?: string }, _signal?, _onUpdate?, _ctx?) {
+      const answer = await service.answer(params.query);
+      const parts = [`Answer: ${answer.answer}`];
+      if (answer.notFound && answer.kbUpdateSuggestion) {
+        parts.push(`KB update suggestion: ${answer.kbUpdateSuggestion}`);
+      }
+      if (answer.webResults.length > 0) {
+        parts.push(`Web sources:\n${answer.webResults.map((w) => `- ${w.title} (${w.url})`).join("\n")}`);
+      }
+      if (answer.hits.length > 0) {
+        parts.push(`KB sources:\n${answer.hits.map((h) => `- ${h.title}${h.path ? ` (${h.path})` : ""}`).join("\n")}`);
+      }
+      return textResult(parts.join("\n\n"));
+    },
+  };
 }

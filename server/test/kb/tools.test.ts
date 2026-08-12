@@ -2,11 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   createKnowledgeTools,
+  createSearchKnowledgeTool,
+  createWebSearchTool,
   KNOWLEDGE_SOURCES,
   routeRequirement,
   sourceSatisfiesRequirement,
   buildCapabilitiesSystemSection,
 } from "../../src/kb/tools.js";
+import { AgenticRetrievalService } from "../../src/kb/agentic-rag.js";
 
 function makeServices(overrides: Record<string, unknown> = {}) {
   return {
@@ -117,4 +120,64 @@ test("buildCapabilitiesSystemSection renders source capabilities + intent routin
   const section = buildCapabilitiesSystemSection();
   assert.match(section, /llm_wiki \(llmwiki\): capabilities = \[wiki, keyword, graph\]/);
   assert.match(section, /Process \/ standards \/ concept definitions/);
+});
+
+test("web_search tool wraps the provider and formats {title, url, snippet} rows", async () => {
+  const tool = createWebSearchTool({
+    search: async () => [
+      { title: "DeepSeek-V4", url: "https://example.com", snippet: "Latest model specs." },
+    ],
+  });
+  const result = await tool.execute("c", { query: "deepseek v4" }, undefined, undefined, {} as never);
+  const text = (result.content[0] as { text: string }).text;
+  assert.match(text, /Web search results:/);
+  assert.match(text, /DeepSeek-V4 \(https:\/\/example\.com\)/);
+  assert.match(text, /Latest model specs\./);
+});
+
+test("web_search tool reports empty results", async () => {
+  const tool = createWebSearchTool({ search: async () => [] });
+  const result = await tool.execute("c", { query: "nothing" }, undefined, undefined, {} as never);
+  const text = (result.content[0] as { text: string }).text;
+  assert.match(text, /no web results/);
+});
+
+test("search_knowledge tool runs the agentic pipeline and formats the answer + sources", async () => {
+  const service = new AgenticRetrievalService({
+    search: async (query: string) => ({ query, results: [] }),
+    judge: {
+      transformQuery: async () => ({ action: "direct", retriever: "hybrid" }),
+      judgeRelevance: async () => ({ relevant: true }),
+      compress: async () => "CALEO hosts the Sommerseminar annually.",
+      multiHop: async () => ({ followUps: [], trace: "" }),
+      suggestKbUpdate: async () => "",
+    },
+    webSearch: { search: async () => [] },
+  });
+  const tool = createSearchKnowledgeTool(service);
+  const result = await tool.execute("c", { query: "sommerseminar" }, undefined, undefined, {} as never);
+  const text = (result.content[0] as { text: string }).text;
+  assert.match(text, /Answer: CALEO hosts the Sommerseminar annually\./);
+});
+
+test("search_knowledge tool reports not-found + KB update suggestion + web sources", async () => {
+  const service = new AgenticRetrievalService({
+    search: async (query: string) => ({ query, results: [] }),
+    judge: {
+      transformQuery: async () => ({ action: "direct" }),
+      judgeRelevance: async () => ({ relevant: false, reason: "no hits" }),
+      compress: async () => "",
+      multiHop: async () => ({ followUps: [], trace: "" }),
+      suggestKbUpdate: async () => "upload a deepseek-v4 doc under ai/models",
+    },
+    webSearch: {
+      search: async () => [{ title: "DeepSeek-V4", url: "https://example.com", snippet: "specs" }],
+    },
+  });
+  const tool = createSearchKnowledgeTool(service);
+  const result = await tool.execute("c", { query: "deepseek v4" }, undefined, undefined, {} as never);
+  const text = (result.content[0] as { text: string }).text;
+  assert.match(text, /not found in the knowledge base/i);
+  assert.match(text, /upload a deepseek-v4 doc under ai\/models/);
+  assert.match(text, /https:\/\/example\.com/);
 });

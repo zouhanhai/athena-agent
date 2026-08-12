@@ -6,9 +6,14 @@ import {
   type SessionManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createKnowledgeTools, type KnowledgeToolServices } from "../kb/tools.js";
+import {
+  createKnowledgeTools,
+  createSearchKnowledgeTool,
+  type KnowledgeToolServices,
+} from "../kb/tools.js";
 import { LlmWikiClient } from "../kb/llmwiki.js";
 import { createRefineDocumentTool } from "./refine-document.js";
+import type { AgenticRetrievalService } from "../kb/agentic-rag.js";
 
 export interface CreateAgentOptions {
   /** Provider id. Default: "openrouter" */
@@ -27,6 +32,9 @@ export interface CreateAgentOptions {
   refineDocumentTool?: boolean;
   /** Services backing the knowledge tools. Default: live llm_wiki client. */
   knowledgeToolServices?: KnowledgeToolServices;
+  /** Agentic RAG service (G4.S3.T7). When provided, the `search_knowledge` tool
+   *  is registered. Default: none (tool omitted). */
+  agenticRetrieval?: AgenticRetrievalService;
   /** Additional custom tools registered on the session. */
   customTools?: ToolDefinition[];
   /** Allowlist of active tool names; when provided only these tools are exposed. */
@@ -87,6 +95,17 @@ export async function createAgent(options: CreateAgentOptions = {}): Promise<Age
 
   if (options.refineDocumentTool !== false) {
     customTools.push(createRefineDocumentTool(modelRuntime));
+  }
+
+  // G4.S3.T7.6: the Pi SDK (pi-web-access package) ALREADY exposes a `web_search`
+  // tool on the athena agent — verified via agent.session.getAllTools(). No thin
+  // wrapper is needed for the agent; the server-side agentic fallback uses the
+  // DuckDuckGoWebSearchProvider directly (web-search.ts).
+
+  // G4.S3.T7: `search_knowledge` — the agentic RAG retrieval tool, registered
+  // when an AgenticRetrievalService is wired in.
+  if (options.agenticRetrieval) {
+    customTools.push(createSearchKnowledgeTool(options.agenticRetrieval));
   }
 
   const { session, extensionsResult } = await createAgentSession({
