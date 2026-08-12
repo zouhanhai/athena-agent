@@ -109,3 +109,32 @@
     continuously — scans claimable tickets + dispatches them in sequence (existing `claimableTickets`
     + `dispatchNext`).
 - So dispatch is not fully automated by default; it becomes automatic only in YOLO mode.
+
+### D13. Parallel workers (confirmed by user)
+- **Unlimited parallel** (multiple workers can be opened in YOLO mode), rely on **git claim-lock**
+  (prevents same-ticket concurrency) + **file isolation** (different workers editing different files
+  don't conflict).
+
+### D14. Ticket granularity (confirmed by user)
+- **Keep the current granularity**: one ticket = one testable feature change (feature-level commit).
+- Spec discussion splits tickets by feature size; two tickets that are too tightly coupled get merged
+  into one larger ticket.
+
+### D15. S4 plugin vs monitor (confirmed by user)
+- **Complementary + tiered**:
+  - **Normal**: read the Progress Log (plugin-written, real-time).
+  - **Stall signal (no log for ~3 min)**: the monitor script (uses opencode server API) probes the
+    session (stuck / waiting / long test) + wakes the worker.
+- The monitor uses the opencode server API (same API used to dispatch workers), so it's not deleted;
+  it's only needed when Progress Log stalls.
+
+### D16. Reviewer ownership + granularity (confirmed by user)
+- **Small team (current)**: user + Hermes review together — tests pass before moving on (no formal
+  approved status used in practice, but the gate is "tests green + analysis ok").
+- **Large team**: review at **Goal/Spec granularity** — another user reviews the completion of a Goal
+  or Spec (batch), NOT every ticket. Reduces review load.
+
+### D17. Testing ownership (confirmed by user)
+- **Worker runs tests (on 6900XT)** + reviewer (Hermes/user) independently verifies tests green before
+  approved.
+- The 6900XT environment is authoritative for verification.
