@@ -138,3 +138,10 @@
 - **Worker runs tests (on 6900XT)** + reviewer (Hermes/user) independently verifies tests green before
   approved.
 - The 6900XT environment is authoritative for verification.
+
+### D18. Plugin residency + ticket detection (confirmed by user)
+- **Plugin is global/resident** (loaded at opencode serve startup from `.opencode/plugins/`, shared by
+  all workers/sessions), distinguished per worker by **sessionID**.
+- **Ticket detection**: the plugin parses the current ticket ref from the **session's first message**
+  (the dispatch prompt, which names the ticket ref).
+- Implication: dispatch prompt must carry the ticket ref in a stable, parseable position.
