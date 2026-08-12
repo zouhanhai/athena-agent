@@ -4,16 +4,19 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import type { TreeNodeModel } from "tdesign-vue-next/es/tree/type";
 
-import { deleteWikiDoc, getWikiTree, readWikiPage } from "@/api/kb";
+import { deleteWikiDoc, getWikiTree, readWikiPage, saveWikiPage } from "@/api/kb";
 import type { WikiTreeNode } from "@/api/kb";
 import { extractWikiHeadings, hasWikiHeadings, renderMarkdown } from "@/kb/markdown";
 import { attachHeadings, buildViewTree, flattenPages } from "@/kb/wiki-tree";
 import type { WikiView } from "@/kb/wiki-tree";
 import { useThemeStore } from "@/stores/theme";
+import { useAuthStore } from "@/stores/auth";
 
 const theme = useThemeStore();
 const { mode } = storeToRefs(theme);
 void mode;
+
+const auth = useAuthStore();
 
 const route = useRoute();
 const router = useRouter();
@@ -29,6 +32,19 @@ const contentError = ref("");
 const deleteVisible = ref(false);
 const deleting = ref(false);
 const deleteError = ref("");
+
+// G4.S3.T10: wiki editing is permission-gated behind `kb.edit` — admin by
+// default, grantable to a member. Everyone else sees the wiki read-only.
+const canEdit = computed(
+  () =>
+    auth.employee !== null &&
+    (auth.employee.role === "admin" || auth.employee.permissions?.includes("kb.edit") === true),
+);
+const editing = ref(false);
+const editingContent = ref("");
+const saving = ref(false);
+const saveError = ref("");
+const saveNotice = ref("");
 
 const treeKeys = { value: "path", label: "name", children: "children" };
 
@@ -196,6 +212,10 @@ async function loadTree() {
 
 async function openPage(path: string) {
   activePath.value = path;
+  editing.value = false;
+  editingContent.value = "";
+  saveError.value = "";
+  saveNotice.value = "";
   contentLoading.value = true;
   contentError.value = "";
   try {
@@ -207,6 +227,46 @@ async function openPage(path: string) {
     contentError.value = err instanceof Error ? err.message : String(err);
   } finally {
     contentLoading.value = false;
+  }
+}
+
+/** Enter edit mode for the selected page (G4.S3.T10). */
+function startEdit(): void {
+  if (!selectedFile.value) return;
+  editingContent.value = content.value;
+  saveError.value = "";
+  saveNotice.value = "";
+  editing.value = true;
+}
+
+function cancelEdit(): void {
+  editing.value = false;
+  editingContent.value = "";
+  saveError.value = "";
+  saveNotice.value = "";
+}
+
+/** Save the corrected markdown to the wiki + trigger the Athena diff-refine /
+ *  RAG re-ingest background task (G4.S3.T10). */
+async function confirmSave(): Promise<void> {
+  const path = selectedFile.value;
+  if (!path) return;
+  saving.value = true;
+  saveError.value = "";
+  saveNotice.value = "";
+  try {
+    const result = await saveWikiPage(path, editingContent.value);
+    if (!result.saved) {
+      saveError.value = "The document could not be saved.";
+      return;
+    }
+    content.value = editingContent.value;
+    editing.value = false;
+    saveNotice.value = "Saved. Athena is re-ingesting the corrected page into retrieval...";
+  } catch (err) {
+    saveError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -260,6 +320,15 @@ watch(
           <t-radio-button value="topic">Topic</t-radio-button>
           <t-radio-button value="type">Type</t-radio-button>
         </t-radio-group>
+        <t-button
+          v-if="canEdit && selectedFile && !editing"
+          size="small"
+          variant="outline"
+          data-testid="wiki-edit-button"
+          @click="startEdit"
+        >
+          Edit
+        </t-button>
         <t-button
           v-if="selectedFile"
           size="small"
@@ -330,6 +399,37 @@ watch(
         <p v-else-if="!activePath" class="wiki-status wiki-empty-hint">
           Select a wiki page from the tree to read its content.
         </p>
+        <div v-else-if="editing" class="wiki-editor-pane" data-testid="wiki-editor-pane">
+          <textarea
+            v-model="editingContent"
+            class="wiki-editor"
+            data-testid="wiki-editor"
+            aria-label="Wiki page markdown"
+            :disabled="saving"
+          />
+          <p v-if="saveError" class="wiki-error">{{ saveError }}</p>
+          <p v-else-if="saveNotice" class="wiki-save-notice">{{ saveNotice }}</p>
+          <div class="wiki-editor-actions">
+            <t-button
+              size="small"
+              variant="outline"
+              data-testid="wiki-cancel-button"
+              :disabled="saving"
+              @click="cancelEdit"
+            >
+              Cancel
+            </t-button>
+            <t-button
+              size="small"
+              theme="primary"
+              data-testid="wiki-save-button"
+              :loading="saving"
+              @click="confirmSave"
+            >
+              Save
+            </t-button>
+          </div>
+        </div>
         <div
           v-else
           ref="contentPane"
@@ -504,6 +604,46 @@ watch(
 
 .wiki-empty-hint {
   text-align: center;
+}
+
+/* G4.S3.T10: inline markdown editor for a corrected wiki page. */
+.wiki-editor-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.wiki-editor {
+  flex: 1;
+  min-height: 55vh;
+  padding: 12px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: var(--caleo-body-bg);
+  color: var(--caleo-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.wiki-editor:focus {
+  outline: none;
+  border-color: var(--caleo-primary);
+}
+
+.wiki-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wiki-save-notice {
+  margin: 8px 0 0;
+  color: var(--caleo-text-secondary);
+  font-size: 13px;
 }
 
 .wiki-content {

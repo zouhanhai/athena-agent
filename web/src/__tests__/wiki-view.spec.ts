@@ -5,8 +5,9 @@ import { createRouter, createMemoryHistory } from "vue-router";
 import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 import WikiView from "@/views/WikiView.vue";
-import { deleteWikiDoc, getWikiTree, readWikiPage } from "@/api/kb";
+import { deleteWikiDoc, getWikiTree, readWikiPage, saveWikiPage } from "@/api/kb";
 import { renderMarkdown } from "@/kb/markdown";
+import { useAuthStore } from "@/stores/auth";
 import type { WikiTreeNode } from "@/api/kb";
 
 vi.mock("@/api/kb", () => ({
@@ -15,11 +16,13 @@ vi.mock("@/api/kb", () => ({
   readWikiPage: vi.fn(),
   searchKnowledge: vi.fn(),
   deleteWikiDoc: vi.fn(),
+  saveWikiPage: vi.fn(),
 }));
 
 const getWikiTreeMock = getWikiTree as unknown as ReturnType<typeof vi.fn>;
 const readWikiPageMock = readWikiPage as unknown as ReturnType<typeof vi.fn>;
 const deleteWikiDocMock = deleteWikiDoc as unknown as ReturnType<typeof vi.fn>;
+const saveWikiPageMock = saveWikiPage as unknown as ReturnType<typeof vi.fn>;
 
 const sampleTree: WikiTreeNode[] = [
   {
@@ -62,22 +65,64 @@ const metaTree: WikiTreeNode[] = [
   },
 ];
 
-async function mountView(query: Record<string, string> = {}, mountOptions: Parameters<typeof mount>[1] = {}) {
+async function mountView(query: Record<string, string> = {}, mountOptions: Parameters<typeof mount>[1] & { authEmployee?: EmployeeRecordLike } = {}) {
+  const { authEmployee, ...rest } = mountOptions;
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: "/wiki", component: WikiView }],
   });
   await router.push({ path: "/wiki", query });
   await router.isReady();
+  const pinia = createPinia();
+  if (authEmployee) {
+    useAuthStore(pinia).setSession({ session_token: "t", employee: authEmployee });
+  }
   const wrapper = mount(WikiView, {
-    ...mountOptions,
+    ...rest,
     global: {
-      ...(mountOptions.global ?? {}),
-      plugins: [createPinia(), TDesign, router],
+      ...(rest.global ?? {}),
+      plugins: [pinia, TDesign, router],
     },
   });
   return { wrapper, router };
 }
+
+/** Minimal employee shape for auth-store seeding in tests. */
+interface EmployeeRecordLike {
+  id: string;
+  email: string;
+  display_name: string;
+  logo_url: string;
+  role: "admin" | "member";
+  permissions?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+const adminEmployee: EmployeeRecordLike = {
+  id: "a1",
+  email: "admin@caleo.com",
+  display_name: "Admin",
+  logo_url: "",
+  role: "admin",
+  created_at: "2026-08-08T00:00:00.000Z",
+  updated_at: "2026-08-08T00:00:00.000Z",
+};
+
+const memberEmployee: EmployeeRecordLike = {
+  id: "m1",
+  email: "member@caleo.com",
+  display_name: "Member",
+  logo_url: "",
+  role: "member",
+  created_at: "2026-08-08T00:00:00.000Z",
+  updated_at: "2026-08-08T00:00:00.000Z",
+};
+
+const editorEmployee: EmployeeRecordLike = {
+  ...memberEmployee,
+  permissions: ["kb.edit"],
+};
 
 async function clickView(wrapper: ReturnType<typeof mount>, label: string) {
   const btn = wrapper.findAll(".t-radio-button").find((b) => b.text().includes(label));
@@ -95,7 +140,21 @@ afterEach(() => {
   getWikiTreeMock.mockReset();
   readWikiPageMock.mockReset();
   deleteWikiDocMock.mockReset();
+  saveWikiPageMock.mockReset();
 });
+
+/** Open the "release-notes.md" file node in the Topic view. */
+async function openReleaseNotes(wrapper: ReturnType<typeof mount>) {
+  await clickView(wrapper, "Topic");
+  await flushPromises();
+  await expandFolder(wrapper, "Untagged");
+  await flushPromises();
+  const fileItem = wrapper
+    .findAll(".t-tree__item")
+    .find((item) => item.text().includes("release-notes.md"));
+  await fileItem!.trigger("click");
+  await flushPromises();
+}
 
 describe("renderMarkdown", () => {
   it("renders markdown to HTML", () => {
@@ -420,3 +479,134 @@ describe("WikiView", () => {
     }
   });
 });
+
+// --- G4.S3.T10: permission-gated wiki editing ---
+
+describe("WikiView editing (G4.S3.T10)", () => {
+  it("shows the Edit button for an admin after a file is selected", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nBody.");
+    const { wrapper } = await mountView({}, { authEmployee: adminEmployee });
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    const editBtn = wrapper.find('[data-testid="wiki-edit-button"]');
+    expect(editBtn.exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the Edit button for a member granted kb.edit", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nBody.");
+    const { wrapper } = await mountView({}, { authEmployee: editorEmployee });
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    expect(wrapper.find('[data-testid="wiki-edit-button"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("keeps the wiki read-only for a plain member (no Edit affordance)", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nBody.");
+    const { wrapper } = await mountView({}, { authEmployee: memberEmployee });
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    expect(wrapper.find('[data-testid="wiki-edit-button"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="wiki-editor-pane"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="wiki-content"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("keeps the wiki read-only when no employee is signed in", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nBody.");
+    const { wrapper } = await mountView();
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    expect(wrapper.find('[data-testid="wiki-edit-button"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("edit mode swaps the rendered page for a markdown editor with Save + Cancel", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nThe image shows a bright sky.");
+    const { wrapper } = await mountView({}, { authEmployee: adminEmployee });
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="wiki-content"]').exists()).toBe(false);
+    const editor = wrapper.find('[data-testid="wiki-editor"]');
+    expect(editor.exists()).toBe(true);
+    expect((editor.element as HTMLTextAreaElement).value).toContain("bright sky");
+    expect(wrapper.text()).toContain("Save");
+    expect(wrapper.text()).toContain("Cancel");
+    wrapper.unmount();
+  });
+
+  it("Save sends the corrected markdown to saveWikiPage and switches back to the rendered page", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nThe image shows a bright sky.");
+    saveWikiPageMock.mockResolvedValue({ taskId: "t1", saved: true, diff: { changed: true, structural: false } });
+    const { wrapper } = await mountView({}, { authEmployee: adminEmployee });
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
+    await flushPromises();
+    const editor = wrapper.find('[data-testid="wiki-editor"]');
+    (editor.element as HTMLTextAreaElement).value = "# Runbook\n\nThe image shows a dark sky.";
+    await editor.trigger("input");
+    await flushPromises();
+
+    await wrapper.find('[data-testid="wiki-save-button"]').trigger("click");
+    await flushPromises();
+
+    expect(saveWikiPageMock).toHaveBeenCalledWith("release-notes.md", "# Runbook\n\nThe image shows a dark sky.");
+    // Back to the rendered page, now showing the corrected text.
+    expect(wrapper.find('[data-testid="wiki-content"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("dark sky");
+    wrapper.unmount();
+  });
+
+  it("surfaces a save failure without leaving edit mode", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nBody.");
+    saveWikiPageMock.mockRejectedValue(new Error("forbidden: requires permission kb.edit"));
+    const { wrapper } = await mountView({}, { authEmployee: adminEmployee });
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
+    await flushPromises();
+    await wrapper.find('[data-testid="wiki-save-button"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="wiki-editor-pane"]').exists()).toBe(true);
+    expect(wrapper.find(".wiki-error").text()).toContain("forbidden");
+    wrapper.unmount();
+  });
+
+  it("Cancel exits edit mode and discards the draft", async () => {
+    getWikiTreeMock.mockResolvedValue(sampleTree);
+    readWikiPageMock.mockResolvedValue("# Runbook\n\nBody.");
+    const { wrapper } = await mountView({}, { authEmployee: adminEmployee });
+    await flushPromises();
+    await openReleaseNotes(wrapper);
+
+    await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
+    await flushPromises();
+    await wrapper.find('[data-testid="wiki-cancel-button"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="wiki-content"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="wiki-editor-pane"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+

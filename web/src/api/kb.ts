@@ -203,6 +203,21 @@ export async function readWikiPage(path: string): Promise<string> {
   return data.content;
 }
 
+/** PUT /api/kb/wiki/page { path, content } → save a corrected wiki page
+ *  (G4.S3.T10). `content` is the FULL page markdown (frontmatter + body +
+ *  image refs). Returns the background task id + diff metadata; poll
+ *  GET /api/kb/task/:id for the diff-refine + RAG overwrite progress. */
+export async function saveWikiPage(
+  path: string,
+  content: string,
+): Promise<{ taskId: string; saved: boolean; diff: { changed: boolean; structural: boolean } }> {
+  return request(`${KB_BASE}/wiki/page`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, content }),
+  });
+}
+
 /** POST /api/kb/doc/delete { path } → delete a wiki page. */
 export async function deleteWikiDoc(path: string): Promise<{
   ok: boolean;

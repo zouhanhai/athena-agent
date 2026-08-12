@@ -5,6 +5,7 @@ import {
   getGraphTopics,
   getWikiTree,
   readWikiPage,
+  saveWikiPage,
   searchKnowledge,
   searchKnowledgeFull,
   listSemanticMappings,
@@ -112,6 +113,29 @@ describe("readWikiPage", () => {
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/kb/wiki/page?path=docs%2Fa%20b.md");
     expect(content).toBe("# Title");
+  });
+});
+
+describe("saveWikiPage", () => {
+  it("PUTs the corrected page to /api/kb/wiki/page and returns the task id (G4.S3.T10)", async () => {
+    stubFetch(jsonResponse({ taskId: "t1", saved: true, diff: { changed: true, structural: false } }));
+    const result = await saveWikiPage("wiki/ops/runbook.md", "# Runbook\n\nCorrected body.");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/wiki/page");
+    expect(init.method).toBe("PUT");
+    expect((init.body as string).includes('"path":"wiki/ops/runbook.md"')).toBe(true);
+    expect((init.body as string).includes("Corrected body.")).toBe(true);
+    expect(result.taskId).toBe("t1");
+    expect(result.diff.structural).toBe(false);
+  });
+
+  it("propagates a 403 (permission denied) as an Error", async () => {
+    stubFetch(jsonResponse({ error: 'forbidden: requires permission "kb.edit"' }, 403));
+    await expect(
+      saveWikiPage("wiki/ops/runbook.md", "# Runbook"),
+    ).rejects.toThrow(/Request failed with status 403/);
   });
 });
 

@@ -14,6 +14,8 @@ export interface EmployeeRecord {
   display_name: string;
   logo_url: string;
   role: "admin" | "member";
+  /** Admin-granted extra permissions beyond the role defaults (G4.S3.T10), e.g. `kb.edit`. */
+  permissions?: string[];
   created_at: string;
   updated_at: string;
   /** Whether the employee has a stored GitHub credential (never the value). */
