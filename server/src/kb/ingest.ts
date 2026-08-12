@@ -12,6 +12,8 @@ import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.
 import { WIKI_CATEGORIES, isValidTopic } from "./llmwiki.js";
 import { DOC_TYPE_DIRS } from "./taxonomy.js";
 import { parseFrontmatter } from "./frontmatter.js";
+import { wikiLocalPath } from "./wiki-frontmatter.js";
+import { stripImageRefs } from "../agents/refine-output.js";
 
 export interface IngestInput {
   /** Human-readable document title (also used to derive a safe filename). */
@@ -39,6 +41,26 @@ export interface DeleteDocumentResult {
   llmwiki?: { path?: string; error?: string };
 }
 
+/**
+ * The BEFORE/AFTER snapshot of a wiki page edit (G4.S3.T10). The diff is
+ * computed on the ragMarkdown forms so Athena's incremental refine sees ONLY
+ * the user's semantic correction (image-ref lines are noise).
+ */
+export interface WikiSaveSnapshot {
+  /** The previous FULL page content (File A — frontmatter + body + image refs). */
+  before: string;
+  /** The corrected FULL page content (File A). */
+  after: string;
+  /** Previous page BODY in ragMarkdown form (image refs stripped, VLM alt-text kept). */
+  ragBefore: string;
+  /** Corrected page BODY in ragMarkdown form. */
+  ragAfter: string;
+  /** Corrected page's frontmatter `type` (preserved classification). */
+  type?: string;
+  /** Corrected page's frontmatter `topic` (preserved classification). */
+  topic?: string;
+}
+
 export interface IngestResult {
   documentId: string;
   systems: {
@@ -56,6 +78,8 @@ export interface KnowledgeIngestOptions {
   /** llm_wiki project id used for rescan. Default: current/first project. */
   projectId?: string;
   writeFile?: (path: string, content: string) => Promise<void>;
+  /** Override reading a wiki page file for the edit snapshot (tests). Default: node fs readFile. */
+  readFile?: (path: string) => Promise<string>;
   mkdir?: (path: string) => Promise<void>;
   /** Override listing a directory for image copying (tests). */
   readdir?: (path: string) => Promise<WikiIndexEntry[]>;
@@ -281,6 +305,16 @@ export interface WikiIndexPage {
   target: string;
 }
 
+/** Strip a wiki page's leading `---` frontmatter block, returning the body.
+ *  A page without frontmatter is returned unchanged. */
+export function stripFrontmatterBody(content: string): string {
+  const normalized = content.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) return normalized;
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) return normalized;
+  return normalized.slice(end + 5).replace(/^\n/, "");
+}
+
 /** Replicate llm_wiki's wiki/index.md builder (project.rs rebuild_wiki_index). */
 export function buildWikiIndex(pages: WikiIndexPage[]): string {
   const groups = new Map<string, WikiIndexPage[]>();
@@ -387,6 +421,7 @@ export class KnowledgeIngestService {
   private readonly wikiDir?: string;
   private readonly projectId?: string;
   private readonly writeFile: (path: string, content: string) => Promise<void>;
+  private readonly readFile: (path: string) => Promise<string>;
   private readonly mkdir: (path: string) => Promise<void>;
   private readonly readdir: (path: string) => Promise<WikiIndexEntry[]>;
   private readonly copyFile: (src: string, dest: string) => Promise<void>;
@@ -399,6 +434,7 @@ export class KnowledgeIngestService {
     this.wikiDir = options.wikiDir;
     this.projectId = options.projectId;
     this.writeFile = options.writeFile ?? writeFile;
+    this.readFile = options.readFile ?? ((path: string) => readFile(path, "utf8"));
     this.mkdir = options.mkdir ?? (async (path: string) => {
       await mkdir(path, { recursive: true });
     });
@@ -573,6 +609,33 @@ export class KnowledgeIngestService {
     return {
       ok: !llmwikiOutcome.error,
       llmwiki: llmwikiOutcome,
+    };
+  }
+
+  /**
+   * Save a corrected wiki page (G4.S3.T10): write the new markdown over the old
+   * file (File A — frontmatter + body + image refs kept for human viewing),
+   * rebuild wiki/index.md + rescan llm_wiki, then return the BEFORE/AFTER
+   * snapshot so the caller can compute the diff and drive the Athena diff-refine
+   * + RAG overwrite. The snapshot's `ragBefore`/`ragAfter` are the page BODY in
+   * ragMarkdown form (image ref lines stripped, VLM alt-text retained) — the
+   * ONLY text that ever reaches the RAG store.
+   */
+  async saveWikiPage(path: string, content: string): Promise<WikiSaveSnapshot> {
+    const { id, wikiDir } = await this.resolveProject();
+    const local = wikiLocalPath(wikiDir, path);
+    const before = await this.readFile(local);
+    await this.writeFile(local, content);
+    await this.rebuildIndex(wikiDir);
+    await this.llmwiki.rescan(id);
+    const frontmatter = parseFrontmatter(content);
+    return {
+      before,
+      after: content,
+      ragBefore: stripImageRefs(stripFrontmatterBody(before)),
+      ragAfter: stripImageRefs(stripFrontmatterBody(content)),
+      ...(frontmatter.type ? { type: frontmatter.type } : {}),
+      ...(frontmatter.topic ? { topic: frontmatter.topic } : {}),
     };
   }
 

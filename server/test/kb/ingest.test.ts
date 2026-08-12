@@ -7,11 +7,12 @@ import {
   localClassify,
   localTopic,
   rebuildWikiIndex,
+  stripFrontmatterBody,
   withFrontmatter,
 } from "../../src/kb/ingest.js";
 import type { WikiClassification } from "../../src/kb/llmwiki.js";
 
-function makeFakes(opts: { classify?: (input: { title: string; content: string }) => Promise<WikiClassification> } = {}) {
+function makeFakes(opts: { classify?: (input: { title: string; content: string }) => Promise<WikiClassification>; files?: Iterable<[string, string]> } = {}) {
   const calls: { kind: string; args: unknown[] }[] = [];
   const llmwiki = {
     async rescan(projectId: string) {
@@ -26,10 +27,22 @@ function makeFakes(opts: { classify?: (input: { title: string; content: string }
     },
   };
   const written: string[] = [];
+  const files = new Map<string, string>(opts.files ?? []);
   const fs = {
     async writeFile(path: string, content: string) {
       written.push(path);
+      files.set(path, content);
       calls.push({ kind: "fs.writeFile", args: [path, content] });
+    },
+    async readFile(path: string) {
+      calls.push({ kind: "fs.readFile", args: [path] });
+      const value = files.get(path);
+      if (value === undefined) {
+        const err = new Error(`ENOENT: no such file or directory, open '${path}'`) as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      }
+      return value;
     },
     async mkdir() {
       calls.push({ kind: "fs.mkdir", args: [] });
@@ -41,6 +54,7 @@ function makeFakes(opts: { classify?: (input: { title: string; content: string }
   return {
     calls,
     written,
+    files,
     rebuildIndex,
     llmwiki: llmwiki as never,
     fs,
@@ -576,4 +590,89 @@ test("rebuildWikiIndex scans the wiki dir and writes index.md", async () => {
   assert.equal(written[0], "/data/wiki/index.md");
   assert.ok((files.get("/data/wiki/index.md") ?? "").includes("- [[concepts/chain-of-thought|CoT]]"));
   assert.ok((files.get("/data/wiki/index.md") ?? "").includes("- [[entities/acme|Acme]]"));
+});
+
+test("saveWikiPage overwrites the page, rebuilds the index, rescans and snapshots BEFORE/AFTER (G4.S3.T10)", async () => {
+  const before = `---\ntype: concept\ntitle: Runbook\ntopic: ops\ncreated: 2026-08-01\nupdated: 2026-08-01\n---\n\n# Runbook\n\n![Diagram](images/runbook.pdf/diagram_001.png)\n\nThe image shows a bright sky.\n\nSteps here.`;
+  const after = `---\ntype: concept\ntitle: Runbook\ntopic: ops\ncreated: 2026-08-01\nupdated: 2026-08-12\n---\n\n# Runbook\n\n![Diagram](images/runbook.pdf/diagram_001.png)\n\nThe image shows a dark sky.\n\nSteps here.`;
+  const fakes = makeFakes({ files: [["/data/wiki/ops/runbook.md", before]] });
+  const service = new KnowledgeIngestService({
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  const snapshot = await service.saveWikiPage("wiki/ops/runbook.md", after);
+
+  // The corrected FULL page (File A — frontmatter + image refs) is on disk.
+  assert.equal(fakes.files.get("/data/wiki/ops/runbook.md"), after);
+  assert.equal(snapshot.before, before);
+  assert.equal(snapshot.after, after);
+  // index rebuilt + llm_wiki rescanned.
+  assert.ok(fakes.calls.some((c) => c.kind === "rebuildIndex" && c.args[0] === "/data/wiki"));
+  assert.ok(fakes.calls.some((c) => c.kind === "llmwiki.rescan" && c.args[0] === "athena-wiki"));
+  // preserved classification from the corrected page frontmatter.
+  assert.equal(snapshot.type, "concept");
+  assert.equal(snapshot.topic, "ops");
+});
+
+test("saveWikiPage rag forms strip image-ref lines and keep VLM alt-text (G4.S3.T10 image handling)", async () => {
+  const before = `---\ntype: concept\n---\n\n# Runbook\n\n![Diagram](images/runbook.pdf/diagram_001.png)\n\nThe image shows a bright sky.\n\nSteps here.`;
+  const after = `---\ntype: concept\n---\n\n# Runbook\n\n![Diagram](images/runbook.pdf/diagram_001.png)\n\nThe image shows a dark sky.\n\nSteps here.`;
+  const fakes = makeFakes({ files: [["/data/wiki/ops/runbook.md", before]] });
+  const service = new KnowledgeIngestService({
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  const snapshot = await service.saveWikiPage("wiki/ops/runbook.md", after);
+
+  // Image REFS are gone from the RAG-bound text; the VLM description remains.
+  assert.ok(!snapshot.ragBefore.includes("![Diagram]"), "ragBefore keeps no image ref");
+  assert.ok(!snapshot.ragAfter.includes("![Diagram]"), "ragAfter keeps no image ref");
+  assert.ok(snapshot.ragBefore.includes("The image shows a bright sky."));
+  assert.ok(snapshot.ragAfter.includes("The image shows a dark sky."));
+  // The user's correction (the VLM mis-description) is the only text change.
+  assert.equal(snapshot.ragBefore, "# Runbook\n\nThe image shows a bright sky.\n\nSteps here.");
+  assert.equal(snapshot.ragAfter, "# Runbook\n\nThe image shows a dark sky.\n\nSteps here.");
+  // Frontmatter never leaks into the RAG-bound body.
+  assert.ok(!snapshot.ragAfter.includes("type: concept"));
+});
+
+test("stripFrontmatterBody returns the body and leaves frontmatter-less content untouched", () => {
+  assert.equal(
+    stripFrontmatterBody("---\ntype: a\n---\n\nbody"),
+    "body",
+  );
+  assert.equal(stripFrontmatterBody("plain"), "plain");
+  assert.equal(stripFrontmatterBody("---\ntype: a\nno closing block\n"), "---\ntype: a\nno closing block\n");
+});
+
+test("saveWikiPage rejects a path escaping the wiki dir", async () => {
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+  await assert.rejects(service.saveWikiPage("wiki/../evil.md", "body"), /invalid wiki path/);
+});
+
+test("saveWikiPage surfaces a missing page as an error (ENOENT)", async () => {
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+  await assert.rejects(service.saveWikiPage("wiki/missing.md", "body"), /ENOENT/);
 });
