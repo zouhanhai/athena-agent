@@ -1,14 +1,24 @@
 # athena-agent — Git-Driven Collaborative Kanban Design
 
-> Core design: 3 employees + 3 Pis operate on the same git repo, coordinating "who should do what, and what to continue" via markdown file state in GitHub + git commit history.
+> Core design: multiple agents operate on the same git repo, coordinating "who should do what, and
+> what to continue" via markdown file state in GitHub + git commit history.
 > This is a pure git + markdown model (no local SQLite source of truth).
+
+> **Protocol vs implementation** (D4/D5): this is the athena platform's **recommended workflow
+> protocol**, NOT tied to any one agent. Each user has their own local agent + own code-worker agent.
+> opencode is the concrete example used here; other agents (Claude Code / Codex / Pi) implement the
+> same integration points via their own hook systems (see §17). The plugin is opencode's automation;
+> the protocol itself is agent-agnostic.
 
 ## 1. Core Principles
 
-1. **Markdown is the sole source of truth** — `docs/kanban/*.md` stores all task state
-2. **Git is the coordination mechanism** — commit history = activity log, push conflicts = mutual exclusion lock
-3. **GitHub is the shared hub** — 3 employees + 3 Pis all push/pull the same repo
-4. **Each person has an independent git identity** — git commits distinguish who performed the operation
+1. **Markdown is the sole source of truth** — `docs/kanban/*.md` stores all task state.
+2. **Git is the coordination mechanism** — commit history = activity log, push conflicts = mutual
+   exclusion lock.
+3. **GitHub is the shared hub** — all agents push/pull the same repo.
+4. **Each person/agent has an independent git identity** — git commits distinguish who did what.
+5. **Protocol is agent-agnostic** — the workflow spec is defined here; each agent implements the
+   integration points with its own tooling (D4/D5).
 
 ## 2. Directory Structure = Gx.Sx.Tx Three Layers
 
@@ -26,40 +36,31 @@ docs/kanban/
 │   └── ...
 ```
 
-### Naming Convention (Plan B: Directory Hierarchy + Frontmatter Numbering)
+**Three layers only — the Milestone (M1-M5) layer is removed** (D25): it duplicated the Goal layer.
+Goal is the top-level completion granularity. M4 (etc.) may stay as a semantic label on Goals, but
+there is no separate milestone completion layer.
 
-**File names are fixed; distinction comes from directory hierarchy**:
+### Naming Convention (Directory Hierarchy + Frontmatter Numbering)
 
-| Layer  | Directory       | File       | Where numbering lives |
-|--------|-----------------|------------|-----------------------|
-| Goal   | `G1/`, `G2/`... | `Goal.md`  | Directory name G1/G2  |
-| Spec   | `S1/`, `S2/`... | `Spec.md`  | Subdirectory name S1/S2 |
-| Ticket | Same spec dir   | `T1.md`, `T2.md` | Filename T1/T2 |
+| Layer  | Directory | File | Where numbering lives |
+|--------|-----------|------|------------------------|
+| Goal   | `G1/`, `G2/`... | `Goal.md` | Directory name G1/G2 |
+| Spec   | `S1/`, `S2/`... | `Spec.md` | Subdirectory name S1/S2 |
+| Ticket | Same spec dir | `T1.md`, `T2.md` | Filename T1/T2 |
 
-**Uniqueness via path, display via frontmatter**:
-- Full identifier = path (`G1/S1/T1` is naturally unique)
-- Display name = `title` in frontmatter: `"G1.S1.T1: ..."`
-- `T1.md` under different specs have different paths (`G1/S1/T1` vs `G1/S2/T1`), no conflict
-
-**Example**:
-```
-G1/S1/T1.md  → title: "G1.S1.T1: Implement login API"
-G1/S2/T1.md  → title: "G1.S2.T1: Implement order API"  (same filename, distinguished by path)
-```
+Uniqueness via path (`G1/S1/T1`), display via frontmatter `title` ("G1.S1.T1: ...").
 
 ## 3. G Number Assignment (Globally Incrementing, Git Atomic)
 
-```
-Any Pi launching a new Goal:
-  1. git pull (sync latest)
-  2. Scan docs/kanban/ to find current max G number (max G folder name)
-  3. New G = max + 1 (e.g. current max is G5 → create G6)
-  4. Create G<N>/ folder + Goal.md (owner = launching Pi)
-  5. git commit + push
-  6. If push conflict (someone else simultaneously created G6) → pull → recalculate (G7) → retry
-```
+Any agent launching a new Goal:
+1. git pull (sync latest)
+2. Scan `docs/kanban/` for the current max G number
+3. New G = max + 1
+4. Create `G<N>/` folder + `Goal.md` (owner = launching agent)
+5. git commit + push
+6. On push conflict (two agents created G6 simultaneously) → pull → recalculate (G7) → retry
 
-**Uniqueness guarantee**: git push atomicity — two Pis simultaneously creating G6: only one push succeeds, the other retries with G7 after conflict.
+Uniqueness guaranteed by git push atomicity.
 
 ## 4. Ticket Claim Lock (Worker Claim)
 
@@ -67,18 +68,23 @@ Any Pi launching a new Goal:
 Any Worker claiming a ticket:
   1. git pull (latest board)
   2. Select ticket: status = backlog AND assignee = empty/self
-     (Note: rejected tickets cannot be directly claimed — must first notify Eng Director to regenerate)
+     (rejected tickets cannot be claimed directly — must notify Eng Director)
   3. Modify T1.md frontmatter:
      status: in_progress
-     assignee: pi-a
-     session_id: ses_xxxxxxxx   # OpenCode serve session handling this ticket (parallel workers)
+     assignee: <agent>
+     session_id: ses_xxxxxxxx
      started_at: <timestamp>
   4. git commit -m "claim G1.S1.T1 (in_progress)" + push
   5. Push succeeds → locked, begin development
-  6. Push conflicts → pull → see status already changed → give up, pick next
+  6. Push conflicts → pull → status already changed → give up, pick next
 ```
 
-**Mutual exclusion guarantee**: git push atomicity — only the first successful push gets the ticket.
+Mutual exclusion via git push atomicity.
+
+**Auto-claim (S4 plugin / hook)** (D1/D21/D23): in opencode the claim is automated — the plugin
+claims on the first `tool.execute` call (git lock takes effect immediately, before any work), parsing
+the ticket ref from the structured dispatch prompt. Other agents implement the same via their hook
+systems or fall back to AGENTS.md instructions (D5).
 
 ## 5. Ticket Markdown Format
 
@@ -89,14 +95,14 @@ title: "G1.S1.T1: Implement login API"
 layer: T
 parent: G1.S1
 owner: pi-a
-status: in_progress        # backlog → in_progress → done → in_review → approved / rejected
+status: in_progress        # backlog → in_progress → done → in_review* → approved / rejected
 assignee: pi-a
 started_at: 2026-08-04
 blocked_by: []
 acceptance_criteria:
   - "POST /api/login returns 200"
-pr: 0                       # GitHub PR number
-branch: ""                  # feat/t1-login-api
+pr: 0                       # collab mode only (PR number)
+branch: ""                  # collab mode only
 ---
 
 ## Task
@@ -105,184 +111,216 @@ Implementation details...
 ## Log
 [2026-08-04] pi-a claimed and started
 [2026-08-04] pi-a completed implementation
+
+## Progress Log
+| UTC timestamp | status | progress |
+|---|---|---|
+| 2026-08-09 12:00:00Z | in_progress | Reading code, understood ticket |
 ```
 
-## 5bis. Three-Layer Definition of Done
+**`## Log` vs `## Progress Log`** (D1):
+- `## Log` = lifecycle audit (claim / complete / review / reject events), LLM-written.
+- `## Progress Log` = real-time progress table, **plugin-written** (real wall-clock UTC timestamp +
+  rate limit), with the worker occasionally adding a **semantic milestone** line (D19).
+- Claim/complete also go into the Progress Log (plugin writes them so the LLM can't forget).
+- Progress Log is kept in full (history audit / crash recovery) — never cleaned on completion (D20).
 
-Each layer must have a clear "what counts as done"; otherwise progress cannot be aligned or completion judged.
-
-```
-Milestone (M1-M5)  → acceptance criteria (project phase completion conditions)
-  └─ Goal (G1-G5)  → acceptance criteria (top-level task completion conditions)
-      └─ Spec (G1.S1) → acceptance criteria (feature container completion conditions)
-          └─ Ticket (T1-TX) → acceptance_criteria ✅ already present
-```
-
-### Ticket Layer (existing)
-- Frontmatter `acceptance_criteria` (e.g. "GET /api returns 200")
-- Worker implements, Reviewer verifies against these
-
-### Spec Layer
-- Spec.md describes what "this feature container is complete" means
-- Criterion: all Tickets under it are approved
-
-### Goal Layer
-- Goal.md contains `acceptance_criteria` (top-level task completion conditions)
-- Criterion: all Specs under it are complete + overall goal achieved
-
-### Milestone Layer
-- Project README lists acceptance criteria for each Milestone
-- Criterion: corresponding Goals are all complete
-
-### Judgment Logic (Bottom-Up)
+## 5bis. Layer Definition of Done (three layers, no milestone)
 
 ```
-Ticket approved → Spec complete → Goal complete → Milestone complete
+Goal → acceptance criteria (top-level completion)
+  └─ Spec → acceptance criteria (feature container completion; all its tickets approved)
+      └─ Ticket → acceptance_criteria (each ticket's completion conditions)
 ```
 
-Each layer's `acceptance_criteria` defines "what must be achieved for this layer to be done."
+Ticket approved → Spec complete → Goal complete. Bottom-up judgment.
 
-## 6. State Machine
+## 6. State Machine (branches by workflow mode, D9)
 
 ```
-backlog ──claim(push)──▶ in_progress ──implementation done──▶ done
-   ▲                        │                      │
-   │                        │                      ├─ open PR → in_review
-   │                        │                      │
-   └──── reject ◀───────────┴──────────────────────┴→ approved (PR merged)
+single mode (solo / small team):
+backlog ──claim(push)──▶ in_progress ──done──▶ (reviewer reviews) ──▶ approved
+                                                       └──reject──▶ rejected
+
+collab mode (multi-person):
+backlog ──claim(push)──▶ in_progress ──done──▶ in_review (PR open) ──▶ approved
+                                                 └──reject──▶ rejected
 ```
 
-| State       | Meaning                    | Set by        |
-|-------------|----------------------------|---------------|
-| backlog     | Not started, claimable     | Planner       |
-| in_progress | Claimed, in development    | Worker (claim lock) |
-| done        | Implementation complete    | Worker        |
-| in_review   | PR pending review          | Worker (after opening PR) |
-| approved    | Review passed + merged     | Reviewer      |
-| rejected    | Review found issues        | Reviewer      |
+| State | Meaning | Set by |
+|-------|---------|--------|
+| backlog | Not started, claimable | Planner |
+| in_progress | Claimed, in development | Worker (claim lock) |
+| done | Implementation complete | Worker |
+| in_review | PR pending review (**collab only**) | Worker (after opening PR) |
+| approved | Review passed (+ merged, collab) | Reviewer |
+| rejected | Review found issues | Reviewer |
 
-## 7. PR/Merge Integration
+- **single mode**: done → reviewer reviews directly → approved/rejected (no `in_review` mid-state).
+- **collab mode**: keep `in_review` (PR pending).
+
+## 7. PR/Merge Integration (collab mode only)
 
 ```
 T1 done (branch feat/t1-login-api):
   → Open GitHub PR → update ticket: status=in_review, pr=<number>, branch=<name>
-  → Reviewer reviews
-  → Pass → merge → ticket: status=approved
-  → Reject → PR updated → re-review
+  → Reviewer reviews → Pass → merge → approved → Reject → PR updated → re-review
 ```
 
-Automation option: GitHub Actions / webhook detect PR status → auto-update md frontmatter.
+**single mode**: no PR — direct master, reviewer reviews commits/diff (D8).
 
-## 8. Multi-Person Collaboration Flow (Who Does What at Which Stage)
+## 8. Workflow Modes (single vs collab, D8)
 
+The protocol supports **two modes, selected per project** (a project config / flag):
+
+- **single** (solo / small team — e.g. current athena: user + Hermes + opencode workers all pushing
+  master directly): PR is useless; reviewer reviews commits/diff on master.
+- **collab** (multiple people): each person forks + develops independently + merges via PR.
+
+Mode-dependent behavior:
+- State machine (D9): `in_review` only in collab.
+- Issues sync (D27): S5 only enabled in collab (solo work needs no Issues).
+- Review granularity (D16): small team reviews each ticket (user + Hermes, tests green); large team
+  reviews at Goal/Spec granularity (another user, batch).
+
+## 9. Progress Log + Real-Time Monitoring (S4)
+
+**Goal**: make worker progress readable directly from the ticket md file, so Kanban/humans can see at
+a glance who's progressing / stuck / done — without polling the opencode session API routinely.
+
+- **Written by an OpenCode plugin** (`tool.execute.after` + `session.status`), NOT an AGENTS.md
+  instruction (LLM may forget). (D6 confirms opencode exposes `tool.execute.before/after`,
+  `session.*`, `message.*`, `command.*`; plugin context has `project/directory/worktree/client/$`.)
+- **REAL wall-clock timestamps** — critical (2026-08-09): LLM-written logs fabricate timestamps. The
+  plugin stamps the actual time at each tool execute.
+- **Append a row ONLY on a real change** (a tool ran / status moved / milestone) — not a fixed tick.
+  A stale last-row timestamp IS the stalled signal.
+- Rate-limit (~1 row / N sec) to avoid spam.
+
+**Progress row content (D19)**: mixed — plugin records tool actions ("edited X / ran Y") +
+worker occasionally writes a semantic milestone ("implemented the shared repo selector").
+
+## 10. Kanban Index (D2)
+
+- `docs/kanban/kanban-index.json` (generated by `server/scripts/write-index.ts`) is the fast-read
+  view served by `GET /api/kanban`.
+- **The index file MUST be committed**: the repo lives remote (GitHub); the server only sees remote
+  changes by git pull. Without a committed index, the server can't read a remote repo's progress.
+- **The index commits on every board change**: creating G/S/T, claiming, completing — in those commits
+  also run `write-index.ts` to update kanban-index.json (no extra commits; those changes were going to
+  be committed anyway).
+- Triggers: S4 plugin on claim; worker on completion; planner on G/S/T creation.
+- Frontend Refresh → `rescan=1` rebuilds at runtime; the committed index keeps the remote repo fresh.
+
+## 11. Stalled Workers (D3)
+
+- **stalled is an ED observation signal** (board shows it from the Progress Log last-row timestamp
+  going stale) — it does NOT change the ticket frontmatter status.
+- Handling: **ED wakes the worker** (monitor posts a wake message to break the reasoning loop) → if
+  wake fails → **restart opencode serve + re-dispatch a new worker**.
+- **Complementary + tiered with monitor (D15)**:
+  - Normal: read the Progress Log (plugin-written, real-time).
+  - Stall signal (no log for ~3 min): the monitor script (uses opencode server API — the same API
+    used to dispatch workers) probes the session (stuck / waiting / long test) + wakes.
+- The monitor is not deleted; it's only needed when Progress Log stalls.
+
+## 12. Dispatch (D12)
+
+Two modes:
+- **Interactive (default)**: one ticket at a time. Each ticket ends → test + feedback → possibly
+  revise later-ticket designs → **user + planning agent discuss the next dispatch together**.
+  Feedback shapes later tickets.
+- **YOLO mode** (user-triggered, e.g. user asleep): the planning agent **auto-dispatches**
+  continuously — scans claimable tickets + dispatches them in sequence (`claimableTickets` +
+  `dispatchNext`).
+
+**Structured dispatch prompt (D23)** — so the plugin can reliably parse the ticket ref:
 ```
-Goal launch (multiple Pis each launch, numbering increments):
-  Pi-A launches G1, Pi-B launches G2, Pi-C launches G3
+TICKET: G4.S3.T12
+PATH: docs/kanban/G4/S3/T12.md
 
-Single Goal lifecycle:
-  First 3 stages (launching Pi plays multiple roles solo, not delegated to others):
-    Consultant → PM → Eng Director
-    (Same Pi plays all, producing Goal.md + specs + tickets)
-
-  Worker stage (multi-person collaboration begins):
-    Pi-A claims T1, Pi-B claims T2, Pi-C claims T3 (git claim lock)
-    Coordinate division of work via team channel (pi-intercom)
-
-  Review stage (another Pi):
-    Pi-B reviews Pi-A's T1 → approve/reject
+<rest of the dispatch instructions>
 ```
+Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 
-## 9. Inter-Pi Communication (Team Channel)
+## 13. Ticket Granularity + Parallel Workers
 
-Use **pi-intercom** (installed) for inter-Pi-session coordination:
-```
-Pi-A → Pi-B: "Can you help with T2?"
-Pi-B → Pi-A: "Sure, I'll claim it"
-```
+- **Ticket granularity (D14)**: one ticket = one testable feature change (feature-level commit).
+  Spec discussion splits by feature size; two tightly-coupled tickets get merged into one.
+- **Parallel workers (D13)**: unlimited (multiple in YOLO mode), rely on git claim-lock (prevents
+  same-ticket concurrency) + file isolation (different files don't conflict).
 
-- Team conversation = real-time negotiation (who helps whom, who does what)
-- Git board = persistent record (claim results written to md after negotiation)
+## 14. Verification + Review (D7 / D16 / D17)
 
-## 9bis. Document Hierarchy (grill → spec input chain)
+- **Testing (D17)**: worker runs tests (on 6900XT) + reviewer (Hermes/user) independently verifies
+  tests green before approved. The 6900XT environment is authoritative.
+- **done → approved (D24)**: formally mark `approved` (make it a protocol step — Hermes + user often
+  forget). Testing is hard to standardize; approve is a contextual "user + Hermes agree tests pass"
+  judgment. **Dual-track**:
+  - Manual mode: at the next dispatch, check prior tickets are `approved` (gate before dependent work).
+  - YOLO mode: auto-approve when tests green + deps pass (risk accepted); user re-tests after returning.
+- **Reviewer granularity (D16)**: small team reviews each ticket (user + Hermes); large team reviews
+  at Goal/Spec granularity (another user), not every ticket.
 
-```
-Project root CONTEXT.md (global glossary)     ← whole-project ubiquitous language
-   ✗ NOT used as to-spec input (terminology, not a Goal objective)
+## 15. Roles (souls) — responsibility model, not strict role-play (D10/D26)
 
-G1/Goal.md (grill output)                     ← IS to-spec input!
-   ✓ Describes G1 objective/context/decisions
-   ✓ PM reads it → to-spec → G1/S1/Spec.md
+Six soul roles (Consultant / PM / Eng Director / Worker / Reviewer / Writer), each with duty /
+stages / output + state-machine bindings (`server/src/kanban/roles.ts`).
 
-Flow:
-  grill G1 → G1/Goal.md (grill output; not named CONTEXT.md to avoid confusion with project root glossary)
-    → PM reads G1/Goal.md → to-spec → G1.S1 spec
-    → Eng Director reads spec → to-tickets → G1.S1.T1-TX
-```
+- **Role definitions stay** (as a responsibility model).
+- **Do NOT force soul-switching in solo/small-team mode** — one LLM (Hermes) playing all roles:
+  switching souls is just prompt swapping (same model, no real change of perspective).
+- Soul role-playing has real value only in **multi-person / multi-agent collaboration** (distinct
+  agents each own a role).
+- **Writer (D26)**: only produces the project report / summary at project completion. Mid-project md
+  files do NOT use the Writer role.
 
-**Key points**:
-- **Project root CONTEXT.md** = glossary; if grill surfaces new global terms they may be added, **NOT used as to-spec input**
-- **G1/Goal.md** = grill output (the goal document produced by grill), **IS the input to to-spec**
-- **ADR library** (`docs/adr/`) accumulates across Goals; each grill may add new entries (only when all three conditions are met)
+## 16. Reject Flow (D11)
 
-## 10. "Who Should Do What, What to Continue" Judgment Logic
+Flexible, **decided by the user based on fix size** — not a fixed single flow:
+- Small fix → user (or Hermes) fixes directly, or returns to the same worker.
+- Larger issue → create a new ticket + re-dispatch.
 
-```
-Each employee/Pi on startup:
-  git pull → read all T-layer md
-  status=backlog + assignee=empty → candidate for claiming
-  status=in_progress + assignee=me → I continue working on it
-  status=done + has PR → awaiting review
-  status=in_review + I am reviewer → I review
-  blocked_by not done → waiting on dependency
-```
+Not mandated as "always EngD re-decompose"; the user chooses per size. (The EngD re-decompose path
+with parent_id / qa_feedback / reopen_reason remains available for larger issues.)
 
-## 11. Reject Flow (Reviewer Rejects → Eng Director Regenerates)
+## 17. Other Agent Onboarding (D4 / D5 / D28)
 
-```
-Reviewer (Pi-B) reviews Pi-A's T1 → finds issues:
-  1. T1 marked rejected (history preserved, original ticket unchanged; qa_feedback records comments)
-  2. Notify Eng Director (the Pi that launched this G)
-  3. Eng Director analyzes qa_feedback → re-decomposes → creates new ticket(s)
-     ├─ Minor rework → T1.1 (parent_id=T1, reopen_reason, qa_feedback)
-     └─ Major issue → re-examine spec, may split into multiple new tickets
-  4. New ticket enters backlog, awaits Worker claim (claim lock)
-```
+**The protocol is the contract; each agent implements the integration points with its own tooling.**
 
-**Key rules**:
-- **New tickets are generated by the Eng Director** (the Pi that launched the G), not the Reviewer
-- **Original ticket marked rejected is preserved**, not modified (history is not lost)
-- New ticket carries `parent_id` linking to old ticket + `qa_feedback` + `reopen_reason`
-- Any Worker can claim the new ticket (keeping collaboration open), but the source is annotated
+- **opencode** (current example): S4 plugin (`tool.execute.before` auto-claim + `tool.execute.after`
+  progress + `session.*`). Plugin is global/resident (loaded at serve startup from
+  `.opencode/plugins/`), distinguishes workers by sessionID, parses ticket from the first dispatch
+  message (D18/D22).
+- **Claude Code** → hooks; **Codex** → custom tool; **Pi** → extensions.
+- With no hook capability → **fall back to AGENTS.md instructions** (LLM manually claims / writes
+  progress, best-effort).
+- **Federation agents (D28)**: remote agents registering via federation (G4.S6) see the full
+  git-driven flow on onboarding, then internally analyze how to apply it to their own local setup +
+  their local code agent. The protocol is complementary to federation (a platform feature).
 
-**Rationale**: The Eng Director (planner) best understands the spec holistically; review findings often mean the decomposition itself needs re-examination, not just simple rework. Planning authority is centralized with the planner.
+## 18. Issues Sync (S5) — collab mode only (D27)
 
-## 12. Exception Handling
+- GitHub Issues are the **shared discussion surface** — only meaningful in collab mode. solo work
+  needs no Issues.
+- **md is the single source of truth**; md → GitHub projects spec as an issue + syncs ticket
+  status/assignee/session (NOT Progress Log detail).
+- GitHub → md feedback loop: plan agent reads issue discussion → creates/edits tickets or a new spec
+  back into md. Human keeps authority; md authoritative on conflict.
 
-- **Worker crash leaves ticket stuck in_progress**: check git log timestamps; if timeout with no update → another Worker can take over (revert to backlog or take over)
-- **md conflicts**: different Workers modifying different ticket files won't conflict; two workers racing for the same ticket — the conflict IS the mutual exclusion lock
-- **main concurrency**: multiple PRs merging simultaneously may conflict → resolve via rebase
+## 19. Exception Handling
 
-## 13. Eng-Director Ticket Monitoring (auto-wake stalled workers)
+- Worker crash leaves ticket stuck in_progress → check git log / Progress Log timestamps; if stalled
+  → another worker takes over (revert to backlog or take over).
+- md conflicts: different workers editing different files won't conflict; two workers racing the same
+  ticket — the conflict IS the mutual exclusion lock.
+- main concurrency (collab): multiple PRs merging may conflict → resolve via rebase.
 
-OpenCode workers can stall silently (long reasoning loops, session `updated` stops advancing while the
-ticket stays `in_progress` — or even `backlog` before claiming). The Eng Director side has an automatic
-monitor so you don't poll sessions by hand.
+## Reference
 
-**Two complementary directions**:
-- **Eng Director → Worker**: `monitor-ticket.sh` polls a ticket's status + the session's `updated` epoch
-  ms; if `in_progress` with no update for > threshold it POSTs a wake message
-  (`/session/{sid}/prompt_async`) that breaks the loop, and exits automatically on
-  done/approved/failed/rejected. One monitor per ticket, started on dispatch.
-- **Worker → Eng Director**: the G4.S4 plugin appends a Progress Log row (real wall-clock timestamp) on
-  each tool call, so the Eng Director can read progress from the ticket file.
-
-**Usage** (on 6900XT):
-```bash
-ssh hh@192.168.178.30 "nohup /home/hh/scripts/monitor-ticket.sh \
-  /home/hh/athena-agent/docs/kanban/G4/S1/T6.md <session-id> 60 300 \
-  > /tmp/monitor-run.log 2>&1 &"
-# args: <ticket-path> <session-id> [interval-secs=60] [stall-threshold-secs=300]
-# check: tail -f /tmp/monitor-<spec>-<ticket>.log
-```
-Script is also saved in the Hermes `monitor-ticket` skill. A worker may stall before claiming (still
-`backlog`) — the wake message tells it to claim and proceed.
+- `docs/git-driven-protocol-review.md` — the grill record (D1-D28) behind this design.
+- `server/src/kanban/protocol.ts` + `git-lock.ts` + `roles.ts` + `state-machine.ts` — the backend
+  implementations of claim/report/dispatch, git lock, role souls, state transitions.
+- `server/scripts/write-index.ts` — kanban index builder.
+- `docs/kanban/TICKET-WORKFLOW.md` — per-ticket worker workflow (opencode example).
+- OpenCode plugins: https://opencode.ai/v2/docs/build/plugins
