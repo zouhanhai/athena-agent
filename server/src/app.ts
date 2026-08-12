@@ -445,7 +445,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     retrieval,
     review: options.review ?? defaultReviewService(),
     recurator: options.recurator ?? defaultReCurator(),
-    feedback: options.feedback ?? defaultFeedbackService(),
+    feedback,
     mappings,
     taskQueue: options.taskQueue ?? defaultTaskQueue(),
     maxFileSize: options.maxFileSize,
