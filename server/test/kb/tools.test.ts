@@ -160,6 +160,36 @@ test("search_knowledge tool runs the agentic pipeline and formats the answer + s
   assert.match(text, /Answer: CALEO hosts the Sommerseminar annually\./);
 });
 
+test("search_knowledge tool surfaces a clarification (needsClarification) as a structured follow-up, not a final answer", async () => {
+  const service = new AgenticRetrievalService({
+    search: async (query: string) => ({ query, results: [] }),
+    judge: {
+      transformQuery: async () => ({
+        action: "clarify",
+        clarification: "Which do you mean?",
+        options: ["the company", "a person", "the Latin word"],
+      }),
+      judgeRelevance: async () => ({ relevant: true }),
+      compress: async () => "",
+      multiHop: async () => ({ followUps: [], trace: "" }),
+      suggestKbUpdate: async () => "",
+    },
+    webSearch: { search: async () => [] },
+  });
+  const tool = createSearchKnowledgeTool(service);
+  const result = await tool.execute("c", { query: "what is caleo" }, undefined, undefined, {} as never);
+  const text = (result.content[0] as { text: string }).text;
+  assert.match(text, /CLARIFICATION_REQUESTED/);
+  assert.match(text, /Which do you mean\?/);
+  assert.match(text, /the company/);
+  const details = (result.details ?? {}) as { clarification?: { question: string; options: string[]; query: string } };
+  assert.deepEqual(details.clarification, {
+    question: "Which do you mean?",
+    options: ["the company", "a person", "the Latin word"],
+    query: "what is caleo",
+  });
+});
+
 test("search_knowledge tool reports not-found + KB update suggestion + web sources", async () => {
   const service = new AgenticRetrievalService({
     search: async (query: string) => ({ query, results: [] }),

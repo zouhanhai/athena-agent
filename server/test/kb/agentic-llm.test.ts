@@ -4,6 +4,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   createAgenticJudge,
   EMIT_AGENTIC_PLAN_TOOL,
+  AGENTIC_PLAN_SYSTEM_PROMPT,
   extractPlan,
   extractJudgement,
   extractMultiHop,
@@ -67,6 +68,46 @@ test("extractPlan parses a constrained emit tool call", () => {
     content: [{ type: "toolCall", id: "t1", name: EMIT_AGENTIC_PLAN_TOOL, arguments: plan }],
   });
   assert.deepEqual(parsed, plan);
+});
+
+test("extractPlan parses clarify options for the user follow-up", () => {
+  const plan: QueryPlan = {
+    action: "clarify",
+    clarification: "Which do you mean?",
+    options: ["the company", "a person", "the Latin word"],
+  };
+  const parsed = extractPlan({
+    content: [{ type: "toolCall", id: "t1", name: EMIT_AGENTIC_PLAN_TOOL, arguments: plan }],
+  });
+  assert.deepEqual(parsed, plan);
+});
+
+test("extractPlan ignores malformed / absent options", () => {
+  const parsed = extractPlan({
+    content: [{ type: "toolCall", id: "t1", name: EMIT_AGENTIC_PLAN_TOOL, arguments: { action: "direct", options: "nope" } }],
+  });
+  assert.equal(parsed.action, "direct");
+  assert.equal(parsed.options, undefined);
+});
+
+test("AGENTIC_PLAN_SYSTEM_PROMPT: clarify ONLY for no-subject queries; definitional queries go direct", () => {
+  // G4.S3.T13 — the plan prompt must steer the judge away from clarifying
+  // "what is X" (a user unfamiliar with X cannot answer a clarifying question).
+  assert.match(AGENTIC_PLAN_SYSTEM_PROMPT, /clarify/);
+  assert.match(AGENTIC_PLAN_SYSTEM_PROMPT, /NO extractable subject/i);
+  assert.match(AGENTIC_PLAN_SYSTEM_PROMPT, /what is caleo/);
+  assert.match(AGENTIC_PLAN_SYSTEM_PROMPT, /definitional/i);
+  assert.match(AGENTIC_PLAN_SYSTEM_PROMPT, /never ask the user to disambiguate/);
+  assert.match(AGENTIC_PLAN_SYSTEM_PROMPT, /2-4 concrete options/i);
+});
+
+test("transformQuery sends the plan prompt so definitional questions are steered to direct", async () => {
+  const { runtime, calls } = makeFakeRuntime({ action: "direct", retriever: "hybrid" });
+  const judge = createAgenticJudge(runtime, { providerId: "athena", modelId: "~deepseek/x" });
+  const got = await judge.transformQuery("what is caleo", ["sap"]);
+  assert.equal(got.action, "direct");
+  assert.match(calls[0]!.context!.systemPrompt as string, /what is caleo/);
+  assert.match(calls[0]!.context!.systemPrompt as string, /definitional/i);
 });
 
 test("transformQuery calls the LLM with the emit tool + returns the plan", async () => {

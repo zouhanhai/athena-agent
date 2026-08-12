@@ -223,6 +223,13 @@ export function createWebSearchTool(provider: WebSearchProvider): ToolDefinition
  * retriever picker + topic convergence / multi-hop / compression / not-found →
  * web fallback + KB-update suggestion) and returns the final answer. Optional
  * `topic` scopes the search to a topic subtree.
+ *
+ * G4.S3.T13: when the agentic plan chooses `clarify`, the result carries a
+ * structured `details.clarification = { question, options, query }` block AND a
+ * `CLARIFICATION_REQUESTED` text marker. This is a REAL question for the user,
+ * not a final answer — the agent must surface it as a clarification follow-up
+ * (the chat route relays it to the front-end chat) and re-run the query with
+ * the user's chosen context.
  */
 export function createSearchKnowledgeTool(service: AgenticRetrievalService): ToolDefinition {
   return {
@@ -235,6 +242,7 @@ export function createSearchKnowledgeTool(service: AgenticRetrievalService): Too
     promptGuidelines: [
       "Use for knowledge-base questions that need retrieval + synthesis (processes, standards, concepts, entity relations).",
       "When the answer says 'not found in the knowledge base', read the web-fallback + KB-update suggestion and follow up.",
+      "If the result is a CLARIFICATION_REQUESTED, do NOT answer yet — the user must pick one of the options (or type an answer); re-run search_knowledge with the original question plus the user's choice once they reply.",
     ],
     parameters: Type.Object({
       query: Type.String(),
@@ -242,6 +250,25 @@ export function createSearchKnowledgeTool(service: AgenticRetrievalService): Too
     }),
     async execute(_toolCallId, params: { query: string; topic?: string }, _signal?, _onUpdate?, _ctx?) {
       const answer = await service.answer(params.query);
+      if (answer.needsClarification) {
+        const clarification = {
+          question: answer.answer,
+          options: answer.clarificationOptions ?? [],
+          query: params.query,
+        };
+        const marker = `CLARIFICATION_REQUESTED\nquestion: ${clarification.question}\noptions: ${clarification.options.join(" | ")}`;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${marker}\n\nThis is a clarification request for the user — NOT a final answer. ` +
+                `The chat UI shows these options to the user; when the user answers, re-run the query ` +
+                `"${clarification.query}" with the chosen context.`,
+            },
+          ],
+          details: { clarification },
+        };
+      }
       const parts = [`Answer: ${answer.answer}`];
       if (answer.notFound && answer.kbUpdateSuggestion) {
         parts.push(`KB update suggestion: ${answer.kbUpdateSuggestion}`);

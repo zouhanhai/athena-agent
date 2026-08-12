@@ -50,7 +50,7 @@ test("falls back to non-agentic retrieval when no LLM judge is injected", async 
   assert.deepEqual(calls, [{ query: "what is RAG" }]);
 });
 
-test("clarify: a too-broad query asks back for detail instead of searching", async () => {
+test("clarify: a no-subject query asks back for detail instead of searching", async () => {
   const calls: Array<{ query: string }> = [];
   const service = new AgenticRetrievalService({
     search: makeSearch(calls, {}),
@@ -58,11 +58,59 @@ test("clarify: a too-broad query asks back for detail instead of searching", asy
       transformQuery: async () => ({ action: "clarify", clarification: "Which topic?" }),
     }).judge,
   });
-  const answer = await service.answer("tell me about everything");
+  const answer = await service.answer("help me with something");
   assert.equal(answer.notFound, false);
   assert.equal(answer.hits.length, 0, "no retrieval runs when clarifying");
   assert.equal(calls.length, 0, "search must not run on clarify");
   assert.match(answer.answer, /Which topic\?/);
+  assert.equal(answer.needsClarification, true, "clarify signals a real user follow-up");
+});
+
+test("clarify: the judge's options are carried to the caller for the front-end follow-up", async () => {
+  const service = new AgenticRetrievalService({
+    search: makeSearch({}, {}),
+    judge: makeJudge({
+      transformQuery: async () => ({
+        action: "clarify",
+        clarification: "Which do you mean?",
+        options: ["the company", "a person", "the Latin word"],
+      }),
+    }).judge,
+  });
+  const answer = await service.answer("what is caleo");
+  assert.equal(answer.needsClarification, true);
+  assert.deepEqual(answer.clarificationOptions, ["the company", "a person", "the Latin word"]);
+  assert.equal(answer.answer, "Which do you mean?");
+});
+
+test("definitional queries answered from the KB: direct plan runs search + reuses the stored Q&A pair", async () => {
+  const search = async (query: string): Promise<KnowledgeSearchResponse> => ({
+    query,
+    results: [hit("c1")],
+    qaReference: {
+      id: "qa-1",
+      question: "what is caleo",
+      answer: "CALEO ist eine Unternehmensberatung.",
+      score: 0.95,
+    },
+  });
+  const seenHits: KnowledgeSearchResult[] = [];
+  const service = new AgenticRetrievalService({
+    search,
+    judge: makeJudge({
+      transformQuery: async () => ({ action: "direct", retriever: "hybrid" }),
+      compress: async (_q, hits) => {
+        seenHits.push(...hits);
+        return "CALEO ist eine Unternehmensberatung.";
+      },
+    }).judge,
+  });
+  const answer = await service.answer("what is caleo");
+  assert.equal(answer.needsClarification, undefined, "definitional query must not clarify");
+  assert.equal(answer.notFound, false);
+  assert.match(answer.answer, /CALEO ist eine Unternehmensberatung\./);
+  const qaHit = seenHits.find((h) => h.title?.startsWith("QA:"));
+  assert.ok(qaHit, "stored Q&A pair is surfaced as a hit so it can be reused");
 });
 
 test("decompose: sub-queries run in parallel and their hits are fused", async () => {

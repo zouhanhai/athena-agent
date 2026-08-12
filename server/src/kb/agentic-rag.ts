@@ -35,6 +35,8 @@ export interface QueryPlan {
   action: "clarify" | "decompose" | "direct";
   /** The clarifying question to ask back (action "clarify"). */
   clarification?: string;
+  /** Concrete options the user can pick from (action "clarify", G4.S3.T13). */
+  options?: string[];
   /** Sub-queries to run in parallel (action "decompose"). */
   subQueries?: string[];
   /** Retriever the picker chose (G4.S3.T7.3). Default "hybrid". */
@@ -88,6 +90,17 @@ export interface AgenticAnswer {
   webResults: WebSearchResult[];
   /** What to add/update in the KB (set only when the web fallback ran). */
   kbUpdateSuggestion?: string;
+  /**
+   * G4.S3.T13: true when the plan chose `clarify` — a REAL question for the
+   * user, not a final answer. `answer` holds the clarifying question text and
+   * `clarificationOptions` the choices to offer. Callers must surface this as
+   * a user follow-up (front-end clarification interaction) instead of showing
+   * the plain text as the answer.
+   */
+  needsClarification?: boolean;
+  /** Concrete options for the clarification (G4.S3.T13). Empty when the judge
+   *  emitted none — the UI falls back to a free-text answer. */
+  clarificationOptions?: string[];
 }
 
 export interface AgenticRetrievalServiceOptions {
@@ -175,6 +188,8 @@ export class AgenticRetrievalService {
         hits: [],
         notFound: false,
         webResults: [],
+        needsClarification: true,
+        clarificationOptions: plan.options ?? [],
       };
     }
 

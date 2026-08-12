@@ -55,6 +55,51 @@ function makeStubAgent(session: FakeSession): Agent {
   } as unknown as Agent;
 }
 
+interface FakeToolSession extends FakeSession {
+  aborted: boolean;
+}
+
+function makeFakeToolSession(clarify: { question: string; options: string[] }): FakeToolSession {
+  const listeners = new Set<EventListener>();
+  const session: FakeToolSession = {
+    chunks: [],
+    prompts: [],
+    aborted: false,
+    subscribe(listener: EventListener): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    async prompt(text: string): Promise<void> {
+      session.prompts.push(text);
+      for (const l of listeners) {
+        l({
+          type: "tool_execution_end",
+          toolCallId: "t1",
+          toolName: "search_knowledge",
+          result: {
+            content: [{ type: "text", text: "CLARIFICATION_REQUESTED" }],
+            details: { clarification: { question: clarify.question, options: clarify.options, query: "help me with something" } },
+          },
+          isError: false,
+        });
+      }
+      for (const l of listeners) {
+        l({ type: "message_update", message: {}, assistantMessageEvent: { type: "text_delta", delta: "dead-end text" } });
+      }
+      for (const l of listeners) {
+        l({ type: "agent_end", messages: [], willRetry: false });
+      }
+    },
+    abort: () => {
+      session.aborted = true;
+      return Promise.resolve();
+    },
+  };
+  return session;
+}
+
 let app: FastifyInstance;
 
 beforeEach(async () => {
@@ -216,6 +261,71 @@ test("POST /api/chat same userId across pages keeps ONE shared session (context 
     assert.equal(session.prompts.length, 2, "both turns should go to the same session");
     assert.ok(session.prompts[0]!.includes("wiki_search"), "first turn carries knowledge injection");
     assert.ok(session.prompts[1]!.includes("GitHub"), "second turn carries workbench injection");
+  } finally {
+    await chatApp.close();
+  }
+});
+
+test("POST /api/chat streaming relays a legitimate clarify as an SSE clarify frame (not dead-end text)", async () => {
+  const session = makeFakeToolSession({ question: "Which do you mean?", options: ["company", "person"] });
+  const manager = new AgentManager({}, async () => makeStubAgent(session));
+  const chatApp = buildApp({ manager });
+  try {
+    const res = await chatApp.inject({
+      method: "POST",
+      url: "/api/chat",
+      headers: { accept: "text/event-stream" },
+      payload: { userId: "alice", message: "help me with something" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.ok(
+      res.body.includes(`data: ${JSON.stringify({ clarify: { question: "Which do you mean?", options: ["company", "person"] } })}\n\n`),
+      "should relay the clarification question + options to the front-end chat",
+    );
+    assert.ok(res.body.includes(`data: ${JSON.stringify({ done: true })}\n\n`), "stream should end after the clarify");
+    assert.ok(!res.body.includes("dead-end text"), "the agent's dead-end text must not reach the user");
+    assert.equal(session.aborted, true, "agent run should be aborted after a clarify");
+  } finally {
+    await chatApp.close();
+  }
+});
+
+test("POST /api/chat with a clarify answer re-runs the original query with the user's chosen context", async () => {
+  const session = makeFakeSession(["c1", "c2"]);
+  const manager = new AgentManager({}, async () => makeStubAgent(session));
+  const chatApp = buildApp({ manager });
+  try {
+    const res = await chatApp.inject({
+      method: "POST",
+      url: "/api/chat",
+      headers: { accept: "text/event-stream" },
+      payload: { userId: "alice", message: "company", clarify: { query: "what is caleo", answer: "company" } },
+    });
+    assert.equal(res.statusCode, 200);
+    const prompt = session.prompts[0]!;
+    assert.ok(prompt.includes('"what is caleo"'), "re-run prompt carries the original query");
+    assert.ok(prompt.includes('"company"'), "re-run prompt carries the user's chosen answer");
+    assert.ok(prompt.includes("Re-run `search_knowledge`"), "re-run prompt instructs search_knowledge");
+    assert.ok(prompt.includes("do NOT ask for clarification again"), "re-run must not re-clarify");
+    assert.ok(res.body.includes(`data: ${JSON.stringify({ delta: "c1" })}\n\n`), "streams the re-run answer");
+  } finally {
+    await chatApp.close();
+  }
+});
+
+test("POST /api/chat ignores a malformed clarify answer and sends the message as-is", async () => {
+  const session = makeFakeSession(["c1"]);
+  const manager = new AgentManager({}, async () => makeStubAgent(session));
+  const chatApp = buildApp({ manager });
+  try {
+    const res = await chatApp.inject({
+      method: "POST",
+      url: "/api/chat",
+      headers: { accept: "text/event-stream" },
+      payload: { userId: "alice", message: "hello", clarify: { query: "x" } },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.ok(session.prompts[0]!.endsWith("hello"), "plain message preserved when clarify is malformed");
   } finally {
     await chatApp.close();
   }

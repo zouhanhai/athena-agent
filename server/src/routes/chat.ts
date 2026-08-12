@@ -1,13 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import type { AgentManager } from "../agents/manager.js";
-import { streamAgentText } from "../agents/stream.js";
-import { injectPageContext } from "../agents/page-context.js";
+import { streamAgentChat } from "../agents/stream.js";
+import { buildPageInjection, injectPageContext } from "../agents/page-context.js";
 
 export interface ChatRequestBody {
   message?: unknown;
   userId?: unknown;
   /** Current page route path — drives page-aware capability injection. Optional. */
   page?: unknown;
+  /**
+   * G4.S3.T13: the user's answer to a clarification follow-up. `{ query, answer }`
+   * — the original question and the chosen option. When present, the route
+   * composes a re-run prompt so the agent re-searches the KB with that context.
+   */
+  clarify?: unknown;
 }
 
 export interface ChatRouteOptions {
@@ -22,10 +28,58 @@ function sseFrame(payload: unknown): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
+interface ClarifyAnswer {
+  query: string;
+  answer: string;
+}
+
+/** Parse the `clarify` body field into `{ query, answer }`, or undefined. */
+function parseClarifyAnswer(value: unknown): ClarifyAnswer | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v.query !== "string" || typeof v.answer !== "string") return undefined;
+  const query = v.query.trim();
+  const answer = v.answer.trim();
+  if (!query || !answer) return undefined;
+  return { query, answer };
+}
+
+/** G4.S3.T13: knowledge-first guidance (also explains the clarification follow-up). */
+const KNOWLEDGE_GUIDANCE =
+  "Knowledge-first: `search_knowledge` is an AVAILABLE local tool in this " +
+  "session (not an MCP server — it needs NO initialization) that answers from " +
+  "the athena knowledge base: Neo4j entities/chunks, the llm_wiki, stored Q&A " +
+  "pairs (qa_pairs), and semantic-term expansion. For ANY question about CALEO " +
+  "(company, documents, processes, wiki, entities, stored Q&A, past events like " +
+  "the Sommerseminar), CALL `search_knowledge` first and answer from its result. " +
+  "Do NOT claim you lack Neo4j/search_knowledge access — you have it. Do NOT use " +
+  "web tools to check or re-derive an answer the KB already provides. Only fall " +
+  "back to web search/extract when search_knowledge explicitly says the KB does " +
+  "not answer. Do not mention intermediate tool failures (like a URL returning " +
+  "403) in your reply.\n" +
+  "If search_knowledge returns a CLARIFICATION_REQUESTED, do NOT answer yet: the " +
+  "chat UI will show the options to the user, and once the user picks one the " +
+  "query is re-run with that context.";
+
+/** G4.S3.T13: compose the re-run prompt when the user answered a clarification. */
+function buildClarifyReRunPrompt(answer: ClarifyAnswer, page: string | undefined): string {
+  const reRun = [
+    `The user originally asked: "${answer.query}".`,
+    `The user answered the clarifying question with: "${answer.answer}".`,
+    "Re-run `search_knowledge` for the original question, using the user's chosen " +
+      `context "${answer.answer}". Answer from the knowledge base; do NOT ask for ` +
+      "clarification again.",
+  ].join("\n\n");
+  const injection = buildPageInjection(page);
+  return injection ? `${injection}\n\n${reRun}` : reRun;
+}
+
 /**
  * Personal chat endpoint:
  * - Non-streaming: POST /api/chat { message, userId } → { reply }
- * - Streaming: same, Accept: text/event-stream → SSE pushes delta chunks
+ * - Streaming: same, Accept: text/event-stream → SSE pushes delta chunks and,
+ *   on a legitimate clarify (G4.S3.T13), a `{ clarify: { question, options } }`
+ *   frame so the front-end chat renders a real user follow-up.
  */
 export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptions): void {
   app.post("/api/chat", async (request, reply) => {
@@ -41,30 +95,15 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     const userId = body.userId as string;
     const message = body.message as string;
     const page = typeof body.page === "string" ? body.page : "";
+    const clarifyAnswer = parseClarifyAnswer(body.clarify);
     const agent = await options.manager.getAgent(userId);
-    // Page-aware context injection: prepend the current page's relevant agent
-    // capabilities so the agent answers with context-appropriate tooling. The
-    // conversation context (shared session) is never altered — only the prompt.
-    const prompt = injectPageContext(page, message);
 
-    // Knowledge-first guidance (G4.S3): prefer answering from the athena KB via
-    // `search_knowledge` before reaching for web tools. Only fall back to web
-    // search/extract when search_knowledge explicitly reports the KB does not
-    // answer — and don't narrate intermediate web-access failures (e.g. a 403)
-    // in the reply; answer from what the KB/web actually returned.
-    const knowledgeGuidance =
-      "Knowledge-first: `search_knowledge` is an AVAILABLE local tool in this " +
-      "session (not an MCP server — it needs NO initialization) that answers from " +
-      "the athena knowledge base: Neo4j entities/chunks, the llm_wiki, stored Q&A " +
-      "pairs (qa_pairs), and semantic-term expansion. For ANY question about CALEO " +
-      "(company, documents, processes, wiki, entities, stored Q&A, past events like " +
-      "the Sommerseminar), CALL `search_knowledge` first and answer from its result. " +
-      "Do NOT claim you lack Neo4j/search_knowledge access — you have it. Do NOT use " +
-      "web tools to check or re-derive an answer the KB already provides. Only fall " +
-      "back to web search/extract when search_knowledge explicitly says the KB does " +
-      "not answer. Do not mention intermediate tool failures (like a URL returning " +
-      "403) in your reply.";
-    const finalPrompt = `${knowledgeGuidance}\n\n${prompt}`;
+    // G4.S3.T13: a clarification answer re-runs the original query with the
+    // user's chosen context instead of sending the answer as a fresh message.
+    const finalPrompt =
+      clarifyAnswer
+        ? `${KNOWLEDGE_GUIDANCE}\n\n${buildClarifyReRunPrompt(clarifyAnswer, page)}`
+        : `${KNOWLEDGE_GUIDANCE}\n\n${injectPageContext(page, message)}`;
 
     const wantsStream =
       typeof request.headers.accept === "string" &&
@@ -79,8 +118,12 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         Connection: "keep-alive",
       });
       try {
-        for await (const delta of streamAgentText(agent, finalPrompt)) {
-          raw.write(sseFrame({ delta }));
+        for await (const event of streamAgentChat(agent, finalPrompt)) {
+          if (event.type === "clarify") {
+            raw.write(sseFrame({ clarify: { question: event.clarification.question, options: event.clarification.options } }));
+          } else {
+            raw.write(sseFrame({ delta: event.text }));
+          }
         }
         raw.write(sseFrame({ done: true }));
       } catch (err) {

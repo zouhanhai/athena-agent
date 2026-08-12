@@ -38,6 +38,7 @@ export const AGENTIC_MODEL = "~deepseek/deepseek-v4-flash-latest";
 const PLAN_SCHEMA = Type.Object({
   action: Type.Union([Type.Literal("clarify"), Type.Literal("decompose"), Type.Literal("direct")]),
   clarification: Type.Optional(Type.String()),
+  options: Type.Optional(Type.Array(Type.String())),
   subQueries: Type.Optional(Type.Array(Type.String())),
   retriever: Type.Optional(Type.Union([
     Type.Literal("vector"),
@@ -140,6 +141,8 @@ export function extractPlan(message: AssistantMessageLike): QueryPlan {
   if (typeof raw?.clarification === "string" && raw.clarification.trim()) {
     plan.clarification = raw.clarification.trim();
   }
+  const options = asStringArray(raw?.options);
+  if (options && options.length > 0) plan.options = options;
   const subQueries = asStringArray(raw?.subQueries);
   if (subQueries && subQueries.length > 0) plan.subQueries = subQueries;
   const retriever = raw?.retriever;
@@ -201,9 +204,20 @@ export interface AgenticJudgeOptions {
 /** System prompt for the query-transformation + retriever-picker + topic-convergence plan. */
 export const AGENTIC_PLAN_SYSTEM_PROMPT = `You plan a knowledge-base query for the Athena agentic RAG pipeline.
 Given the user question and the known topic subtrees, decide:
-- "clarify": the question is too broad / ambiguous — give the ONE clarifying question to ask back.
+- "clarify": ONLY when the question has NO extractable subject or object — nothing to look up in the
+  knowledge base, e.g. "help me with something", "what should I do about this". Give ONE clarifying
+  question (clarification) and 2-4 concrete options the user can pick from.
 - "decompose": the question has distinct facets — split it into sub-queries run in parallel.
 - "direct": search the question as-is.
+
+IMPORTANT — definitional / entity questions are NEVER "clarify":
+"What is X", "who is X", "what is caleo", "what is RAG", "define X", "what is the X department" — even
+when X could match a person, a company, a product, a concept, etc. A user asking "what is X" is BY
+DEFINITION unfamiliar with X and cannot answer a clarifying question. Choose "direct" and search the
+knowledge base as-is. If X is ambiguous, answer with the most-likely interpretation and optionally note
+the ambiguity alongside the answer — never ask the user to disambiguate. A stored Q&A pair (e.g. qa_pairs
+"what is CALEO?") is reused automatically when one matches the question.
+
 Also pick the retriever (vector | bm25 | graph | hybrid) that best fits the question, and the topic
 subtree to converge to (topic convergence: determine topic -> converge document domain -> search within
 it). OMIT the topic for whole-corpus when the question is cross-domain or ambiguous.
