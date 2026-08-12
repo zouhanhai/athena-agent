@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-11T21:53:05.818Z",
+  "generated_at": "2026-08-12T06:59:06.598Z",
   "goals": [
     {
       "ref": "G1",
@@ -2106,8 +2106,9 @@
               "id": "s3.4",
               "title": "G4.S3.T4: Topic-scoped search — scope retrieval to a topic subtree",
               "owner": "consultant",
-              "status": "backlog",
-              "assignee": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t4",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
