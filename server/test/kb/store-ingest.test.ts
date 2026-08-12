@@ -507,3 +507,174 @@ test("ingest issues no MENTIONED_IN query when no entity is mentioned in any chu
   const mentionQueries = calls.filter((c) => c.query.includes(`:${MENTIONED_IN_TYPE}`));
   assert.equal(mentionQueries.length, 0, "no MENTIONED_IN query without any mention");
 });
+
+interface OverwriteRecord {
+  id: string;
+  text?: string;
+  hasEmbedding?: boolean;
+}
+
+/** Driver that answers the overwrite's lookup queries (resolve-doc + existing chunks). */
+function makeOverwriteDriver(opts: {
+  wikiPathRecord?: OverwriteRecord | null;
+  existingChunks?: OverwriteRecord[];
+} = {}) {
+  const calls: RecordedCall[] = [];
+  const record = (value: OverwriteRecord): { get(key: string): unknown } => ({
+    get: (key) => {
+      if (key === "id") return value.id;
+      if (key === "text") return value.text ?? "";
+      if (key === "hasEmbedding") return value.hasEmbedding ?? false;
+      return null;
+    },
+  });
+  const driver: Neo4jDriverLike = {
+    session() {
+      return {
+        run: async (query: string, params?: Record<string, unknown>) => {
+          calls.push({ query, params });
+          if (query.includes("IS_DOCUMENT")) {
+            return { records: opts.wikiPathRecord ? [record(opts.wikiPathRecord)] : [] };
+          }
+          if (query.includes("c.embedding IS NOT NULL")) {
+            return { records: (opts.existingChunks ?? []).map(record) };
+          }
+          return { records: [] };
+        },
+        close: async () => {},
+      };
+    },
+  };
+  return { driver, calls };
+}
+
+test("overwrite resolves the Document via the wikiPath bridge and namespaces chunks by its id", async () => {
+  const { driver, calls } = makeOverwriteDriver({ wikiPathRecord: { id: "existing-doc-id" } });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1]) },
+    readChunks: async () => [{ id: "c1", text: "corrected text", heading_path: "# X" }],
+  });
+
+  const result = await service.overwrite({
+    ref: makeRef(),
+    documentId: "new-derived-id",
+    title: "Doc",
+    wikiPath: "wiki/ops/runbook.md",
+  });
+
+  assert.equal(result.documentId, "existing-doc-id", "the old Document id is reused");
+  const chunkWrites = calls.filter(
+    (c) => c.query.startsWith("MERGE") && c.query.includes(CHUNK_LABEL) && typeof c.params?.id === "string",
+  );
+  assert.equal(chunkWrites[0]!.params!.id, "existing-doc-id:c1", "chunk ids stay namespaced by the resolved id");
+});
+
+test("overwrite deletes the old document's stale chunks and sections (idempotent via wikiPath)", async () => {
+  const { driver, calls } = makeOverwriteDriver({
+    wikiPathRecord: { id: "doc" },
+    existingChunks: [
+      { id: "doc:c1", text: "old text", hasEmbedding: true },
+      { id: "doc:stale", text: "stale chunk", hasEmbedding: true },
+    ],
+  });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1]) },
+    readChunks: async () => [{ id: "c1", text: "old text", heading_path: "# X" }],
+  });
+
+  await service.overwrite({ ref: makeRef(), documentId: "doc", title: "Doc", wikiPath: "wiki/ops/runbook.md" });
+
+  const staleDelete = calls.find((c) => c.query.includes("WHERE NOT c.id IN $ids"));
+  assert.ok(staleDelete, "stale-chunk DETACH DELETE issued");
+  assert.deepEqual(staleDelete!.params!.ids, ["doc:c1"], "the stale chunk id is NOT in the keep list");
+  const sectionDelete = calls.find((c) => c.query.includes("MATCH (s:") && c.query.includes("DETACH DELETE s"));
+  assert.ok(sectionDelete, "the old document's Section nodes are deleted");
+  assert.equal(sectionDelete!.params!.documentId, "doc");
+});
+
+test("overwrite reuses embeddings for unchanged chunks — a localized edit avoids a full re-embed", async () => {
+  let embedBatches = 0;
+  const { driver } = makeOverwriteDriver({
+    wikiPathRecord: { id: "doc" },
+    existingChunks: [
+      { id: "doc:c1", text: "unchanged", hasEmbedding: true },
+      { id: "doc:c2", text: "old description", hasEmbedding: true },
+    ],
+  });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: {
+      embed: async (texts) => {
+        embedBatches += 1;
+        return texts.map((_, i) => [i]);
+      },
+    },
+    readChunks: async () => [
+      { id: "c1", text: "unchanged", heading_path: "# X" },
+      { id: "c2", text: "corrected description", heading_path: "# Y" },
+    ],
+  });
+
+  const result = await service.overwrite({ ref: makeRef(), documentId: "doc", title: "Doc" });
+  assert.equal(embedBatches, 1, "only the changed chunk is embedded (one batch)");
+  assert.equal(result.chunksStored, 2);
+  assert.equal(result.documentId, "doc");
+});
+
+test("overwrite without a prior Document falls back to the provided documentId (fresh ingest)", async () => {
+  const { driver } = makeOverwriteDriver({ wikiPathRecord: null });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1]) },
+    readChunks: async () => [{ id: "c1", text: "text", heading_path: "# X" }],
+  });
+
+  const result = await service.overwrite({
+    ref: makeRef(),
+    documentId: "doc",
+    title: "Doc",
+    wikiPath: "wiki/ops/runbook.md",
+  });
+  assert.equal(result.documentId, "doc");
+  assert.equal(result.chunksStored, 1);
+});
+
+test("overwrite cleans stale RELATION edges between entities no longer mentioned + orphan entities", async () => {
+  const { driver, calls } = makeOverwriteDriver({ wikiPathRecord: { id: "doc" } });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1]) },
+    readChunks: async () => [{ id: "c1", text: "CALEO hires", heading_path: "# X" }],
+  });
+
+  await service.overwrite({ ref: makeRef(), documentId: "doc", title: "Doc" });
+
+  const staleRelation = calls.find((c) => c.query.includes("WHERE NOT (a)") && c.query.includes("DELETE r"));
+  assert.ok(staleRelation, "stale relation cleanup issued after the new mentions are written");
+  const orphan = calls.find((c) => c.query.includes("NOT (e)--()"));
+  assert.ok(orphan, "orphaned entity cleanup issued");
+});
+
+test("overwrite fires onProgress per chunk (G4.S3.T9 reuse)", async () => {
+  const progress: number[] = [];
+  const { driver } = makeOverwriteDriver({ wikiPathRecord: { id: "doc" } });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map((_, i) => [i]) },
+    readChunks: async () => [
+      { id: "c1", text: "one", heading_path: "# X" },
+      { id: "c2", text: "two", heading_path: "# Y" },
+    ],
+  });
+
+  await service.overwrite({
+    ref: makeRef(),
+    documentId: "doc",
+    title: "Doc",
+    onProgress: (p) => progress.push(p.chunksStored),
+  });
+
+  assert.deepEqual(progress, [1, 2], "one progress report per chunk processed");
+});
