@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T13:35:44.932Z",
+  "generated_at": "2026-08-12T13:41:51.714Z",
   "goals": [
     {
       "ref": "G1",
@@ -2202,7 +2202,7 @@
               "id": "G4.S3.T11",
               "title": "Admin console — sidebar admin nav + employee/permission/invite management",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "20260812T133534Z",
               "blocked_by": [],
@@ -2212,8 +2212,8 @@
                 "Permission edits are enforced server-side (RBAC): only an admin can reach these actions; the UI reflects the signed-in user's role.",
                 "Server + web tests green, vue-tsc + typecheck clean."
               ],
-              "progress_last_row": "claimed ticket (status/assignee/session_id + added missing layer/parent/owner/milestone/blocked_by frontmatter, kanban index regenerated, pushed)",
-              "progress_updated_at": "2026-08-12T13:35:34Z"
+              "progress_last_row": "acceptance met: Admin sidebar entry only for role=admin (reactive navItems); Admin page = employee list (role select + kb.edit switch per row via PUT /api/employees/:email, expandable 2nd level shows owned agents grouped by owner) + invite generation (POST /api/invitations returns inviteUrl, copy button, 7-day TTL note); server RBAC enforces admin-only (existing employees.update/list/invite permissions), UI hides admin controls for members, /admin route guarded (non-admin → /knowledge) + in-page check; server 907/907 + web 410/410 (14 new) + server tsc + web vue-tsc clean; codegraph synced; committed + pushed",
+              "progress_updated_at": "2026-08-12T14:10:00Z"
             }
           ]
         },
