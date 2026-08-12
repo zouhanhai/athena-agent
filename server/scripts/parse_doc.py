@@ -260,6 +260,12 @@ def mark_vlm_descriptions(markdown: str) -> str:
                     k += 1
                 if k >= n or lines[k].strip().startswith("![") or lines[k].strip().startswith("#"):
                     break
+                # Also stop if the next non-blank looks like a short title heading
+                # (<=30 chars, no terminal period) — VLM descriptions are long prose,
+                # so a short line after a blank is the next section, not the description.
+                nxt = lines[k].strip()
+                if len(nxt) <= 30 and not nxt.endswith((".", ":")):
+                    break
             block_end += 1
         # Wrap each non-empty paragraph of [j, block_end) in <em>.
         for m in range(j, block_end):
