@@ -181,7 +181,11 @@ test("POST /api/chat with no page leaves the prompt unchanged (no injection)", a
       payload: { userId: "alice", message: "plain question" },
     });
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(session.prompts, ["plain question"]);
+    // The knowledge-first guidance is always prepended; the plain message must be
+    // preserved in the prompt.
+    assert.equal(session.prompts.length, 1);
+    assert.ok(session.prompts[0]!.endsWith("plain question"), "message preserved in prompt");
+    assert.ok(session.prompts[0]!.includes("Knowledge-first"), "knowledge-first guidance prepended");
   } finally {
     await chatApp.close();
   }
