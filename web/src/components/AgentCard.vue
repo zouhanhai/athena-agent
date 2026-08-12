@@ -65,8 +65,6 @@ function onCardClick(e: MouseEvent) {
 
 <style scoped>
 .agent-card {
-  position: absolute;
-  inset: 0;
   display: flex;
   gap: 10px;
   align-items: flex-start;
@@ -76,37 +74,34 @@ function onCardClick(e: MouseEvent) {
   border-radius: 8px;
   box-shadow: var(--caleo-shadow);
   cursor: pointer;
-  /* Stack: inactive cards slide down behind the active card, only logo+name visible.
-     transform + opacity only (GPU). --stack drives the vertical offset. */
-  transform: translateY(calc(var(--stack, 0) * 46px)) scale(1);
-  opacity: 1;
-  transition: transform 200ms cubic-bezier(0.77, 0, 0.175, 1),
-    opacity 200ms ease-out, border-color 0.15s ease, background 0.15s ease;
-  z-index: calc(10 - var(--stack, 0));
+  transition: border-color 0.15s ease, background 0.15s ease,
+    bottom 200ms cubic-bezier(0.77, 0, 0.175, 1);
 }
 
-/* Active card sits on top, fully visible, no offset. */
+/* Active card sits in the flow (natural height, no overflow); the others are
+   absolutely positioned below it. */
 .agent-card.active {
-  transform: translateY(0) scale(1);
+  position: relative;
+  z-index: 10;
   border-color: var(--caleo-primary);
   background: color-mix(in srgb, var(--caleo-primary) 6%, var(--caleo-surface));
-  z-index: 10;
+}
+
+.agent-card:not(.active) {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* each inactive card is a slim strip stacked below the active card, offset by
+     its stack index so only the top edge (logo + name) peeks out */
+  bottom: calc(0px - var(--stack, 0) * 40px);
+  height: 44px;
+  align-items: center;
+  overflow: hidden;
+  z-index: calc(9 - var(--stack, 0));
 }
 
 .agent-card:hover {
   border-color: var(--caleo-primary);
-}
-
-/* Non-active cards: collapse to a slim logo-only strip peeking behind the active
-   card. Override inset (no bottom) so the strip is natural-height, stacked below. */
-.agent-card:not(.active) {
-  align-items: center;
-  overflow: hidden;
-  inset: auto 0 0 0; /* pin to bottom, auto height */
-  height: 44px;
-  padding: 6px 10px;
-  background: var(--caleo-surface);
-  transform: translateY(calc(-1 * var(--stack, 0) * 12px));
 }
 
 .agent-card:not(.active) .agent-card-head {

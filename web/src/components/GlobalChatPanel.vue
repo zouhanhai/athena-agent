@@ -292,9 +292,9 @@ function addEmployee(emp: EmployeeRecord) {
 
 .agent-cards {
   position: relative;
-  /* Height fits the active (full) card + the stacked strip peeking below.
-     min-height keeps room for the inactive cards' offset. */
-  min-height: 108px;
+  /* Active card (in flow) sets the height; the stacked strips are absolutely
+     positioned below it, so give a little extra room for them to peek out. */
+  padding-bottom: 64px;
 }
 
 .add-entries {
