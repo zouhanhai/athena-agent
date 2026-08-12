@@ -177,7 +177,7 @@ describe("useIngestTasks", () => {
     expect(submitError.value).toContain("retry rejected");
   });
 
-  it("streams Neo4j chunk progress with an ETA across polls (G4.S3.T8)", async () => {
+  it("streams Neo4j chunk progress X/Y plus a live ETA across polls (G4.S3.T8/T9)", async () => {
     ingestFileMock.mockResolvedValue("t-7");
     const stage = (stored: number) => ({
       name: "ingesting_neo4j",
@@ -200,13 +200,15 @@ describe("useIngestTasks", () => {
       .mockResolvedValueOnce(running(2))
       .mockResolvedValue(running(6));
 
-    const { tasks, addFile, chunkProgress } = useIngestTasks();
+    const { tasks, addFile, chunkProgress, chunkEta } = useIngestTasks();
     await addFile(new File(["x"], "g.pdf"));
     await vi.advanceTimersByTimeAsync(1500);
     await nextTick();
 
-    const text = chunkProgress(tasks.value[0]!);
-    expect(text).toContain("6 / 20 chunks");
-    expect(text).toContain("ETA");
+    const taskItem = tasks.value[0]!;
+    const text = chunkProgress(taskItem);
+    expect(text).toBe("6 / 20 chunks");
+    // A live ETA is available once a per-chunk rate can be measured.
+    expect(chunkEta(taskItem)).toMatch(/~ \d+s left/);
   });
 });

@@ -102,6 +102,9 @@ export interface IngestTaskStep {
   name: string;
   status: StageStatus;
   error?: string;
+  /** Live sub-step progress text (G4.S3.T9): the Neo4j embed_store step carries
+   *  "X/Y" while chunks embed (rendered as "embed store: 5/16"). */
+  progress?: string;
 }
 
 export interface IngestTaskStage {
@@ -115,6 +118,12 @@ export interface IngestTaskStage {
   chunksStored?: number;
   chunksTotal?: number;
   progress?: number;
+  /** Chunk progress aliases (G4.S3.T9): processed/total mirror chunksStored/
+   *  chunksTotal so the ETA reads (total - processed) × avg ms per chunk. */
+  processed?: number;
+  total?: number;
+  /** Rolling ETA (ms) for the remaining chunks, set by the server while total > 0. */
+  etaMs?: number;
 }
 
 export interface IngestTask {

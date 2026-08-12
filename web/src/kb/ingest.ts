@@ -6,7 +6,7 @@
 import { getCurrentInstance, onBeforeUnmount, ref } from "vue";
 import { getTask, ingestFile, ingestUrl, retryTask as retryTaskApi } from "@/api/kb";
 import type { IngestTask, TaskStatus } from "@/api/kb";
-import { chunkProgressText, type ChunkProgressSample } from "./progress";
+import { chunkEtaText, chunkProgressText, type ChunkProgressSample } from "./progress";
 
 export interface IngestTaskItem {
   id: string;
@@ -239,12 +239,23 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
   }
 
   /**
-   * Uploads-page text for a task's Neo4j (RAG) stage (G4.S3.T8): "X / Y chunks",
-   * "Y chunks" once done, plus an " · ETA …" while running once the chunk rate
-   * across polls can be measured. Empty when the stage has no chunk totals yet.
+   * Uploads-page stage-label text for a task's Neo4j (RAG) stage (G4.S3.T8):
+   * "X / Y chunks", "Y chunks" once done. Empty when the stage has no chunk
+   * totals yet. `now` is the live clock (G4.S3.T9) so the ETA (see chunkEta)
+   * recomputes on every tick.
    */
-  function chunkProgress(task: IngestTaskItem): string {
-    return chunkProgressText(task.stages.ingesting_neo4j, chunkSamples.get(task.id) ?? []);
+  function chunkProgress(task: IngestTaskItem, now = Date.now()): string {
+    return chunkProgressText(task.stages.ingesting_neo4j, chunkSamples.get(task.id) ?? [], now);
+  }
+
+  /**
+   * Live ETA text for a task's running Neo4j (RAG) stage (G4.S3.T9): "~ Nm Ns
+   * left" from remaining chunks × rolling avg ms per chunk, or "" before any
+   * per-chunk baseline (parsing/refinement, or the first RAG poll). Recomputed
+   * as `now` ticks so it decreases between polls.
+   */
+  function chunkEta(task: IngestTaskItem, now = Date.now()): string {
+    return chunkEtaText(task.stages.ingesting_neo4j, chunkSamples.get(task.id) ?? [], now);
   }
 
   /**
@@ -296,5 +307,5 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
     });
   }
 
-  return { tasks, submitting, submitError, addFile, addUrl, removeTask, retryTask, chunkProgress };
+  return { tasks, submitting, submitError, addFile, addUrl, removeTask, retryTask, chunkProgress, chunkEta };
 }

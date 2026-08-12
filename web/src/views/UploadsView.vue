@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useIngestTasks } from "@/kb/ingest";
 import type { IngestTaskItem } from "@/kb/ingest";
 import type { IngestTaskStage } from "@/api/kb";
@@ -16,7 +16,23 @@ const {
   removeTask,
   retryTask,
   chunkProgress,
+  chunkEta,
 } = useIngestTasks();
+
+/** Live clock (G4.S3.T9): ticks every second while the view is mounted so the
+ *  elapsed timer and the RAG ETA re-render even between task polls. */
+const now = ref(Date.now());
+let nowTimer: ReturnType<typeof setInterval> | undefined;
+
+onMounted(() => {
+  nowTimer = setInterval(() => {
+    now.value = Date.now();
+  }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (nowTimer) clearInterval(nowTimer);
+});
 
 const ACCEPT_HINT = "application/pdf,.docx,.xlsx,.pptx,image/*,.html,.epub,.csv,.md,.txt";
 
@@ -81,11 +97,25 @@ function stageStatus(stage: IngestTaskStage): string {
   return stage.status;
 }
 
-/** Chunk-progress text (G4.S3.T8) for the Neo4j (RAG) stage: "X / Y chunks" +
- *  " · ETA …" while running, "Y chunks" once done. Empty for other stages. */
+/** Chunk-progress text (G4.S3.T8) for the Neo4j (RAG) stage: "X / Y chunks"
+ *  while running, "Y chunks" once done. Empty for other stages. Uses the live
+ *  `now` so the stage label re-renders with the ticking clock (G4.S3.T9). */
 function stageProgress(task: IngestTaskItem, key: string): string {
   if (key !== "ingesting_neo4j") return "";
-  return chunkProgress(task);
+  return chunkProgress(task, now.value);
+}
+
+/** Live ETA for a running Neo4j (RAG) stage (G4.S3.T9): "~ Nm Ns left" from
+ *  remaining chunks × rolling avg ms per chunk. "" before RAG (parsing/
+ *  refinement — no per-chunk baseline yet) or once the stage is done. */
+function ragEta(task: IngestTaskItem): string {
+  return chunkEta(task, now.value);
+}
+
+/** Live elapsed timer (G4.S3.T9): ticks from `createdAt` via the 1s `now` ref,
+ *  so it never freezes at 0s between polls. */
+function elapsed(task: IngestTaskItem): string {
+  return formatDuration(Math.max(0, now.value - task.createdAt));
 }
 
 function friendlyStep(step: { name: string }): string {
@@ -109,10 +139,9 @@ function refinementText(task: IngestTaskItem): string {
   return parts.join(" · ");
 }
 
-/** Human-readable elapsed time between createdAt and updatedAt (ms). */
-function formatDuration(task: IngestTaskItem): string {
-  const ms = Math.max(0, task.updatedAt - task.createdAt);
-  if (ms < 60_000) return `${(ms / 1000).toFixed(0)}s`;
+/** Human-readable elapsed time from a duration in ms (G4.S3.T9). */
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
   const m = Math.floor(ms / 60_000);
   const s = Math.round((ms % 60_000) / 1000);
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
@@ -228,7 +257,7 @@ function stepMark(status: string): string {
             </div>
           </div>
           <p v-if="refinementText(task) || task.createdAt" class="task-refinement-note">
-            {{ refinementText(task) }}<template v-if="refinementText(task) && task.updatedAt"> · </template>{{ formatDuration(task) }}
+            <template v-if="refinementText(task)">{{ refinementText(task) }} · </template>{{ elapsed(task) }}<template v-if="ragEta(task)"> · {{ ragEta(task) }}</template>
           </p>
           <t-progress
             :percentage="task.progress"
@@ -258,7 +287,7 @@ function stepMark(status: string): string {
                   :class="step.status"
                 >
                   <span class="task-step-mark">{{ stepMark(step.status) }}</span>
-                  <span class="task-step-name" :title="step.error">{{ friendlyStep(step) }}</span>
+                  <span class="task-step-name" :title="step.error">{{ friendlyStep(step) }}<template v-if="step.progress">: {{ step.progress }}</template></span>
                 </li>
               </ul>
             </div>

@@ -369,8 +369,9 @@ describe("uploads page", () => {
     wrapper.unmount();
   });
 
-  it("shows Neo4j chunk progress X / Y chunks with an ETA while running (G4.S3.T8)", async () => {
+  it("shows Neo4j chunk progress X / Y chunks with a live ETA in the note while running (G4.S3.T8/T9)", async () => {
     vi.useFakeTimers();
+    const createdAt = Date.now();
     ingestFileMock.mockResolvedValue("t-1");
     const runningStage = (stored: number) => ({
       name: "ingesting_neo4j",
@@ -383,6 +384,8 @@ describe("uploads page", () => {
         makeTask({
           status: "ingesting",
           progress: 50,
+          createdAt,
+          updatedAt: createdAt,
           stages: {
             parsing: { name: "parsing", status: "done" },
             refinement: { name: "refinement", status: "done" },
@@ -395,6 +398,8 @@ describe("uploads page", () => {
         makeTask({
           status: "ingesting",
           progress: 50,
+          createdAt,
+          updatedAt: createdAt,
           stages: {
             parsing: { name: "parsing", status: "done" },
             refinement: { name: "refinement", status: "done" },
@@ -406,13 +411,41 @@ describe("uploads page", () => {
     const wrapper = await mountApp();
     await submitFile(wrapper);
 
-    // second poll (interval) → rate sample → ETA
+    // second poll (interval) → rate sample → ETA, rendered live in the note
     await vi.advanceTimersByTimeAsync(1500);
     await flushPromises();
     await nextTick();
 
     expect(wrapper.text()).toContain("6 / 20 chunks");
-    expect(wrapper.text()).toContain("ETA");
+    expect(wrapper.find(".task-refinement-note").text()).toMatch(/~ \d+s left/);
+    wrapper.unmount();
+  });
+
+  it("ticks the elapsed timer live from createdAt (G4.S3.T9)", async () => {
+    vi.useFakeTimers();
+    const createdAt = Date.now();
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "ingesting",
+        progress: 50,
+        createdAt,
+        updatedAt: createdAt,
+      }),
+    );
+    const wrapper = await mountApp();
+    await submitFile(wrapper);
+
+    // Just submitted → 0s; the timer must not freeze at 0s.
+    expect(wrapper.find(".task-refinement-note").text()).toContain("0s");
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await nextTick();
+    expect(wrapper.find(".task-refinement-note").text()).toContain("3s");
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await nextTick();
+    expect(wrapper.find(".task-refinement-note").text()).toMatch(/\d+m \d+s/);
     wrapper.unmount();
   });
 
