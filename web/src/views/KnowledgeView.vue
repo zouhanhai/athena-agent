@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { VNetworkGraph } from "v-network-graph";
 import { ForceLayout } from "v-network-graph/lib/force-layout";
@@ -26,18 +26,19 @@ const graphRef = ref<VNetworkGraphInstance>();
  *  We re-fit after the layout has had a beat to spread out, using transitionWhile
  *  so the fit is a smooth zoom rather than a hard jump from the stacked state. */
 function fitGraph(): void {
-  const g = graphRef.value;
-  if (!g) return;
-  // Initial quick fit, then a second one after force has spread nodes further, so
-  // the canvas eases from the near-visible state to the full graph instead of
-  // snapping. Both are wrapped in transitionWhile for a smooth zoom.
-  const fit = (delay: number) =>
-    setTimeout(() => {
-      const inst = graphRef.value;
-      inst?.transitionWhile(() => inst.fitToContents?.({ margin: 24 }), 450);
-    }, delay);
-  fit(120);
-  fit(650);
+  // Defer to next tick so the <v-network-graph> component is mounted and the
+  // graphRef is populated before we fit; then run a two-stage smooth zoom as the
+  // force layout spreads the nodes (120ms early + 650ms after layout settles).
+  void nextTick(() => {
+    const fit = (delay: number) =>
+      setTimeout(() => {
+        const inst = graphRef.value;
+        if (!inst?.fitToContents) return;
+        inst.transitionWhile(() => void inst.fitToContents?.({ margin: 24 }), 450);
+      }, delay);
+    fit(120);
+    fit(650);
+  });
 }
 const selectedNodeId = ref<string | null>(null);
 
