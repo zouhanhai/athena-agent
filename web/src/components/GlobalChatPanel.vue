@@ -207,8 +207,29 @@ function addEmployee(emp: EmployeeRecord) {
             <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
               {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
             </div>
+            <!-- G4.S3.T13: a legitimate clarification → render question + options
+                 as a REAL user follow-up; picking one re-runs the query. -->
+            <div v-if="msg.role === 'assistant' && msg.clarification" class="clarification">
+              <p class="clarification-question">{{ msg.clarification.question }}</p>
+              <div v-if="!msg.clarificationAnswered" class="clarification-options">
+                <button
+                  v-for="option in msg.clarification.options"
+                  :key="option"
+                  type="button"
+                  class="clarification-option"
+                  :disabled="loading"
+                  @click="chat.answerClarification(index, option)"
+                >
+                  {{ option }}
+                </button>
+                <span v-if="msg.clarification.options.length === 0" class="clarification-hint">
+                  Type your answer below and send it.
+                </span>
+              </div>
+              <p v-else class="clarification-answered">Answered — Athena is re-running the query…</p>
+            </div>
             <div
-              v-if="msg.role === 'assistant' && msg.content"
+              v-if="msg.role === 'assistant' && msg.content && !msg.clarification"
               class="feedback-controls"
             >
               <button
@@ -464,6 +485,61 @@ function addEmployee(emp: EmployeeRecord) {
 .feedback-controls {
   display: flex;
   gap: 4px;
+}
+
+/* G4.S3.T13: real clarification follow-up — question + option buttons under the bubble. */
+.clarification {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--caleo-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--caleo-primary) 6%, transparent);
+  max-width: 100%;
+}
+
+.clarification-question {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.clarification-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.clarification-option {
+  padding: 4px 10px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 999px;
+  background: var(--caleo-surface);
+  color: var(--caleo-text);
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 0.15s var(--caleo-ease-out), background-color 0.15s var(--caleo-ease-out), border-color 0.15s var(--caleo-ease-out);
+}
+
+.clarification-option:hover:not(:disabled) {
+  background: var(--caleo-primary);
+  color: #fff;
+  border-color: var(--caleo-primary);
+}
+
+.clarification-option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.clarification-hint,
+.clarification-answered {
+  margin: 0;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
 }
 
 .feedback-btn {

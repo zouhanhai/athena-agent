@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { streamChat } from "@/api/chat";
 import { sendFeedback, type FeedbackDirection } from "@/api/feedback";
+import type { ChatClarification } from "@/api/sse";
 
 export type ChatSpeakerKind = "agent" | "employee";
 export type ChatMessageRole = "user" | "assistant" | "system";
@@ -28,6 +29,10 @@ export interface ChatMessage {
   speaker?: ChatSpeaker;
   /** G4.S3.T5: the user's thumbs up/down on this assistant answer (set via rateMessage). */
   feedback?: FeedbackDirection | null;
+  /** G4.S3.T13: a real clarification follow-up (question + options) the user must answer. */
+  clarification?: ChatClarification | null;
+  /** G4.S3.T13: whether the clarification has been answered (options hidden once chosen). */
+  clarificationAnswered?: boolean;
 }
 
 interface ChatState {
@@ -133,12 +138,63 @@ export const useChatStore = defineStore("chat", {
     },
     /**
      * Send a message: append a user bubble + empty assistant bubble,
-     * stream the reply chunk by chunk into the assistant bubble.
+     * stream the reply chunk by chunk into the assistant bubble. When the
+     * stream relays a clarification (G4.S3.T13), the assistant bubble becomes
+     * the question + options instead of a dead-end answer.
      */
     async send(message: string) {
       const text = message.trim();
       if (!text || this.loading) return;
 
+      this.messages.push({ role: "user", content: text, speaker: this.userSpeaker });
+      this.loading = true;
+      this.error = "";
+
+      const assistantIndex =
+        this.messages.push({
+          role: "assistant",
+          content: "",
+          speaker: this.speakingAgent(),
+        }) - 1;
+
+      try {
+        await streamChat(this.userId, text, {
+          onDelta: (delta) => {
+            this.messages[assistantIndex]!.content += delta;
+          },
+          onClarify: (clarify) => {
+            const msg = this.messages[assistantIndex];
+            if (msg) {
+              msg.clarification = clarify;
+              msg.content = clarify.question;
+            }
+          },
+          onError: (errMessage) => {
+            this.error = errMessage;
+            if (this.messages[assistantIndex]!.content === "") {
+              this.messages.splice(assistantIndex, 1);
+            }
+          },
+        }, this.page);
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : String(err);
+      } finally {
+        this.loading = false;
+      }
+    },
+    /**
+     * G4.S3.T13: the user picked an option on a clarification. Feeds the choice
+     * back to the server so it re-runs the original query with the chosen
+     * context, streaming the real answer into a new assistant bubble.
+     */
+    async answerClarification(messageIndex: number, answer: string) {
+      const msg = this.messages[messageIndex];
+      const clarification = msg?.clarification;
+      const text = answer.trim();
+      if (!clarification || !text || this.loading) return;
+      const query = clarification.query ?? this.messages[messageIndex - 1]?.content ?? "";
+
+      msg.clarificationAnswered = true;
       this.messages.push({ role: "user", content: text, speaker: this.userSpeaker });
       this.loading = true;
       this.error = "";
@@ -161,7 +217,7 @@ export const useChatStore = defineStore("chat", {
               this.messages.splice(assistantIndex, 1);
             }
           },
-        }, this.page);
+        }, this.page, { query, answer: text });
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
       } finally {

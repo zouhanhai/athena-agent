@@ -115,6 +115,48 @@ describe("streamChat (streaming)", () => {
     expect(errors).toEqual(["agent exploded"]);
   });
 
+  it("forwards a clarify event to onClarify", async () => {
+    stubFetch(sseResponse(['data: {"clarify":{"question":"Which do you mean?","options":["company","person"],"query":"what is caleo"}}\n\n']));
+    const clarifies: Array<{ question: string; options: string[]; query?: string }> = [];
+    await streamChat("hermes", "hi", {
+      onDelta: () => {},
+      onClarify: (clarify) => clarifies.push(clarify),
+    });
+    expect(clarifies).toEqual([
+      { question: "Which do you mean?", options: ["company", "person"], query: "what is caleo" },
+    ]);
+  });
+
+  it("includes a clarify answer (query + chosen option) in the request body to re-run the query", async () => {
+    stubFetch(sseResponse(['data: {"done":true}\n\n']));
+    await streamChat("hermes", "company", { onDelta: () => {} }, "/knowledge", {
+      query: "what is caleo",
+      answer: "company",
+    });
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat",
+      expect.objectContaining({
+        body: JSON.stringify({
+          userId: "hermes",
+          message: "company",
+          page: "/knowledge",
+          clarify: { query: "what is caleo", answer: "company" },
+        }),
+      }),
+    );
+  });
+
+  it("omits the clarify field when no clarification answer is provided", async () => {
+    stubFetch(sseResponse(['data: {"done":true}\n\n']));
+    await streamChat("hermes", "hi", { onDelta: () => {} }, "/knowledge");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const body = (fetchMock.mock.calls[0]![1] as { body: string }).body;
+    expect(JSON.parse(body)).toEqual({ userId: "hermes", message: "hi", page: "/knowledge" });
+  });
+
   it("throws with the status when the response is not ok", async () => {
     stubFetch(jsonResponse({ error: "bad" }, 400));
     await expect(

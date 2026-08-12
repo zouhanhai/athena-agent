@@ -2,13 +2,23 @@ export interface SSEHandlers {
   onDelta?: (delta: string) => void;
   onDone?: () => void;
   onError?: (message: string) => void;
+  /** G4.S3.T13: a clarification follow-up (question + options) relayed from the chat stream. */
+  onClarify?: (clarify: ChatClarification) => void;
+}
+
+/** G4.S3.T13: a clarification the agent wants the user to answer. `query` is the
+ *  original user question so the answer can re-run the query with the chosen context. */
+export interface ChatClarification {
+  question: string;
+  options: string[];
+  query?: string;
 }
 
 const EVENT_SEPARATOR = "\n\n";
 
 /**
  * Consumes an SSE Response body, dispatching each event to handlers.
- * Event data is JSON: {"delta":"..."} | {"done":true} | {"error":"..."}
+ * Event data is JSON: {"delta":"..."} | {"done":true} | {"error":"..."} | {"clarify":{...}}
  * Uses fetch streaming read; events may span chunk boundaries, requiring buffer reassembly.
  */
 export async function consumeSSEStream(
@@ -57,9 +67,9 @@ function dispatchEvent(event: string, handlers: SSEHandlers): void {
   const payload = dataLine.slice("data:".length).trim();
   if (!payload) return;
 
-  let parsed: { delta?: unknown; done?: unknown; error?: unknown };
+  let parsed: { delta?: unknown; done?: unknown; error?: unknown; clarify?: unknown };
   try {
-    parsed = JSON.parse(payload) as { delta?: unknown; done?: unknown; error?: unknown };
+    parsed = JSON.parse(payload) as { delta?: unknown; done?: unknown; error?: unknown; clarify?: unknown };
   } catch {
     return;
   }
@@ -68,7 +78,17 @@ function dispatchEvent(event: string, handlers: SSEHandlers): void {
     handlers.onError?.(parsed.error);
   } else if (parsed.done === true) {
     handlers.onDone?.();
+  } else if (isChatClarification(parsed.clarify)) {
+    handlers.onClarify?.(parsed.clarify);
   } else if (typeof parsed.delta === "string") {
     handlers.onDelta?.(parsed.delta);
   }
+}
+
+function isChatClarification(value: unknown): value is ChatClarification {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.question !== "string") return false;
+  if (!Array.isArray(v.options) || !v.options.every((o) => typeof o === "string")) return false;
+  return v.query === undefined || typeof v.query === "string";
 }

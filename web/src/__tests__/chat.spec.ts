@@ -59,6 +59,7 @@ interface StreamArgs {
   onDelta: (delta: string) => void;
   onDone?: () => void;
   onError?: (message: string) => void;
+  onClarify?: (clarify: { question: string; options: string[]; query?: string }) => void;
 }
 
 function mountChat(): ChatWrapper {
@@ -81,6 +82,7 @@ function controllableStream(): {
   push: (d: string) => void;
   fail: (m: string) => void;
   end: () => void;
+  clarify: (c: { question: string; options: string[]; query?: string }) => void;
 } {
   return {
     push: (d) => {
@@ -94,6 +96,10 @@ function controllableStream(): {
     end: () => {
       const [, , args] = streamChatMock.mock.calls.at(-1)! as [string, string, StreamArgs];
       args.onDone?.();
+    },
+    clarify: (c) => {
+      const [, , args] = streamChatMock.mock.calls.at(-1)! as [string, string, StreamArgs];
+      args.onClarify?.(c);
     },
   };
 }
@@ -505,6 +511,58 @@ describe("GlobalChatPanel feedback loop (G4.S3.T5)", () => {
 
     expect(wrapper.find(".message-row.assistant .feedback-down.active").exists()).toBe(true);
     expect(wrapper.find(".message-row.assistant .feedback-up.active").exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe("GlobalChatPanel clarification follow-up (G4.S3.T13)", () => {
+  it("renders a clarification question + options on the assistant bubble", async () => {
+    streamChatMock.mockResolvedValue(undefined);
+    const wrapper = mountChat();
+    const store = useChatStore();
+    await wrapper.find(".composer-input textarea").setValue("help me with something");
+    await wrapper.find(".send-button").trigger("click");
+
+    const stream = controllableStream();
+    stream.clarify({ question: "Which do you mean?", options: ["company", "person"], query: "what is caleo" });
+    stream.end();
+    await flushPromises();
+
+    const assistant = wrapper.find(".message-row.assistant");
+    expect(assistant.find(".clarification-question").text()).toBe("Which do you mean?");
+    const buttons = assistant.findAll(".clarification-option");
+    expect(buttons.map((b) => b.text())).toEqual(["company", "person"]);
+    expect(store.messages[1]!.clarification).toMatchObject({
+      question: "Which do you mean?",
+      options: ["company", "person"],
+    });
+    wrapper.unmount();
+  });
+
+  it("clicking an option feeds the answer back to re-run the query with the chosen context", async () => {
+    streamChatMock.mockResolvedValue(undefined);
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.messages = [
+      { role: "user", content: "what is caleo", speaker: { id: "hermes", kind: "employee", name: "Hermes", logoUrl: "" } },
+      {
+        role: "assistant",
+        content: "Which do you mean?",
+        speaker: { id: "athena", kind: "agent", name: "Athena", logoUrl: "" },
+        clarification: { question: "Which do you mean?", options: ["company", "person"], query: "what is caleo" },
+      },
+    ];
+    await wrapper.vm.$nextTick();
+
+    const firstOption = wrapper.find(".clarification-option");
+    await firstOption.trigger("click");
+    await flushPromises();
+
+    expect(store.messages[1]!.clarificationAnswered).toBe(true);
+    const lastCall = streamChatMock.mock.calls.at(-1)! as [string, string, StreamArgs, string, { query: string; answer: string }];
+    expect(lastCall[0]).toBe("hermes");
+    expect(lastCall[1]).toBe("company");
+    expect(lastCall[4]).toEqual({ query: "what is caleo", answer: "company" });
     wrapper.unmount();
   });
 });

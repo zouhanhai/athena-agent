@@ -16,12 +16,14 @@ async function collect(chunks: string[]) {
   const deltas: string[] = [];
   let done = 0;
   const errors: string[] = [];
+  const clarifies: Array<{ question: string; options: string[]; query?: string }> = [];
   await consumeSSEStream(response(chunks), {
     onDelta: (d) => deltas.push(d),
     onDone: () => done++,
     onError: (e) => errors.push(e),
+    onClarify: (c) => clarifies.push(c),
   });
-  return { deltas, done, errors };
+  return { deltas, done, errors, clarifies };
 }
 
 describe("consumeSSEStream", () => {
@@ -38,6 +40,21 @@ describe("consumeSSEStream", () => {
   it("calls onError with the error message", async () => {
     const result = await collect(['data: {"error":"boom"}\n\n']);
     expect(result.errors).toEqual(["boom"]);
+  });
+
+  it("dispatches a clarify event with question + options + query", async () => {
+    const result = await collect([
+      'data: {"clarify":{"question":"Which do you mean?","options":["company","person"],"query":"what is caleo"}}\n\n',
+    ]);
+    expect(result.clarifies).toEqual([
+      { question: "Which do you mean?", options: ["company", "person"], query: "what is caleo" },
+    ]);
+    expect(result.deltas).toEqual([]);
+  });
+
+  it("does not call onClarify for delta / done events", async () => {
+    const result = await collect(['data: {"delta":"hi"}\n\n', 'data: {"done":true}\n\n']);
+    expect(result.clarifies).toEqual([]);
   });
 
   it("reassembles deltas split across chunk boundaries", async () => {
