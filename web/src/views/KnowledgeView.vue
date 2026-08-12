@@ -20,17 +20,26 @@ const loading = ref(false);
 const error = ref("");
 const graphRef = ref<VNetworkGraphInstance>();
 
-/** Set the canvas to a fixed viewBox (~100-node-sized field) as soon as the graph
- *  loads, so the topic graph is visible at a comfortable scale FROM THE START —
- *  not zoomed onto the 2 nodes stacked at the origin. The force layout spreads
- *  nodes within this fixed field; the view does not re-fit as they move. */
+/** Set the canvas to a viewBox sized for the number of entities in the topic
+ *  graph, so the graph is visible at a comfortable scale FROM THE START — not
+ *  zoomed onto the few nodes stacked at the origin before the force layout
+ *  spreads. The force layout's link distance is ~100, so a force-laid-out graph
+ *  of n nodes roughly spans an area of side ~ 100*sqrt(n); we size the viewBox to
+ *  that (with margin) so the whole graph fits without re-fitting as it expands. */
 function fitGraph(): void {
   void nextTick(() => {
     const inst = graphRef.value;
-    // A fixed, generous field (~100-node view): left/right/top/bottom chosen so a
-    // topic graph renders at a readable size without filling the whole canvas
-    // with a single node. Adjust if the graph typically has more nodes.
-    inst?.setViewBox?.({ left: -1000, right: 1000, top: -600, bottom: 600 });
+    const n = graph.value.nodes.length || 1;
+    // Force-layout span ≈ 100 * sqrt(n) per side. Give it a bit of headroom
+    // (1.4x) so clusters stay inside the view as they settle.
+    const span = Math.max(400, 100 * Math.sqrt(n) * 1.4);
+    const half = span / 2;
+    inst?.setViewBox?.({
+      left: -half,
+      right: half,
+      top: -half,
+      bottom: half,
+    });
   });
 }
 const selectedNodeId = ref<string | null>(null);
