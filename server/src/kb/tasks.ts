@@ -16,6 +16,13 @@ import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTit
 import type { WikiClassification } from "./llmwiki.js";
 import { isValidTopic } from "./llmwiki.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
+import { deriveStem, storeRefinementOutput } from "../agents/refine-output.js";
+import {
+  defaultRefinementOutputDir,
+  fallbackWikiEditRefinement,
+  type RefinementEntity,
+  type RefinementRelation,
+} from "../agents/refine-document.js";
 import type { ContentDedupStore } from "./dedup.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
 
@@ -29,6 +36,54 @@ export type Refiner = (markdown: string, topicHint?: string) => Promise<{
   markdown: string;
   ragMarkdown: string;
 }>;
+
+/** Wiki-edit diff-refine runner (G4.S3.T10): input = corrected wiki markdown
+ *  (ragMarkdown form) + the minimal diff. Athena PRESERVES the corrected text
+ *  verbatim and re-derives structure; the runner returns the small ref + the
+ *  new entities/relations the correction introduced + the re-chunk decision. */
+export interface WikiEditRefineResult {
+  ref: RefineOutputRef;
+  /** The corrected markdown (ragMarkdown form) — preserved verbatim by the refine. */
+  markdown: string;
+  /** Entities the correction introduced (subset of ref.entities). */
+  newEntities: RefinementEntity[];
+  /** Relations the correction introduced (subset of ref.relations). */
+  newRelations: RefinementRelation[];
+  /** Whether the refine decided re-chunking was required. */
+  rechunked: boolean;
+}
+
+export type WikiEditRefiner = (
+  input: {
+    markdown: string;
+    before: string;
+    diff: string;
+    structural: boolean;
+    /** Existing frontmatter type (preserved through the diff-refine). */
+    type?: string;
+    /** Existing frontmatter topic (preserved through the diff-refine). */
+    topic?: string;
+  },
+) => Promise<WikiEditRefineResult>;
+
+/** The context a wiki-save task carries so the diff-refine + overwrite can run
+ *  (and be retried) without re-reading the wiki (G4.S3.T10). */
+export interface WikiSaveContext {
+  /** wiki page path, e.g. "wiki/concepts/foo.md". */
+  path: string;
+  /** Previous page BODY in ragMarkdown form (image refs stripped, VLM alt-text kept). */
+  beforeRag: string;
+  /** Corrected page BODY in the same ragMarkdown form. */
+  afterRag: string;
+  /** Minimal unified diff (before → after). */
+  diff: string;
+  /** Whether the change touched heading structure. */
+  structural: boolean;
+  /** Existing frontmatter type (preserved through the diff-refine). */
+  type?: string;
+  /** Existing frontmatter topic (preserved through the diff-refine). */
+  topic?: string;
+}
 
 export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -178,6 +233,18 @@ export interface IngestTask {
   /** True when the Neo4j stage actually stored refinement output (G4.S2.T4). A
    *  no-op stage (store not wired / no refinement output) leaves this unset. */
   neo4jStored?: boolean;
+  /** Wiki-edit context (G4.S3.T10): present on tasks created by submitWikiSave.
+   *  Carries the corrected text + diff so the diff-refine and RAG overwrite can
+   *  run (and be retried) without re-reading the wiki page. */
+  wikiSave?: WikiSaveContext;
+  /** Diff-refine outcome surfaced for the operator (G4.S3.T10): the NEW
+   *  entities/relations the correction introduced + whether re-chunking was
+   *  required. Present after a wiki-save refinement stage. */
+  wikiEdit?: {
+    newEntities: RefinementEntity[];
+    newRelations: RefinementRelation[];
+    rechunked: boolean;
+  };
   documentId?: string;
   error?: string;
   /** Content dedup outcome (G2.S5.T14). Present when the doc was skipped as a
@@ -204,6 +271,12 @@ export interface IngestTaskQueueOptions {
   /** Athena refinement runner (G4.S1.T4). When unset, the refinement stage is
    *  skipped and the raw docling markdown is used (never worse than today). */
   refiner?: Refiner;
+  /** Wiki-edit diff-refine runner (G4.S3.T10). When unset, wiki saves fall back
+   *  to a mechanical refine (corrected text + heading chunks, review flag). */
+  wikiRefiner?: WikiEditRefiner;
+  /** Storage root for the mechanical wiki-edit fallback ref (G4.S3.T10).
+   *  Default: defaultRefinementOutputDir(). */
+  wikiRefineStorageDir?: string;
   /** Neo4j lean RAG store ingest (G4.S2.T4). When unset, the ingesting_neo4j
    *  stage is a no-op marked done — the store is not wired. */
   neo4j?: Neo4jIngestService;
@@ -229,6 +302,8 @@ export class IngestTaskQueue {
   private readonly parser: DoclingParser;
   private readonly ingest: KnowledgeIngestService;
   private readonly refiner?: Refiner;
+  private readonly wikiRefiner?: WikiEditRefiner;
+  private readonly wikiRefineStorageDir: string;
   private readonly neo4j?: Neo4jIngestService;
   private readonly dedup?: ContentDedupStore;
   private readonly tasks = new Map<string, IngestTask>();
@@ -240,6 +315,8 @@ export class IngestTaskQueue {
     this.parser = options.parser;
     this.ingest = options.ingest;
     this.refiner = options.refiner;
+    this.wikiRefiner = options.wikiRefiner;
+    this.wikiRefineStorageDir = options.wikiRefineStorageDir ?? defaultRefinementOutputDir();
     this.neo4j = options.neo4j;
     this.dedup = options.dedup;
   }
@@ -278,6 +355,20 @@ export class IngestTaskQueue {
   submitUrl(url: string): IngestSubmitResult {
     const task = this.createTask(url);
     void this.run(task.id, url, url);
+    return { taskId: task.id };
+  }
+
+  /**
+   * Start the wiki-edit save pipeline (G4.S3.T10). The caller already persisted
+   * the corrected markdown to the wiki file (saveWikiPage) and computed the
+   * diff; this task runs the Athena diff-refine + the RAG overwrite (via the
+   * wikiPath) in the background, surfacing progress through the normal ingest
+   * task model. Returns immediately; poll GET /api/kb/task/:id.
+   */
+  submitWikiSave(input: WikiSaveContext): IngestSubmitResult {
+    const task = this.createTask(input.path);
+    task.wikiSave = input;
+    void this.runWikiSave(task.id);
     return { taskId: task.id };
   }
 
@@ -614,6 +705,189 @@ export class IngestTaskQueue {
     console.log(`[tasks:${id}] FINAL status=${finalTask?.status} progress=${finalTask?.progress} parsing=${finalTask?.stages.parsing.status} llmwiki=${finalTask?.stages.ingesting_llmwiki.status} neo4j=${finalTask?.stages.ingesting_neo4j.status}`);
   }
 
+  /**
+   * Wiki-edit save pipeline (G4.S3.T10): the edit was already persisted to the
+   * wiki file synchronously (saveWikiPage) — parsing is skipped and the
+   * llm_wiki stage is already done. This drives the diff-aware incremental
+   * refine (corrected markdown + diff) then the RAG overwrite via the wikiPath
+   * (locate Document → delete stale chunks/sections → re-embed → merge).
+   */
+  private async runWikiSave(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    const save = task?.wikiSave;
+    if (!task || !save) return;
+
+    task.input = save.path;
+
+    // Parsing + llm_wiki are already done: the corrected page is on disk.
+    this.patch(id, (t) => {
+      t.stages.parsing = { name: "parsing", status: "done", steps: t.stages.parsing.steps };
+      t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "done", steps: t.stages.ingesting_llmwiki.steps };
+    });
+    this.markStageSteps(id, "parsing", "done");
+    this.markStageSteps(id, "ingesting_llmwiki", "done");
+    this.updateProgress(id);
+
+    // --- refinement: incremental diff-aware refine (G4.S3.T10) ---
+    if (task.stages.refinement.status !== "done") {
+      if (this.wikiRefiner) {
+        this.patch(id, (t) => {
+          t.status = "refining";
+          t.progress = 35;
+          t.stages.refinement = { name: "refinement", status: "running", steps: t.stages.refinement.steps };
+        });
+        this.setStep(id, "refinement", "refine_document", "running");
+        try {
+          console.log(`[tasks:${id}] wiki-edit refine start (${save.path})`);
+          const result = await this.wikiRefiner({
+            markdown: save.afterRag,
+            before: save.beforeRag,
+            diff: save.diff,
+            structural: save.structural,
+            ...(save.type ? { type: save.type } : {}),
+            ...(save.topic ? { topic: save.topic } : {}),
+          });
+          this.patch(id, (t) => {
+            t.refinedMarkdown = result.markdown;
+            t.refinement = result.ref;
+            t.wikiEdit = {
+              newEntities: result.newEntities,
+              newRelations: result.newRelations,
+              rechunked: result.rechunked,
+            };
+            t.reviewRequired = result.ref.quality?.action === "review_required" || undefined;
+            t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
+          });
+          this.setStep(id, "refinement", "refine_document", "done");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[tasks:${id}] wiki-edit refine FAILED (mechanical fallback): ${message}`);
+          // Never worse than today: the corrected text + heading chunks still
+          // reach RAG; the missing entity/relation re-derivation is flagged.
+          await this.mechanicalWikiEditRefine(id, save, err);
+          this.markStageSteps(id, "refinement", "failed", message);
+        }
+      } else {
+        await this.mechanicalWikiEditRefine(id, save, new Error("no wiki edit refiner configured"));
+      }
+    }
+
+    // --- ingesting_neo4j: overwrite the old RAG version via the wikiPath ---
+    if (task.stages.ingesting_neo4j.status !== "done") {
+      this.patch(id, (t) => {
+        t.status = "ingesting";
+        t.stages.ingesting_neo4j = { name: "ingesting_neo4j", status: "running", steps: t.stages.ingesting_neo4j.steps };
+        t.progress = 50;
+      });
+      this.markStageSteps(id, "ingesting_neo4j", "running");
+
+      const res = this.neo4j && task.refinement
+        ? await this.safeIngest(() => {
+            const title = extractPageTitle(save.afterRag) ?? stemTitle(save.path);
+            const documentId = documentIdFrom(title, save.path);
+            return this.neo4j!.overwrite({
+              ref: task.refinement!,
+              documentId,
+              title,
+              wikiPath: save.path,
+              onProgress: (p) => {
+                if (p.chunksStored > 0 && !this.etaStartAt.has(id)) {
+                  this.etaStartAt.set(id, Date.now());
+                }
+                this.patch(id, (t) => {
+                  const stage = t.stages.ingesting_neo4j;
+                  stage.chunksStored = p.chunksStored;
+                  stage.chunksTotal = p.chunksTotal;
+                  stage.progress = p.progress;
+                  stage.processed = p.chunksStored;
+                  stage.total = p.chunksTotal;
+                  if (p.chunksTotal > 0) {
+                    const step = stage.steps.find((s) => s.name === "embed_store");
+                    if (step) step.progress = `${p.chunksStored}/${p.chunksTotal}`;
+                  }
+                  const anchor = this.etaStartAt.get(id);
+                  if (anchor !== undefined) {
+                    const etaMs = rollingEtaMs(p.chunksStored, p.chunksTotal, anchor, Date.now());
+                    if (etaMs !== undefined) stage.etaMs = etaMs;
+                  }
+                });
+              },
+            }).then((r) => ({ ok: true, count: r.chunksStored, documentId: r.documentId }));
+          })
+        : { ok: true };
+      console.log(
+        `[tasks:${id}] wiki save neo4j overwrite: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}` +
+          (res.ok && "count" in res ? ` (${res.count} chunks re-embedded)` : ""),
+      );
+      this.patch(id, (t) => {
+        t.stages.ingesting_neo4j = {
+          ...t.stages.ingesting_neo4j,
+          status: res.ok ? "done" : "failed",
+          ...(res.ok ? {} : { error: res.error }),
+        };
+        if (res.ok && this.neo4j && task.refinement) t.neo4jStored = true;
+        if (res.ok && "documentId" in res && typeof res.documentId === "string") {
+          t.documentId = res.documentId;
+        }
+      });
+      this.updateProgress(id);
+      this.markStageSteps(id, "ingesting_neo4j", res.ok ? "done" : "failed", res.error);
+    }
+
+    // --- finalize (same shape as a regular ingest) ---
+    this.patch(id, (t) => {
+      const llmwikiOk = t.stages.ingesting_llmwiki.status === "done";
+      const neo4jOk = t.neo4jStored === true;
+      const failedStage = t.stages.parsing.status === "failed"
+        ? t.stages.parsing
+        : t.stages.refinement.status === "failed"
+          ? t.stages.refinement
+          : t.stages.ingesting_llmwiki.status === "failed"
+            ? t.stages.ingesting_llmwiki
+            : t.stages.ingesting_neo4j.status === "failed"
+              ? t.stages.ingesting_neo4j
+              : undefined;
+      if (llmwikiOk || neo4jOk) {
+        t.status = "done";
+        t.progress = 100;
+        if (failedStage?.error) t.error = failedStage.error;
+      } else {
+        t.status = "failed";
+        t.progress = 100;
+        t.error = failedStage?.error ?? "All knowledge systems failed";
+      }
+    });
+
+    const finalTask = this.tasks.get(id);
+    console.log(
+      `[tasks:${id}] wiki save FINAL status=${finalTask?.status} progress=${finalTask?.progress} refinement=${finalTask?.stages.refinement.status} neo4j=${finalTask?.stages.ingesting_neo4j.status}`,
+    );
+  }
+
+  /**
+   * Mechanical wiki-edit refine (G4.S3.T10): store the corrected text verbatim
+   * with heading-derived chunks (no fabricated entities/relations) and flag the
+   * task review_required — used when the diff-refine LLM is unavailable/failed.
+   */
+  private async mechanicalWikiEditRefine(id: string, save: WikiSaveContext, error: unknown): Promise<void> {
+    const fallback = fallbackWikiEditRefinement(
+      { markdown: save.afterRag, before: save.beforeRag, diff: save.diff, structural: save.structural },
+      { ...(save.type ? { type: save.type } : {}), ...(save.topic ? { topic: save.topic } : {}) },
+      error,
+    );
+    const ref = await storeRefinementOutput(fallback, this.wikiRefineStorageDir, {
+      stem: deriveStem(save.afterRag),
+    });
+    this.patch(id, (t) => {
+      t.refinedMarkdown = fallback.markdown;
+      t.refinement = ref;
+      t.wikiEdit = { newEntities: [], newRelations: [], rechunked: fallback.rechunked };
+      t.reviewRequired = true;
+      t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
+    });
+    this.setStep(id, "refinement", "refine_document", "done");
+  }
+
   /** Mark a task as done because its content is a duplicate of an existing doc. */
   private markDedup(id: string, method: "hash" | "chunks" | undefined, existingSource: string | undefined): void {
     this.patch(id, (t) => {
@@ -643,7 +917,7 @@ export class IngestTaskQueue {
     if (task.status === "pending" || task.status === "parsing" || task.status === "ingesting") {
       throw new TaskBusyError(`task is still running: ${taskId}`);
     }
-    if (!task.input) throw new NothingToRetryError(`task has no parse input to retry: ${taskId}`);
+    if (!task.input && !task.wikiSave) throw new NothingToRetryError(`task has no parse input to retry: ${taskId}`);
     const failedStages = (["parsing", "refinement", "ingesting_llmwiki", "ingesting_neo4j"] as const).filter(
       (name) => task.stages[name].status === "failed",
     );
@@ -664,7 +938,11 @@ export class IngestTaskQueue {
         if (name === "ingesting_neo4j") this.etaStartAt.delete(taskId);
       }
     });
-    void this.run(taskId, task.input!, task.source);
+    if (task.wikiSave) {
+      void this.runWikiSave(taskId);
+    } else {
+      void this.run(taskId, task.input!, task.source);
+    }
     return task;
   }
 

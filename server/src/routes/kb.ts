@@ -13,6 +13,10 @@ import type { FeedbackService } from "../kb/feedback.js";
 import type { ManualQaMode } from "../kb/feedback.js";
 import type { SemanticMappingStore } from "../kb/semantic-mappings.js";
 import { isFeedbackDirection, toSources } from "../kb/qa-pairs.js";
+import { computeWikiDiff } from "../kb/diff.js";
+import { PermissionDeniedError, assertEmployeePermission } from "../employees/rbac.js";
+import type { AuthService } from "../employees/auth.js";
+import { currentEmployee } from "./helpers.js";
 import {
   NothingToRetryError,
   TaskBusyError,
@@ -47,6 +51,8 @@ export interface KbRouteOptions {
   feedback?: FeedbackService;
   /** Custom semantic mappings (G4.S3.T6): GET/POST/DELETE /api/kb/mappings. */
   mappings?: SemanticMappingStore;
+  /** Auth service for the RBAC-gated wiki-edit save (G4.S3.T10): PUT /api/kb/wiki/page. */
+  auth?: AuthService;
   /** Directory to stage uploaded files before docling parsing. Default: os.tmpdir(). */
   uploadDir?: string;
   /** Max multipart upload size. Default: 50 MiB. */
@@ -463,6 +469,71 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     }
   };
   app.delete("/api/kb/mappings/:id", deleteMappingHandler);
+
+  /** PUT /api/kb/wiki/page — save a corrected wiki page (G4.S3.T10), RBAC-gated
+   *  behind `kb.edit` (admin default; grantable to a member). Body: { path,
+   *  content } where `content` is the FULL corrected page markdown (frontmatter
+   *  + body + image refs — File A). The route persists the edit to the wiki file
+   *  (rebuild index + rescan), computes the before/after diff on the ragMarkdown
+   *  forms (image refs stripped, VLM alt-text kept), then submits a background
+   *  task that runs the Athena diff-refine + the RAG overwrite via the wikiPath.
+   *  Returns { taskId } — poll GET /api/kb/task/:id for progress. */
+  const saveWikiPageHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.auth) {
+      return reply.code(500).send({ error: "wiki edit requires the auth service" });
+    }
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const body = (request.body ?? {}) as { path?: unknown; content?: unknown };
+    if (typeof body.path !== "string" || !isSafeWikiPath(body.path.trim())) {
+      return reply.code(400).send({ error: "a valid wiki page path (wiki/**/*.md) is required" });
+    }
+    if (typeof body.content !== "string" || body.content.trim().length === 0) {
+      return reply.code(400).send({ error: "content is required" });
+    }
+    const employee = await currentEmployee(request, options.auth);
+    if (!employee) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    try {
+      assertEmployeePermission(employee, "kb.edit");
+    } catch (err) {
+      if (err instanceof PermissionDeniedError) {
+        return reply.code(403).send({ error: 'forbidden: requires permission "kb.edit"' });
+      }
+      throw err;
+    }
+    const path = body.path.trim();
+    const content = body.content;
+    try {
+      const snapshot = await options.ingest.saveWikiPage(path, content);
+      const diff = computeWikiDiff(snapshot.ragBefore, snapshot.ragAfter);
+      const { taskId } = options.taskQueue!.submitWikiSave({
+        path,
+        beforeRag: snapshot.ragBefore,
+        afterRag: snapshot.ragAfter,
+        diff: diff.unified,
+        structural: diff.structural,
+        ...(snapshot.type ? { type: snapshot.type } : {}),
+        ...(snapshot.topic ? { topic: snapshot.topic } : {}),
+      });
+      return {
+        taskId,
+        saved: true,
+        diff: {
+          changed: diff.changed,
+          structural: diff.structural,
+        },
+      };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+        return reply.code(404).send({ error: `wiki page not found: ${path}` });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.put("/api/kb/wiki/page", saveWikiPageHandler);
 
   if (!options.retrieval) return;
 

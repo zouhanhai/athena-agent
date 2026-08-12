@@ -65,7 +65,7 @@ import {
 } from "./kb/semantic-mappings.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
-import { createAthenaRefiner } from "./kb/refiner.js";
+import { createAthenaRefiner, createAthenaWikiEditRefiner } from "./kb/refiner.js";
 import { ContentDedupStore } from "./kb/dedup.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
 import { OpenRouterEmbedder } from "./kb/embedding.js";
@@ -229,6 +229,8 @@ export function defaultTaskQueue(): IngestTaskQueue {
     parser: new DoclingParser(),
     ingest,
     refiner: createAthenaRefiner(),
+    // G4.S3.T10: wiki-edit diff-refine (corrected markdown + diff → RAG overwrite).
+    wikiRefiner: createAthenaWikiEditRefiner(),
     dedup: new ContentDedupStore({
       loadExisting: async () => ingest.existingWikiContent(),
     }),
@@ -449,6 +451,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     mappings,
     taskQueue: options.taskQueue ?? defaultTaskQueue(),
     maxFileSize: options.maxFileSize,
+    // G4.S3.T10: the wiki-edit save endpoint is RBAC-gated behind `kb.edit`.
+    auth,
   });
 
   return app;

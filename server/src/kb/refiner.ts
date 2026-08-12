@@ -21,10 +21,13 @@ import { readFile } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   createRefineDocumentTool,
+  defaultRefinementOutputDir,
+  runWikiEditRefine,
   type RefineDocumentOptions,
 } from "../agents/refine-document.js";
+import { deriveStem, storeRefinementOutput } from "../agents/refine-output.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
-import type { Refiner } from "./tasks.js";
+import type { Refiner, WikiEditRefiner } from "./tasks.js";
 
 /** Best-effort read of a stored markdown file; falls back to the input markdown. */
 async function readStored(path: string | undefined, fallback: string): Promise<string> {
@@ -62,5 +65,62 @@ export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refine
     const fileAPrime = await readStored(ref.md_ref, markdown);
     const ragMarkdown = await readStored(ref.rag_md_ref, fileAPrime);
     return { ref, markdown: fileAPrime, ragMarkdown };
+  };
+}
+
+/**
+ * Build the default Athena wiki-edit diff-refine runner (G4.S3.T10). Input is
+ * the corrected wiki markdown (ragMarkdown form — image refs stripped, VLM
+ * alt-text kept) + the minimal diff; Athena PRESERVES the corrected text
+ * verbatim and re-derives structure. The full corrected markdown + chunks are
+ * stored (pi-docparser big-output pattern) and the SMALL ref returned, exactly
+ * like `createAthenaRefiner` for the normal ingest path.
+ */
+export function createAthenaWikiEditRefiner(
+  options: { storageDir?: string; thinkingLevel?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max"; retries?: number } = {},
+): WikiEditRefiner {
+  let runtimePromise: Promise<ModelRuntime> | undefined;
+
+  return async (input: {
+    markdown: string;
+    before: string;
+    diff: string;
+    structural: boolean;
+    type?: string;
+    topic?: string;
+  }) => {
+    runtimePromise ??= import("@earendil-works/pi-coding-agent").then((m) =>
+      m.ModelRuntime.create(),
+    );
+    const runtime = await runtimePromise;
+    const model = runtime.getModel("athena", "~deepseek/deepseek-v4-flash-latest");
+    if (!model) {
+      throw new Error("wiki edit refine: athena model not found");
+    }
+    const existing = {
+      ...(input.type ? { type: input.type } : {}),
+      ...(input.topic ? { topic: input.topic } : {}),
+    };
+    const { document } = await runWikiEditRefine(
+      runtime,
+      model,
+      { markdown: input.markdown, before: input.before, diff: input.diff, structural: input.structural },
+      existing,
+      { thinkingLevel: options.thinkingLevel, retries: options.retries },
+    );
+    const ref = await storeRefinementOutput(
+      document,
+      options.storageDir ?? defaultRefinementOutputDir(),
+      {
+        stem: `wiki-edit-${deriveStem(input.markdown)}`,
+      },
+    );
+    return {
+      ref,
+      markdown: document.markdown,
+      newEntities: document.new_entities,
+      newRelations: document.new_relations,
+      rechunked: document.rechunked,
+    };
   };
 }

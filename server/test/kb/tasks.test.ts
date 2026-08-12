@@ -719,3 +719,179 @@ test("retry of the llm_wiki stage still passes the stored images (G3.S5.T5)", as
     });
   }
 });
+
+// --- G4.S3.T10: wiki edit → diff-refine → RAG overwrite ---
+
+function makeWikiSaveFakes(opts: {
+  wikiRefineError?: Error;
+  neo4jError?: Error;
+  withNeo4j?: boolean;
+} = {}) {
+  const flags = {
+    wikiRefineError: opts.wikiRefineError,
+    neo4jError: opts.neo4jError,
+  };
+  const calls: { kind: string; args: unknown[] }[] = [];
+  const wikiRefiner = async (input: { markdown: string; before: string; diff: string; structural: boolean; type?: string; topic?: string }) => {
+    calls.push({ kind: "wikiRefiner", args: [input] });
+    if (flags.wikiRefineError) throw flags.wikiRefineError;
+    return {
+      ref: {
+        md_ref: "/storage/runbook/markdown.md",
+        chunks_ref: "/storage/runbook/chunks.json",
+        preview: "preview",
+        char_count: 1,
+        line_count: 1,
+        header_count: 1,
+        chunk_count: 1,
+        frontmatter: { type: "concept", topic: "ops" },
+        entities: [
+          { name: "CALEO", type: "org", description: "company" },
+          { name: "ZOB München", type: "place", description: "corrected place name" },
+        ],
+        relations: [],
+        keywords: ["runbook"],
+        quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
+        summary: "Corrected runbook.",
+        sections: [],
+        mode: "single",
+        section_paths: [],
+      },
+      markdown: input.markdown,
+      newEntities: [{ name: "ZOB München", type: "place", description: "corrected place name" }],
+      newRelations: [],
+      rechunked: false,
+    };
+  };
+  const neo4j = opts.withNeo4j
+    ? {
+        async overwrite(input: {
+          ref: unknown;
+          documentId: string;
+          title: string;
+          wikiPath?: string;
+          onProgress?: (p: { chunksStored: number; chunksTotal: number; progress: number }) => void;
+        }) {
+          calls.push({ kind: "neo4j.overwrite", args: [input.documentId, input.title, input.wikiPath] });
+          if (flags.neo4jError) throw flags.neo4jError;
+          input.onProgress?.({ chunksStored: 1, chunksTotal: 1, progress: 1 });
+          return { chunksStored: 1, entitiesStored: 2, relationsStored: 0, documentId: "runbook" };
+        },
+      }
+    : undefined;
+  const queue = new IngestTaskQueue({
+    parser: {
+      async parse() {
+        throw new Error("wiki save must never run docling parsing");
+      },
+    } as never,
+    ingest: {} as never,
+    wikiRefiner: wikiRefiner as never,
+    // Keep the mechanical-fallback ref scratch out of the real storage dir.
+    wikiRefineStorageDir: join(tmpdir(), `wiki-edit-test-${Math.random().toString(36).slice(2)}`),
+    ...(neo4j ? { neo4j: neo4j as never } : {}),
+  });
+  return { queue, calls, flags };
+}
+
+const wikiSave = {
+  path: "wiki/ops/runbook.md",
+  beforeRag: "# Runbook\n\nThe image shows a bright sky.\n\nSteps here.",
+  afterRag: "# Runbook\n\nThe image shows a dark sky.\n\nSteps here.",
+  diff: "@@ -1,3 +1,3 @@\n-The image shows a bright sky.\n+The image shows a dark sky.\n",
+  structural: false,
+  type: "concept",
+  topic: "ops",
+};
+
+test("submitWikiSave drives the diff-refine with corrected text + diff, then overwrites via wikiPath", async () => {
+  const { queue, calls } = makeWikiSaveFakes({ withNeo4j: true });
+  const { taskId } = queue.submitWikiSave(wikiSave);
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.parsing.status, "done");
+  assert.equal(task.stages.ingesting_llmwiki.status, "done", "the edit was persisted before the task");
+  assert.equal(task.stages.refinement.status, "done");
+  assert.equal(task.stages.ingesting_neo4j.status, "done");
+  assert.equal(task.neo4jStored, true);
+  assert.equal(task.documentId, "runbook", "the resolved Document id is recorded");
+
+  // The refiner saw exactly the corrected text + diff + preserved classification.
+  const refine = calls.find((c) => c.kind === "wikiRefiner");
+  const refineArgs = refine!.args[0] as { markdown: string; before: string; diff: string; structural: boolean; type?: string; topic?: string };
+  assert.equal(refineArgs.markdown, wikiSave.afterRag);
+  assert.equal(refineArgs.before, wikiSave.beforeRag);
+  assert.equal(refineArgs.diff, wikiSave.diff);
+  assert.equal(refineArgs.structural, false);
+  assert.equal(refineArgs.topic, "ops", "preserved topic passed to the refine");
+  assert.equal(refineArgs.type, "concept", "preserved type passed to the refine");
+
+  // No docling parsing, no llm_wiki write (edit already on disk).
+  assert.equal(calls.some((c) => c.kind === "parser.parse"), false);
+  assert.equal(calls.some((c) => c.kind === "ingest.llmwiki"), false);
+
+  // The overwrite targets the corrected page via its wikiPath.
+  const overwrite = calls.find((c) => c.kind === "neo4j.overwrite");
+  assert.deepEqual(overwrite!.args, ["runbook", "Runbook", "wiki/ops/runbook.md"]);
+});
+
+test("submitWikiSave surfaces the NEW entities/relations + the re-chunk decision (G4.S3.T10)", async () => {
+  const { queue } = makeWikiSaveFakes({ withNeo4j: true });
+  const { taskId } = queue.submitWikiSave(wikiSave);
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.deepEqual(task.wikiEdit!.newEntities.map((e) => e.name), ["ZOB München"]);
+  assert.deepEqual(task.wikiEdit!.newRelations, []);
+  assert.equal(task.wikiEdit!.rechunked, false);
+  assert.ok(task.refinedMarkdown?.includes("The image shows a dark sky."), "corrected text preserved");
+});
+
+test("submitWikiSave without a wired Neo4j store marks the overwrite stage done (no-op)", async () => {
+  const { queue, calls } = makeWikiSaveFakes({ withNeo4j: false });
+  const { taskId } = queue.submitWikiSave(wikiSave);
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.stages.ingesting_neo4j.status, "done");
+  assert.equal(task.neo4jStored, undefined, "no store write without a wired store");
+  assert.equal(calls.filter((c) => c.kind === "neo4j.overwrite").length, 0);
+});
+
+test("submitWikiSave falls back to a mechanical refine on diff-refine failure and still overwrites", async () => {
+  const { queue, calls } = makeWikiSaveFakes({ withNeo4j: true, wikiRefineError: new Error("athena down") });
+  const { taskId } = queue.submitWikiSave(wikiSave);
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  assert.equal(task.status, "done");
+  assert.equal(task.reviewRequired, true, "the fallback refine flags operator review");
+  assert.equal(calls.filter((c) => c.kind === "neo4j.overwrite").length, 1, "corrected text still reaches RAG");
+  assert.deepEqual(task.wikiEdit!.newEntities, [], "no entities fabricated by the fallback");
+  assert.equal(task.wikiEdit!.rechunked, false);
+});
+
+test("submitWikiSave retry re-runs only the failed overwrite stage (refine kept)", async () => {
+  const { queue, calls, flags } = makeWikiSaveFakes({ withNeo4j: true, neo4jError: new Error("neo4j down") });
+  const { taskId } = queue.submitWikiSave(wikiSave);
+  await untilDone(queue, taskId);
+
+  let task = queue.getTask(taskId)!;
+  assert.equal(task.stages.ingesting_neo4j.status, "failed");
+  assert.equal(calls.filter((c) => c.kind === "wikiRefiner").length, 1);
+  assert.equal(calls.filter((c) => c.kind === "neo4j.overwrite").length, 1);
+
+  flags.neo4jError = undefined;
+  queue.retry(taskId);
+  await untilDone(queue, taskId);
+
+  task = queue.getTask(taskId)!;
+  assert.equal(task.stages.ingesting_neo4j.status, "done");
+  assert.equal(task.status, "done");
+  assert.equal(calls.filter((c) => c.kind === "wikiRefiner").length, 1, "refine not re-run");
+  assert.equal(calls.filter((c) => c.kind === "neo4j.overwrite").length, 2, "overwrite re-run once");
+  assert.equal(calls.some((c) => c.kind === "parser.parse"), false, "never parses");
+});
