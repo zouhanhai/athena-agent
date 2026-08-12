@@ -54,6 +54,9 @@ const saveNotice = ref("");
 const treeKeys = { value: "path", label: "name", children: "children" };
 
 const contentPane = ref<HTMLElement | null>(null);
+// G4.S3.T10: the scroll container is the content *pane* (.wiki-content-pane,
+// overflow-y: auto) — NOT .wiki-content (contentPane) which doesn't scroll.
+const contentPaneEl = ref<HTMLElement | null>(null);
 
 /** Minimal surface of the TDesign tree used to auto-expand the active file. */
 interface WikiTreeHandle {
@@ -242,7 +245,7 @@ function startEdit(): void {
   saveError.value = "";
   saveNotice.value = "";
   // Capture the reader's scroll ratio so the editor can open at the same place.
-  const pane = contentPane.value;
+  const pane = contentPaneEl.value; // the .wiki-content-pane scroll container
   editScrollRatio.value =
     pane && pane.scrollHeight > pane.clientHeight
       ? pane.scrollTop / (pane.scrollHeight - pane.clientHeight)
@@ -411,7 +414,7 @@ watch(
         </t-tree>
       </aside>
 
-      <div class="wiki-content-pane">
+      <div ref="contentPaneEl" class="wiki-content-pane">
         <p v-if="contentError" class="wiki-error">{{ contentError }}</p>
         <p v-else-if="contentLoading" class="wiki-status">Loading page...</p>
         <p v-else-if="!activePath" class="wiki-status wiki-empty-hint">

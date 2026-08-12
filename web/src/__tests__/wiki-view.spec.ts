@@ -625,9 +625,11 @@ describe("WikiView editing (G4.S3.T10)", () => {
       await openReleaseNotes(wrapper);
 
       const content = wrapper.find('[data-testid="wiki-content"]');
-      Object.defineProperty(content.element, "scrollHeight", { value: 2000, configurable: true });
-      Object.defineProperty(content.element, "clientHeight", { value: 500, configurable: true });
-      Object.defineProperty(content.element, "scrollTop", { value: 750, configurable: true }); // ratio 0.5
+      // Scroll the .wiki-content-pane container (the real scroll container).
+      const pane = content.element.closest(".wiki-content-pane");
+      Object.defineProperty(pane, "scrollHeight", { value: 2000, configurable: true });
+      Object.defineProperty(pane, "clientHeight", { value: 500, configurable: true });
+      Object.defineProperty(pane, "scrollTop", { value: 750, configurable: true }); // ratio 0.5
 
       await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
       await flushPromises();
