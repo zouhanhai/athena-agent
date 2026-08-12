@@ -183,3 +183,12 @@
   - **YOLO mode**: auto-approve when tests green + dependencies pass (risk accepted); the user
     re-tests the auto-completed work after returning.
 - So `approved` is formally tracked; YOLO auto-marks it, manual mode gates dispatch on it.
+
+### D25. Milestone layer removed (confirmed by user)
+- **Drop the Milestone (M1-M5) layer** — it duplicates the Goal layer (Athena used it at startup but it
+  has no distinct function). **Goal is the top-level completion granularity.**
+- (M4 as a label on Goals may stay as a semantic tag, but no separate milestone completion layer.)
+
+### D26. Writer role (confirmed by user)
+- Writer only produces the **project report / summary at project completion**.
+- Mid-project md files do NOT use the Writer role.
