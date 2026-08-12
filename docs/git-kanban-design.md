@@ -129,7 +129,7 @@ title: "G1: <goal title>"
 layer: G
 owner: consultant          # Consultant builds the Goal (role-model)
 status: active             # active → done
-created_at: 2026-08-12
+created_at: <YYYY-MM-DD>
 acceptance_criteria:
   - "<top-level goal criterion 1>"
   - "<top-level goal criterion 2>"
@@ -381,7 +381,7 @@ Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 - **Parallel workers**: unlimited (multiple in YOLO mode), rely on git claim-lock (prevents
   same-ticket concurrency) + file isolation (different files don't conflict).
 
-## 15. Verification + Review 
+## 15. Verification + Review
 
 - **Testing**: worker runs tests (on 6900XT) + reviewer (Hermes/user) independently verifies
   tests green before approved. The 6900XT environment is authoritative.
@@ -432,7 +432,7 @@ Flexible, **decided by the user based on fix size** — not a fixed single flow:
 Not mandated as "always EngD re-decompose"; the user chooses per size. (The EngD re-decompose path
 with parent_id / qa_feedback / reopen_reason remains available for larger issues.)
 
-## 18. Other Agent Onboarding 
+## 18. Other Agent Onboarding
 
 **The protocol is the contract; each agent implements the integration points with its own tooling.**
 
