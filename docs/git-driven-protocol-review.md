@@ -145,3 +145,13 @@
 - **Ticket detection**: the plugin parses the current ticket ref from the **session's first message**
   (the dispatch prompt, which names the ticket ref).
 - Implication: dispatch prompt must carry the ticket ref in a stable, parseable position.
+
+### D19. Progress row content granularity (confirmed by user)
+- **Mixed**:
+  - **Plugin records tool actions** (automatic, real — "edited X / ran Y command").
+  - **Worker occasionally writes a semantic milestone** ("implemented the shared repo selector").
+- Balances automatic real-time truth + meaningful semantic updates.
+
+### D20. Progress Log retention (confirmed by user)
+- **Keep the full Progress Log** (history audit; useful for worker takeover / crash recovery).
+- No cleanup on completion — the full log stays.
