@@ -113,17 +113,14 @@ branch: ""                # collab mode only
 
 ## Worker Workflow (REQUIRED — follow in order)
 
-> The git claim is AUTOMATED (S4 plugin / hook). The worker does NOT manually set
-> status/assignee/session_id or commit the claim. Start at step 2 below.
-
-2. **Find context**: read this ticket's parent Spec (`docs/kanban/G1/S1/Spec.md`) + Goal
+1. **Find context**: read this ticket's parent Spec (`docs/kanban/G1/S1/Spec.md`) + Goal
    (`docs/kanban/G1/Goal.md`).
-3. **Use codegraph MCP**: `codegraph explore "<area>"` before editing.
-4. **Use `implement` + `tdd` skills**: TDD (RED-GREEN-REFACTOR), write failing test first.
-5. **Milestone report**: add a semantic Progress Log row when a milestone is complete (e.g.
+2. **Use codegraph MCP**: `codegraph explore "<area>"` before editing.
+3. **Use `implement` + `tdd` skills**: TDD (RED-GREEN-REFACTOR), write failing test first.
+4. **Milestone report**: add a semantic Progress Log row when a milestone is complete (e.g.
    "implemented the shared repo selector") — not on every change. (REAL timestamps, do NOT fabricate.)
-6. **Commit convention**: feature-level English commits; `codegraph sync` after.
-7. **Verify + mark done**: tests green → set `status: done` → commit + push.
+5. **Commit convention**: feature-level English commits; `codegraph sync` after.
+6. **Verify + mark done**: tests green → set `status: done` → commit + push.
 
 Full: `docs/kanban/TICKET-WORKFLOW.md`
 
