@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T12:10:48.335Z",
+  "generated_at": "2026-08-12T12:23:37.891Z",
   "goals": [
     {
       "ref": "G1",
@@ -2184,7 +2184,7 @@
               "id": "G4.S3.T9",
               "title": "G4.S3.T9: Uploads — live elapsed timer + RAG chunk progress ETA",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "20260812T120926Z",
               "blocked_by": [],
@@ -2193,7 +2193,9 @@
                 "During the RAG/Neo4j stage the note also shows an ETA estimate (remaining chunks × avg per-chunk time), refreshed as chunks embed.",
                 "The elapsed timer covers parsing+refinement too (not just RAG); before RAG no ETA is shown (no per-chunk baseline yet), only the elapsed time.",
                 "Server + web tests green, vue-tsc + typecheck clean."
-              ]
+              ],
+              "progress_last_row": "acceptance met: note ticks live 1s from createdAt (never frozen 0s); RAG note shows decreasing ~ Nm Ns left ETA from rolling avg ms/chunk; parsing/refinement show elapsed only; per-chunk onProgress + stage processed/total/etaMs + embed_store X/Y step; server 860/860 + web 384/384 + typecheck/vue-tsc clean; committed + pushed",
+              "progress_updated_at": "2026-08-12T12:45:00Z"
             }
           ]
         },
@@ -2227,5 +2229,10 @@
       ]
     }
   ],
-  "errors": []
+  "errors": [
+    {
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
+      "error": "layer must be one of: G, S, T"
+    }
+  ]
 }
