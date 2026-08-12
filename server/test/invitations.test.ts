@@ -63,10 +63,13 @@ beforeEach(async () => {
 
 test("invite emails a registration link carrying a single-use invite token", async () => {
   const result = await invitations.invite("carol@caleo.com");
-  assert.deepEqual(result, { ok: true });
+  assert.equal(result.ok, true);
+  assert.equal(typeof result.inviteUrl, "string");
+  assert.match(result.inviteUrl, /^https:\/\/portal\.caleo\.com\/register\?token=/);
+  assert.equal(result.expiresInMs, 7 * 24 * 60 * 60 * 1000, "7-day TTL surfaced for the admin UI");
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, "carol@caleo.com");
-  assert.match(sent[0].inviteUrl, /^https:\/\/portal\.caleo\.com\/register\?token=/);
+  assert.equal(sent[0].inviteUrl, result.inviteUrl, "mailed link matches the returned link");
   const token = tokenFromUrl(sent[0].inviteUrl);
   const resolution = await invitations.resolveInvitation(token);
   assert.deepEqual(resolution, { email: "carol@caleo.com" });

@@ -102,10 +102,13 @@ test("admin can invite an employee (RBAC: employees.invite)", async () => {
     payload: { email: "carol@caleo.com" },
   });
   assert.equal(res.statusCode, 201);
-  assert.deepEqual(res.json(), { ok: true });
+  const body = res.json();
+  assert.equal(body.ok, true);
+  assert.match(body.inviteUrl, /^http:\/\/localhost:5173\/register\?token=/);
+  assert.equal(body.expiresInMs, 7 * 24 * 60 * 60 * 1000);
   assert.equal(inviteMails.length, 1);
   assert.equal(inviteMails[0].to, "carol@caleo.com");
-  assert.match(inviteMails[0].inviteUrl, /^http:\/\/localhost:5173\/register\?token=/);
+  assert.equal(inviteMails[0].inviteUrl, body.inviteUrl);
 });
 
 test("member is denied inviting employees (RBAC: 403)", async () => {

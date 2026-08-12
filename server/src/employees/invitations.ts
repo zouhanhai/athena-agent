@@ -52,6 +52,15 @@ export class InvitationConflictError extends Error {}
 /** The invite token is unknown, expired, or already consumed. */
 export class InvitationInvalidError extends Error {}
 
+/** Result of creating an invitation — includes the generated registration URL (G4.S3.T11). */
+export interface InviteResult {
+  ok: true;
+  /** The registration link handed to the invitee; rendered copy-able in the Admin console. */
+  inviteUrl: string;
+  /** Invite-token time-to-live in ms (default 7 days). */
+  expiresInMs: number;
+}
+
 /**
  * Invitation-based employee registration (G3.S2.T4): an admin invites an email
  * address; the invitation email carries a single-use magic-link token. Clicking
@@ -77,7 +86,7 @@ export class InvitationService {
   }
 
   /** Invite an email: create a pending invitation + email the registration link. */
-  async invite(email: string): Promise<{ ok: boolean }> {
+  async invite(email: string): Promise<InviteResult> {
     const normalized = email.trim().toLowerCase();
     const existing = await this.registry.getByEmail(normalized);
     if (existing) {
@@ -86,7 +95,7 @@ export class InvitationService {
     const token = await this.store.createInvitation(normalized, this.ttlMs);
     const inviteUrl = `${this.appBaseUrl.replace(/\/+$/, "")}/register?token=${encodeURIComponent(token)}`;
     await this.mailer.sendInvitation({ to: normalized, inviteUrl });
-    return { ok: true };
+    return { ok: true, inviteUrl, expiresInMs: this.ttlMs };
   }
 
   /** Resolve an invite token → the invited email (registration page uses this). */
