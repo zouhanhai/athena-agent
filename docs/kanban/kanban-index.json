@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T10:07:15.983Z",
+  "generated_at": "2026-08-12T10:11:09.709Z",
   "goals": [
     {
       "ref": "G1",
@@ -2136,15 +2136,15 @@
               "id": "s3.6",
               "title": "G4.S3.T6: Terms & QA tab — semantic mappings + Q&A pairs (live query + manual entry)",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "20260812T100711Z",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "One-to-many DONE. Server 818/818 tests + tsc clean (semantic-mappings, -pg, routes-terms-qa, retrieval incl. OR-expansion into Neo4j+llm_wiki); web 372/372 tests + vue-tsc clean (TermsQaView one-to-many display + filters, api/kb.ts canonicals). codegraph sync done.",
-              "progress_updated_at": "2026-08-12T09:40:01Z"
+              "progress_last_row": "Fuzzy term variant matching (G4.S3.T6 point 7): `expandTerms` now normalizes (strip spaces/hyphens, case-fold) so `CDay` matches `CDay`/`C Day`/`C-Day`; `fuzzySpans` maps each normalized-match offset back to the ORIGINAL query span (replacing only the exact span, punctuation survives) with word boundaries preserved. New unit tests in semantic-mappings.test.ts (variant matching, spaced/hyphenated stored terms, offset mapping to original, boundary guard, one-to-many OR + variants) + retrieval.test.ts search-path variant test. Server 824/824 tests + tsc clean; web 372/372 + vue-tsc clean. codegraph sync done.",
+              "progress_updated_at": "2026-08-12T10:10:54Z"
             },
             {
               "ref": "G4.S3.T7",

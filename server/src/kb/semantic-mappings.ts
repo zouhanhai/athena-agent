@@ -109,12 +109,63 @@ function resolveCanonicals(input: SemanticMappingInput): string[] {
   return parseCanonicals(source);
 }
 
-/** Replace every colloquial term in `query` with its canonical form(s)
- *  (case-insensitive, word-boundary). A term mapping to several canonicals
- *  expands to an OR alternative — `EDay` → `(Expert Day OR Principle Day)` —
- *  so BM25/vector recall any of them; a single canonical expands plainly
- *  (backward-compatible). Unknown terms and the canonical forms themselves are
- *  left untouched, so repeated expansion is idempotent. */
+/** Normalize a string for fuzzy term matching (G4.S3.T6 point 7): remove
+ *  spaces/hyphens and lowercase, so `CDay`, `C Day` and `C-Day` all collapse
+ *  to the same key. */
+function normalizeVariant(text: string): string {
+  return text.replace(/[\s-]+/g, "").toLowerCase();
+}
+
+/** True for the JS `\b` word class (letters/digits/underscore) — used to keep
+ *  fuzzy matches from firing inside a longer word in the original text. */
+function isWordChar(ch: string): boolean {
+  return /[A-Za-z0-9_]/.test(ch);
+}
+
+/** Find every fuzzy match of `term` in `text` (spacing/hyphen-insensitive,
+ *  case-insensitive). Each match is returned as `{ start, end }` IN THE
+ *  ORIGINAL `text`, so the caller replaces the exact original span — the
+ *  normalized-match offset is mapped back through the positions of the
+ *  characters that were kept. Word boundaries are evaluated in the original
+ *  space. */
+function fuzzySpans(term: string, text: string): Array<{ start: number; end: number }> {
+  const needle = normalizeVariant(term);
+  if (!needle) return [];
+  const kept: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === "-") continue;
+    kept.push(i);
+  }
+  const haystack = normalizeVariant(text);
+  const spans: Array<{ start: number; end: number }> = [];
+  let idx = 0;
+  while (idx <= haystack.length - needle.length) {
+    const found = haystack.indexOf(needle, idx);
+    if (found === -1) break;
+    const start = kept[found]!;
+    const end = kept[found + needle.length - 1]! + 1;
+    const beforeBoundary = start === 0 || !isWordChar(text[start - 1]!);
+    const afterBoundary = end === text.length || !isWordChar(text[end]!);
+    if (beforeBoundary && afterBoundary) {
+      spans.push({ start, end });
+    }
+    idx = found + 1;
+  }
+  return spans;
+}
+
+/** Replace every colloquial term in `query` with its canonical form(s).
+ *  Matching is fuzzy (G4.S3.T6 point 7): a term matches regardless of
+ *  spacing/hyphenation and case — `CDay` matches `CDay`, `C Day`, `C-Day`,
+ *  `c-day` (spaces/hyphens are stripped, case is folded). Each normalized
+ *  match is mapped back to its ORIGINAL span in the query and replaced there,
+ *  so punctuation around the term survives. Word boundaries are preserved — a
+ *  term never matches inside a longer word. A term mapping to several
+ *  canonicals expands to an OR alternative — `EDay` → `(Expert Day OR
+ *  Principle Day)` — so BM25/vector recall any of them; a single canonical
+ *  expands plainly (backward-compatible). Unknown terms are left untouched, so
+ *  repeated expansion is idempotent. */
 export function expandTerms(query: string, mappings: SemanticMapping[]): string {
   let out = query;
   for (const mapping of mappings) {
@@ -122,10 +173,18 @@ export function expandTerms(query: string, mappings: SemanticMapping[]): string 
     if (!term) continue;
     const canonicals = toCanonicals(mapping);
     if (canonicals.length === 0) continue;
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const replacement =
       canonicals.length === 1 ? canonicals[0]! : `(${canonicals.join(" OR ")})`;
-    out = out.replace(new RegExp(`\\b${escaped}\\b`, "gi"), replacement);
+    const spans = fuzzySpans(term, out);
+    if (spans.length === 0) continue;
+    let result = "";
+    let cursor = 0;
+    for (const span of spans) {
+      result += out.slice(cursor, span.start) + replacement;
+      cursor = span.end;
+    }
+    result += out.slice(cursor);
+    out = result;
   }
   return out;
 }

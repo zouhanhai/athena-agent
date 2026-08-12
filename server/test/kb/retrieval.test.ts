@@ -610,6 +610,40 @@ test("search expands a one-to-many term into an OR alternative for BOTH search p
   );
 });
 
+test("search fuzzy-matches a term's spacing/hyphen variants for BOTH search paths (G4.S3.T6)", async () => {
+  let neo4jQuery = "";
+  let wikiQuery = "";
+  const neo4j = stubNeo4j([] as never);
+  const neo4jWithCapture = {
+    ...neo4j,
+    search: async (query: string) => {
+      neo4jQuery = query;
+      return { query, hits: [] };
+    },
+  } as unknown as Neo4jRetrievalService;
+  const llmwiki = stubLlmwiki({
+    search: async (_projectId, query) => {
+      wikiQuery = query;
+      return { results: [] };
+    },
+  });
+  const service = new KnowledgeRetrievalService({
+    llmwiki,
+    neo4j: neo4jWithCapture,
+    mappings: stubMappings([{ term: "CDay", canonicals: ["CALEO Day"] }]),
+  });
+
+  await service.search("when is C Day?");
+
+  assert.equal(neo4jQuery, "when is CALEO Day?", "spaced variant matches the compact stored term");
+  assert.equal(wikiQuery, "when is CALEO Day?", "llm_wiki query gets the same expansion");
+
+  await service.search("when is c-day?");
+
+  assert.equal(neo4jQuery, "when is CALEO Day?", "hyphenated variant also expands");
+  assert.equal(wikiQuery, "when is CALEO Day?", "hyphenated variant also expands");
+});
+
 test("search attaches a matching QA reference but STILL runs the RAG search (not a short-circuit)", async () => {
   let neo4jCalled = 0;
   const neo4j = {

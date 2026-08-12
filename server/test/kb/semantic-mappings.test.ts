@@ -135,3 +135,69 @@ test("expandTerms leaves unknown terms and empty mappings untouched", () => {
   ];
   assert.equal(expandTerms("how many days until Friday?", mappings), "how many days until Friday?");
 });
+
+test("expandTerms fuzzy-matches a term across spacing/hyphen variants (G4.S3.T6)", () => {
+  const mappings: SemanticMapping[] = [
+    { id: "1", term: "CDay", canonicals: ["CALEO Day"], created_at: "", updated_at: "" },
+  ];
+
+  assert.equal(expandTerms("when is CDay?", mappings), "when is CALEO Day?");
+  assert.equal(expandTerms("when is C Day?", mappings), "when is CALEO Day?");
+  assert.equal(expandTerms("when is C-Day?", mappings), "when is CALEO Day?");
+  assert.equal(expandTerms("when is c-day?", mappings), "when is CALEO Day?", "case-insensitive");
+});
+
+test("expandTerms a stored spaced/hyphenated term matches the compact query variants", () => {
+  const mappings: SemanticMapping[] = [
+    { id: "1", term: "C Day", canonicals: ["CALEO Day"], created_at: "", updated_at: "" },
+    { id: "2", term: "C-Day", canonicals: ["CALEO Day"], created_at: "", updated_at: "" },
+  ];
+
+  assert.equal(expandTerms("the CDay starts", mappings), "the CALEO Day starts");
+  assert.equal(expandTerms("CDay plans", mappings), "CALEO Day plans");
+});
+
+test("expandTerms maps each normalized match offset back to the ORIGINAL query span", () => {
+  const mappings: SemanticMapping[] = [
+    { id: "1", term: "C-Day", canonicals: ["CALEO Day"], created_at: "", updated_at: "" },
+  ];
+
+  assert.equal(
+    expandTerms("C-Day, C Day and CDay all happen", mappings),
+    "CALEO Day, CALEO Day and CALEO Day all happen",
+    "every variant is replaced at its own original span",
+  );
+  assert.equal(
+    expandTerms("schedule C-Day then CDay again", mappings),
+    "schedule CALEO Day then CALEO Day again",
+  );
+});
+
+test("expandTerms fuzzy match keeps word boundaries — no match inside a longer word", () => {
+  const cday: SemanticMapping[] = [
+    { id: "1", term: "CDay", canonicals: ["CALEO Day"], created_at: "", updated_at: "" },
+  ];
+  const day: SemanticMapping[] = [
+    { id: "2", term: "Day", canonicals: ["Company Day"], created_at: "", updated_at: "" },
+  ];
+
+  assert.equal(expandTerms("showcasing CDay", cday), "showcasing CALEO Day");
+  assert.equal(expandTerms("theCDay event", cday), "theCDay event", "inside a word → unchanged");
+  assert.equal(expandTerms("every holiday", day), "every holiday", "Day does not match inside 'holiday'");
+  assert.equal(expandTerms("a Day in May", day), "a Company Day in May");
+});
+
+test("expandTerms one-to-many OR expansion also fuzzy-matches spacing/hyphen variants", () => {
+  const mappings: SemanticMapping[] = [
+    {
+      id: "1",
+      term: "EDay",
+      canonicals: ["Expert Day", "Principle Day"],
+      created_at: "",
+      updated_at: "",
+    },
+  ];
+
+  assert.equal(expandTerms("e-day planning", mappings), "(Expert Day OR Principle Day) planning");
+  assert.equal(expandTerms("E Day at CALEO", mappings), "(Expert Day OR Principle Day) at CALEO");
+});
