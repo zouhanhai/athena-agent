@@ -247,15 +247,17 @@ def mark_vlm_descriptions(markdown: str) -> str:
         if START in line:
             in_desc = True
             stripped = line.replace(START, "").strip()
-            out.append(f"<em>{stripped}</em>" if stripped else "")
+            # markdown *italic* (the wiki renderer has html:false, so <em> would
+            # not be parsed into italics — use native markdown emphasis instead)
+            out.append(f"*{stripped}*" if stripped else "")
             continue
         if END in line:
             stripped = line.replace(END, "").strip()
-            out.append(f"<em>{stripped}</em>" if stripped else "")
+            out.append(f"*{stripped}*" if stripped else "")
             in_desc = False
             continue
         if in_desc:
-            out.append(f"<em>{line}</em>" if line.strip() else line)
+            out.append(f"*{line}*" if line.strip() else line)
             continue
         out.append(line)
     return "\n".join(out)
