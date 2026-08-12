@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T17:49:41.840Z",
+  "generated_at": "2026-08-12T18:17:33.402Z",
   "goals": [
     {
       "ref": "G1",
@@ -2239,7 +2239,7 @@
               "id": "G4.S3.T13",
               "title": "Fix agentic clarify — only clarify when the question has no extractable subject; surface real follow-up to the user",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "20260812T174937Z",
               "blocked_by": [],
@@ -2249,8 +2249,8 @@
                 "When a clarify IS raised, it is surfaced to the user as a REAL follow-up (front-end clarification interaction: options + the user's answer is fed back to re-run the query), not swallowed into a plain answer text.",
                 "Server tests (agentic-rag plan/answer + tools) and web tests (chat clarification UI) green + typecheck/vue-tsc clean."
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "progress_last_row": "Verified: server 928/928, web 420/420, typecheck/vue-tsc clean. Acceptance met: \"what is caleo\"/\"what is RAG\" answer from KB (no clarify dead-end, QA pair reused); clarify only for subject-less queries; legitimate clarify relayed via SSE to chat UI, user choice re-runs query with chosen context.",
+              "progress_updated_at": "2026-08-12T18:22:00Z"
             }
           ]
         },
