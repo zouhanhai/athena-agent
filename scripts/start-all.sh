@@ -125,16 +125,17 @@ fi
 
 # --- 7. llama-server (cross-encoder rerank, G4.S2.T14) ---------------------
 # BGE-Reranker-v2-M3 via llama.cpp /rerank endpoint. Optional — retrieval falls
-# back to RRF-only if this is down. HF cache must be writable by $USER (the
-# default ~/.cache/huggingface is root-owned after a prior root run), so point
-# HF_HOME at a user-owned dir.
+# back to RRF-only if this is down. Models live in llamacpp-rocm/models/ (all
+# llama.cpp GGUF: Qwythos LLM, nomic-embed, bge-reranker). HF cache is pointed
+# at models/hub so the bge GGUF downloads/loads from there (a user-owned dir —
+# the default ~/.cache/huggingface is root-owned after a prior root run).
 RERANK_PORT="${RERANK_PORT:-9632}"
 if port_in_use "$RERANK_PORT"; then
   log "llama-server rerank :$RERANK_PORT already running"
 else
   log "Starting llama-server rerank :$RERANK_PORT"
-  mkdir -p "$HOME/hf-cache"
-  ( cd "$USER_HOME" && export HF_HOME="$HOME/hf-cache" && \
+  mkdir -p "$HOME/llamacpp-rocm/models/hub"
+  ( cd "$USER_HOME" && export HF_HOME="$HOME/llamacpp-rocm/models" && \
     setsid /home/hh/llamacpp-rocm/llama-server \
       --hf-repo gpustack/bge-reranker-v2-m3-GGUF:Q8_0 \
       --port "$RERANK_PORT" --rerank --pooling rank --host 0.0.0.0 \
