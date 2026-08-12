@@ -67,45 +67,32 @@ function onCardClick(e: MouseEvent) {
 .agent-card {
   display: flex;
   gap: 10px;
-  align-items: flex-start;
-  padding: 10px 12px;
+  align-items: center;
+  padding: 8px 10px;
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   border-radius: 8px;
   box-shadow: var(--caleo-shadow);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease,
-    bottom 200ms cubic-bezier(0.77, 0, 0.175, 1);
-}
-
-/* Active card sits in the flow (natural height, no overflow); the others are
-   absolutely positioned below it. */
-.agent-card.active {
-  position: relative;
-  z-index: 10;
-  border-color: var(--caleo-primary);
-  background: color-mix(in srgb, var(--caleo-primary) 6%, var(--caleo-surface));
-}
-
-.agent-card:not(.active) {
-  position: absolute;
-  left: 0;
-  right: 0;
-  /* each inactive card is a slim strip stacked below the active card, offset by
-     its stack index so only the top edge (logo + name) peeks out */
-  bottom: calc(0px - var(--stack, 0) * 40px);
-  height: 44px;
-  align-items: center;
-  overflow: hidden;
-  z-index: calc(9 - var(--stack, 0));
+  min-width: 0;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .agent-card:hover {
   border-color: var(--caleo-primary);
 }
 
-.agent-card:not(.active) .agent-card-head {
-  gap: 6px;
+/* Active (expanded) card spans full row, top-aligned content. */
+.agent-card.active {
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  border-color: var(--caleo-primary);
+  background: color-mix(in srgb, var(--caleo-primary) 6%, var(--caleo-surface));
+}
+
+/* Compact (not active): logo + name only, one line. */
+.agent-card:not(.active) {
+  overflow: hidden;
 }
 
 .agent-card:not(.active) .agent-card-kind,
@@ -116,15 +103,10 @@ function onCardClick(e: MouseEvent) {
 }
 
 .agent-card:not(.active) .agent-card-name {
-  font-size: 12px;
+  font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.agent-card:not(.active) .agent-card-logo {
-  width: 30px;
-  height: 30px;
 }
 
 .agent-card-logo {
@@ -135,6 +117,11 @@ function onCardClick(e: MouseEvent) {
   object-fit: contain;
   flex-shrink: 0;
   background: transparent;
+}
+
+.agent-card:not(.active) .agent-card-logo {
+  width: 30px;
+  height: 30px;
 }
 
 .agent-card-body {

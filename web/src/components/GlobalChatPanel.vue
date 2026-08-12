@@ -130,9 +130,9 @@ function addEmployee(emp: EmployeeRecord) {
           v-for="(participant, idx) in chat.participants"
           :key="participant.id"
           :participant="participant"
-          :active="(expandedAgentId ?? chat.participants[0]?.id) === participant.id"
+          :active="expandedAgentId === participant.id"
           :stack-index="idx"
-          @toggle="expandedAgentId = participant.id"
+          @toggle="expandedAgentId = expandedAgentId === participant.id ? null : participant.id"
           @speak-change="(speak) => chat.onSpeakToggleChanged(participant.id, speak)"
           @left="chat.onAgentLeft(participant.id)"
         />
@@ -291,10 +291,9 @@ function addEmployee(emp: EmployeeRecord) {
 }
 
 .agent-cards {
-  position: relative;
-  /* Active card (in flow) sets the height; the stacked strips are absolutely
-     positioned below it, so give a little extra room for them to peek out. */
-  padding-bottom: 64px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
 }
 
 .add-entries {
