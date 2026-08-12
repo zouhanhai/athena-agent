@@ -10,10 +10,12 @@ import {
   UploadIcon,
   SettingIcon,
   ChatBubbleHelpIcon,
+  UserSafetyIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
 import { useThemeStore } from "@/stores/theme";
+import { useAuthStore } from "@/stores/auth";
 
 interface NavItem {
   label: string;
@@ -28,15 +30,26 @@ const theme = useThemeStore();
 const { mode } = storeToRefs(theme);
 const menuTheme = computed(() => (mode.value === "dark" ? "dark" : "light"));
 
-const navItems: NavItem[] = [
-  { label: "Knowledge", path: "/knowledge", icon: BookIcon },
-  { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
-  { label: "Workbench", path: "/workbench", icon: TerminalIcon },
-  { label: "Output", path: "/output", icon: FileIcon },
-  { label: "Uploads", path: "/uploads", icon: UploadIcon },
-  { label: "Terms & QA", path: "/terms-qa", icon: ChatBubbleHelpIcon },
-  { label: "Settings", path: "/settings", icon: SettingIcon },
-];
+const auth = useAuthStore();
+const isAdmin = computed(() => auth.employee?.role === "admin");
+
+// G4.S3.T11: reactive nav — the Admin entry is appended (near Settings) only
+// for signed-in employees with role=admin; members never see it.
+const navItems = computed<NavItem[]>(() => {
+  const items: NavItem[] = [
+    { label: "Knowledge", path: "/knowledge", icon: BookIcon },
+    { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
+    { label: "Workbench", path: "/workbench", icon: TerminalIcon },
+    { label: "Output", path: "/output", icon: FileIcon },
+    { label: "Uploads", path: "/uploads", icon: UploadIcon },
+    { label: "Terms & QA", path: "/terms-qa", icon: ChatBubbleHelpIcon },
+  ];
+  if (isAdmin.value) {
+    items.push({ label: "Admin", path: "/admin", icon: UserSafetyIcon });
+  }
+  items.push({ label: "Settings", path: "/settings", icon: SettingIcon });
+  return items;
+});
 
 const sidebarTopOffset = "24px";
 </script>

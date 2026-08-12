@@ -76,9 +76,18 @@ export async function registerInvitedEmployee(
   });
 }
 
-/** POST /api/invitations (admin) → invite an employee by email. */
-export async function sendInvite(email: string): Promise<void> {
-  await request<{ ok: boolean }>("/api/invitations", {
+/** Result of POST /api/invitations — the generated registration URL (G4.S3.T11). */
+export interface InviteResult {
+  ok: boolean;
+  /** The registration link the admin can copy/share (7-day default TTL). */
+  inviteUrl: string;
+  /** Invite-token time-to-live in ms (default 7 days). */
+  expiresInMs: number;
+}
+
+/** POST /api/invitations (admin) → invite an employee, returning the generated link. */
+export async function sendInvite(email: string): Promise<InviteResult> {
+  return request<InviteResult>("/api/invitations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -142,4 +151,20 @@ export async function listEmployees(sessionToken: string): Promise<EmployeeRecor
   }
   const data = (await res.json()) as { employees?: EmployeeRecord[] };
   return data.employees ?? [];
+}
+
+/** Admin update of an employee's role / extra permissions (PUT /api/employees/:email, admin RBAC). */
+export async function updateEmployee(
+  sessionToken: string,
+  email: string,
+  input: { role?: "admin" | "member"; permissions?: string[] },
+): Promise<EmployeeRecord> {
+  return request<EmployeeRecord>(`/api/employees/${email}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    body: JSON.stringify(input),
+  });
 }

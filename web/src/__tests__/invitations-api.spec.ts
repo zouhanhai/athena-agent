@@ -8,6 +8,7 @@ import {
   listEmployees,
   fetchMe,
   updateMe,
+  updateEmployee,
 } from "@/api/invitations";
 
 const fetchMock = vi.fn();
@@ -74,6 +75,44 @@ describe("invitations API", () => {
     expect(url).toBe("/api/invitations");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body)).toEqual({ email: "carol@caleo.com" });
+  });
+
+  it("sendInvite returns the generated invite URL + TTL for the admin console", async () => {
+    fetchMock.mockResolvedValue(
+      ok({
+        ok: true,
+        inviteUrl: "http://localhost:5173/register?token=abc",
+        expiresInMs: 604800000,
+      }),
+    );
+    const result = await sendInvite("carol@caleo.com");
+    expect(result.inviteUrl).toBe("http://localhost:5173/register?token=abc");
+    expect(result.expiresInMs).toBe(604800000);
+  });
+
+  it("updateEmployee PUTs role/permissions to /api/employees/:email with the Bearer token", async () => {
+    const updated = {
+      id: "e1",
+      email: "member@caleo.com",
+      display_name: "Member",
+      role: "admin",
+      permissions: ["kb.edit"],
+    };
+    fetchMock.mockResolvedValue(ok(updated));
+    const result = await updateEmployee("ses123", "member@caleo.com", {
+      role: "admin",
+      permissions: ["kb.edit"],
+    });
+    expect(result.role).toBe("admin");
+    expect(result.permissions).toEqual(["kb.edit"]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/employees/member@caleo.com");
+    expect(init.method).toBe("PUT");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer ses123",
+    });
+    expect(JSON.parse(init.body)).toEqual({ role: "admin", permissions: ["kb.edit"] });
   });
 
   it("requestMagicLink POSTs the email to /api/auth/login", async () => {

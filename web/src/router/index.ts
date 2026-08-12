@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import type { RouteRecordRaw } from "vue-router";
+import { getActivePinia } from "pinia";
+import { useAuthStore } from "@/stores/auth";
 
 const routes: RouteRecordRaw[] = [
   {
@@ -61,9 +63,34 @@ const routes: RouteRecordRaw[] = [
     name: "settings",
     component: () => import("../views/SettingsView.vue"),
   },
+  {
+    path: "/admin",
+    name: "admin",
+    component: () => import("../views/AdminView.vue"),
+    meta: { requiresAdmin: true },
+  },
 ];
 
-export default createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes,
 });
+
+// G4.S3.T11: /admin is admin-only. Members (or signed-out users) are sent to
+// the Knowledge page; the sidebar hides the entry for them too. Guard is a
+// no-op when Pinia is not installed (e.g. isolated router tests).
+router.beforeEach((to) => {
+  if (!to.meta.requiresAdmin) {
+    return true;
+  }
+  if (!getActivePinia()) {
+    return true;
+  }
+  const auth = useAuthStore();
+  if (auth.employee?.role !== "admin") {
+    return { path: "/knowledge" };
+  }
+  return true;
+});
+
+export default router;
