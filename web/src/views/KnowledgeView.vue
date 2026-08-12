@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { VNetworkGraph } from "v-network-graph";
 import { ForceLayout } from "v-network-graph/lib/force-layout";
-import type { UserConfigs } from "v-network-graph";
+import type { UserConfigs, VNetworkGraphInstance } from "v-network-graph";
 import "v-network-graph/lib/style.css";
 
 import { getGraph, getGraphTopics } from "@/api/kb";
@@ -18,6 +18,19 @@ const { mode } = storeToRefs(theme);
 const graph = ref<KnowledgeGraph>({ nodes: [], edges: [] });
 const loading = ref(false);
 const error = ref("");
+const graphRef = ref<VNetworkGraphInstance>();
+
+/** Fit the canvas to all nodes AFTER the force layout has settled. The built-in
+ *  `autoPanAndZoomOnLoad: "fit-content"` fires too early (force layout is async,
+ *  nodes are still stacked at the origin), so only ~2 overlapping nodes show.
+ *  We re-fit after the layout has had a beat to spread out. */
+function fitGraph(): void {
+  void nextTick(() => {
+    setTimeout(() => {
+      void graphRef.value?.fitToContents?.({ margin: 24 });
+    }, 400); // allow the force-simulation to spread nodes before fitting
+  });
+}
 const selectedNodeId = ref<string | null>(null);
 
 const topics = ref<string[]>([]);
@@ -121,6 +134,7 @@ async function loadTopicGraph() {
       return;
     }
     graph.value = await getGraph(undefined, topic);
+    fitGraph();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -165,6 +179,7 @@ async function loadNodeGraph(query: string) {
     nodeRoot.value = root.label ?? query;
     searchQuery.value = root.label ?? query;
     graph.value = localSubgraph(result, root.id, 2);
+    fitGraph();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
     graph.value = { nodes: [], edges: [] };
@@ -320,6 +335,7 @@ onMounted(() => {
         <template v-else>
           <div class="knowledge-canvas">
             <v-network-graph
+              ref="graphRef"
               :nodes="viewGraph.nodes"
               :edges="viewGraph.edges"
               :configs="configs"
