@@ -270,6 +270,8 @@ export interface KbReviewServiceOptions {
   wikiDir?: string;
   /** Override reading a page file (tests). Default: llmwiki.readFile. */
   readFile?: (localPath: string) => Promise<string>;
+  /** Override "today" (YYYY-MM-DD) at service level; per-call options.now wins. */
+  now?: string;
 }
 
 export class KbReviewService {
@@ -278,6 +280,7 @@ export class KbReviewService {
   private readonly projectId?: string;
   private readonly config: Partial<ReviewConfig>;
   private readonly wikiDir?: string;
+  private readonly now?: string;
   private readonly readFile?: (localPath: string) => Promise<string>;
 
   constructor(options: KbReviewServiceOptions) {
@@ -287,6 +290,7 @@ export class KbReviewService {
     this.config = options.config ?? {};
     this.wikiDir = options.wikiDir;
     this.readFile = options.readFile;
+    this.now = options.now;
   }
 
   /** Resolve the project id (current/first, like KnowledgeRetrievalService). */
@@ -326,7 +330,7 @@ export class KbReviewService {
    * syncer so the wiki md + Neo4j Document node stay in sync.
    */
   async reviewAll(options: ReviewAllOptions = {}): Promise<ReviewReport> {
-    const now = options.now ?? today();
+    const now = options.now ?? this.now ?? today();
     const projectId = await this.resolveProjectId();
     const pages = await this.listPages(projectId);
 
