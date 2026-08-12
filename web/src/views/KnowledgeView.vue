@@ -34,7 +34,11 @@ function fitGraph(): void {
       setTimeout(() => {
         const inst = graphRef.value;
         if (!inst?.fitToContents) return;
-        inst.transitionWhile(() => void inst.fitToContents?.({ margin: 24 }), 450);
+        inst.transitionWhile(
+          () => void inst.fitToContents?.({ margin: 24 }),
+          450,
+          "cubic-bezier(0.77, 0, 0.175, 1)",
+        );
       }, delay);
     fit(120);
     fit(650);
@@ -86,7 +90,43 @@ const typeColors = computed<Record<string, string>>(() => {
   return buildTypeColors(types, colors.value.palette);
 });
 
-const forceLayout = new ForceLayout({ positionFixedByDrag: true });
+const forceLayout = new ForceLayout({
+  positionFixedByDrag: true,
+  // "Big-bang" reveal: nodes start stacked at the origin, then the force
+  // simulation spreads them out. We listen to every simulation tick and re-fit
+  // the view so the camera zooms out smoothly along with the expanding graph,
+  // instead of a hard 2-node-then-snap. Throttled to once per ~90ms so it stays
+  // smooth without re-fitting every frame.
+  createSimulation(d3, nodes, edges) {
+    const sim = d3
+      .forceSimulation(nodes)
+      .force(
+        "edge",
+        d3.forceLink(edges).id((n) => (n as { id: string }).id).distance(100),
+      )
+      .force("charge", d3.forceManyBody())
+      .force("collide", d3.forceCollide(50).strength(0.2))
+      .force("center", d3.forceCenter().strength(0.05))
+      .alphaMin(1e-3);
+    let last = 0;
+    sim.on("tick", () => {
+      const now = Date.now();
+      if (now - last < 120) return;
+      last = now;
+      const inst = graphRef.value;
+      if (!inst?.fitToContents) return;
+      // transitionWhile eases the zoom from the current size to the fitted size
+      // (never snaps). Use a strong ease-in-out curve for on-screen movement
+      // (animate skill: morphing in view = ease-in-out, cubic-bezier(0.77,0,0.175,1)).
+      inst.transitionWhile(
+        () => void inst.fitToContents?.({ margin: 24 }),
+        450,
+        "cubic-bezier(0.77, 0, 0.175, 1)",
+      );
+    });
+    return sim;
+  },
+});
 
 const configs = computed<UserConfigs>(() => ({
   view: {
