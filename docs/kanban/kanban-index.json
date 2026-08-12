@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T06:59:06.598Z",
+  "generated_at": "2026-08-12T07:11:59.291Z",
   "goals": [
     {
       "ref": "G1",
@@ -2106,15 +2106,15 @@
               "id": "s3.4",
               "title": "G4.S3.T4: Topic-scoped search — scope retrieval to a topic subtree",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_g4s3t4",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "progress_last_row": "Committed + pushed (705e3ff), codegraph synced. Server 745 pass (3 pre-existing review.test date/float failures on clean checkout), web 347/347, both typechecks clean. Acceptance met: semantic search scopes to a topic subtree.",
+              "progress_updated_at": "2026-08-12T09:22:00Z"
             },
             {
               "ref": "G4.S3.T5",
