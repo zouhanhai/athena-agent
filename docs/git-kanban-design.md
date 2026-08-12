@@ -90,6 +90,11 @@ via their hook systems or fall back to AGENTS.md instructions (D5).
 
 ## 5. Ticket Markdown Format
 
+> **Ready-to-copy templates live in `docs/kanban/templates/`** — `Goal.md.template`,
+> `Spec.md.template`, `Ticket.md.template`. New repos copy these into their own `docs/kanban/` on setup.
+> (The old `TICKET-WORKFLOW.md` is superseded by these templates; the Worker Workflow section is
+> embedded in `Ticket.md.template`.)
+
 ```markdown
 ---
 id: G1.S1.T1

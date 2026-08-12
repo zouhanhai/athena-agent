@@ -1,0 +1,26 @@
+---
+id: s1
+title: "G1.S1: <spec title>"
+layer: S
+parent: G1
+owner: pm                  # PM builds the Spec (role-model)
+status: backlog            # backlog → active → done
+acceptance_criteria:
+  - "<criteria 1>"
+  - "<criteria 2>"
+---
+
+# G1.S1: <spec title>
+
+## Background
+Why this spec exists...
+
+## Full design
+See `docs/spec-<name>.md`. Key points:
+- ...
+
+## Dependencies
+- G1.S0 (...) — related but separate.
+
+## Deliverables
+- ...
