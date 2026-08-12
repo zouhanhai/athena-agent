@@ -167,7 +167,12 @@ export interface IngestTask {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  // G4.S3.T10: RBAC-gated KB writes (saveWikiPage) need the session token; attach
+  // it from localStorage when present so save/delete work for authenticated users.
+  const headers = new Headers(init?.headers ?? {});
+  const token = localStorage.getItem("athena.session_token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     throw new Error(`Request failed with status ${res.status}`);
   }
