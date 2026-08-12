@@ -24,6 +24,7 @@
 
 ```
 docs/kanban/
+├── kanban-index.json             ← generated fast-read board index (see §10); MUST be committed
 ├── G1/                           ← Goal 1 folder (created on launch)
 │   ├── Goal.md                   ← G1 grill output (owner: pi-a) — to-spec input
 │   ├── S1/                       ← Spec 1
