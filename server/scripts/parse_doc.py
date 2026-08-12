@@ -244,15 +244,21 @@ def mark_vlm_descriptions(markdown: str) -> str:
     out: list[str] = []
     in_desc = False
     for line in lines:
+        if START in line and END in line:
+            # Both markers on the same line: emit the inner description italicised.
+            inner = line.split(START, 1)[1].split(END, 1)[0].strip()
+            out.append(f"*{inner}*" if inner else "")
+            in_desc = False
+            continue
         if START in line:
             in_desc = True
-            stripped = line.replace(START, "").strip()
+            stripped = line.split(START, 1)[1].strip()
             # markdown *italic* (the wiki renderer has html:false, so <em> would
             # not be parsed into italics — use native markdown emphasis instead)
             out.append(f"*{stripped}*" if stripped else "")
             continue
         if END in line:
-            stripped = line.replace(END, "").strip()
+            stripped = line.split(END, 1)[0].strip()
             out.append(f"*{stripped}*" if stripped else "")
             in_desc = False
             continue
