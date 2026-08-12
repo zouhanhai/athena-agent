@@ -610,10 +610,11 @@ describe("WikiView editing (G4.S3.T10)", () => {
   });
 
   it("preserves the reader's scroll position when entering edit mode", async () => {
-    // Make requestAnimationFrame run synchronously so the scroll restore applies.
+    // Capture the rAF callback so we can run it AFTER the editor is sized.
+    let rafCb: ((time: number) => void) | null = null;
     const origRaf = window.requestAnimationFrame;
     window.requestAnimationFrame = (cb: FrameRequestCallback) => {
-      cb(0);
+      rafCb = cb as (t: number) => void;
       return 0;
     };
     try {
@@ -626,16 +627,17 @@ describe("WikiView editing (G4.S3.T10)", () => {
       const content = wrapper.find('[data-testid="wiki-content"]');
       Object.defineProperty(content.element, "scrollHeight", { value: 2000, configurable: true });
       Object.defineProperty(content.element, "clientHeight", { value: 500, configurable: true });
-      Object.defineProperty(content.element, "scrollTop", { value: 750, configurable: true }); // 750/(2000-500) = 0.5
+      Object.defineProperty(content.element, "scrollTop", { value: 750, configurable: true }); // ratio 0.5
 
       await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
       await flushPromises();
 
       const editor = wrapper.find('[data-testid="wiki-editor"]');
       expect(editor.exists()).toBe(true);
-      // ratio 0.5 applied to the editor's own scroll range
+      // Size the editor, then run the captured rAF (which restores the ratio).
       Object.defineProperty(editor.element, "scrollHeight", { value: 3000, configurable: true });
       Object.defineProperty(editor.element, "clientHeight", { value: 500, configurable: true });
+      rafCb?.(0);
       expect((editor.element as HTMLTextAreaElement).scrollTop).toBeCloseTo(0.5 * 2500, -1);
       wrapper.unmount();
     } finally {
