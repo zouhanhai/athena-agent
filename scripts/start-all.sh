@@ -47,7 +47,22 @@ load_openrouter_key() {
 }
 load_openrouter_key
 
-# --- 1. LightRAG -----------------------------------------------------------
+# --- 1. Neo4j (RAG graph, G4.S2) -------------------------------------------
+# Neo4j 2026 Community in Docker, used by the self-built RAG store.
+if port_in_use 7687; then
+  log "Neo4j :7687 already running"
+else
+  log "Starting Neo4j :7687"
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^neo4j-spike$'; then
+    setsid docker start neo4j-spike < /dev/null > "$LOG_DIR/neo4j.log" 2>&1 & disown
+  else
+    setsid docker run -d --name neo4j-spike -p 7687:7687 -p 7474:7474 \
+      -e NEO4J_AUTH=neo4j/athena-spike-2026 -e NEO4J_PLUGINS='["apoc"]' \
+      neo4j:2025-community < /dev/null > "$LOG_DIR/neo4j.log" 2>&1 & disown
+  fi
+fi
+
+# --- 2. LightRAG -----------------------------------------------------------
 if port_in_use 9621; then
   log "LightRAG :9621 already running"
 else
@@ -80,7 +95,7 @@ if port_in_use 3000; then
 else
   log "Starting athena backend :3000"
   ( cd "$HOME/athena-agent/server" && \
-    export DATABASE_URL="postgres://hh:athena_pg_2026@127.0.0.1:5432/athena" \
+    export DATABASE_URL="postgres://hh@/athena?host=/var/run/postgresql" \
     export ADMIN_EMAIL="zouha108@caleo.com" \
     export APP_BASE_URL="${APP_BASE_URL:-http://192.168.178.30:5173}" \
     # Local secrets (RESEND_API_KEY etc.) load from a git-ignored .env.local
@@ -108,7 +123,26 @@ else
     < /dev/null > "$LOG_DIR/opencode-serve.log" 2>&1 & disown
 fi
 
+# --- 7. llama-server (cross-encoder rerank, G4.S2.T14) ---------------------
+# BGE-Reranker-v2-M3 via llama.cpp /rerank endpoint. Optional — retrieval falls
+# back to RRF-only if this is down. HF cache must be writable by $USER (the
+# default ~/.cache/huggingface is root-owned after a prior root run), so point
+# HF_HOME at a user-owned dir.
+RERANK_PORT="${RERANK_PORT:-9632}"
+if port_in_use "$RERANK_PORT"; then
+  log "llama-server rerank :$RERANK_PORT already running"
+else
+  log "Starting llama-server rerank :$RERANK_PORT"
+  mkdir -p "$HOME/hf-cache"
+  ( cd "$USER_HOME" && export HF_HOME="$HOME/hf-cache" && \
+    setsid /home/hh/llamacpp-rocm/llama-server \
+      --hf-repo gpustack/bge-reranker-v2-m3-GGUF:Q8_0 \
+      --port "$RERANK_PORT" --rerank --pooling rank --host 0.0.0.0 \
+      < /dev/null > "$LOG_DIR/llama-rerank.log" 2>&1 & disown )
+fi
+
 log "--- All services launched. Logs in $LOG_DIR ---"
 log "Check: LightRAG http://$(hostname -I | awk '{print $1}'):9621/health"
 log "Check: Vite     http://$(hostname -I | awk '{print $1}'):5173/"
 log "Check: OpenCode bash scripts/monitor-opencode.sh"
+log "Check: Rerank  http://$(hostname -I | awk '{print $1}'):$RERANK_PORT/"
