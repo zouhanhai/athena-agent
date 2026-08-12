@@ -275,11 +275,13 @@ test("ingest streams chunk progress {done,total} after each embed+write batch (G
   assert.deepEqual(
     progress,
     [
+      { chunksStored: 1, chunksTotal: 5, progress: 0.2 },
       { chunksStored: 2, chunksTotal: 5, progress: 0.4 },
+      { chunksStored: 3, chunksTotal: 5, progress: 0.6 },
       { chunksStored: 4, chunksTotal: 5, progress: 0.8 },
       { chunksStored: 5, chunksTotal: 5, progress: 1 },
     ],
-    "one progress report per batch, cumulative done against the chunk total",
+    "one progress report per chunk (cumulative done against the chunk total), so the frontend can show a live per-chunk ETA",
   );
   assert.deepEqual(embedCalls, [
     ["chunk 1", "chunk 2"],
@@ -290,6 +292,40 @@ test("ingest streams chunk progress {done,total} after each embed+write batch (G
     (c) => c.query.startsWith("MERGE") && c.query.includes(`${CHUNK_LABEL}`) && !c.query.includes("UNWIND $sections"),
   );
   assert.equal(chunkWrites.length, 5, "every chunk is still stored");
+});
+
+test("ingest fires onProgress per chunk AFTER the chunk is MERGE'd + section-linked (G4.S3.T9)", async () => {
+  const { driver, calls } = makeDriver();
+  const chunks = Array.from({ length: 3 }, (_, i) => ({
+    id: `c${i + 1}`,
+    text: `chunk ${i + 1}`,
+    heading_path: "Alpha / Beta",
+  }));
+  const service = new Neo4jIngestService({
+    driver,
+    batchSize: 1,
+    embedder: { embed: async (texts) => texts.map(() => [1, 2, 3]) },
+    readChunks: async () => chunks,
+  });
+
+  const seenAt: number[] = [];
+  await service.ingest({
+    ref: makeRef({ chunk_count: 3 }),
+    documentId: "doc",
+    title: "Doc",
+    onProgress: (p) => {
+      // Invocation order must trail the current chunk's MERGE + section-link queries.
+      const chunkMerges = calls.filter(
+        (c) => c.query.startsWith("MERGE") && c.query.includes(`${CHUNK_LABEL}`) && !c.query.includes("UNWIND $sections"),
+      ).length;
+      const sectionLinks = calls.filter((c) => c.query.includes("UNWIND $sections")).length;
+      seenAt.push(chunkMerges);
+      assert.equal(sectionLinks, p.chunksStored, "section links complete before progress for the chunk");
+      assert.equal(chunkMerges, p.chunksStored, "chunk MERGE complete before progress for the chunk");
+    },
+  });
+
+  assert.deepEqual(seenAt, [1, 2, 3], "one onProgress invocation per chunk, after its write");
 });
 
 test("ingest is idempotent-safe: MERGE (not CREATE) for chunks, entities and document", async () => {

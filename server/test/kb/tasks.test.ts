@@ -9,6 +9,7 @@ import {
   NothingToRetryError,
   TaskBusyError,
   TaskNotFoundError,
+  rollingEtaMs,
 } from "../../src/kb/tasks.js";
 import type { IngestTask } from "../../src/kb/tasks.js";
 
@@ -138,7 +139,10 @@ function makeFakes(opts: {
             }) {
               calls.push({ kind: "neo4j.ingest", args: [input.documentId, input.title] });
               if (flags.neo4jError) throw flags.neo4jError;
+              // Real elapsed time between progress reports so the rolling ETA
+              // (ms-per-chunk baseline) materializes (G4.S3.T9).
               input.onProgress?.({ chunksStored: 1, chunksTotal: 2, progress: 0.5 });
+              await new Promise((r) => setTimeout(r, 5));
               input.onProgress?.({ chunksStored: 2, chunksTotal: 2, progress: 1 });
               return { chunksStored: 2, entitiesStored: 1, relationsStored: 1 };
             },
@@ -472,6 +476,31 @@ test("ingesting_neo4j stage exposes chunk progress (chunksStored/chunksTotal/pro
   assert.equal(stage.chunksStored, 2);
   assert.equal(stage.chunksTotal, 2);
   assert.equal(stage.progress, 1);
+});
+
+test("ingesting_neo4j stage carries processed/total + embed_store step progress + etaMs (G4.S3.T9)", async () => {
+  const { queue } = makeFakes({ neo4j: true });
+  const { taskId } = queue.submitFile("/tmp/report.pdf", "report.pdf");
+  await untilDone(queue, taskId);
+
+  const task = queue.getTask(taskId)!;
+  const stage = task.stages.ingesting_neo4j;
+  // T9 aliases for the frontend ETA: (total - processed) × avg ms per chunk.
+  assert.equal(stage.processed, 2, "processed mirrors the last chunksStored");
+  assert.equal(stage.total, 2, "total mirrors the last chunksTotal");
+  const embedStore = stage.steps.find((s) => s.name === "embed_store");
+  assert.equal(embedStore!.progress, "2/2", "embed_store step carries the live X/Y progress string");
+  // A rolling etaMs was set once the first progress report anchored a start time.
+  assert.equal(typeof stage.etaMs, "number", "etaMs set while total > 0");
+});
+
+test("rollingEtaMs estimates remaining ms as (total - processed) × avg ms per chunk (G4.S3.T9)", () => {
+  // 5 chunks in 7500ms → 1500ms/chunk; 15 remaining → 22500ms.
+  assert.equal(rollingEtaMs(5, 20, 10_000, 17_500), 22_500);
+  // Nothing stored yet → no per-chunk baseline → undefined (no ETA before RAG).
+  assert.equal(rollingEtaMs(0, 20, 10_000, 17_500), undefined);
+  // All chunks stored → nothing left.
+  assert.equal(rollingEtaMs(5, 5, 10_000, 17_500), 0);
 });
 
 test("Neo4j stage is a no-op (done) without a wired store or refinement output (G4.S2.T4)", async () => {

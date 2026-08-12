@@ -46,6 +46,9 @@ export interface TaskStep {
   name: StepName;
   status: StageStatus;
   error?: string;
+  /** Live sub-step progress text (G4.S3.T9): the Neo4j embed_store step carries
+   *  "X/Y" while chunks embed so the UI can show "embed_store: 5/16". */
+  progress?: string;
 }
 
 export interface TaskStage {
@@ -59,6 +62,34 @@ export interface TaskStage {
   chunksStored?: number;
   chunksTotal?: number;
   progress?: number;
+  /** Neo4j chunk progress aliases (G4.S3.T9): `processed`/`total` mirror
+   *  chunksStored/chunksTotal so the frontend ETA reads
+   *  (total - processed) × avg ms per chunk uniformly. */
+  processed?: number;
+  total?: number;
+  /** Rolling ETA in ms for the remaining chunks (G4.S3.T9): remaining chunks ×
+   *  the average ms per chunk measured since the first progress report. Set on
+   *  the ingesting_neo4j stage while total > 0. */
+  etaMs?: number;
+}
+
+/**
+ * Rolling ETA for the Neo4j chunk embed loop (G4.S3.T9): remaining chunks
+ * (`total - processed`) × the average ms per chunk measured since the anchor
+ * timestamp (`anchorAt` = first observed progress). Returns undefined before any
+ * chunk is stored or when the anchor is not older than `now` (no baseline yet).
+ */
+export function rollingEtaMs(
+  processed: number,
+  total: number,
+  anchorAt: number,
+  now: number,
+): number | undefined {
+  if (total <= 0 || processed <= 0) return undefined;
+  const elapsed = now - anchorAt;
+  if (elapsed <= 0) return undefined;
+  const msPerChunk = elapsed / processed;
+  return Math.max(0, (total - processed) * msPerChunk);
 }
 
 const NEO4J_STEPS: Neo4jStepName[] = ["embed_store"];
@@ -201,6 +232,9 @@ export class IngestTaskQueue {
   private readonly neo4j?: Neo4jIngestService;
   private readonly dedup?: ContentDedupStore;
   private readonly tasks = new Map<string, IngestTask>();
+  /** First-observed progress timestamp per task, the anchor for the rolling
+   *  ms-per-chunk ETA on the ingesting_neo4j stage (G4.S3.T9). */
+  private readonly etaStartAt = new Map<string, number>();
 
   constructor(options: IngestTaskQueueOptions) {
     this.parser = options.parser;
@@ -473,6 +507,8 @@ export class IngestTaskQueue {
         // (no ref = nothing to store); otherwise the stage is a no-op marked done.
         // G4.S3.T8: the store streams chunk progress via onProgress → the stage
         // exposes chunksStored/chunksTotal/progress so the API returns X/Y.
+        // G4.S3.T9: per-chunk progress also drives the embed_store step's "X/Y"
+        // progress text, the processed/total aliases, and a rolling etaMs.
         const res = this.neo4j && refinementRef
           ? await this.safeIngest(() => {
               const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
@@ -484,10 +520,26 @@ export class IngestTaskQueue {
                 title,
                 ...(wikiPath ? { wikiPath } : {}),
                 onProgress: (p) => {
+                  // Anchor the ETA's ms-per-chunk baseline on the first stored chunk.
+                  if (p.chunksStored > 0 && !this.etaStartAt.has(id)) {
+                    this.etaStartAt.set(id, Date.now());
+                  }
                   this.patch(id, (t) => {
-                    t.stages.ingesting_neo4j.chunksStored = p.chunksStored;
-                    t.stages.ingesting_neo4j.chunksTotal = p.chunksTotal;
-                    t.stages.ingesting_neo4j.progress = p.progress;
+                    const stage = t.stages.ingesting_neo4j;
+                    stage.chunksStored = p.chunksStored;
+                    stage.chunksTotal = p.chunksTotal;
+                    stage.progress = p.progress;
+                    stage.processed = p.chunksStored;
+                    stage.total = p.chunksTotal;
+                    if (p.chunksTotal > 0) {
+                      const step = stage.steps.find((s) => s.name === "embed_store");
+                      if (step) step.progress = `${p.chunksStored}/${p.chunksTotal}`;
+                    }
+                    const anchor = this.etaStartAt.get(id);
+                    if (anchor !== undefined) {
+                      const etaMs = rollingEtaMs(p.chunksStored, p.chunksTotal, anchor, Date.now());
+                      if (etaMs !== undefined) stage.etaMs = etaMs;
+                    }
                   });
                 },
               }).then((r) => ({ ok: true, count: r.chunksStored }));
@@ -608,6 +660,8 @@ export class IngestTaskQueue {
       t.status = reRunParsing ? "parsing" : reRunRefinement ? "refining" : "ingesting";
       for (const name of failedStages) {
         t.stages[name] = initialStage(name);
+        // A re-run Neo4j stage restarts its per-chunk ETA baseline (G4.S3.T9).
+        if (name === "ingesting_neo4j") this.etaStartAt.delete(taskId);
       }
     });
     void this.run(taskId, task.input!, task.source);

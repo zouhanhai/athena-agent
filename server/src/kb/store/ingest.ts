@@ -66,8 +66,10 @@ export interface Neo4jIngestInput {
   /** The llm_wiki page path written for this doc (e.g. "wiki/events/doc.md"). When
    *  present, a WikiPage node is created and bridged to the Document (G4.S2.T11). */
   wikiPath?: string;
-  /** Called after each embed + write batch with cumulative chunk progress
-   *  (G4.S3.T8). Optional — ingest still reports the final result on completion. */
+  /** Called after each chunk is MERGE'd + section-linked with cumulative chunk
+   *  progress (G4.S3.T8/T9). Per-chunk granularity (not per-batch) so a caller
+   *  can show a live elapsed vs chunk-rate ETA. Optional — ingest still reports
+   *  the final result on completion. */
   onProgress?: (progress: Neo4jIngestProgress) => void;
 }
 
@@ -154,10 +156,10 @@ export class Neo4jIngestService {
    * Embed Athena's chunks + store Document/Chunk/Entity/Relation into Neo4j.
    * Idempotent-safe (MERGE + IF NOT EXISTS schema). No LLM extraction.
    *
-   * Chunks are embedded + written in `batchSize` slices (G4.S3.T8): each batch
-   * is embedded, its Chunk nodes + Section chains are stored, then the
-   * `onProgress` callback fires with cumulative {chunksStored, chunksTotal,
-   * progress} — so callers stream X/Y instead of waiting for one big embed.
+   * Chunks are embedded in `batchSize` slices (G4.S3.T8) but written one at a
+   * time; the `onProgress` callback fires after EACH chunk's MERGE + section-link
+   * with cumulative {chunksStored, chunksTotal, progress} (G4.S3.T9) — so callers
+   * stream X/Y live instead of waiting for one big embed.
    */
   async ingest(input: Neo4jIngestInput): Promise<Neo4jIngestResult> {
     if (this.applySchema) {
@@ -211,7 +213,9 @@ export class Neo4jIngestService {
         });
       };
 
-      // Embed + write chunks in batches so progress streams X/Y (G4.S3.T8).
+      // Embed + write chunks in batches so writes stream through (G4.S3.T8).
+      // `report` fires PER CHUNK, right after the chunk's MERGE + section-link
+      // (G4.S3.T9), so the frontend's elapsed-vs-chunk-rate ETA stays live.
       for (let start = 0; start < chunks.length; start += this.batchSize) {
         const slice = chunks.slice(start, start + this.batchSize);
         const embeddings =
@@ -260,8 +264,8 @@ export class Neo4jIngestService {
               { documentId: input.documentId, sections, chunkId },
             );
           }
+          report(Math.min(start + i + 1, total));
         }
-        report(Math.min(start + slice.length, total));
       }
 
       // Layered summaries (G4.S2.T13): set each section summary on its matching Section node
