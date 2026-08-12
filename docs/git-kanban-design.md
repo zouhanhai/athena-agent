@@ -95,12 +95,11 @@ id: G1.S1.T1
 title: "G1.S1.T1: Implement login API"
 layer: T
 parent: G1.S1
-owner: consultant
+owner: eng-director       # Eng Director builds tickets (role-model; see D10)
 status: backlog           # backlog → in_progress → done → in_review* → approved / rejected
 assignee: ""              # set by the plugin on auto-claim
 session_id: ""            # set by the plugin on auto-claim
 priority: P1
-milestone: M4
 depends_on: []
 blocked_by: []
 acceptance_criteria:
@@ -151,6 +150,73 @@ Implementation details...
 ticket ref from the structured dispatch prompt). The worker's Worker Workflow **starts after the
 claim** — no manual status edit or claim commit. Other agents implement the same via their hook
 systems or fall back to AGENTS.md instructions (D5).
+
+## 5a. Goal Markdown Template
+
+```markdown
+---
+id: g1
+title: "G1: <goal title>"
+layer: G
+owner: consultant          # Consultant builds the Goal (role-model; see D10)
+status: active             # active → done
+created_at: 2026-08-12
+acceptance_criteria:
+  - "G1.S1 <criteria>"
+  - "G1.S2 <criteria>"
+---
+
+# G1: <goal title>
+
+## Background / Context
+Why this goal, what problem it solves...
+
+## Spec dependency order
+- **G1.S1 <name> FIRST** — why it must come first
+- G1.S2 <name> — depends on S1
+- G1.S3 <name> — independent
+
+## Reference design docs
+- `docs/...`
+
+## Progress
+- **G1.S1 <name>: DONE <date>** — summary
+- **G1.S2 <name>: backlog** — next
+
+## Post-G enhancement backlog (recorded, not scheduled)
+- *None currently open.*
+```
+
+## 5b. Spec Markdown Template
+
+```markdown
+---
+id: s1
+title: "G1.S1: <spec title>"
+layer: S
+parent: G1
+owner: pm                  # PM builds the Spec (role-model; see D10)
+status: backlog            # backlog → active → done
+acceptance_criteria:
+  - "OpenCode plugin appends a Progress Log row..."
+  - "KanbanTab shows the last progress row + stalled flag"
+---
+
+# G1.S1: <spec title>
+
+## Background
+...
+
+## Full design
+See `docs/spec-...md`. Key points:
+- ...
+
+## Dependencies
+- G1.S0 (...) — related but separate.
+
+## Deliverables
+- ...
+```
 
 **`## Log` vs `## Progress Log`** (D1):
 - `## Log` = lifecycle audit (claim / complete / review / reject events), LLM-written.
