@@ -279,7 +279,7 @@ backlog ──claim(push)──▶ in_progress ──done──▶ in_review (PR
 
 | State | Meaning | Set by |
 |-------|---------|--------|
-| backlog | Not started, claimable | Planner |
+| backlog | Not started, claimable | Eng Director (creates ticket) |
 | in_progress | Claimed, in development | Worker (claim lock) |
 | done | Implementation complete | Worker |
 | in_review | PR pending review (**collab only**) | Worker (after opening PR) |
