@@ -147,7 +147,7 @@ export class Neo4jQaEmbeddingIndex implements QaEmbeddingIndex {
       const result = (await session.run(
         `CYPHER 25
          MATCH (n:${QA_PAIR_LABEL})
-           SEARCH n IN (VECTOR INDEX ${QA_QUESTION_EMBEDDING_INDEX} FOR $embedding) SCORE AS score
+           SEARCH n IN (VECTOR INDEX ${QA_QUESTION_EMBEDDING_INDEX} FOR $embedding LIMIT 1) SCORE AS score
          RETURN n.id AS id, n.question AS question, score
          ORDER BY score DESC
          LIMIT 1`,
