@@ -208,6 +208,17 @@ export class WikiFrontmatterSyncer {
     return state;
   }
 
+  /** Read the current lifecycle state of a wiki page from its frontmatter.
+   *  Resolves the page's local path like update() — feedback (G4.S3.T5) and
+   *  any other caller read the current confidence through this canonical path
+   *  before writing a delta back through update(). */
+  async readLifecycle(path: string): Promise<WikiLifecycleState> {
+    const wikiDir = await this.wikiRoot();
+    const local = wikiLocalPath(wikiDir, path);
+    const content = await this.readFile(local);
+    return parseWikiLifecycle(parseFrontmatter(content));
+  }
+
   /** Increment read_count on BOTH the wiki frontmatter and the Document node,
    *  via the shared canonical update path. */
   async incrementReadCount(path: string): Promise<WikiLifecycleState> {

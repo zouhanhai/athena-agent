@@ -53,6 +53,12 @@ export const CHUNK_TEXT_FTX = "chunk_text_ftx";
 export const DOCUMENT_SUMMARY_FTX = "document_summary_ftx";
 export const SECTION_SUMMARY_FTX = "section_summary_ftx";
 
+/** Q&A pair dedup (G4.S3.T5): a mirror of each stored Q&A pair carries its
+ *  embedded question so a new question is vector-searched against the existing
+ *  store before insert (semantically similar → update, not duplicate). */
+export const QA_PAIR_LABEL = "QaPair";
+export const QA_QUESTION_EMBEDDING_INDEX = "qa_question_embedding_idx";
+
 /**
  * Fold a name to a case-insensitive canonical form (`toUpper`, Unicode-aware so German umlauts
  * case-fold correctly: "lüsen" -> "LÜSEN"). Stored as Entity.nameUpper and range-indexed for exact
@@ -80,9 +86,13 @@ export function storeSchemaStatements(): string[] {
     `CREATE CONSTRAINT document_id_unique IF NOT EXISTS FOR (n:${DOCUMENT_LABEL}) REQUIRE n.id IS UNIQUE`,
     `CREATE CONSTRAINT wikipage_id_unique IF NOT EXISTS FOR (n:${WIKIPAGE_LABEL}) REQUIRE n.id IS UNIQUE`,
     `CREATE CONSTRAINT section_id_unique IF NOT EXISTS FOR (n:${SECTION_LABEL}) REQUIRE n.id IS UNIQUE`,
+    `CREATE CONSTRAINT qa_pair_id_unique IF NOT EXISTS FOR (n:${QA_PAIR_LABEL}) REQUIRE n.id IS UNIQUE`,
     // HNSW cosine vector index over Athena-chunk embeddings, with topic as an additional property so
     // retrieval can filter in-index via SEARCH…WHERE (ADR-0008, Neo4j 2026 Community).
     `CREATE VECTOR INDEX ${CHUNK_EMBEDDING_INDEX} IF NOT EXISTS FOR (n:${CHUNK_LABEL}) ON (n.embedding) WITH [n.topic] OPTIONS { indexConfig: { \`vector.dimensions\`: ${EMBEDDING_DIMENSIONS}, \`vector.similarity_function\`: 'cosine' } }`,
+    // HNSW cosine vector index over Q&A question embeddings (G4.S3.T5): the dedup
+    // store searches it to decide insert-vs-update for a new question.
+    `CREATE VECTOR INDEX ${QA_QUESTION_EMBEDDING_INDEX} IF NOT EXISTS FOR (n:${QA_PAIR_LABEL}) ON (n.question_embedding) OPTIONS { indexConfig: { \`vector.dimensions\`: ${EMBEDDING_DIMENSIONS}, \`vector.similarity_function\`: 'cosine' } }`,
     // Folded canonical name -> exact case-insensitive lookup (nameUpper = toUpper(name)).
     `CREATE RANGE INDEX ${ENTITY_NAME_UPPER_INDEX} IF NOT EXISTS FOR (n:${ENTITY_LABEL}) ON (n.nameUpper)`,
     // Bilingual alias search: FULLTEXT over name + aliases folds case AND diacritics ("zentraler
@@ -129,6 +139,7 @@ interface IntendedIndex {
 
 const INTENDED_INDEXES: IntendedIndex[] = [
   { name: CHUNK_EMBEDDING_INDEX, labels: [CHUNK_LABEL], properties: ["embedding", "topic"], type: "VECTOR" },
+  { name: QA_QUESTION_EMBEDDING_INDEX, labels: [QA_PAIR_LABEL], properties: ["question_embedding"], type: "VECTOR" },
   { name: ENTITY_NAME_UPPER_INDEX, labels: [ENTITY_LABEL], properties: ["nameUpper"], type: "RANGE" },
   { name: ENTITY_NAME_ALIASES_FTX, labels: [ENTITY_LABEL], properties: ["name", "aliases"], type: "FULLTEXT" },
   { name: CHUNK_TEXT_FTX, labels: [CHUNK_LABEL], properties: ["text"], type: "FULLTEXT" },

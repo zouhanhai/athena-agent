@@ -196,6 +196,18 @@ test("update tolerates a failing Document mirror (best-effort, wiki write still 
   assert.match(fs.files.get("/data/wiki/concepts/chain-of-thought.md")!, /read_count: 9\n/);
 });
 
+test("readLifecycle reads the current lifecycle state of a wiki page", async () => {
+  const fs = makeFakeFs({ "/data/wiki/concepts/chain-of-thought.md": SAMPLE_PAGE });
+  const syncer = new WikiFrontmatterSyncer({
+    wikiDir: "/data/wiki",
+    readFile: fs.readFile,
+    writeFile: fs.writeFile,
+  });
+
+  const state = await syncer.readLifecycle("wiki/concepts/chain-of-thought.md");
+  assert.deepEqual(state, { read_count: 2, confidence: 1, topic_history: [] });
+});
+
 test("incrementReadCount bumps read_count on the wiki md and the Document node (shared canonical path)", async () => {
   const fs = makeFakeFs({ "/data/wiki/concepts/chain-of-thought.md": SAMPLE_PAGE });
   const { driver, calls } = makeDriver();

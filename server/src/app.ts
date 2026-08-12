@@ -55,6 +55,9 @@ import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
 import { KbReviewService, scheduleKbReview } from "./kb/review.js";
 import { WikiReCurator } from "./kb/recurate.js";
+import { FeedbackService } from "./kb/feedback.js";
+import { MemoryQaPairStore, PostgresQaPairStore } from "./kb/qa-pairs.js";
+import { Neo4jQaEmbeddingIndex } from "./kb/qa-index.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
 import { createAthenaRefiner } from "./kb/refiner.js";
@@ -75,6 +78,8 @@ export interface BuildAppOptions {
   review?: KbReviewService;
   /** Incremental re-curation tool (G4.S3.T3). Default: defaultReCurator(). */
   recurator?: WikiReCurator;
+  /** Feedback loop service (G4.S3.T5). Default: defaultFeedbackService(). */
+  feedback?: FeedbackService;
   taskQueue?: IngestTaskQueue;
   registry?: AgentRegistry;
   logos?: LogoStore;
@@ -150,6 +155,30 @@ export function defaultReCurator(): WikiReCurator {
     llmwiki: new LlmWikiClient(),
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
   });
+}
+
+/** Default feedback loop service (G4.S3.T5): Q&A pairs in Postgres (memory when
+ *  DATABASE_URL is unset), confidence changes through the canonical syncer.
+ *  Q&A dedup (vector search for a semantically similar question before insert)
+ *  is active when BOTH the Neo4j store and the embedding key are available —
+ *  otherwise feedback stores insert-only. */
+export function defaultFeedbackService(): FeedbackService {
+  const wikiDir = process.env.LLM_WIKI_WIKI_DIR ?? undefined;
+  const driver = defaultNeo4jDriver();
+  const connectionString = process.env.DATABASE_URL;
+  const store = connectionString
+    ? new PostgresQaPairStore({ connectionString })
+    : new MemoryQaPairStore();
+  const syncer = new WikiFrontmatterSyncer({ wikiDir, driver });
+  if (driver && process.env.EMBEDDING_OPENROUTER_KEY) {
+    const embedder = new OpenRouterEmbedder();
+    return new FeedbackService({
+      store,
+      syncer,
+      index: new Neo4jQaEmbeddingIndex({ driver, embedder }),
+    });
+  }
+  return new FeedbackService({ store, syncer });
 }
 
 /** Neo4j lean RAG store retrieval (G4.S2.T5): fused vector + BM25 + graph.
@@ -317,6 +346,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const index = options.index ?? defaultKanbanIndex();
   const invitations = options.invitations ?? defaultInvitationService(employees, tokens!);
   const review = options.review ?? defaultReviewService();
+  const feedback = options.feedback ?? defaultFeedbackService();
 
   app.register(multipart, {
     limits: { fileSize: options.maxFileSize ?? 50 * 1024 * 1024 },
@@ -350,6 +380,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await employees.close();
     await auth.close();
     await invitations.close();
+    await feedback.close();
     if (options.auth && !options.invitations) {
       // The default invitation service owns the token store auth didn't consume;
       // close it so a Postgres-backed pool is not leaked on shutdown.
@@ -369,6 +400,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     retrieval: options.retrieval ?? defaultRetrievalService(),
     review: options.review ?? defaultReviewService(),
     recurator: options.recurator ?? defaultReCurator(),
+    feedback: options.feedback ?? defaultFeedbackService(),
     taskQueue: options.taskQueue ?? defaultTaskQueue(),
     maxFileSize: options.maxFileSize,
   });

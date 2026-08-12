@@ -9,6 +9,8 @@ import type { KnowledgeRetrievalService } from "../kb/retrieval.js";
 import type { IngestTaskQueue } from "../kb/tasks.js";
 import type { KbReviewService } from "../kb/review.js";
 import type { WikiReCurator } from "../kb/recurate.js";
+import type { FeedbackService } from "../kb/feedback.js";
+import { isFeedbackDirection, toSources } from "../kb/qa-pairs.js";
 import {
   NothingToRetryError,
   TaskBusyError,
@@ -39,6 +41,8 @@ export interface KbRouteOptions {
   review?: KbReviewService;
   /** Incremental re-curation tool (G4.S3.T3): POST /api/kb/wiki/retopic. */
   recurator?: WikiReCurator;
+  /** Feedback loop (G4.S3.T5): POST /api/kb/feedback + GET /api/kb/qa. */
+  feedback?: FeedbackService;
   /** Directory to stage uploaded files before docling parsing. Default: os.tmpdir(). */
   uploadDir?: string;
   /** Max multipart upload size. Default: 50 MiB. */
@@ -264,6 +268,56 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     }
   };
   app.post("/api/kb/wiki/retopic", retopicHandler);
+
+  /** POST /api/kb/feedback → record a chat answer's thumbs up/down (G4.S3.T5).
+   *  Body: { question, answer, sources?, feedback }. Stores the Q&A pair (deduped
+   *  by vector similarity) and reinforces/fades the source pages' confidence
+   *  through the canonical syncer (wiki + Document mirror). */
+  const feedbackHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.feedback) {
+      return reply.code(500).send({ error: "feedback service not configured" });
+    }
+    const body = (request.body ?? {}) as {
+      question?: unknown;
+      answer?: unknown;
+      sources?: unknown;
+      feedback?: unknown;
+    };
+    if (typeof body.question !== "string" || body.question.trim().length === 0) {
+      return reply.code(400).send({ error: "question is required" });
+    }
+    if (typeof body.answer !== "string" || body.answer.trim().length === 0) {
+      return reply.code(400).send({ error: "answer is required" });
+    }
+    if (!isFeedbackDirection(body.feedback)) {
+      return reply.code(400).send({ error: "feedback must be 'up' or 'down'" });
+    }
+    try {
+      return await options.feedback.record({
+        question: body.question.trim(),
+        answer: body.answer.trim(),
+        sources: toSources(body.sources),
+        feedback: body.feedback,
+      });
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.post("/api/kb/feedback", feedbackHandler);
+
+  /** GET /api/kb/qa → list the stored Q&A pairs (feedback loop + manual), for
+   *  the "Terms & QA" tab (G4.S3.T6) and reuse checks. */
+  app.get("/api/kb/qa", async (request, reply) => {
+    if (!options.feedback) {
+      return reply.code(500).send({ error: "feedback service not configured" });
+    }
+    try {
+      const pairs = await options.feedback.qaStore.list();
+      return { pairs };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   if (!options.retrieval) return;
 
