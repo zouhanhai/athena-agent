@@ -47,6 +47,21 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     // conversation context (shared session) is never altered — only the prompt.
     const prompt = injectPageContext(page, message);
 
+    // Knowledge-first guidance (G4.S3): prefer answering from the athena KB via
+    // `search_knowledge` before reaching for web tools. Only fall back to web
+    // search/extract when search_knowledge explicitly reports the KB does not
+    // answer — and don't narrate intermediate web-access failures (e.g. a 403)
+    // in the reply; answer from what the KB/web actually returned.
+    const knowledgeGuidance =
+      "Knowledge-first: when the question concerns the CALEO knowledge base " +
+      "(documents, processes, wiki, entities, past events like the Sommerseminar), " +
+      "start with the `search_knowledge` tool and answer from the retrieved KB " +
+      "hits. Do NOT use web tools to check or re-derive an answer the KB already " +
+      "provides. Only fall back to web search/extract when search_knowledge " +
+      "explicitly says the KB does not answer. Do not mention intermediate tool " +
+      "failures (like a URL returning 403) in your reply.";
+    const finalPrompt = `${knowledgeGuidance}\n\n${prompt}`;
+
     const wantsStream =
       typeof request.headers.accept === "string" &&
       request.headers.accept.includes("text/event-stream");
@@ -60,7 +75,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         Connection: "keep-alive",
       });
       try {
-        for await (const delta of streamAgentText(agent, prompt)) {
+        for await (const delta of streamAgentText(agent, finalPrompt)) {
           raw.write(sseFrame({ delta }));
         }
         raw.write(sseFrame({ done: true }));
@@ -73,7 +88,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     }
 
     try {
-      const replyText = await agent.prompt(prompt);
+      const replyText = await agent.prompt(finalPrompt);
       return { reply: replyText };
     } catch (err) {
       return reply
