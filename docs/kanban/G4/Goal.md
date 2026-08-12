@@ -66,11 +66,5 @@ Corresponds to Milestone M4. Three thrusts:
 
 Recorded here so they are not lost; implement in a later milestone (M5+). None are G4-blocking.
 
-- **Wiki-edit → RAG re-embed** (2026-08-12, user request): the wiki page is currently read-only in the
-  UI. A user wants to fix a VLM mis-description inside a document (e.g. a wrong word) directly in the
-  wiki, and have the affected Neo4j chunk re-embedded so retrieval reflects the correction. Requires:
-  (1) front-end wiki editing + save (WikiView is read-only today, no save API); (2) a backend save API
-  for wiki pages; (3) detecting which chunk(s) the edited span belongs to and re-running embedding +
-  MERGE for just those chunks (or a whole-document re-ingest fallback). See `docs/kanban/G4/S3/T9.md`
-  for the related Uploads live-timer/ETA work.
+- *None currently open.* (The wiki-edit → RAG re-embed idea is now tracked as **G4.S3.T10**.)
 
