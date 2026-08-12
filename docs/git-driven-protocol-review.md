@@ -155,3 +155,20 @@
 ### D20. Progress Log retention (confirmed by user)
 - **Keep the full Progress Log** (history audit; useful for worker takeover / crash recovery).
 - No cleanup on completion — the full log stays.
+
+### D22. Plugin reads dispatch message (confirmed by user)
+- The plugin CAN read session messages (`GET /api/session/{sessionID}/message` or SDK
+  `session.messages` / `client.message.list`) → parse the ticket ref from the dispatch prompt
+  (session's first user message).
+
+### D23. Structured dispatch prompt (confirmed by user)
+- **Dispatch prompt must be structured** so the plugin can easily find the ticket ref:
+  ```
+  TICKET: G4.S3.T12
+  PATH: docs/kanban/G4/S3/T12.md
+
+  <rest of the dispatch instructions>
+  ```
+- Also standardize the ticket file path convention (`docs/kanban/Gx/Sx/Tx.md`) so the plugin can
+  locate the file reliably.
+- All future dispatches follow this format.
