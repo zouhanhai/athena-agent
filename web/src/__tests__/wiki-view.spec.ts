@@ -610,27 +610,37 @@ describe("WikiView editing (G4.S3.T10)", () => {
   });
 
   it("preserves the reader's scroll position when entering edit mode", async () => {
-    getWikiTreeMock.mockResolvedValue(sampleTree);
-    readWikiPageMock.mockResolvedValue("# Runbook\n\n# A very long section\n\n" + "# X\n\n".repeat(200));
-    const { wrapper } = await mountView({}, { authEmployee: adminEmployee });
-    await flushPromises();
-    await openReleaseNotes(wrapper);
+    // Make requestAnimationFrame run synchronously so the scroll restore applies.
+    const origRaf = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    };
+    try {
+      getWikiTreeMock.mockResolvedValue(sampleTree);
+      readWikiPageMock.mockResolvedValue("# Runbook\n\n# A very long section\n\n" + "# X\n\n".repeat(200));
+      const { wrapper } = await mountView({}, { authEmployee: adminEmployee });
+      await flushPromises();
+      await openReleaseNotes(wrapper);
 
-    const content = wrapper.find('[data-testid="wiki-content"]');
-    Object.defineProperty(content.element, "scrollHeight", { value: 2000, configurable: true });
-    Object.defineProperty(content.element, "clientHeight", { value: 500, configurable: true });
-    Object.defineProperty(content.element, "scrollTop", { value: 750, configurable: true }); // 750/(2000-500) = 0.5
+      const content = wrapper.find('[data-testid="wiki-content"]');
+      Object.defineProperty(content.element, "scrollHeight", { value: 2000, configurable: true });
+      Object.defineProperty(content.element, "clientHeight", { value: 500, configurable: true });
+      Object.defineProperty(content.element, "scrollTop", { value: 750, configurable: true }); // 750/(2000-500) = 0.5
 
-    await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
-    await flushPromises();
+      await wrapper.find('[data-testid="wiki-edit-button"]').trigger("click");
+      await flushPromises();
 
-    const editor = wrapper.find('[data-testid="wiki-editor"]');
-    expect(editor.exists()).toBe(true);
-    // ratio 0.5 applied to the editor's own scroll range
-    Object.defineProperty(editor.element, "scrollHeight", { value: 3000, configurable: true });
-    Object.defineProperty(editor.element, "clientHeight", { value: 500, configurable: true });
-    expect((editor.element as HTMLTextAreaElement).scrollTop).toBeCloseTo(0.5 * 2500, -1);
-    wrapper.unmount();
+      const editor = wrapper.find('[data-testid="wiki-editor"]');
+      expect(editor.exists()).toBe(true);
+      // ratio 0.5 applied to the editor's own scroll range
+      Object.defineProperty(editor.element, "scrollHeight", { value: 3000, configurable: true });
+      Object.defineProperty(editor.element, "clientHeight", { value: 500, configurable: true });
+      expect((editor.element as HTMLTextAreaElement).scrollTop).toBeCloseTo(0.5 * 2500, -1);
+      wrapper.unmount();
+    } finally {
+      window.requestAnimationFrame = origRaf;
+    }
   });
 });
 
