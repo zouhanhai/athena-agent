@@ -6,8 +6,8 @@ owner: consultant          # Consultant builds the Goal (role-model)
 status: active             # active → done
 created_at: <YYYY-MM-DD>
 acceptance_criteria:
-  - "G1.S1 <criteria>"
-  - "G1.S2 <criteria>"
+  - "<top-level goal criterion 1>"
+  - "<top-level goal criterion 2>"
 ---
 
 # G1: <goal title>

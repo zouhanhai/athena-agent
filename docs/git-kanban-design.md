@@ -164,8 +164,8 @@ owner: consultant          # Consultant builds the Goal (role-model; see D10)
 status: active             # active → done
 created_at: 2026-08-12
 acceptance_criteria:
-  - "G1.S1 <criteria>"
-  - "G1.S2 <criteria>"
+  - "<top-level goal criterion 1>"
+  - "<top-level goal criterion 2>"
 ---
 
 # G1: <goal title>
