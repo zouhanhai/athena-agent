@@ -1,5 +1,5 @@
 ---
-id: g1
+id: G1
 title: "G1: <goal title>"
 layer: G
 owner: consultant          # Consultant builds the Goal (role-model)

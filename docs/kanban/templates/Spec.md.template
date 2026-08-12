@@ -1,26 +1,28 @@
 ---
-id: s1
+id: G1.S1
 title: "G1.S1: <spec title>"
 layer: S
 parent: G1
 owner: pm                  # PM builds the Spec (role-model)
 status: backlog            # backlog → active → done
 acceptance_criteria:
-  - "<criteria 1>"
-  - "<criteria 2>"
+  - "<criterion 1>"
+  - "<criterion 2>"
 ---
 
 # G1.S1: <spec title>
 
 ## Background
-Why this spec exists...
+Why this spec exists, what problem it solves...
 
-## Full design
-See `docs/spec-<name>.md`. Key points:
-- ...
+## Design / Approach
+The design decisions, output contract, architecture notes, and any implementation specifics...
+(May reference `docs/spec-<name>.md` for the full design; keep the key points inline.)
 
 ## Dependencies
-- G1.S0 (...) — related but separate.
+- Other specs this depends on (may reference planned specs — the spec-level ordering is already
+  known from the Goal analysis at to-spec time), e.g. `G1.S2` consumes this spec's output contract.
 
 ## Deliverables
-- ...
+- <deliverable 1>
+- <deliverable 2>

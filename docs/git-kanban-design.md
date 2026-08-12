@@ -88,12 +88,82 @@ the ticket ref from the structured dispatch prompt. The plugin also regenerates 
 index on the claim (so the board reflects `in_progress` immediately). Other agents implement the same
 via their hook systems or fall back to AGENTS.md instructions (D5).
 
-## 5. Ticket Markdown Format
+## 5. Markdown Templates (Goal / Spec / Ticket)
 
 > **Ready-to-copy templates live in `docs/kanban/templates/`** — `Goal.md.template`,
 > `Spec.md.template`, `Ticket.md.template`. New repos copy these into their own `docs/kanban/` on setup.
 > (The old `TICKET-WORKFLOW.md` is superseded by these templates; the Worker Workflow section is
 > embedded in `Ticket.md.template`.)
+
+## 5a. Goal Markdown Template
+
+```markdown
+---
+id: G1
+title: "G1: <goal title>"
+layer: G
+owner: consultant          # Consultant builds the Goal (role-model; see D10)
+status: active             # active → done
+created_at: 2026-08-12
+acceptance_criteria:
+  - "<top-level goal criterion 1>"
+  - "<top-level goal criterion 2>"
+---
+
+# G1: <goal title>
+
+## Background / Context
+Why this goal, what problem it solves...
+
+## Goal
+1. <sub-goal 1>
+2. <sub-goal 2>
+3. <sub-goal 3>
+
+## Confirmed Decisions
+- <decision 1>
+
+## Completion Criteria
+See frontmatter acceptance_criteria. All Specs under G1 and their Tickets must be approved.
+```
+
+> Note: the Goal is created **before** specs are decomposed, so it never references any spec (no
+> `G1.S1` etc.) — spec numbering is assigned later by the PM at to-spec time.
+
+## 5b. Spec Markdown Template
+
+```markdown
+---
+id: G1.S1
+title: "G1.S1: <spec title>"
+layer: S
+parent: G1
+owner: pm                  # PM builds the Spec (role-model; see D10)
+status: backlog            # backlog → active → done
+acceptance_criteria:
+  - "<criterion 1>"
+  - "<criterion 2>"
+---
+
+# G1.S1: <spec title>
+
+## Background
+Why this spec exists, what problem it solves...
+
+## Design / Approach
+The design decisions, output contract, architecture notes, and any implementation specifics...
+(May reference `docs/spec-<name>.md` for the full design; keep the key points inline.)
+
+## Dependencies
+- Other specs this depends on (may reference planned specs — the spec-level ordering is already
+  known from the Goal analysis at to-spec time), e.g. `G1.S2` consumes this spec's output contract.
+
+## Deliverables
+- <deliverable 1>
+- <deliverable 2>
+```
+
+## 5c. Ticket Markdown Template
 
 ```markdown
 ---
@@ -127,8 +197,6 @@ branch: ""                # collab mode only
 5. **Commit convention**: feature-level English commits; `codegraph sync` after.
 6. **Verify + mark done**: tests green → set `status: done` → commit + push.
 
-Full: `docs/kanban/TICKET-WORKFLOW.md`
-
 ## Context
 ...
 
@@ -152,69 +220,6 @@ Implementation details...
 ticket ref from the structured dispatch prompt). The worker's Worker Workflow **starts after the
 claim** — no manual status edit or claim commit. Other agents implement the same via their hook
 systems or fall back to AGENTS.md instructions (D5).
-
-## 5a. Goal Markdown Template
-
-```markdown
----
-id: g1
-title: "G1: <goal title>"
-layer: G
-owner: consultant          # Consultant builds the Goal (role-model; see D10)
-status: active             # active → done
-created_at: 2026-08-12
-acceptance_criteria:
-  - "<top-level goal criterion 1>"
-  - "<top-level goal criterion 2>"
----
-
-# G1: <goal title>
-
-## Background / Context
-Why this goal, what problem it solves...
-
-## Goal
-1. <sub-goal 1>
-2. <sub-goal 2>
-3. <sub-goal 3>
-
-## Confirmed Decisions
-- <decision 1>
-
-## Completion Criteria
-See frontmatter acceptance_criteria. All Specs under G1 and their Tickets must be approved.
-```
-
-## 5b. Spec Markdown Template
-
-```markdown
----
-id: s1
-title: "G1.S1: <spec title>"
-layer: S
-parent: G1
-owner: pm                  # PM builds the Spec (role-model; see D10)
-status: backlog            # backlog → active → done
-acceptance_criteria:
-  - "OpenCode plugin appends a Progress Log row..."
-  - "KanbanTab shows the last progress row + stalled flag"
----
-
-# G1.S1: <spec title>
-
-## Background
-...
-
-## Full design
-See `docs/spec-...md`. Key points:
-- ...
-
-## Dependencies
-- G1.S0 (...) — related but separate.
-
-## Deliverables
-- ...
-```
 
 **`## Log` vs `## Progress Log`** (D1):
 - `## Log` = lifecycle audit (claim / complete / review / reject events), LLM-written.
