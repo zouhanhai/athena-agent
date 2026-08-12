@@ -611,10 +611,10 @@ describe("WikiView editing (G4.S3.T10)", () => {
 
   it("preserves the reader's scroll position when entering edit mode", async () => {
     // Capture the rAF callback so we can run it AFTER the editor is sized.
-    let rafCb: ((time: number) => void) | null = null;
+    const rafHolder: { cb: ((time: number) => void) | null } = { cb: null };
     const origRaf = window.requestAnimationFrame;
     window.requestAnimationFrame = (cb: FrameRequestCallback) => {
-      rafCb = cb as (t: number) => void;
+      rafHolder.cb = cb as (t: number) => void;
       return 0;
     };
     try {
@@ -637,7 +637,7 @@ describe("WikiView editing (G4.S3.T10)", () => {
       // Size the editor, then run the captured rAF (which restores the ratio).
       Object.defineProperty(editor.element, "scrollHeight", { value: 3000, configurable: true });
       Object.defineProperty(editor.element, "clientHeight", { value: 500, configurable: true });
-      rafCb?.(0);
+      if (rafHolder.cb) rafHolder.cb(0);
       expect((editor.element as HTMLTextAreaElement).scrollTop).toBeCloseTo(0.5 * 2500, -1);
       wrapper.unmount();
     } finally {

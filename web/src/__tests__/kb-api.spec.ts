@@ -43,7 +43,7 @@ describe("getGraph", () => {
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit | undefined];
     expect(url).toBe("/api/kb/graph");
-    expect(init).toBeUndefined();
+    expect(init).toMatchObject({ headers: expect.anything() });
     expect(graph).toEqual(body);
   });
 
@@ -149,14 +149,12 @@ describe("searchKnowledge", () => {
     const got = await searchKnowledge("incidents");
 
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/kb/search",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ query: "incidents" }),
-      }),
-    );
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/search");
+    expect(init.method).toBe("POST");
+    const h = new Headers(init.headers);
+    expect(h.get("Content-Type")).toBe("application/json");
+    expect(init.body).toBe(JSON.stringify({ query: "incidents" }));
     expect(got).toEqual(results);
   });
 
@@ -259,14 +257,12 @@ describe("retryTask", () => {
     const got = await retryTask("t-1");
 
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/kb/ingest/retry",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ taskId: "t-1" }),
-      }),
-    );
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kb/ingest/retry");
+    expect(init.method).toBe("POST");
+    const h = new Headers(init.headers);
+    expect(h.get("Content-Type")).toBe("application/json");
+    expect(init.body).toBe(JSON.stringify({ taskId: "t-1" }));
     expect(got).toEqual(task);
   });
 });
@@ -280,7 +276,10 @@ describe("semantic mappings API", () => {
     const got = await listSemanticMappings();
 
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
-    expect(fetchMock).toHaveBeenCalledWith("/api/kb/mappings", undefined);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/kb/mappings",
+      expect.objectContaining({ headers: expect.anything() }),
+    );
     expect(got).toEqual(mappings);
   });
 
