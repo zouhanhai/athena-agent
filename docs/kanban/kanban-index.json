@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T13:13:17.551Z",
+  "generated_at": "2026-08-12T13:35:44.932Z",
   "goals": [
     {
       "ref": "G1",
@@ -2196,6 +2196,24 @@
               ],
               "progress_last_row": "acceptance met: note ticks live 1s from createdAt (never frozen 0s); RAG note shows decreasing ~ Nm Ns left ETA from rolling avg ms/chunk; parsing/refinement show elapsed only; per-chunk onProgress + stage processed/total/etaMs + embed_store X/Y step; server 860/860 + web 384/384 + typecheck/vue-tsc clean; committed + pushed",
               "progress_updated_at": "2026-08-12T12:45:00Z"
+            },
+            {
+              "ref": "G4.S3.T11",
+              "id": "G4.S3.T11",
+              "title": "Admin console — sidebar admin nav + employee/permission/invite management",
+              "owner": "consultant",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "20260812T133534Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "An Admin entry appears in the left sidebar ONLY for employees with role=admin (hidden for members).",
+                "The Admin page has TWO areas: (1) an employee list where an admin can change a role and grant/revoke the `kb.edit` permission per row (a switch in the list — no separate section); (2) generate invitation links for new employees.",
+                "Permission edits are enforced server-side (RBAC): only an admin can reach these actions; the UI reflects the signed-in user's role.",
+                "Server + web tests green, vue-tsc + typecheck clean."
+              ],
+              "progress_last_row": "claimed ticket (status/assignee/session_id + added missing layer/parent/owner/milestone/blocked_by frontmatter, kanban index regenerated, pushed)",
+              "progress_updated_at": "2026-08-12T13:35:34Z"
             }
           ]
         },
@@ -2232,10 +2250,6 @@
   "errors": [
     {
       "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
-      "error": "layer must be one of: G, S, T"
-    },
-    {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T11.md",
       "error": "layer must be one of: G, S, T"
     }
   ]
