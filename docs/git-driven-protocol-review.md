@@ -172,3 +172,14 @@
 - Also standardize the ticket file path convention (`docs/kanban/Gx/Sx/Tx.md`) so the plugin can
   locate the file reliably.
 - All future dispatches follow this format.
+
+### D24. done → approved flow (confirmed by user)
+- **Should formally mark `approved`**, but Hermes + user often forget — make it a protocol step.
+- Testing is hard to standardize (each ticket differs); approve is a contextual "user + Hermes agree
+  tests pass" judgment in manual mode.
+- **Dual-track**:
+  - **Manual (interactive) mode**: at the next dispatch, check that prior tickets are `approved`
+    (gate before dispatching dependent work).
+  - **YOLO mode**: auto-approve when tests green + dependencies pass (risk accepted); the user
+    re-tests the auto-completed work after returning.
+- So `approved` is formally tracked; YOLO auto-marks it, manual mode gates dispatch on it.
