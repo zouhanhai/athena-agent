@@ -91,33 +91,66 @@ systems or fall back to AGENTS.md instructions (D5).
 
 ```markdown
 ---
-id: t_abc123
+id: G1.S1.T1
 title: "G1.S1.T1: Implement login API"
 layer: T
 parent: G1.S1
-owner: pi-a
-status: in_progress        # backlog → in_progress → done → in_review* → approved / rejected
-assignee: pi-a
-started_at: 2026-08-04
+owner: consultant
+status: backlog           # backlog → in_progress → done → in_review* → approved / rejected
+assignee: ""              # set by the plugin on auto-claim
+session_id: ""            # set by the plugin on auto-claim
+priority: P1
+milestone: M4
+depends_on: []
 blocked_by: []
 acceptance_criteria:
   - "POST /api/login returns 200"
-pr: 0                       # collab mode only (PR number)
-branch: ""                  # collab mode only
+pr: 0                     # collab mode only (PR number)
+branch: ""                # collab mode only
 ---
+
+# G1.S1.T1 — Implement login API
+
+## Worker Workflow (REQUIRED — follow in order)
+
+> The git claim is AUTOMATED (S4 plugin / hook). The worker does NOT manually set
+> status/assignee/session_id or commit the claim. Start at step 2 below.
+
+2. **Find context**: read this ticket's parent Spec (`docs/kanban/G1/S1/Spec.md`) + Goal
+   (`docs/kanban/G1/Goal.md`).
+3. **Use codegraph MCP**: `codegraph explore "<area>"` before editing.
+4. **Use `implement` + `tdd` skills**: TDD (RED-GREEN-REFACTOR), write failing test first.
+5. **Report progress**: append a row to the Progress Log table at the bottom on each real change.
+   (REAL timestamps — do NOT fabricate.)
+6. **Commit convention**: feature-level English commits; `codegraph sync` after.
+7. **Verify + mark done**: tests green → `status: done` + Progress Log update +
+   **regenerate kanban index** (`cd server && npx tsx scripts/write-index.ts`) → commit + push.
+
+Full: `docs/kanban/TICKET-WORKFLOW.md`
+
+## Context
+...
 
 ## Task
 Implementation details...
 
-## Log
-[2026-08-04] pi-a claimed and started
-[2026-08-04] pi-a completed implementation
+## Acceptance
+...
+
+## Notes
+...
 
 ## Progress Log
 | UTC timestamp | status | progress |
 |---|---|---|
 | 2026-08-09 12:00:00Z | in_progress | Reading code, understood ticket |
 ```
+
+**Auto-claim (S4 plugin / hook)** (D1/D21/D23): the plugin sets `status: in_progress` +
+`assignee` + `session_id` and does the git commit/push on the first `tool.execute` call (parsing the
+ticket ref from the structured dispatch prompt). The worker's Worker Workflow **starts after the
+claim** — no manual status edit or claim commit. Other agents implement the same via their hook
+systems or fall back to AGENTS.md instructions (D5).
 
 **`## Log` vs `## Progress Log`** (D1):
 - `## Log` = lifecycle audit (claim / complete / review / reject events), LLM-written.
