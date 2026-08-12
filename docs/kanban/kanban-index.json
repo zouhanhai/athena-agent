@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T08:46:05.500Z",
+  "generated_at": "2026-08-12T09:03:29.222Z",
   "goals": [
     {
       "ref": "G1",
@@ -2136,15 +2136,15 @@
               "id": "s3.6",
               "title": "G4.S3.T6: Terms & QA tab — semantic mappings + Q&A pairs (live query + manual entry)",
               "owner": "consultant",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "6d2f9c1e-t6-terms-qa",
               "blocked_by": [],
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "progress_last_row": "DONE. Server 809/809 tests + tsc clean; web 371/371 tests + vue-tsc clean. codegraph sync done.",
+              "progress_updated_at": "2026-08-12T09:03:16Z"
             },
             {
               "ref": "G4.S3.T7",
