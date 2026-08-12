@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T16:53:20.131Z",
+  "generated_at": "2026-08-12T17:49:41.840Z",
   "goals": [
     {
       "ref": "G1",
@@ -2233,6 +2233,24 @@
               ],
               "progress_last_row": "committed + pushed (origin + caleo); status=done, index rebuild pending",
               "progress_updated_at": "2026-08-12T16:53Z"
+            },
+            {
+              "ref": "G4.S3.T13",
+              "id": "G4.S3.T13",
+              "title": "Fix agentic clarify — only clarify when the question has no extractable subject; surface real follow-up to the user",
+              "owner": "consultant",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "20260812T174937Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "`search_knowledge` no longer returns a clarify for definitional/entity queries like 'what is caleo' or 'what is RAG' — those search the KB directly and answer (using a stored Q&A pair when present).",
+                "The agentic plan (AGENTIC_PLAN_SYSTEM_PROMPT) only chooses `clarify` when the user question has NO extractable subject (e.g. 'help me with something'), not when the subject exists but is ambiguous.",
+                "When a clarify IS raised, it is surfaced to the user as a REAL follow-up (front-end clarification interaction: options + the user's answer is fed back to re-run the query), not swallowed into a plain answer text.",
+                "Server tests (agentic-rag plan/answer + tools) and web tests (chat clarification UI) green + typecheck/vue-tsc clean."
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
             }
           ]
         },
