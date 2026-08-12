@@ -98,6 +98,9 @@ else
     export DATABASE_URL="postgres://hh@/athena?host=/var/run/postgresql" \
     export ADMIN_EMAIL="zouha108@caleo.com" \
     export APP_BASE_URL="${APP_BASE_URL:-http://192.168.178.30:5173}" \
+    export NEO4J_URI="bolt://localhost:7687" \
+    export NEO4J_USER="neo4j" \
+    export NEO4J_PASSWORD="athena-spike-2026" \
     # Local secrets (RESEND_API_KEY etc.) load from a git-ignored .env.local
     [ -f "$HOME/athena-agent/server/.env.local" ] && set -a && . "$HOME/athena-agent/server/.env.local" && set +a \
     setsid npm run dev \
