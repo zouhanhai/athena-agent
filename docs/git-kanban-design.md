@@ -24,17 +24,24 @@
 
 ```
 docs/kanban/
-├── kanban-index.json             ← generated fast-read board index (see §10); MUST be committed
+├── kanban-index.json             ← generated fast-read board index (see §12); MUST be committed
 ├── G1/                           ← Goal 1 folder (created on launch)
-│   ├── Goal.md                   ← G1 grill output (owner: pi-a) — to-spec input
+│   ├── Goal.md                   ← G1 grill output (owner: consultant) — to-spec input
 │   ├── S1/                       ← Spec 1
 │   │   ├── Spec.md               ← G1.S1 spec
 │   │   ├── T1.md                 ← Ticket card
 │   │   ├── T2.md
 │   │   └── ...
 │   └── S2/
-├── G2/                           ← Goal 2 (launched by another Pi)
+├── G2/                           ← Goal 2 (launched by another agent)
 │   └── ...
+└── templates/                    ← Goal/Spec/Ticket .md.template (copy on new-repo setup)
+
+docs/                              ← design documents (see §3)
+├── G1-design.md                  ← whole-Goal design (mapped to Goal)
+├── G1.S1-design.md               ← Spec design (mapped to a spec)
+├── <topic>-design.md             ← exploratory design (no Goal/Spec yet)
+└── ...
 ```
 
 **Three layers only — the Milestone (M1-M5) layer is removed** (D25): it duplicated the Goal layer.
@@ -51,7 +58,25 @@ there is no separate milestone completion layer.
 
 Uniqueness via path (`G1/S1/T1`), display via frontmatter `title` ("G1.S1.T1: ...").
 
-## 3. G Number Assignment (Globally Incrementing, Git Atomic)
+> Design docs live under `docs/` (see §3), referenced by name from Goal/Spec templates.
+
+## 3. Design Documents
+
+Design documents (`.md` in `docs/`) hold the detailed design behind a Goal or Spec before/while it's
+implemented. Naming follows whether the design is already mapped to a board item:
+
+- **Mapped to a specific spec** → `docs/Gx.Sx-design.md` (e.g. `docs/G4.S1-design.md`).
+- **Mapped to a Goal** (spec-level not yet assigned) → `docs/Gx-design.md` (e.g. `docs/G4-design.md`).
+- **Still exploratory** (predates any Goal/Spec assignment) → semantic name
+  `docs/<topic>-design.md` (e.g. `docs/knowledge-rag-design.md`).
+
+There is no milestone prefix (M4 etc.) — the Milestone layer was removed (D25), so design docs are
+named by Goal/Spec or topic, not by milestone.
+
+The board templates (§7) reference these: a Spec's `## Design / Approach` points to its
+`Gx.Sx-design.md`; a Goal may point to a `Gx-design.md` for the whole-goal design.
+
+## 4. G Number Assignment (Globally Incrementing, Git Atomic)
 
 Any agent launching a new Goal:
 1. git pull (sync latest)
@@ -63,7 +88,7 @@ Any agent launching a new Goal:
 
 Uniqueness guaranteed by git push atomicity.
 
-## 4. Ticket Claim Lock (Worker Claim)
+## 5. Ticket Claim Lock (Worker Claim)
 
 ```
 Any Worker claiming a ticket:
@@ -88,14 +113,14 @@ the ticket ref from the structured dispatch prompt. The plugin also regenerates 
 index on the claim (so the board reflects `in_progress` immediately). Other agents implement the same
 via their hook systems or fall back to AGENTS.md instructions (D5).
 
-## 5. Markdown Templates (Goal / Spec / Ticket)
+## 7. Markdown Templates (Goal / Spec / Ticket)
 
 > **Ready-to-copy templates live in `docs/kanban/templates/`** — `Goal.md.template`,
 > `Spec.md.template`, `Ticket.md.template`. New repos copy these into their own `docs/kanban/` on setup.
 > (The old `TICKET-WORKFLOW.md` is superseded by these templates; the Worker Workflow section is
 > embedded in `Ticket.md.template`.)
 
-## 5a. Goal Markdown Template
+## 7a. Goal Markdown Template
 
 ```markdown
 ---
@@ -130,7 +155,7 @@ See frontmatter acceptance_criteria. All Specs under G1 and their Tickets must b
 > Note: the Goal is created **before** specs are decomposed, so it never references any spec (no
 > `G1.S1` etc.) — spec numbering is assigned later by the PM at to-spec time.
 
-## 5b. Spec Markdown Template
+## 7b. Spec Markdown Template
 
 ```markdown
 ---
@@ -165,7 +190,7 @@ The design decisions, output contract, architecture notes, and any implementatio
 - <deliverable 2>
 ```
 
-## 5c. Ticket Markdown Template
+## 7c. Ticket Markdown Template
 
 ```markdown
 ---
@@ -230,7 +255,7 @@ systems or fall back to AGENTS.md instructions (D5).
 - Claim/complete also go into the Progress Log (plugin writes them so the LLM can't forget).
 - Progress Log is kept in full (history audit / crash recovery) — never cleaned on completion (D20).
 
-## 5bis. Layer Definition of Done (three layers, no milestone)
+## 7bis. Layer Definition of Done (three layers, no milestone)
 
 ```
 Goal → acceptance criteria (top-level completion)
@@ -240,7 +265,7 @@ Goal → acceptance criteria (top-level completion)
 
 Ticket approved → Spec complete → Goal complete. Bottom-up judgment.
 
-## 6. State Machine (branches by workflow mode, D9)
+## 8. State Machine (branches by workflow mode, D9)
 
 ```
 single mode (solo / small team):
@@ -264,7 +289,7 @@ backlog ──claim(push)──▶ in_progress ──done──▶ in_review (PR
 - **single mode**: done → reviewer reviews directly → approved/rejected (no `in_review` mid-state).
 - **collab mode**: keep `in_review` (PR pending).
 
-## 7. PR/Merge Integration (collab mode only)
+## 9. PR/Merge Integration (collab mode only)
 
 ```
 T1 done (branch feat/t1-login-api):
@@ -274,7 +299,7 @@ T1 done (branch feat/t1-login-api):
 
 **single mode**: no PR — direct master, reviewer reviews commits/diff (D8).
 
-## 8. Workflow Modes (single vs collab, D8)
+## 10. Workflow Modes (single vs collab, D8)
 
 The protocol supports **two modes, selected per project** (a project config / flag):
 
@@ -288,7 +313,7 @@ Mode-dependent behavior:
 - Review granularity (D16): small team reviews each ticket (user + Hermes, tests green); large team
   reviews at Goal/Spec granularity (another user, batch).
 
-## 9. Progress Log + Real-Time Monitoring (S4)
+## 11. Progress Log + Real-Time Monitoring (S4)
 
 **Goal**: make worker progress readable directly from the ticket md file, so Kanban/humans can see at
 a glance who's progressing / stuck / done — without polling the opencode session API routinely.
@@ -305,7 +330,7 @@ a glance who's progressing / stuck / done — without polling the opencode sessi
 **Progress row content (D19)**: mixed — plugin records tool actions ("edited X / ran Y") +
 worker occasionally writes a semantic milestone ("implemented the shared repo selector").
 
-## 10. Kanban Index (D2)
+## 12. Kanban Index (D2)
 
 - `docs/kanban/kanban-index.json` (generated by `server/scripts/write-index.ts`) is the fast-read
   view served by `GET /api/kanban`.
@@ -318,7 +343,7 @@ worker occasionally writes a semantic milestone ("implemented the shared repo se
   commit after the worker's done commit — D29); planner on G/S/T creation.
 - Frontend Refresh → `rescan=1` rebuilds at runtime; the committed index keeps the remote repo fresh.
 
-## 11. Stalled Workers (D3)
+## 13. Stalled Workers (D3)
 
 - **stalled is an ED observation signal** (board shows it from the Progress Log last-row timestamp
   going stale) — it does NOT change the ticket frontmatter status.
@@ -330,7 +355,7 @@ worker occasionally writes a semantic milestone ("implemented the shared repo se
     used to dispatch workers) probes the session (stuck / waiting / long test) + wakes.
 - The monitor is not deleted; it's only needed when Progress Log stalls.
 
-## 12. Dispatch (D12)
+## 14. Dispatch (D12)
 
 Two modes:
 - **Interactive (default)**: one ticket at a time. Each ticket ends → test + feedback → possibly
@@ -349,14 +374,14 @@ PATH: docs/kanban/G4/S3/T12.md
 ```
 Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 
-## 13. Ticket Granularity + Parallel Workers
+## 15. Ticket Granularity + Parallel Workers
 
 - **Ticket granularity (D14)**: one ticket = one testable feature change (feature-level commit).
   Spec discussion splits by feature size; two tightly-coupled tickets get merged into one.
 - **Parallel workers (D13)**: unlimited (multiple in YOLO mode), rely on git claim-lock (prevents
   same-ticket concurrency) + file isolation (different files don't conflict).
 
-## 14. Verification + Review (D7 / D16 / D17)
+## 16. Verification + Review (D7 / D16 / D17)
 
 - **Testing (D17)**: worker runs tests (on 6900XT) + reviewer (Hermes/user) independently verifies
   tests green before approved. The 6900XT environment is authoritative.
@@ -368,7 +393,7 @@ Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 - **Reviewer granularity (D16)**: small team reviews each ticket (user + Hermes); large team reviews
   at Goal/Spec granularity (another user), not every ticket.
 
-## 15. Roles (souls) — responsibility model, not strict role-play (D10/D26)
+## 17. Roles (souls) — responsibility model, not strict role-play (D10/D26)
 
 Six soul roles (Consultant / PM / Eng Director / Worker / Reviewer / Writer), each with duty /
 stages / output + state-machine bindings (`server/src/kanban/roles.ts`).
@@ -381,7 +406,7 @@ stages / output + state-machine bindings (`server/src/kanban/roles.ts`).
 - **Writer (D26)**: only produces the project report / summary at project completion. Mid-project md
   files do NOT use the Writer role.
 
-## 16. Reject Flow (D11)
+## 18. Reject Flow (D11)
 
 Flexible, **decided by the user based on fix size** — not a fixed single flow:
 - Small fix → user (or Hermes) fixes directly, or returns to the same worker.
@@ -390,7 +415,7 @@ Flexible, **decided by the user based on fix size** — not a fixed single flow:
 Not mandated as "always EngD re-decompose"; the user chooses per size. (The EngD re-decompose path
 with parent_id / qa_feedback / reopen_reason remains available for larger issues.)
 
-## 17. Other Agent Onboarding (D4 / D5 / D28)
+## 19. Other Agent Onboarding (D4 / D5 / D28)
 
 **The protocol is the contract; each agent implements the integration points with its own tooling.**
 
@@ -405,7 +430,7 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
   git-driven flow on onboarding, then internally analyze how to apply it to their own local setup +
   their local code agent. The protocol is complementary to federation (a platform feature).
 
-## 18. Issues Sync (S5) — collab mode only (D27)
+## 20. Issues Sync (S5) — collab mode only (D27)
 
 - GitHub Issues are the **shared discussion surface** — only meaningful in collab mode. solo work
   needs no Issues.
@@ -414,7 +439,7 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
 - GitHub → md feedback loop: plan agent reads issue discussion → creates/edits tickets or a new spec
   back into md. Human keeps authority; md authoritative on conflict.
 
-## 19. Exception Handling
+## 21. Exception Handling
 
 - Worker crash leaves ticket stuck in_progress → check git log / Progress Log timestamps; if stalled
   → another worker takes over (revert to backlog or take over).
