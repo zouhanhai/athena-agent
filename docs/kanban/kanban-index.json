@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T10:04:32.056Z",
+  "generated_at": "2026-08-13T10:23:04.109Z",
   "goals": [
     {
       "ref": "G1",
@@ -1728,7 +1728,8 @@
               "started_at": "2026-08-09",
               "completed_at": "2026-08-09",
               "progress_last_row": "refine_document tool + athena provider shipped; committed feature + marked done",
-              "progress_updated_at": "2026-08-09 19:40:00Z"
+              "progress_updated_at": "2026-08-09 19:40:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S1.T2",
@@ -1749,7 +1750,8 @@
               "started_at": "2026-08-09",
               "completed_at": "2026-08-09",
               "progress_last_row": "T2 done: contract schema + SKILL.md + one-pass prompt shipped; 623/623 server tests green; regenerated kanban index",
-              "progress_updated_at": "2026-08-09 21:05:00Z"
+              "progress_updated_at": "2026-08-09 21:05:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S1.T3",
@@ -1768,7 +1770,8 @@
               ],
               "started_at": "2026-08-09T20:52:00Z",
               "progress_last_row": "T3 done: big-output storage (pi-docparser: full md+chunks to <storageDir>/<stem>/, tool returns small metadata + md_ref/preview), two-stage refinement for >1MB (batched local header re-level → split by refined h1 → per-section pass → global merge), sub-1MB single-read; regenerated kanban index",
-              "progress_updated_at": "2026-08-09 21:03:00Z"
+              "progress_updated_at": "2026-08-09 21:03:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S1.T4",
@@ -1789,7 +1792,8 @@
               "started_at": "2026-08-10T07:10:00Z",
               "completed_at": "2026-08-10T08:02:00Z",
               "progress_last_row": "T4 done: refinement stage in tasks.ts (parsing → refinement → ingesting_lightrag ‖ ingesting_llmwiki); llm_wiki classify folded into refinement (Athena decides type/topic once); downstream consumes Athena output (llm_wiki pure I/O write_page+rebuild_index; RAG gets injected entities/keywords/quality via task.refinement); DOCLING_OPENROUTER_KEY separate (docling VLM only, createAthenaRefiner uses athena provider); Uploads progress surface; server 648/648 + web 346/346 green; regenerated kanban index",
-              "progress_updated_at": "2026-08-10 08:02:00Z"
+              "progress_updated_at": "2026-08-10 08:02:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S1.T5",
@@ -1808,7 +1812,8 @@
               ],
               "started_at": "2026-08-10",
               "progress_last_row": "GREEN: task.reviewRequired flag + server REVIEW REQUIRED log; Uploads review badge; server 651 + web 348 green, typecheck clean",
-              "progress_updated_at": "2026-08-10T08:30:00Z"
+              "progress_updated_at": "2026-08-10T08:30:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S1.T6",
@@ -1825,7 +1830,8 @@
                 "Repro covered by a test with an image-heavy markdown fixture"
               ],
               "progress_last_row": "Verified: server 662 + web 348 tests green, typecheck clean; committed implementation (feature commit f48b799)",
-              "progress_updated_at": "2026-08-10T10:04:00Z"
+              "progress_updated_at": "2026-08-10T10:04:00Z",
+              "progress_status": "done"
             }
           ]
         },
@@ -1849,8 +1855,9 @@
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "Verified: server 664 tests green, typecheck clean; feature commit c188e5d; codegraph synced; T1 done — RefinementEntity emits bilingual (DE+EN) aliases",
-              "progress_updated_at": "2026-08-10T16:04:03Z"
+              "progress_last_row": "TDD RED→GREEN: contract test asserts aliases (schema + normalize mapping + prompt DE/EN + SKILL.md); refine-document.ts + SKILL.md emit aliases; 50 refine tests pass, typecheck clean",
+              "progress_updated_at": "2026-08-10T16:05:00Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S2.T2",
@@ -1865,7 +1872,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Verified: server 664 tests green + typecheck clean (no source changes — spike is Docker+ADR); kanban index regenerated; T2 done — Neo4j 2026 Community spike validated + ADR-0008 (self-build confirmed)",
-              "progress_updated_at": "2026-08-10T16:38:39Z"
+              "progress_updated_at": "2026-08-10T16:38:39Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T3",
@@ -1880,7 +1888,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Kanban index regenerated; T3 done — Neo4j store schema module (Chunk/Entity/Relation/Document + aliases, folded name/alias index) live-verified on spike container",
-              "progress_updated_at": "2026-08-10T17:26:00Z"
+              "progress_updated_at": "2026-08-10T17:26:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T4",
@@ -1895,7 +1904,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Review: added Document.keywords (spec: keyword search uses Athena injected keywords); final verification server 689/689 + typecheck, web 348/348 + typecheck, codegraph sync; status done",
-              "progress_updated_at": "2026-08-10T22:00:00Z"
+              "progress_updated_at": "2026-08-10T22:00:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T5",
@@ -1910,7 +1920,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "all green; codegraph sync; ticket marked done + kanban index regenerated",
-              "progress_updated_at": "2026-08-10T20:30Z"
+              "progress_updated_at": "2026-08-10T20:30Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T6",
@@ -1925,7 +1936,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "server 712/712 green (+5 new) + tsc clean; typecheck clean; ticket marked done",
-              "progress_updated_at": "2026-08-11T06:35Z"
+              "progress_updated_at": "2026-08-11T06:35Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T7",
@@ -1940,7 +1952,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "server 712/712 green + tsc clean; web 349/349 green + vue-tsc clean; web type + kb-api.spec mock updated; ticket marked done",
-              "progress_updated_at": "2026-08-11T06:39Z"
+              "progress_updated_at": "2026-08-11T06:39Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T8",
@@ -1956,7 +1969,8 @@
                 "Spurious fallback (output does not match contract) is rare in tests + a real re-upload"
               ],
               "progress_last_row": "T8 done: default retries 1→3, tests green, kanban index refreshed, pushed",
-              "progress_updated_at": "2026-08-10T17:12:00Z"
+              "progress_updated_at": "2026-08-10T17:12:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T9",
@@ -1972,7 +1986,8 @@
                 "Retrieval API surfaces neo4j source results alongside llmwiki"
               ],
               "progress_last_row": "committed (1c0ccd1) + codegraph sync; server 707/707 green + typecheck clean; ticket marked done",
-              "progress_updated_at": "2026-08-11T00:15Z"
+              "progress_updated_at": "2026-08-11T00:15Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T10",
@@ -1989,7 +2004,8 @@
                 "Server tests green + typecheck clean"
               ],
               "progress_last_row": "No LightRAG references remain in server code/tests/deps or web; pipeline runs on Neo4j + llm_wiki",
-              "progress_updated_at": "2026-08-11T16:30:00Z"
+              "progress_updated_at": "2026-08-11T16:30:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T11",
@@ -2007,7 +2023,8 @@
                 "Server tests green + typecheck clean"
               ],
               "progress_last_row": "All green: 668 server tests, 347 web tests, server+web typecheck clean → marked T11 done, index regenerated",
-              "progress_updated_at": "2026-08-11T18:30:00Z"
+              "progress_updated_at": "2026-08-11T18:30:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T13",
@@ -2024,7 +2041,8 @@
                 "Server tests green + typecheck clean"
               ],
               "progress_last_row": "Full server suite green (681 pass) + typecheck clean; codegraph sync. Marking done + regen kanban index + commit.",
-              "progress_updated_at": "2026-08-11 17:47:00 UTC"
+              "progress_updated_at": "2026-08-11 17:47:00 UTC",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S2.T14",
@@ -2044,7 +2062,8 @@
                 "Server tests green + typecheck clean"
               ],
               "progress_last_row": "Acceptance met: graph chunks fuse in RRF, cross-encoder reorders fused top-k, tests green + typecheck clean. Marked done + regen kanban index + commit/push.",
-              "progress_updated_at": "2026-08-11 19:05:00 UTC"
+              "progress_updated_at": "2026-08-11 19:05:00 UTC",
+              "progress_status": "done"
             }
           ]
         },
@@ -2069,7 +2088,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Implemented + tests green: withFrontmatter emits read_count/confidence/last_reviewed/topic_history; new `WikiFrontmatterSyncer` canonical update (wiki md on disk + write-through to Neo4j Document via IS_DOCUMENT); read_count increments on search/readWikiPage; Document node COALESCE lifecycle defaults at ingest. Typecheck clean, 711/711 server tests pass",
-              "progress_updated_at": "2026-08-11T20:25:23Z"
+              "progress_updated_at": "2026-08-11T20:25:23Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S3.T2",
@@ -2084,7 +2104,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Implemented + tests green: `KbReviewService` scans wiki frontmatter (read_count/last_reviewed/confidence/topic_history/updated) via `decideReview` — re-topic (topic + topic_history append + last_reviewed bump), re-classify, deprecate/fade (confidence decay; very stale + rarely read flagged for archive), reinforce (fresh source raises confidence); all changes write through the canonical `WikiFrontmatterSyncer` (wiki md + Neo4j Document mirror); `POST /api/kb/review` route (dryRun/retopics/reclassify/reinforce) + `scheduleKbReview` interval (KB_REVIEW_INTERVAL_MS). Typecheck clean, 730/730 server tests pass",
-              "progress_updated_at": "2026-08-11T21:45:35Z"
+              "progress_updated_at": "2026-08-11T21:45:35Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T3",
@@ -2099,7 +2120,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Acceptance met: re-curation to deeper sub-topics works (topic_history audit trail; file move + index rebuild + rescan; zero Neo4j re-chunk/re-embed — test asserts no Document/chunk/embed call). Marking done.",
-              "progress_updated_at": "2026-08-11T22:08:04Z"
+              "progress_updated_at": "2026-08-11T22:08:04Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T4",
@@ -2114,7 +2136,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Committed + pushed (705e3ff), codegraph synced. Server 745 pass (3 pre-existing review.test date/float failures on clean checkout), web 347/347, both typechecks clean. Acceptance met: semantic search scopes to a topic subtree.",
-              "progress_updated_at": "2026-08-12T09:22:00Z"
+              "progress_updated_at": "2026-08-12T09:22:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T5",
@@ -2129,7 +2152,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Web done: thumbs up/down on Chat assistant answers (GlobalChatPanel) → `rateMessage` store action → `sendFeedback` API (question/answer/sources/feedback) → POST /api/kb/feedback; active-state highlighting; `listQaPairs` for the Terms & QA tab. Server 780/780 + web 358/358 tests green, server + web typecheck clean. Acceptance met — chat shows thumbs up/down, Q&A pairs stored (deduped by vector similarity), confidence reacts per feedback direction via the canonical syncer. Marking done.",
-              "progress_updated_at": "2026-08-12T08:07:10Z"
+              "progress_updated_at": "2026-08-12T08:07:10Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T6",
@@ -2144,7 +2168,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Fuzzy term variant matching (G4.S3.T6 point 7): `expandTerms` now normalizes (strip spaces/hyphens, case-fold) so `CDay` matches `CDay`/`C Day`/`C-Day`; `fuzzySpans` maps each normalized-match offset back to the ORIGINAL query span (replacing only the exact span, punctuation survives) with word boundaries preserved. New unit tests in semantic-mappings.test.ts (variant matching, spaced/hyphenated stored terms, offset mapping to original, boundary guard, one-to-many OR + variants) + retrieval.test.ts search-path variant test. Server 824/824 tests + tsc clean; web 372/372 + vue-tsc clean. codegraph sync done.",
-              "progress_updated_at": "2026-08-12T10:10:54Z"
+              "progress_updated_at": "2026-08-12T10:10:54Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T7",
@@ -2159,7 +2184,8 @@
                 "See 'Acceptance' section"
               ],
               "progress_last_row": "Committed + pushed (5c9a874), codegraph synced. Acceptance met: query transform (clarify/decompose→parallel→fuse), compression, retriever picker (vector/bm25/graph/hybrid), topic convergence (T4 topic-scoped search, omit for cross-domain), multi-hop graph reasoning, not-found → explicit \"not found in KB\" + web-search fallback + KB-update suggestion. search_knowledge tool = retrieval-side of KB-as-MCP contract (G4.S6). Server 857/857 tests, typecheck 0.",
-              "progress_updated_at": "2026-08-12T12:05:00Z"
+              "progress_updated_at": "2026-08-12T12:05:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T8",
@@ -2177,7 +2203,8 @@
                 "Server + web tests green, typecheck clean"
               ],
               "progress_last_row": "all acceptance met (embedder onBatch, per-batch ingest, task/API progress, Uploads X/Y+ETA); server+web tests + typecheck green; committed + pushed",
-              "progress_updated_at": "2026-08-12T11:16:00Z"
+              "progress_updated_at": "2026-08-12T11:16:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T9",
@@ -2195,7 +2222,8 @@
                 "Server + web tests green, vue-tsc + typecheck clean."
               ],
               "progress_last_row": "acceptance met: note ticks live 1s from createdAt (never frozen 0s); RAG note shows decreasing ~ Nm Ns left ETA from rolling avg ms/chunk; parsing/refinement show elapsed only; per-chunk onProgress + stage processed/total/etaMs + embed_store X/Y step; server 860/860 + web 384/384 + typecheck/vue-tsc clean; committed + pushed",
-              "progress_updated_at": "2026-08-12T12:45:00Z"
+              "progress_updated_at": "2026-08-12T12:45:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T11",
@@ -2213,7 +2241,8 @@
                 "Server + web tests green, vue-tsc + typecheck clean."
               ],
               "progress_last_row": "acceptance met: Admin sidebar entry only for role=admin (reactive navItems); Admin page = employee list (role select + kb.edit switch per row via PUT /api/employees/:email, expandable 2nd level shows owned agents grouped by owner) + invite generation (POST /api/invitations returns inviteUrl, copy button, 7-day TTL note); server RBAC enforces admin-only (existing employees.update/list/invite permissions), UI hides admin controls for members, /admin route guarded (non-admin → /knowledge) + in-page check; server 907/907 + web 410/410 (14 new) + server tsc + web vue-tsc clean; codegraph synced; committed + pushed",
-              "progress_updated_at": "2026-08-12T14:10:00Z"
+              "progress_updated_at": "2026-08-12T14:10:00Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T12",
@@ -2232,7 +2261,8 @@
                 "Server tests pass (incl. createAgent registers search_knowledge + a stored QA pair is reused) + typecheck clean."
               ],
               "progress_last_row": "committed + pushed (origin + caleo); status=done, index rebuild pending",
-              "progress_updated_at": "2026-08-12T16:53Z"
+              "progress_updated_at": "2026-08-12T16:53Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S3.T13",
@@ -2250,7 +2280,8 @@
                 "Server tests (agentic-rag plan/answer + tools) and web tests (chat clarification UI) green + typecheck/vue-tsc clean."
               ],
               "progress_last_row": "Verified: server 928/928, web 420/420, typecheck/vue-tsc clean. Acceptance met: \"what is caleo\"/\"what is RAG\" answer from KB (no clarify dead-end, QA pair reused); clarify only for subject-less queries; legitimate clarify relayed via SSE to chat UI, user choice re-runs query with chosen context.",
-              "progress_updated_at": "2026-08-12T18:22:00Z"
+              "progress_updated_at": "2026-08-12T18:22:00Z",
+              "progress_status": "done"
             }
           ]
         },
@@ -2280,7 +2311,8 @@
                 "Plugin unit tests cover: claim (happy path + lost race), progress append (rate limit, real timestamp), ticket-ref parsing"
               ],
               "progress_last_row": "all acceptance criteria met: auto-claim (happy + lost race → ClaimConflictError), claim = ONE commit (ticket + index), Progress Log rows with real wall-clock UTC timestamps + rate-limited + real-change-only; plugin resident in .opencode/plugins/; commits pushed",
-              "progress_updated_at": "2026-08-13T08:42:21Z"
+              "progress_updated_at": "2026-08-13T08:42:21Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S4.T2",
@@ -2303,14 +2335,15 @@
               "started_at": "2026-08-13",
               "completed_at": "2026-08-13",
               "progress_last_row": "acceptance met: parser exposes last Progress Log row (timestamp+status+progress); KanbanTab shows last row + updated Xs ago + stalled flag (in_progress + old ts, observation-only, frontmatter untouched); committed + pushed",
-              "progress_updated_at": "2026-08-13T09:48:55.000Z"
+              "progress_updated_at": "2026-08-13T09:48:55.000Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S4.T3",
               "id": "G4.S4.T3",
               "title": "Deploy plugin to 6900XT opencode serve + end-to-end verification (auto-claim + Progress Log + stalled)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_0056c7976ffeXP3Oxm8sAxqpAl",
               "blocked_by": [
@@ -2327,8 +2360,9 @@
                 "Verified on the 6900XT environment (authoritative)"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S4.T3 (session ses_0056c7976ffeXP3Oxm8sAxqpAl)",
-              "progress_updated_at": "2026-08-13T10:04:32.043Z"
+              "progress_last_row": "opencode completed G4.S4.T3 — all fixes + unit tests green + E2E verified on fresh 6900XT serve",
+              "progress_updated_at": "2026-08-13T10:22:41.000Z",
+              "progress_status": "done"
             }
           ]
         },

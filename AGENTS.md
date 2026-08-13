@@ -39,11 +39,14 @@ backlog → in_progress → done → in_review → approved
                             ↘ rejected → Eng Director regenerates T{N}.N
 ```
 
-**Claiming a ticket**: change status to `in_progress`, assignee to `opencode`,
-and record the **session id** (e.g. `session_id: ses_xxxxxxxx`) that is handling it
-(OpenCode serve supports multiple parallel sessions — the session id identifies which
-worker is responsible, avoiding confusion when S1/S2 specs run concurrently).
-Then `git add + commit + push` (git push atomicity guarantees mutual exclusion, preventing conflicts).
+**Claiming a ticket is AUTOMATED**: the resident OpenCode plugin (`athena.worker`,
+loaded from `.opencode/plugins/` / `~/.config/opencode/plugins/`) auto-claims a
+dispatched ticket on the worker's first tool call — it writes status `in_progress`,
+assignee, and the session id, appends the claim row to the Progress Log, and does
+`git add + commit + push` (git push atomicity is the mutual-exclusion lock,
+preventing two workers claiming the same ticket). Workers must NOT manually claim;
+just start working. On a lost race the plugin surfaces `ClaimConflictError` and the
+worker backs off.
 
 **Only claim tickets with status=backlog. Rejected tickets cannot be directly claimed.**
 
@@ -66,11 +69,13 @@ it can follow call chains, dynamic dispatch, and find connections that grep miss
 
 A ticket's full lifecycle:
 1. Read ticket + corresponding Spec.md + Goal.md
-2. Claim (change status + assignee + session_id, then push)
-3. `codegraph_explore` to understand existing code
-4. Develop per **tdd** (tests first, then implementation)
-5. Implementation complete, change status=done, write Log
-6. commit + push
+2. `codegraph_explore` to understand existing code
+3. Develop per **tdd** (tests first, then implementation)
+4. Implementation complete, change status=done, write Log
+5. commit + push
+
+The claim itself is handled by the plugin on your first tool call — do not edit
+the ticket's status/assignee/session_id by hand.
 
 ## Tech Stack
 

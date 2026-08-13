@@ -1,11 +1,15 @@
 /**
- * OpenCode worker plugin for the athena git-kanban protocol (G4.S4.T1).
+ * OpenCode worker plugin for the athena git-kanban protocol (G4.S4.T1/T3).
  *
  * Global/resident: loaded at opencode serve startup from `.opencode/plugins/`
- * (git-kanban-design.md §18). Distinguishes workers by sessionID, parses the
- * ticket ref from the first dispatch message, auto-claims on the first tool
- * call (git push = mutual-exclusion lock), and appends Progress Log rows with
- * REAL wall-clock UTC timestamps, rate-limited, on real changes only.
+ * (git-kanban-design.md §18) and deployed to `~/.config/opencode/plugins/`
+ * (G4.S4.T3). Distinguishes workers by sessionID, parses the ticket ref from
+ * the first dispatch message, auto-claims on the first tool call (git push =
+ * mutual-exclusion lock, exactly once per session even under concurrent tool
+ * calls), appends Progress Log rows with REAL wall-clock UTC timestamps
+ * (rate-limited + callID-deduped so one tool call appends at most one row),
+ * and on `session.idle` regenerates + commits the kanban index as a SEPARATE
+ * commit when the claimed ticket is `done` (done double-commit, D29).
  *
  * Plugin contract (opencode classic plugin API): default export { id, server }.
  * The types are declared structurally to keep the plugin self-contained and
@@ -17,6 +21,7 @@ import { access } from "node:fs/promises";
 import { parseTicketRef } from "./ticket-ref.js";
 import { claimTicketWithIndex, ClaimConflictError } from "./claim.js";
 import { ProgressAppender } from "./progress-log.js";
+import { commitDoneIndex } from "./done-commit.js";
 
 /** Minimal structural subset of the opencode plugin context (classic API). */
 export interface WorkerPluginContext {
@@ -56,6 +61,7 @@ export interface WorkerHooks {
     input: { tool: string; sessionID: string; callID: string; args: unknown },
     output: { title: string; output: string; metadata: unknown },
   ) => Promise<void>;
+  event?: (input: { event: { type?: string; properties?: { sessionID?: string } } }) => Promise<void>;
 }
 
 /** Per-session worker state. */
@@ -63,6 +69,10 @@ export interface WorkerState {
   ref?: string;
   claimed: boolean;
   conflicted?: string;
+  /** In-flight claim promise — dedupes concurrent tool calls in the same tick. */
+  claimPromise?: Promise<void>;
+  /** callIDs already appended to the Progress Log — one row per tool call. */
+  appended?: Set<string>;
 }
 
 export interface WorkerPluginOptions {
@@ -72,9 +82,19 @@ export interface WorkerPluginOptions {
   repoDir?: string;
   /** Progress Log rate-limit window in ms. */
   minIntervalMs?: number;
+  /** Clock override for tests; defaults to the real wall clock. */
+  now?: () => Date;
 }
 
 const DEFAULT_ASSIGNEE = "opencode";
+const DEFAULT_MIN_INTERVAL_MS = 30_000;
+
+// Module-level state — opencode re-invokes server() per event/call, so any
+// state that must persist across a session's tool calls CANNOT live inside the
+// server()/createWorkerHooks closure (it would reset on every call and the
+// plugin would re-attempt the claim forever / duplicate Progress Log rows).
+const sessions = new Map<string, WorkerState>();
+const appenders = new Map<string, ProgressAppender>();
 
 /** True when the repo actually has a kanban board (docs/kanban). */
 async function isAthenaRepo(repoDir: string): Promise<boolean> {
@@ -84,6 +104,31 @@ async function isAthenaRepo(repoDir: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function state(sessionID: string): WorkerState {
+  let s = sessions.get(sessionID);
+  if (!s) {
+    s = { claimed: false, appended: new Set() };
+    sessions.set(sessionID, s);
+  }
+  return s;
+}
+
+function appenderFor(
+  boardRoot: string,
+  options: { minIntervalMs: number; now?: () => Date },
+): ProgressAppender {
+  let appender = appenders.get(boardRoot);
+  if (!appender) {
+    appender = new ProgressAppender({
+      boardRoot,
+      minIntervalMs: options.minIntervalMs,
+      now: options.now,
+    });
+    appenders.set(boardRoot, appender);
+  }
+  return appender;
 }
 
 /**
@@ -96,25 +141,35 @@ export function createWorkerHooks(
   const assignee = options.assignee ?? DEFAULT_ASSIGNEE;
   const repoDir = options.repoDir ?? ctx.directory;
   const boardRoot = path.join(repoDir, "docs", "kanban");
-  const minIntervalMs = options.minIntervalMs ?? 30_000;
+  const minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
 
-  const sessions = new Map<string, WorkerState>();
-  const appender = new ProgressAppender({ boardRoot, minIntervalMs });
-
-  function state(sessionID: string): WorkerState {
-    let s = sessions.get(sessionID);
-    if (!s) {
-      s = { claimed: false };
-      sessions.set(sessionID, s);
-    }
-    return s;
-  }
+  const appender = appenderFor(boardRoot, { minIntervalMs, now: options.now });
 
   function textOf(parts: Array<{ type?: string; text?: string }>): string {
     return (parts ?? [])
       .filter((part) => part?.type === "text" && part.text)
       .map((part) => part.text as string)
       .join("\n");
+  }
+
+  async function runClaim(sessionID: string, ref: string): Promise<void> {
+    if (!(await isAthenaRepo(repoDir))) return;
+    await claimTicketWithIndex({
+      repoDir,
+      boardRoot,
+      ref,
+      assignee,
+      sessionId: sessionID,
+    });
+    const s = state(sessionID);
+    s.claimed = true;
+    await ctx.client.app.log({
+      body: {
+        service: "athena.worker",
+        level: "info",
+        message: `claimed ${ref} (session ${sessionID})`,
+      },
+    });
   }
 
   return {
@@ -127,45 +182,65 @@ export function createWorkerHooks(
     },
 
     // Auto-claim on the first tool call: the git push takes effect before work.
+    // Concurrent tool calls in the same tick share ONE in-flight claim promise
+    // (set synchronously before any await), so the claim runs exactly once per
+    // session — no duplicate claim rows / claim commits / ClaimConflictError.
     "tool.execute.before": async (input) => {
       const s = state(input.sessionID);
       if (!s.ref || s.claimed) return;
       if (s.conflicted) {
         throw new Error(`ClaimConflictError: ${s.conflicted}`);
       }
-      if (!(await isAthenaRepo(repoDir))) return;
-
-      try {
-        await claimTicketWithIndex({
-          repoDir,
-          boardRoot,
-          ref: s.ref,
-          assignee,
-          sessionId: input.sessionID,
+      if (!s.claimPromise) {
+        s.claimPromise = runClaim(input.sessionID, s.ref).catch((err) => {
+          if (err instanceof ClaimConflictError) {
+            const s2 = state(input.sessionID);
+            s2.conflicted = err.message;
+            throw new Error(`ClaimConflictError: ${err.message}`);
+          }
+          throw err;
         });
-        s.claimed = true;
-        await ctx.client.app.log({
-          body: {
-            service: "athena.worker",
-            level: "info",
-            message: `claimed ${s.ref} (session ${input.sessionID})`,
-          },
-        });
-      } catch (err) {
-        if (err instanceof ClaimConflictError) {
-          s.conflicted = err.message;
-          throw new Error(`ClaimConflictError: ${err.message}`);
-        }
-        throw err;
       }
+      await s.claimPromise;
     },
 
-    // Append a Progress Log row on a real change (a tool ran), rate-limited,
-    // stamped with the real wall-clock time.
+    // Append a Progress Log row on a real change (a tool ran), rate-limited and
+    // callID-deduped so ONE tool call appends at most ONE row even if the
+    // after-event double-fires. Stamped with the real wall-clock time.
     "tool.execute.after": async (input) => {
       const s = state(input.sessionID);
       if (!s.ref || !s.claimed) return;
+      if (s.appended!.has(input.callID)) return;
+      s.appended!.add(input.callID);
+      if (s.appended!.size > 1024) s.appended!.clear();
       await appender.append(s.ref, "in_progress", `ran ${input.tool}`);
+    },
+
+    // Done double-commit (D29): when the claimed ticket is marked done, the
+    // session.idle event triggers a SEPARATE kanban-index commit (fallback so
+    // the board stays current even if the worker forgets to regen the index).
+    event: async (input) => {
+      const evt = input.event;
+      if (!evt || evt.type !== "session.idle") return;
+      const sessionID = evt.properties?.sessionID;
+      if (!sessionID) return;
+      const s = sessions.get(sessionID);
+      if (!s?.ref || !s.claimed) return;
+      if (!(await isAthenaRepo(repoDir))) return;
+      try {
+        await commitDoneIndex({ repoDir, boardRoot, ref: s.ref, sessionId: sessionID });
+      } catch (err) {
+        // Never let a plugin failure crash the idling session.
+        await ctx.client.app.log({
+          body: {
+            service: "athena.worker",
+            level: "error",
+            message: `done-index commit failed for ${s.ref}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          },
+        });
+      }
     },
   };
 }
