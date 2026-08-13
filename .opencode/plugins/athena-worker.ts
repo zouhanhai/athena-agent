@@ -12,9 +12,13 @@
 
 import { access } from "node:fs/promises";
 import path from "node:path";
-import { parseTicketRef } from "../../opencode-plugin/src/ticket-ref.js";
-import { claimTicketWithIndex, ClaimConflictError } from "../../opencode-plugin/src/claim.js";
-import { ProgressAppender } from "../../opencode-plugin/src/progress-log.js";
+// ABSOLUTE paths — this plugin is deployed GLOBALLY (~/.config/opencode/plugins/)
+// so it loads for any project regardless of serve cwd. The core logic lives in the
+// athena-agent repo and is imported by absolute path (git-kanban-design.md §18).
+const CORE_DIR = "/home/hh/athena-agent/opencode-plugin/src";
+const { parseTicketRef } = await import(path.join(CORE_DIR, "ticket-ref.js"));
+const { claimTicketWithIndex, ClaimConflictError } = await import(path.join(CORE_DIR, "claim.js"));
+const { ProgressAppender } = await import(path.join(CORE_DIR, "progress-log.js"));
 
 const DEFAULT_ASSIGNEE = "opencode";
 const DEFAULT_MIN_INTERVAL_MS = 30_000;
