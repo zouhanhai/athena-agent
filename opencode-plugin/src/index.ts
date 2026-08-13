@@ -257,8 +257,14 @@ export function createWorkerHooks(
           },
         });
       }
-      const { ticket } = await readTicketFile(boardRoot, s.ref);
-      if (ticket.status !== "done") return;
+      let ticketStatus = "";
+      try {
+        ticketStatus = (await readTicketFile(boardRoot, s.ref)).ticket.status;
+      } catch {
+        // Unreadable ticket file — the index commit already landed; skip the sync.
+        return;
+      }
+      if (ticketStatus !== "done") return;
       const specRef = specRefFromTicketRef(s.ref);
       if (!specRef) return;
       try {
