@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T18:23:39.101Z",
+  "generated_at": "2026-08-13T18:25:09.356Z",
   "goals": [
     {
       "ref": "G1",
@@ -915,7 +915,7 @@
           "id": "g3_s1",
           "title": "G3.S1: Agent Registry",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1009,7 +1009,7 @@
           "id": "g3_s2",
           "title": "G3.S2: Employee Identity + RBAC + GitHub Credentials",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1175,7 +1175,7 @@
           "id": "g3_s3",
           "title": "G3.S3: Global Chat Panel (Conversation + Agent Cards)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1235,7 +1235,7 @@
           "id": "g3_s4",
           "title": "G3.S4: Workbench (GitHub-Style Content Area)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1388,7 +1388,7 @@
           "id": "g3_s5",
           "title": "G3.S5: Uploads Page (Per-System Ingest Detail)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1497,7 +1497,7 @@
           "id": "g3_s6",
           "title": "G3.S6: Git-Driven Development (Platform Protocol + GitHub Integration)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1604,7 +1604,7 @@
           "id": "g3_s7",
           "title": "G3.S7: Frontend Polish (Theme Toggle Animation + Design Audit)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1651,7 +1651,7 @@
           "id": "g3_s8",
           "title": "G3.S8: Knowledge Graph UX (remove Add Data from Knowledge, topic/localized graph views)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -2622,9 +2622,9 @@
               "id": "G4.S5.T10",
               "title": "Ticket sub-issue title includes the description (`G4.S5.T1 <title>` like Spec) + OpenCode plugin auto-syncs md→GitHub on worker done",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_003a15ac4ffenU9THEmWWz0k4j",
               "blocked_by": [
                 "G4.S5.T9"
               ],
@@ -2635,7 +2635,11 @@
                 "The plugin derives the parent specRef from the ticket ref (G4.S5.T9 → G4.S5), resolves a GitHub credential, and runs the sync best-effort (a sync failure is logged but does NOT block or roll back the index done commit)",
                 "Spec main-issue title behavior unchanged (already `G4.S5 <title>`)",
                 "Plugin tests green (mock sync invocation), server tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T10 (session ses_003a15ac4ffenU9THEmWWz0k4j)",
+              "progress_updated_at": "2026-08-13T18:25:09.346Z",
+              "progress_status": "in_progress"
             }
           ]
         },
