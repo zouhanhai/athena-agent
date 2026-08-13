@@ -92,6 +92,11 @@ export default {
         }
         if (!(await boardPresent(boardRoot))) return;
 
+        // Optimistically mark claimed BEFORE the (slow) git claim so concurrent
+        // tool calls in the same tick can't re-enter and double-claim. If the
+        // claim genuinely fails we set conflicted (worker backs off); we never
+        // retry the claim in the same session.
+        s.claimed = true;
         try {
           await claimTicketWithIndex({
             repoDir,
@@ -100,7 +105,6 @@ export default {
             assignee,
             sessionId: input.sessionID,
           });
-          s.claimed = true;
           await ctx.client?.app?.log?.({
             body: {
               service: "athena.worker",
