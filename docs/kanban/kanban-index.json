@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T08:01:58.746Z",
+  "generated_at": "2026-08-13T08:17:55.247Z",
   "goals": [
     {
       "ref": "G1",
@@ -2266,9 +2266,9 @@
               "id": "G4.S4.T1",
               "title": "OpenCode plugin — auto-claim (git lock + kanban index) + Progress Log appender (real timestamps, rate-limited)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_005d4dc61ffeccjgVt91SgqaMH",
               "blocked_by": [],
               "acceptance_criteria": [
                 "On the first tool.execute of a session the plugin detects the ticket ref (from the structured dispatch prompt / session metadata) and calls claimTicket: writes status=in_progress + assignee + session_id, then git add/commit/push — the git push is the mutual-exclusion lock, effective before any work",
@@ -2350,7 +2350,7 @@
   ],
   "errors": [
     {
-      "file": "/home/hai/workspace/athena-agent/docs/kanban/G4/S3/T10.md",
+      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
       "error": "layer must be one of: G, S, T"
     }
   ]
