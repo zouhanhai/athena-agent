@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T09:25:12.193Z",
+  "generated_at": "2026-08-13T09:31:34.171Z",
   "goals": [
     {
       "ref": "G1",
@@ -2289,7 +2289,7 @@
               "owner": "eng-director",
               "status": "in_progress",
               "assignee": "opencode",
-              "session_id": "ses_0058fa093ffeUFQlOVQmsJgPuh",
+              "session_id": "ses_00589cf6cffejUilBt1e34hYHH",
               "blocked_by": [
                 "G4.S4.T1"
               ],
