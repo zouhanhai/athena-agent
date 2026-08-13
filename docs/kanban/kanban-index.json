@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T18:18:53.505Z",
+  "generated_at": "2026-08-13T18:22:19.959Z",
   "goals": [
     {
       "ref": "G1",
@@ -2634,6 +2634,25 @@
                 "Spec main-issue title behavior unchanged (already `G4.S5 <title>`)",
                 "buildIssueForTicket returns `{ title: `${ticketRef} ${strippedTitle}`, body }`; stripRefPrefix handles the ticket title",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ]
+            },
+            {
+              "ref": "G4.S5.T11",
+              "id": "G4.S5.T11",
+              "title": "OpenCode plugin auto-syncs md → GitHub board when a worker marks a ticket done (session.idle), alongside the index commit",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T10"
+              ],
+              "acceptance_criteria": [
+                "When a worker sets a ticket `status: done` (session.idle event), the plugin ALSO runs the md→GitHub sync for the ticket's parent Spec (e.g. G4.S5) so the GitHub board Status column updates automatically",
+                "The sync runs right after the index done commit, using the ticket's specRef (derived from the ticket ref `G4.S5.T9` → `G4.S5`)",
+                "The plugin has the GITHUB_TOKEN / employee credential to run the sync (reuse the athena credential store or a configured token)",
+                "A failed sync does NOT block the done flow (best-effort, logged) — the index commit still happens",
+                "Plugin tests green (mock sync invocation), server tests green, typecheck clean; live-verified on 6900XT"
               ]
             }
           ]
