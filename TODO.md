@@ -171,6 +171,13 @@
     a large effort, and dsh is in developer preview (compatibility-breaking changes). **Keep as a future
     fallback/reference; do NOT adopt now** — current OpenCode worker + S4 plugin already works.
   - Relevant if OpenCode/Pi no longer meet needs or dsh matures past preview.
+- [ ] **Agent git/GitHub identity separation (2026-08-13, deferred to G6)**
+  - Want: human commits show `zouhanhai`, agent (OpenCode/Hermes) commits show an agent identity
+    (e.g. `Hanhai_opencode`). Git commit author is fully feasible (per-commit `-c user.name/email`, or
+    agent-specific config). GitHub merge/PR/issue attribution depends on which token/account is used
+    (an independent bot account would be needed to show an agent ID there). Only commit-author
+    separation requested for now; design the OpenCode/agent config approach in G6 (agent federation,
+    agents as first-class citizens).
 
 ## Naming Convention (Agent identity in the federation)
 
