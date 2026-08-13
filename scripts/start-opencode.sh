@@ -22,6 +22,17 @@ mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/opencode-serve.log"
 BASE="http://127.0.0.1:${PORT}"
 
+# Optional env file (never committed): source it so the OpenCode process carries
+# the vars the worker plugin needs for its md→GitHub auto-sync on worker done
+# (G4.S5.T10) — e.g. DATABASE_URL (→ athena employee GitHub credential store)
+# and GITHUB_OWNER/GITHUB_REPO. Create it as e.g.:
+#   printf 'export DATABASE_URL="%s"\nexport GITHUB_OWNER="zouhanhai"\nexport GITHUB_REPO="athena-agent"\n' "$DATABASE_URL" > ~/.athena-tmp/opencode-env.sh
+if [ -f "$HOME/.athena-tmp/opencode-env.sh" ]; then
+  # shellcheck disable=SC1091
+  # shellcheck source=/dev/null
+  source "$HOME/.athena-tmp/opencode-env.sh"
+fi
+
 red(){ printf '\033[31m%s\033[0m\n' "$1"; }
 grn(){ printf '\033[32m%s\033[0m\n' "$1"; }
 
