@@ -10,10 +10,14 @@
  * emits `{type:"session.idle", properties:{sessionID}}` when a worker session
  * becomes idle) and calls `commitDoneIndex` for the ticket that session claimed.
  *
- * No-op safety: skipped when the ticket is not `done`, the idling session did
- * not claim it, or the committed index already reflects `done` (no diff) — so
- * repeated `session.idle` events and workers that already regen the index do
- * not produce spurious commits.
+ * No-op safety (G4.S5.T5): skipped when the ticket is not `done`, the idling
+ * session did not claim it, or the committed index already reflects `done` (no
+ * diff). The no-op check compares against `origin/<branch>` (after a fetch), so
+ * a worker that already regenerated + committed the index produces exactly one
+ * index commit — even when that commit is not yet on the plugin's HEAD (3b
+ * timing race). Once the plugin commits its own `index done` commit it is never
+ * silently dropped: a failed push triggers a rebase and the commit is pushed
+ * again (3a — no more `[ahead 1]` orphan index commits).
  */
 
 import { execFile } from "node:child_process";
@@ -36,19 +40,20 @@ async function git(repoDir: string, args: string[]): Promise<string> {
 }
 
 /**
- * True when the freshly regenerated index differs from the committed index.
- * `generated_at` is ignored — it changes on every rescan, so comparing it
- * would always see a diff and produce spurious "already current" commits.
+ * True when the freshly regenerated index differs from the index committed at
+ * `ref` (e.g. `HEAD` or `origin/<branch>`). `generated_at` is ignored — it
+ * changes on every rescan, so comparing it would always see a diff and produce
+ * spurious "already current" commits.
  */
-async function indexDiffers(repoDir: string, boardRoot: string): Promise<boolean> {
+async function indexDiffers(repoDir: string, boardRoot: string, ref: string): Promise<boolean> {
   const file = indexFilePath(boardRoot);
   const rel = path.relative(repoDir, file);
   let committed: Record<string, unknown>;
   try {
-    const { stdout } = await execFileAsync("git", ["show", `HEAD:${rel}`], { cwd: repoDir });
+    const { stdout } = await execFileAsync("git", ["show", `${ref}:${rel}`], { cwd: repoDir });
     committed = JSON.parse(stdout) as Record<string, unknown>;
   } catch {
-    // Not committed yet → the on-disk index is untracked/new → it differs.
+    // Not committed at that ref yet → the on-disk index differs from it.
     return true;
   }
   let onDisk: Record<string, unknown>;
@@ -87,20 +92,37 @@ export async function commitDoneIndex(options: CommitDoneIndexOptions): Promise<
 
   const branch = await git(options.repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const indexFile = indexFilePath(boardRoot);
-  for (let attempts = 0; ; attempts++) {
-    await buildIndexFile(boardRoot);
-    if (!(await indexDiffers(options.repoDir, boardRoot))) return false;
+  const rel = path.relative(options.repoDir, indexFile);
 
-    await git(options.repoDir, ["add", "--", path.relative(options.repoDir, indexFile)]);
-    await git(options.repoDir, [
-      "-c",
-      `user.name=${AUTHOR.name}`,
-      "-c",
-      `user.email=${AUTHOR.email}`,
-      "commit",
-      "-m",
-      `index done ${options.ref}`,
-    ]);
+  // 3b: fetch so the no-op check compares against origin/<branch> — a worker's
+  // index commit may already be there even when it is not yet on the plugin's
+  // HEAD (the timing race that used to produce a SECOND index commit).
+  await git(options.repoDir, ["fetch", "origin"]).catch(() => undefined);
+
+  let committed = false;
+  for (let attempts = 0; ; attempts++) {
+    if (!committed) {
+      await buildIndexFile(boardRoot);
+      // 3b: origin/<branch> already reflects done → a worker regenerated +
+      // committed the index in its own done commit → no-op, exactly one index
+      // commit per done.
+      if (!(await indexDiffers(options.repoDir, boardRoot, `origin/${branch}`))) return false;
+      // A worker's done commit is on HEAD but not yet pushed → its regenerated
+      // index is authoritative, do not duplicate it.
+      if (!(await indexDiffers(options.repoDir, boardRoot, "HEAD"))) return false;
+
+      await git(options.repoDir, ["add", "--", rel]);
+      await git(options.repoDir, [
+        "-c",
+        `user.name=${AUTHOR.name}`,
+        "-c",
+        `user.email=${AUTHOR.email}`,
+        "commit",
+        "-m",
+        `index done ${options.ref}`,
+      ]);
+      committed = true;
+    }
     try {
       await git(options.repoDir, ["push", "origin", branch]);
       return true;
@@ -108,7 +130,11 @@ export async function commitDoneIndex(options: CommitDoneIndexOptions): Promise<
       if (attempts >= MAX_PUSH_ATTEMPTS) {
         throw err instanceof Error ? err : new Error(String(err));
       }
-      // Someone pushed first — rebase the index commit on top of the remote.
+      // 3a: never lose the local index commit. Someone pushed first — rebase
+      // our commit on top of the remote and push again. Do NOT re-check
+      // indexDiffers here: after the rebase HEAD already contains our own
+      // commit, so the old check returned false and silently dropped the
+      // unpushed commit, leaving the repo `[ahead 1]`.
       await git(options.repoDir, ["fetch", "origin"]).catch(() => undefined);
       try {
         await git(options.repoDir, ["rebase", `origin/${branch}`]);
