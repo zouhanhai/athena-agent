@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T13:00:18.210Z",
+  "generated_at": "2026-08-13T13:06:10.491Z",
   "goals": [
     {
       "ref": "G1",
@@ -2400,9 +2400,9 @@
               "id": "G4.S5.T1",
               "title": "GitHub GraphQL client + Project v2 API layer (createIssue, sub-issues, milestone, label, status field)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_004c572f9ffeaeG5LYk1uyRKBe",
               "blocked_by": [],
               "acceptance_criteria": [
                 "A GraphQL client (alongside the existing REST GithubRestClient) talks to https://api.github.com/graphql with the employee token",
@@ -2410,7 +2410,11 @@
                 "Status column mapping: kanban status → Project Status single-select option (backlog/in_progress/done/in_review/approved/rejected)",
                 "The GraphQL layer reuses the existing GithubCredential token + error handling conventions",
                 "Server tests green (mock GitHub GraphQL), typecheck clean"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T1 (session ses_004c572f9ffeaeG5LYk1uyRKBe)",
+              "progress_updated_at": "2026-08-13T13:06:10.474Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T2",
@@ -2429,7 +2433,7 @@
                 "Ticket status syncs to the Project Status column (backlog/in_progress/done/in_review/approved/rejected)",
                 "blocked_by → GitHub issue dependency; Goal → Milestone + Label (G4) on the issues",
                 "A sync CLI/tool (board.js-style) creates + syncs md → GitHub on demand or on key transitions; idempotent (re-run doesn't duplicate)",
-                "Progress Log detail is NOT pushed (only current status/assignee)",
+                "Progress Log is NOT pushed to GitHub (only description/status/assignee/blocked_by/milestone/label sync)",
                 "Server tests green (mock GitHub), typecheck clean"
               ]
             },
