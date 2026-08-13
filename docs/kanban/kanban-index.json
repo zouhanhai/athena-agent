@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T13:56:15.104Z",
+  "generated_at": "2026-08-13T14:02:17.171Z",
   "goals": [
     {
       "ref": "G1",
@@ -2437,8 +2437,8 @@
                 "Server tests green (mock GitHub), typecheck clean"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-13T13:55:54.157Z",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T13:55:23.774Z",
               "progress_status": "in_progress"
             },
             {
@@ -2446,9 +2446,9 @@
               "id": "G4.S5.T3",
               "title": "GitHub→md feedback loop: plan agent reads issue comments → proposes md updates (new/edited ticket/spec); md-authoritative conflict handling",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_00492126cffevgtZd2lm4lN16a",
               "blocked_by": [
                 "G4.S5.T1",
                 "G4.S5.T2"
@@ -2460,7 +2460,11 @@
                 "Conflict handling: md is authoritative on ambiguity — GitHub changes are never silently overwritten; differences are surfaced as a report for the plan agent to reconcile",
                 "Human keeps final authority on spec/ticket changes",
                 "Server tests green (mock GitHub), typecheck clean"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T3 (session ses_00492126cffevgtZd2lm4lN16a)",
+              "progress_updated_at": "2026-08-13T14:02:17.156Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T4",
