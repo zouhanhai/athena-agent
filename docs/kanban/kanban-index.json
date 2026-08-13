@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T18:52:01.913Z",
+  "generated_at": "2026-08-13T18:57:06.840Z",
   "goals": [
     {
       "ref": "G1",
@@ -2646,7 +2646,7 @@
               "id": "G4.S5.T11",
               "title": "Fix /api/kanban/github-project to resolve the Project via repository.projectsV2 (repo-linked), not title-guessing (owner/repo or repo name)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_00388b955ffeZ7nTnOtPufSJdM",
               "blocked_by": [
@@ -2661,9 +2661,9 @@
                 "Server tests green, typecheck clean; live-verified on 6900XT"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T11 (session ses_00388b955ffeZ7nTnOtPufSJdM)",
-              "progress_updated_at": "2026-08-13T18:52:01.903Z",
-              "progress_status": "in_progress"
+              "progress_last_row": "LIVE-VERIFIED on 6900XT: GET /api/kanban/github-project?repo=CALEO-Consulting/caleo.int.abaplorer → 200 \"Abaplorer Project\" board (was 404). zouhanhai/athena-agent → 404 no linked GitHub Project — authoritative GraphQL confirms repository(zouhanhai/athena-agent).projectsV2 is EMPTY (its boards \"zouhanhai/athena-agent\" #6 + \"athena-agent\" #1 live in the user's list but are NOT repo-linked); the old 200 was title-guessing against an unlinked board, so the 404 is now truthful",
+              "progress_updated_at": "2026-08-13T19:00:00.000Z",
+              "progress_status": "done"
             }
           ]
         },
