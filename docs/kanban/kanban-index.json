@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T14:02:17.171Z",
+  "generated_at": "2026-08-13T14:14:04.199Z",
   "goals": [
     {
       "ref": "G1",
@@ -2446,7 +2446,7 @@
               "id": "G4.S5.T3",
               "title": "GitHub→md feedback loop: plan agent reads issue comments → proposes md updates (new/edited ticket/spec); md-authoritative conflict handling",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_00492126cffevgtZd2lm4lN16a",
               "blocked_by": [
@@ -2462,8 +2462,8 @@
                 "Server tests green (mock GitHub), typecheck clean"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T3 (session ses_00492126cffevgtZd2lm4lN16a)",
-              "progress_updated_at": "2026-08-13T14:02:17.156Z",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T14:13:50.723Z",
               "progress_status": "in_progress"
             },
             {
