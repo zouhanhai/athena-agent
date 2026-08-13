@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T09:49:36.026Z",
+  "generated_at": "2026-08-13T09:54:24.069Z",
   "goals": [
     {
       "ref": "G1",
@@ -2385,7 +2385,7 @@
   ],
   "errors": [
     {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
+      "file": "/home/hai/workspace/athena-agent/docs/kanban/G4/S3/T10.md",
       "error": "layer must be one of: G, S, T"
     }
   ]
