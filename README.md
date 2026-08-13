@@ -2,143 +2,116 @@
 
 > Codename **Athena** (Goddess of Wisdom) · Deployed on the 6900XT team server
 > Team repo: [`CALEO-Consulting/caleo.int.athena-agent`](https://github.com/CALEO-Consulting/caleo.int.athena-agent) (private) · Dev mirror: `zouhanhai/athena-agent`
-> This document is the output of the grill-with-docs process, capturing all confirmed architectural decisions.
 
 ## One-Line Positioning
 
-Provide the 3 employees of the CALEO department with a **unified collaboration portal**: each person has their own Pi intelligent assistant; the team shares conversations / knowledge graph / Wiki / Kanban, all powered by open-source components (Pi + LightRAG + LLM Wiki + CodeGraph) underneath.
+Provide the 3 employees of the CALEO department a **unified collaboration portal**: each person has
+their own intelligent assistant; the team shares conversations, a **knowledge base** (self-built RAG +
+Wiki), and a **git-driven Kanban** — all powered by open-source components, with cross-machine
+multi-agent collaboration via a git repo and a **control-plane** model (agents stay local, the platform
+routes and coordinates).
 
-## Confirmed Decisions (ADR numbers in `docs/adr/`)
+## Architecture
 
-| #  | Decision            | Details                                                               |
-|----|---------------------|-----------------------------------------------------------------------|
-| 1  | Deployment target   | 6900XT Ubuntu, Tailscale networking (employees in Germany)            |
-| 2  | Authentication      | Email magic link (Resend key verified; caleo.com domain configuration needed) |
-| 3  | Backend             | Node/TS + Fastify + AgentSession embedding Pi                         |
-| 4  | Frontend            | Vue3 + TDesign, referencing WeKnora layout, CALEO orange (#ff6633)    |
-| 5  | Database            | Postgres + pgvector (vectors); graph = LightRAG NetworkX (POC)        |
-| 6  | Conversation model  | OpenRouter unified (deepseek/deepseek-v4-flash main; qwen/qwen3.7-flash vision; qwen/qwen3-embedding-8b embedding) |
-| 7  | Knowledge retrieval | LightRAG (retrieval + graph, with built-in UI)                        |
-| 8  | Wiki accumulation   | llm_wiki service (:19828 API + MCP), custom CALEO-style frontend      |
-| 9  | Kanban              | TS rewrite, Pi-driven (pi-task/glla/dynamic-workflows)                |
-| 10 | Development mode    | Local Hermes TUI + 6900XT OpenCode headless                           |
-| 11 | Dialogue structure  | Personal = independent AgentSession; team = shared Pi (ultimate goal Plan B: Pi can speak) |
-| 12 | Pi extensions       | mcp-adapter/intercom/pi-task/glla/dynamic-workflows/hermes-memory/web-access |
-
-## System Architecture
+The knowledge pipeline is **Athena-driven**: a single Athena LLM pass is the source of truth for
+structure — it reads each document once and emits headers / topic / chunks / entities / relations /
+keywords. Downstream stores (RAG graph, Wiki) consume that output without their own LLM passes.
 
 ```
-SERVER (company server; 6900XT today) — athena federation hub
-  └─ Portal (Vue) ─┬─ Personal conv → backend → AgentSession (Pi) → OpenRouter
-                   ├─ Team conv     → backend → Shared AgentSession (Pi)
-                   ├─ 📚 Wiki       → llm_wiki (:19828) → Vue rendering
-                   ├─ 🕸 Knowledge  → LightRAG (:9621) graph + retrieval
-                   ├─ 🐙 GitHub     → GitHub REST API (repos/PR/Issue/files)
-                   ├─ 📁 CodeGraph  → code analysis
-                   └─ 🎫 Kanban     → Pi-driven task flow + GitHub
-        Server knowledge steward = Athena (fixed name)
+DOCUMENT
+  │  docling (layout parse; VLM image descriptions)
+  ▼
+Athena single-pass refinement (one LLM read): headers + topic + chunks + entities/relations + keywords + quality
+  │
+  ├──► RAG store (Neo4j 2026 Community, self-built, G4.S2)
+  │        vector (HNSW) + BM25 + graph + topic fusion
+  │        cross-encoder rerank (llama.cpp BGE-Reranker-v2-M3)
+  ├──► Wiki (llm_wiki :19828) — interlinked markdown KB
+  └──► Knowledge access (MCP / search_knowledge Agentic RAG, G4.S3)
+```
 
-LOCAL (each employee PC) — any agent (Hermes / Claude Code / Codex / Pi)
-  └─ Local agent_i + OpenCode_i → LAN/HTTP → server
+```
+SERVER (6900XT) — athena federation hub
+  └─ Portal (Vue :5173) ─┬─ Personal/Team chat → backend → OpenRouter (Athena answers, KB-first)
+                         ├─ 🕸 Knowledge → Neo4j RAG (:7687) + rerank (:9632) + Wiki (:19828)
+                         ├─ 🎫 Kanban    → git-driven board (docs/kanban/) + OpenCode worker serve (:4096)
+                         ├─ 🐙 GitHub    → REST (repos/PR/Issue/files)
+                         ├─ 📁 CodeGraph → code analysis (OpenCode codegraph)
+                         └─ Admin       → employees/permissions/invites
+        Server knowledge steward = Athena (fixed federation name)
 
-REMOTE (SAP server) — per-employee
+LOCAL (each employee) — any agent (Hermes / Claude Code / Codex / OpenCode / Pi)
+  └─ Agent_i → HTTP + SSE (not WS) → server (control plane; agents stay local, tools run on the employee's machine)
+
+REMOTE (SAP) — per-employee
   └─ PiB_i + ABAP MCP + OpenCode_i → HTTP → server
-
-See docs/distributed-pi-collaboration.md (Multi-Agent Federation).
 ```
 
-## Port Plan
+See `docs/distributed-pi-collaboration.md` (3-tier federation) and `docs/knowledge-rag-design.md`.
 
-| Service                | Port   | Bind                  |
-|------------------------|--------|-----------------------|
-| llama-server (Qwythos) | 8080   | 127.0.0.1 (must change to 0.0.0.0) |
-| LightRAG               | 9621   | 0.0.0.0               |
-| llm_wiki               | 19828  | 0.0.0.0 (headless, Xvfb) |
-| llm_wiki clip server  | 19827  | 0.0.0.0 (headless, Xvfb) |
-| Portal backend (Fastify)| Main   | 0.0.0.0               |
-| Portal frontend (Vue)  | TBD    | 0.0.0.0               |
+## Service Stack (6900XT)
 
-## Directory Structure
+| Service                  | Port   | Purpose                                             |
+|--------------------------|--------|-----------------------------------------------------|
+| athena-backend (Fastify) | 3000   | Portal API + Athena knowledge steward               |
+| Vite frontend            | 5173   | Vue3 + TDesign UI                                   |
+| Neo4j (self-built RAG)   | 7687/7474 | RAG graph: vector + BM25 + graph + topic         |
+| llama-server reranker    | 9632   | cross-encoder BGE-Reranker-v2-M3 (fallback = RRF)   |
+| llm_wiki                 | 19828/19827 | interlinked markdown KB (+ clip server)       |
+| OpenCode serve           | 4096   | Kanban worker (auto-claim plugin from `.opencode/`) |
+| Postgres                 | 5432   | employees, RBAC, Q&A pairs (local socket)           |
 
-```
-athena-agent/
-├── CONTEXT.md            # Global glossary (ubiquitous language)
-├── TODO.md               # High-level roadmap (done / in progress / planned)
-├── docs/
-│   ├── adr/                      # Architecture Decision Records (one per file)
-│   ├── git-kanban-design.md      # git-driven Kanban design
-│   ├── knowledge-rag-design.md   # Knowledge base & RAG routing design
-│   ├── distributed-pi-collaboration.md # Multi-Agent Federation design
-│   ├── output-design.md          # Output page design (NotebookLM-style)
-│   ├── pi-capabilities.md        # Pi capabilities & Package mapping
-│   └── kanban/                   # Goals → Specs → Tickets (git-driven board)
-│       ├── G1/ (S1, S2)          # M1: skeleton + personal conversation (DONE)
-│       ├── G2/ (S1..S5)          # M2: knowledge base (DONE)
-│       └── G3/ (S1..S6)          # M3: multi-agent federation + team workbench (IN PROGRESS)
-├── server/           # Node/TS Fastify backend
-│   ├── src/
-│   │   ├── agents/   # AgentSession management
-│   │   ├── routes/   # API routes
-│   │   ├── kb/       # Knowledge service clients (LightRAG/llm_wiki)
-│   │   └── kanban/   # Pi-driven Kanban
-│   └── ...
-├── web/              # Vue3 + TDesign frontend
-├── deploy/           # Deployment config (6900XT)
-└── README.md
-```
+Manage all with `scripts/start-all.sh` (idempotent; logs in `~/.athena-tmp/`).
 
-## Milestones (MVP Order)
+## Development Model (G4)
 
-Each Milestone has explicit acceptance criteria (Definition of Done); all corresponding Goals must be complete for it to be considered done.
+- **Kanban = git repo** — `docs/kanban/` (Goals → Specs → Tickets) is the source of truth; agents
+  write tickets directly.
+- **Auto-claim plugin** (G4.S4) — an OpenCode plugin auto-claims on a worker's first tool call
+  (status/assignee/session_id + kanban-index regen, one commit), appends **Progress Log** rows (real
+  UTC), and on `done` regenerates + commits the index as a **separate commit** (`session.idle` event).
+  Workers never manually claim. Plugin deploys from the GLOBAL opencode dir (`~/.config/opencode/plugins/`).
+- **Worker progress** is readable from the ticket file (last Progress Log row → "updated Xs ago" +
+  stalled flag on the Kanban board).
+- **AGENTS.md** is the worker protocol; `docs/kanban/TICKET-WORKFLOW.md` is the full workflow.
 
-1. **M1** ✅ DONE: Project skeleton + AgentSession personal conversation
-   - Acceptance: Node/TS backend starts; AgentSession embeds Pi successfully; personal conversation end-to-end works (frontend → backend → Pi → answer); Vue frontend has sidebar skeleton
-   - Corresponds to: G1 (Project skeleton + AgentSession) — G1/S1 + G1/S2 complete
+## Milestones
 
-2. **M2** ✅ DONE: Knowledge Graph (LightRAG) + Wiki (llm_wiki)
-   - Acceptance: LightRAG starts (OpenRouter); llm_wiki runs headless :19828; Pi retrieves from both via MCP; graph panel 2D renders; docling unified ingestion + progress bar
-   - Corresponds to: G2 (LightRAG + llm_wiki) — G2.S1/S2/S3/S4/S5 complete (5 specs, 26 tickets)
-
-3. **M3** 🔄 IN PROGRESS: Multi-Agent Federation & Team Workbench
-   - Acceptance: **Global right-side Chat panel** on every page (single shared context, agent cards + add agent/employee); **Agent Registry** in PG (agents declare alias/owner/logo/capabilities/MCP); **Employee identity** (email login, logo, RBAC, per-user GitHub credential); **Workbench** page (GitHub-style Code / Issues / Kanban tabs); **Uploads** page (detailed per-system ingest stages + chunk progress); **Git-driven development** (worker-agnostic protocol + full 6-role lifecycle + GitHub full ops)
-   - Corresponds to: G3 (Multi-Agent Federation + Team Workbench) — G3.S1..S6, 22 tickets (single employee)
-
-4. **M4**: CodeGraph + Multi-Employee Isolation + Deploy to 6900XT
-   - Acceptance: CodeGraph deployed and indexing code; 3 employees have independent git identities + independent AgentSessions; portal deployed on 6900XT accessible via Tailscale; auth (Resend) functional
-   - Corresponds to: G4 (CodeGraph + Multi-Employee Isolation + Deployment)
-
-5. **M5**: Output Page (txt/blog/charts/pptx/html) — implement after core is working
-   - Acceptance: Generate txt/blog/charts from knowledge base + web sources; pptx/html generation functional; frontend preview + download
-   - Corresponds to: G5 (Output Page)
-
-6. **M6**: Multi-Agent Federation (local agent + remote SAP integration)
-   - Acceptance: local agents (Hermes etc.) integrate into the federation (joinable in chat); remote SAP PiB_i per-employee with HTTP endpoint; agent naming convention (`{employee}::{agent}`, server steward `Athena`); conversation routing across the 3 tiers
-   - Reference: docs/distributed-pi-collaboration.md
+| Milestone | Status | Scope |
+|-----------|--------|-------|
+| **M1** Project skeleton + personal conversation (G1) | ✅ DONE | Node/TS + Fastify + AgentSession, Vue3 + CALEO theme |
+| **M2** Knowledge base (G2) | ✅ DONE | docling ingestion, retrieval routing, graph + wiki panels |
+| **M3** Multi-agent federation + team workbench (G3) | 🔄 | agent registry, RBAC, chat panel, workbench, uploads, git-driven dev |
+| **M4** KB intelligence + RAG self-build + collaboration (G4) | 🔄 | S1 refinement ✅, S2 Neo4j RAG ✅, S3 agentic RAG ✅, S4 worker progress ✅, S5 Kanban↔Issues, S6 federation |
+| **M5** Output page (txt/blog/charts/pptx/html) | planned | — |
+| **M6** Remote agent federation + A2A | planned | agents chat as peers, MCP-first KB access |
 
 ## Testing
 
-Backend tests live under `server/`, based on `node:test` (no additional test framework needed):
-
 ```bash
-cd server
-npm test            # unit + integration + E2E conversation tests
-npm run typecheck   # type checking (tsc --noEmit)
+cd server && npm test          # node:test unit + integration (930+)
+cd web && npx vitest run       # Vue component tests (438+)
+cd web && npx vue-tsc --noEmit # typecheck
+cd opencode-plugin && npx -y tsx --test 'test/**/*.test.ts'  # plugin tests (22)
 ```
 
-Coverage:
+**Authoritative verification is on the 6900XT** (the local WSL web test env is often polluted and
+reports false failures).
 
-- Unit/Integration: AgentSession creation and conversation, AgentManager session management (reuse / isolation / teardown), POST /api/chat streaming + non-streaming
-- E2E (`test/e2e-conversation.test.ts`): Real OpenRouter end-to-end — single message, multi-turn context (same userId reuses session), different userId context isolation, error handling (empty message / invalid fields / conversation service not started)
-- Real conversation test cases require `~/.pi/agent/auth.json` (OpenRouter key)
+## Key Risks / Open Items
 
-## Key Risks
+- **Resend auth**: caleo.com domain must be verified before sending invites to employees (403 until
+  then; ConsoleMailer logs links to `~/.athena-tmp/athena-server.log`).
+- **Tailscale**: portal is LAN-only (192.168.178.30) until the 6900XT is Tailscale'd + `APP_BASE_URL`
+  points at the Tailscale IP, so remote colleagues can reach it.
+- **Neo4j** Community Edition (2026): SEARCH clause LIMIT must be inside the vector-index parens
+  (`FOR $embedding LIMIT 1`), not after — otherwise Cypher syntax error.
 
-- Resend test mode can only send to self; must verify caleo.com domain before sending to employees
-- LightRAG NetworkX is fine for POC; at scale Neo4j may be needed
+## Docs Index
 
-## Open Items (to be confirmed later)
-
-- CodeGraph specific deployment approach
-- Portal frontend/backend specific ports (Vite dev :5173, backend :3000)
-- Resend domain verification (caleo.com)
-- Future: migrate from 6900XT to a company server (see Multi-Agent Federation)
+- `docs/git-kanban-design.md` — git-driven Kanban design (claim lock, Progress Log, done double-commit)
+- `docs/knowledge-rag-design.md` — KB + RAG routing (Athena single-pass, Neo4j, fusion, rerank)
+- `docs/distributed-pi-collaboration.md` — Multi-Agent Federation (control plane, HTTP+SSE)
+- `docs/spec-m4-*.md` — G4 specs (refinement, RAG self-build, KB confidence, worker progress, kanban-issues sync)
+- `CONTEXT.md` — global glossary (ubiquitous language)
+- `TODO.md` — high-level roadmap
