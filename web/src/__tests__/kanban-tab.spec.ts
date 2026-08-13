@@ -295,4 +295,132 @@ describe("KanbanTab", () => {
     expect(wrapper.find(".kanban-scan-error-msg").text()).toContain("boom");
     wrapper.unmount();
   });
+
+  it("shows the Progress Log last row + 'updated Xs ago' on an in_progress card (G4.S4.T2)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T10:00:00Z"));
+    try {
+      localStorage.setItem("athena.session_token", "tok_1");
+      fetchBoardMock.mockResolvedValue({
+        version: 1,
+        generated_at: "2026-08-13T10:00:00Z",
+        goals: [
+          {
+            ref: "G1",
+            id: "g1",
+            title: "G1: Foundation",
+            owner: "consultant",
+            status: "active",
+            specs: [
+              {
+                ref: "G1.S1",
+                id: "g1_s1",
+                title: "G1.S1: Auth",
+                owner: "pm",
+                status: "active",
+                tickets: [
+                  {
+                    ref: "G1.S1.T2",
+                    id: "t2",
+                    title: "G1.S1.T2: Session expiry",
+                    owner: "eng-director",
+                    status: "in_progress",
+                    assignee: "opencode",
+                    session_id: "ses_1",
+                    progress_last_row: "Implementing session expiry",
+                    progress_updated_at: "2026-08-13T09:59:48Z",
+                    blocked_by: [],
+                    acceptance_criteria: ["expires"],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        errors: [],
+      });
+
+      const wrapper = await mountKanbanTab();
+      const inProgress = columnByStatus(wrapper, "in_progress");
+      const card = inProgress!.find(".kanban-card");
+      expect(card!.find(".kanban-card-progress").text()).toContain("Implementing session expiry");
+      expect(card!.find(".kanban-card-updated").text()).toBe("updated 12s ago");
+      expect(card!.find(".kanban-card-stalled").exists()).toBe(false);
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flags an in_progress card as stalled when its last row is older than ~3 min (G4.S4.T2)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T10:00:00Z"));
+    try {
+      localStorage.setItem("athena.session_token", "tok_1");
+      fetchBoardMock.mockResolvedValue(BOARD);
+
+      const wrapper = await mountKanbanTab();
+      const inProgress = columnByStatus(wrapper, "in_progress");
+      const card = inProgress!.find(".kanban-card");
+      // BOARD.T2 is in_progress with progress_updated_at 2026-08-09 15:50Z → old.
+      expect(card!.find(".kanban-card-stalled").text()).toContain("stalled");
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does NOT flag a non-in_progress card as stalled even with an old row (observation-only) (G4.S4.T2)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T10:00:00Z"));
+    try {
+      localStorage.setItem("athena.session_token", "tok_1");
+      fetchBoardMock.mockResolvedValue({
+        version: 1,
+        generated_at: "2026-08-13T10:00:00Z",
+        goals: [
+          {
+            ref: "G1",
+            id: "g1",
+            title: "G1: Foundation",
+            owner: "consultant",
+            status: "active",
+            specs: [
+              {
+                ref: "G1.S1",
+                id: "g1_s1",
+                title: "G1.S1: Auth",
+                owner: "pm",
+                status: "active",
+                tickets: [
+                  {
+                    ref: "G1.S1.T1",
+                    id: "t1",
+                    title: "G1.S1.T1: Login flow",
+                    owner: "eng-director",
+                    status: "done",
+                    assignee: "opencode",
+                    progress_last_row: "Shipped login",
+                    progress_updated_at: "2026-08-09T15:50:00Z",
+                    blocked_by: [],
+                    acceptance_criteria: ["works"],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        errors: [],
+      });
+
+      const wrapper = await mountKanbanTab();
+      const done = columnByStatus(wrapper, "done");
+      const card = done!.find(".kanban-card");
+      expect(card!.find(".kanban-card-updated").exists()).toBe(true);
+      expect(card!.find(".kanban-card-stalled").exists()).toBe(false);
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

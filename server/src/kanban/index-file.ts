@@ -37,6 +37,7 @@ export interface KanbanIndexTicket {
   completed_at?: string;
   progress_last_row?: string;
   progress_updated_at?: string;
+  progress_status?: string;
 }
 
 /** A cached spec with its child tickets. */
@@ -98,7 +99,7 @@ export function toIndex(board: KanbanBoard, generatedAt = new Date().toISOString
 }
 
 function toIndexTicket(ticket: BoardTicket): KanbanIndexTicket {
-  const { progress_last_row, progress_updated_at } = ticket.body
+  const { progress_last_row, progress_updated_at, status: progress_status } = ticket.body
     ? parseProgressLog(ticket.body)
     : {};
   return {
@@ -115,6 +116,7 @@ function toIndexTicket(ticket: BoardTicket): KanbanIndexTicket {
     completed_at: ticket.ticket.completed_at,
     progress_last_row,
     progress_updated_at,
+    progress_status,
   };
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
 import type { GithubRepo } from "@/api/github";
 import {
@@ -10,6 +10,7 @@ import {
   type KanbanIndexTicket,
   type TicketStatus,
 } from "@/api/kanban";
+import { updatedAgoText, isStalled } from "@/kanban/progress";
 
 const props = defineProps<{ repo: GithubRepo | null }>();
 
@@ -19,6 +20,21 @@ const board = ref<KanbanIndex | null>(null);
 const loading = ref(false);
 const error = ref("");
 const lastRefresh = ref("");
+
+/** Live clock for the 'updated Xs ago' label — ticks so a card visibly goes stale. */
+const now = ref(Date.now());
+let nowTimer: ReturnType<typeof setInterval> | undefined;
+
+onMounted(() => {
+  nowTimer = setInterval(() => {
+    now.value = Date.now();
+  }, 10_000);
+});
+
+onUnmounted(() => {
+  if (nowTimer) clearInterval(nowTimer);
+  nowTimer = undefined;
+});
 
 const hasSession = computed(() => !!auth.sessionToken);
 
@@ -175,6 +191,19 @@ watch(
                 <span class="kanban-card-spec">{{ card.specRef }}</span>
                 <span v-if="card.ticket.progress_last_row" class="kanban-card-progress">
                   {{ card.ticket.progress_last_row }}
+                </span>
+                <span
+                  v-if="card.ticket.progress_updated_at"
+                  class="kanban-card-updated"
+                  :class="{ 'kanban-card-updated-stalled': isStalled(card.ticket.status, card.ticket.progress_updated_at, now) }"
+                >
+                  {{ updatedAgoText(card.ticket.progress_updated_at, now) }}
+                </span>
+                <span
+                  v-if="isStalled(card.ticket.status, card.ticket.progress_updated_at, now)"
+                  class="kanban-card-stalled"
+                >
+                  stalled
                 </span>
                 <span class="kanban-card-status" :class="`kanban-card-status-${card.ticket.status}`">
                   {{ statusLabel(card.ticket.status) }}
@@ -514,6 +543,31 @@ watch(
   background: rgba(127, 127, 127, 0.08);
   border-radius: 4px;
   padding: 2px 6px;
+}
+
+.kanban-card-updated {
+  align-self: flex-start;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-card-updated-stalled {
+  color: var(--caleo-error);
+}
+
+/* Stalled is an OBSERVATION flag only — derived from the Progress Log last-row
+   timestamp; it never modifies the ticket frontmatter status. */
+.kanban-card-stalled {
+  align-self: flex-start;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: #cf222e;
+  border-radius: 999px;
 }
 
 .kanban-card-assignee {

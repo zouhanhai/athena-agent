@@ -41,6 +41,7 @@ export interface KanbanIndexTicket {
   completed_at?: string;
   progress_last_row?: string;
   progress_updated_at?: string;
+  progress_status?: string;
 }
 
 /** A cached spec with its child tickets. */

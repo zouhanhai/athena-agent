@@ -11,6 +11,39 @@ test("parseProgressLog ignores a body without a Progress Log section", () => {
   assert.deepEqual(parseProgressLog(body), {});
 });
 
+test("parseProgressLog returns the NEWEST row even when rows are prepended (plugin order)", () => {
+  const body = [
+    "## Progress Log",
+    "| UTC timestamp | status | progress |",
+    "|---|---|---|",
+    "| 2026-08-13T09:36:42.101Z | in_progress | ran read |",
+    "| 2026-08-13T09:31:36.220Z | in_progress | opencode claimed G4.S4.T2 |",
+    "| 2026-08-13T09:25:12.175Z | in_progress | opencode claimed G4.S4.T2 |",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseProgressLog(body), {
+    progress_updated_at: "2026-08-13T09:36:42.101Z",
+    status: "in_progress",
+    progress_last_row: "ran read",
+  });
+});
+
+test("parseProgressLog falls back to the last row when no timestamp parses", () => {
+  const body = [
+    "## Progress Log",
+    "| UTC timestamp | status | progress |",
+    "|---|---|---|",
+    "| n/a | in_progress | First |",
+    "| n/a | in_progress | Last |",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseProgressLog(body), {
+    progress_updated_at: "n/a",
+    status: "in_progress",
+    progress_last_row: "Last",
+  });
+});
+
 test("parseProgressLog reads the last row of the Progress Log table", () => {
   const body = [
     "## Implementation",

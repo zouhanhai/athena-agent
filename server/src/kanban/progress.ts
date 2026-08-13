@@ -29,6 +29,11 @@ const PROGRESS_HEADING = /^##\s+([^\n]*)$/;
 /**
  * Parse the last data row of a ticket body's `## Progress Log` table.
  * Returns an empty object when there is no Progress Log or no data rows.
+ *
+ * Rows may be APPENDED (worker-written, oldest first) or PREPENDED (the plugin
+ * inserts after the header, newest first) — so "last" is the row with the LATEST
+ * timestamp, not necessarily the bottom row. Falls back to the bottom row when
+ * no timestamp parses.
  */
 export function parseProgressLog(body: string): ProgressLogEntry {
   const rows: ProgressLogEntry[] = [];
@@ -62,10 +67,17 @@ export function parseProgressLog(body: string): ProgressLogEntry {
     });
   }
 
-  // Drop a header-looking first row ("Timestamp (UTC) | Status | Progress").
-  if (rows.length > 0 && /^timestamp/i.test(rows[0].progress_updated_at ?? "")) {
+  // Drop a header-looking first row ("Timestamp (UTC) | Status | Progress" or the
+  // plugin's "UTC timestamp | status | progress" header).
+  if (rows.length > 0 && /timestamp/i.test(rows[0].progress_updated_at ?? "")) {
     rows.shift();
   }
 
+  const parsed = rows
+    .map((row, i) => ({ row, i, ts: row.progress_updated_at ? Date.parse(row.progress_updated_at) : Number.NaN }))
+    .filter((entry) => !Number.isNaN(entry.ts));
+  if (parsed.length > 0) {
+    return parsed.reduce((a, b) => (b.ts > a.ts ? b : a)).row;
+  }
   return rows[rows.length - 1] ?? {};
 }

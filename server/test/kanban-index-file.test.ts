@@ -125,6 +125,7 @@ test("toIndex flattens the scanned board and carries the Progress Log last row",
     );
     assert.equal(ticket.progress_last_row, "Implementing shared repo selector");
     assert.equal(ticket.progress_updated_at, "2026-08-09 12:30:00Z");
+    assert.equal(ticket.progress_status, "in_progress");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
