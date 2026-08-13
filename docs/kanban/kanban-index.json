@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T18:49:07.987Z",
+  "generated_at": "2026-08-13T18:49:17.266Z",
   "goals": [
     {
       "ref": "G1",
@@ -2622,9 +2622,9 @@
               "id": "G4.S5.T10",
               "title": "Ticket sub-issue title includes the description (`G4.S5.T1 <title>` like Spec) + OpenCode plugin auto-syncs md→GitHub on worker done",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_003a15ac4ffenU9THEmWWz0k4j",
               "blocked_by": [
                 "G4.S5.T9"
               ],
@@ -2635,7 +2635,11 @@
                 "The plugin derives the parent specRef from the ticket ref (G4.S5.T9 → G4.S5), resolves a GitHub credential, and runs the sync best-effort (a sync failure is logged but does NOT block or roll back the index done commit)",
                 "Spec main-issue title behavior unchanged (already `G4.S5 <title>`)",
                 "Plugin tests green (mock sync invocation), server tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T18:43:21.740Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T11",
