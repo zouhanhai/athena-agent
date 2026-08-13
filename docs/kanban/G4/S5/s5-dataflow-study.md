@@ -47,6 +47,19 @@ Local kanban 视图通过 **Progress Log 判断 stalled** 是很好的模式，�
 2. **Local kanban 视图去留**：暂不删（用户认为 stalled 判断模式有用），G6 再讨论。
 3. **stalled 误判修复方向**：以上 A-E 方案选择。
 
+## 方向决策（2026-08-13）
+
+**两版功能分层**（用户决定）：平台分 web 版 + app 版，功能按场景分层：
+
+| | **Web 版**（远程协作）| **App 版**（本地开发）|
+|---|---|---|
+| 场景 | 团队远程，浏览器连平台 | 本地安装，本机跑 worker |
+| 读数据 | GitHub Project 视图为主 | 读本机文件系统 + worker |
+| Progress Log / stalled | **不显示**（浏览器读不到本地，避免误判）| **显示**（读本机 md/worker，准确 stalled）|
+| 定位 | 团队协作、GitHub 看板 | 单机开发、进度监控 |
+
+**核心认知**：Progress Log（本地）在 web 下传不回来，是浏览器读不到本地文件系统的固有限制；app 版天然能读本机所以 stalled 准确。web 版专注 GitHub Project 视图（不依赖本地 Progress Log），app 版承载 Local kanban + Progress Log + stalled。
+
 ## 结论
 
-Local kanban 的 stalled 判断模式有价值，但**远程场景下 Progress Log 不可见**导致误判。需要决策 stalled 信号源（服务端本地 vs commit vs GitHub 信号）。此为 S5 收尾后的一个待研究项。
+Local kanban 的 stalled 判断模式有价值，但**web 场景下 Progress Log 不可见**导致误判。**方向：web 版不带 stalled 同步（专注 GitHub Project 视图），app 版带（读本机，stalled 准确）**。app 版作为本地开发工具，与 web 控制平面互补。此为 S5 收尾后的一个方向决策，细节留到 S6（远程 agent 联邦）一起设计。
