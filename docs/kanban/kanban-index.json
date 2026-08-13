@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T20:24:17.105Z",
+  "generated_at": "2026-08-13T20:48:05.606Z",
   "goals": [
     {
       "ref": "G1",
@@ -2687,6 +2687,25 @@
               "progress_last_row": "ran bash",
               "progress_updated_at": "2026-08-13T20:04:47.769Z",
               "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T13",
+              "id": "G4.S5.T13",
+              "title": "Remove the stalled indicator from the web Local kanban (GitHub has no Progress Log → misjudges); preserve the logic for G7 (app version)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T12"
+              ],
+              "acceptance_criteria": [
+                "The Local kanban view in the web Workbench no longer shows the STALLED badge on cards (isStalled is no longer rendered)",
+                "The 'updated Xs ago' / 'updated ...' text stays (still useful), but no stalled flag is derived from it in the web tier",
+                "The stalled logic (isStalled + DEFAULT_STALL_MS) is either (a) removed from the web bundle, or (b) kept in a shared module clearly marked as app-only for G7 reuse",
+                "The CSS for .kanban-card-stalled / .kanban-card-updated-stalled and the related test assertions are updated/removed",
+                "Web tests green + vue-tsc clean"
+              ]
             }
           ]
         },
