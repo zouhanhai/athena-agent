@@ -5,12 +5,12 @@
 
 ## One-Line Positioning
 
-Provide the CALEO department a **unified intelligent collaboration portal** for the whole team (not
-just a few seats): each person has their own intelligent assistant; the team shares conversations, a
-company-wide **knowledge base** (self-built RAG + Wiki), and a **git-driven Kanban** — all powered by
-open-source components, with cross-machine multi-agent collaboration via a git repo and a
-**control-plane** model (agents stay local, the platform routes and coordinates). The KB is the
-organization's shared knowledge store, growing across the whole CALEO consultancy.
+Provide CALEO a **unified intelligent collaboration portal** for the whole team: each person has
+their own intelligent assistant; the team shares conversations, a company-wide **knowledge base**
+(self-built RAG + Wiki), and a **git-driven Kanban** — all powered by open-source components, with
+cross-machine multi-agent collaboration via a git repo and a **control-plane** model (agents stay
+local, the platform routes and coordinates). The KB is the organization's shared knowledge store,
+growing across the whole CALEO consultancy.
 
 ## Architecture
 
