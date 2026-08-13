@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T14:59:45.040Z",
+  "generated_at": "2026-08-13T15:01:00.096Z",
   "goals": [
     {
       "ref": "G1",
@@ -2497,16 +2497,20 @@
               "id": "G4.S5.T5",
               "title": "Fix plugin done double-commit races: (3a) index commit not pushed on push-failure, (3b) duplicate index commit when worker also regens",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_0045c5a0dffeT18SNX8N7DhpCs",
               "blocked_by": [],
               "acceptance_criteria": [
                 "3a FIXED: when the plugin's `index done <ref>` commit push fails and rebase makes the index already reflect done, the local un-pushed commit is still pushed (no more `[ahead 1]` orphan index commits on 6900XT)",
                 "3b FIXED: when a worker has already manually regenerated + committed the index for the done ticket, the plugin's session.idle handler does NOT create a second `index done` commit (exactly one index commit per done)",
                 "Both verified with plugin unit tests (mock git push failure + mock worker-already-regenerated index)",
                 "Plugin tests green (npx tsx --test), server tests green, typecheck clean"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T5 (session ses_0045c5a0dffeT18SNX8N7DhpCs)",
+              "progress_updated_at": "2026-08-13T15:01:00.083Z",
+              "progress_status": "in_progress"
             }
           ]
         },
