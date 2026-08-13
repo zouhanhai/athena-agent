@@ -531,7 +531,7 @@ describe("KanbanTab", () => {
     }
   });
 
-  it("flags an in_progress card as stalled when its last row is older than ~3 min (G4.S4.T2)", async () => {
+  it("does NOT render a stalled badge on an old in_progress card — web reads remote GitHub md which lacks the local Progress Log (G4.S5.T13)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-13T10:00:00Z"));
     try {
@@ -541,8 +541,14 @@ describe("KanbanTab", () => {
       const wrapper = await mountKanbanTab();
       const inProgress = columnByStatus(wrapper, "in_progress");
       const card = inProgress!.find(".kanban-card");
-      // BOARD.T2 is in_progress with progress_updated_at 2026-08-09 15:50Z → old.
-      expect(card!.find(".kanban-card-stalled").text()).toContain("stalled");
+      // BOARD.T2 is in_progress with progress_updated_at 2026-08-09 15:50Z → old,
+      // but the web tier must NOT derive a stalled flag from it (GitHub md has
+      // no local Progress Log, so a stale remote timestamp is not evidence of
+      // a stalled worker).
+      expect(card!.find(".kanban-card-stalled").exists()).toBe(false);
+      expect(card!.text()).not.toContain("stalled");
+      // 'updated Xs ago' stays — it is context, not a stalled judgment.
+      expect(card!.find(".kanban-card-updated").exists()).toBe(true);
       wrapper.unmount();
     } finally {
       vi.useRealTimers();

@@ -2,10 +2,11 @@
  * Kanban card progress display helpers (G4.S4.T2).
  *
  * Each ticket's last Progress Log row (written by the worker plugin, parsed on
- * the server) carries a real wall-clock UTC timestamp. The board renders it as
- * "updated Xs ago" and flags a ticket as STALLED when it is in_progress yet its
- * last row is old (> ~3 min) — an OBSERVATION only, derived from the Progress
- * Log timestamp, never written back to the ticket frontmatter.
+ * the server) carries a real wall-clock UTC timestamp. `updatedAgoText` renders
+ * it as "updated Xs ago" on the web board. `isStalled` flags a ticket as STALLED
+ * when it is in_progress yet its last row is old (> ~3 min) — an OBSERVATION
+ * only, derived from the Progress Log timestamp, never written back to the
+ * ticket frontmatter.
  */
 
 /** Format an elapsed delta as "Xs ago" / "Xm ago" / "Xh ago" / "Xd ago". */
@@ -34,6 +35,9 @@ export const DEFAULT_STALL_MS = 3 * 60_000;
  * Stalled is an OBSERVATION flag: an in_progress ticket whose last Progress Log
  * row timestamp is older than `stallMs` (~3 min default). Non-in_progress
  * tickets are never stalled. Does NOT modify the ticket frontmatter.
+ *
+ * app-tier only (G7 local desktop app); the web tier reads remote GitHub md
+ * which lacks the local Progress Log, so stalled is not shown there.
  */
 export function isStalled(
   status: string,

@@ -18,7 +18,7 @@ import {
   type KanbanIndexTicket,
   type TicketStatus,
 } from "@/api/kanban";
-import { updatedAgoText, isStalled } from "@/kanban/progress";
+import { updatedAgoText } from "@/kanban/progress";
 import { parseTicketMd, type ParsedTicket } from "@/kanban/ticket-md";
 import { renderMarkdown } from "@/kb/markdown";
 
@@ -77,7 +77,7 @@ const columnsGrid = computed(() => {
   return { gridTemplateColumns: cols };
 });
 
-/** Live clock for the 'updated Xs ago' label — ticks so a card visibly goes stale. */
+/** Live clock for the 'updated Xs ago' label — ticks so the age stays fresh. */
 const now = ref(Date.now());
 let nowTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -501,15 +501,8 @@ watch(view, (next) => {
                 <span
                   v-if="card.ticket.progress_updated_at"
                   class="kanban-card-updated"
-                  :class="{ 'kanban-card-updated-stalled': isStalled(card.ticket.status, card.ticket.progress_updated_at, now) }"
                 >
                   {{ updatedAgoText(card.ticket.progress_updated_at, now) }}
-                </span>
-                <span
-                  v-if="isStalled(card.ticket.status, card.ticket.progress_updated_at, now)"
-                  class="kanban-card-stalled"
-                >
-                  stalled
                 </span>
                 <span class="kanban-card-status" :class="`kanban-card-status-${card.ticket.status}`">
                   {{ statusLabel(card.ticket.status) }}
@@ -1777,24 +1770,6 @@ watch(view, (next) => {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--caleo-text-secondary);
-}
-
-.kanban-card-updated-stalled {
-  color: var(--caleo-error);
-}
-
-/* Stalled is an OBSERVATION flag only — derived from the Progress Log last-row
-   timestamp; it never modifies the ticket frontmatter status. */
-.kanban-card-stalled {
-  align-self: flex-start;
-  padding: 1px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #fff;
-  background: #cf222e;
-  border-radius: 999px;
 }
 
 .kanban-card-assignee {
