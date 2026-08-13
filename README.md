@@ -64,8 +64,25 @@ See `docs/distributed-pi-collaboration.md` (3-tier federation) and `docs/knowled
 
 Manage all with `scripts/start-all.sh` (idempotent; logs in `~/.athena-tmp/`).
 
-## Development Model (G4)
+## Development Model (by Goal)
 
+### G1 — Project skeleton + personal conversation
+Node/TS + Fastify backend with Pi's AgentSession embedded (one long-lived, isolated session per
+employee). Vue3 + TDesign frontend with the CALEO theme (orange `#ff6633`, dark/light toggle, sidebar).
+Personal chat end-to-end: frontend → backend → AgentSession → OpenRouter → answer.
+
+### G2 — Knowledge base
+docling parses documents (PDFs incl. VLM image descriptions); an **Athena single-pass refinement**
+re-levels headers, judges topic, and extracts chunks/entities/relations/keywords once (no repeated LLM
+passes). Downstream: llm_wiki (interlinked markdown KB) + retrieval routing.
+
+### G3 — Multi-agent federation + team workbench
+Agent registry (PG: alias/owner/logo/capabilities/MCP), employee identity + RBAC + per-user GitHub
+credentials, a global shared Chat panel, a GitHub-style Workbench (Code / Issues / Kanban tabs), and an
+Uploads page (per-system ingest stages + chunk progress). Git-driven development protocol
+(worker-agnostic 6-role lifecycle).
+
+### G4 — KB intelligence, RAG self-build & agent collaboration
 - **Kanban = git repo** — `docs/kanban/` (Goals → Specs → Tickets) is the source of truth; agents
   write tickets directly.
 - **Auto-claim plugin** (G4.S4) — an OpenCode plugin auto-claims on a worker's first tool call
@@ -75,6 +92,10 @@ Manage all with `scripts/start-all.sh` (idempotent; logs in `~/.athena-tmp/`).
 - **Worker progress** is readable from the ticket file (last Progress Log row → "updated Xs ago" +
   stalled flag on the Kanban board).
 - **AGENTS.md** is the worker protocol; `docs/kanban/TICKET-WORKFLOW.md` is the full workflow.
+- **RAG self-build** (G4.S2): Neo4j 2026 lean store replaces LightRAG — vector + BM25 + graph + topic
+  fusion, cross-encoder rerank, case-insensitive node lookup.
+- **Agentic RAG** (G4.S3): `search_knowledge` into Athena chat — QA-pair reuse, term expansion,
+  multi-hop graph reasoning, not-found → web fallback, clarify only when genuinely needed.
 
 ## Progress (git-driven kanban)
 
