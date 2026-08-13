@@ -24,6 +24,8 @@ export interface BoardTicket {
 export interface BoardSpec {
   ref: string; // "G1.S1"
   spec: SpecFrontmatter;
+  /** The spec body (after frontmatter) when the scan asked for it (G4.S5 projection). */
+  body?: string;
   tickets: BoardTicket[];
 }
 
@@ -180,6 +182,7 @@ export async function scanBoard(root: string, options: ScanOptions = {}): Promis
     for (const specDir of specNames) {
       const specPath = path.join(root, goalDir, specDir, "Spec.md");
       let spec: SpecFrontmatter;
+      let specBody: string | undefined;
       try {
         const content = await readFile(specPath, "utf8");
         const parsed = parseBoardFile(content);
@@ -187,6 +190,7 @@ export async function scanBoard(root: string, options: ScanOptions = {}): Promis
           throw new Error(`expected layer: S`);
         }
         spec = parsed.frontmatter as SpecFrontmatter;
+        specBody = options.includeBody ? parsed.body : undefined;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") continue; // no Spec.md → not a spec
         errors.push({ file: specPath, error: err instanceof Error ? err.message : String(err) });
@@ -215,7 +219,12 @@ export async function scanBoard(root: string, options: ScanOptions = {}): Promis
         }
       }
 
-      specs.push({ ref: `${goalDir}.${specDir}`, spec, tickets });
+      specs.push({
+        ref: `${goalDir}.${specDir}`,
+        spec,
+        ...(specBody !== undefined ? { body: specBody } : {}),
+        tickets,
+      });
     }
 
     goals.push({ ref: goalDir, goal, specs });
@@ -294,6 +303,7 @@ export async function scanRemoteBoard(
       const specPath = `${BOARD_ROOT}${goalName}/${specName}/Spec.md`;
       if (!entries.has(specPath)) continue; // no Spec.md → not a spec
       let spec: SpecFrontmatter;
+      let specBody: string | undefined;
       try {
         const file = await github.getFileContent(credential, owner, repo, specPath, ref);
         const parsed = parseBoardFile(file.content);
@@ -301,6 +311,7 @@ export async function scanRemoteBoard(
           throw new Error("expected layer: S");
         }
         spec = parsed.frontmatter as SpecFrontmatter;
+        specBody = options.includeBody ? parsed.body : undefined;
       } catch (err) {
         errors.push({ file: specPath, error: err instanceof Error ? err.message : String(err) });
         continue;
@@ -347,7 +358,12 @@ export async function scanRemoteBoard(
         }
       }
 
-      specs.push({ ref: `${goalName}.${specName}`, spec, tickets });
+      specs.push({
+        ref: `${goalName}.${specName}`,
+        spec,
+        ...(specBody !== undefined ? { body: specBody } : {}),
+        tickets,
+      });
     }
 
     goals.push({ ref: goalName, goal, specs });

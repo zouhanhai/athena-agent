@@ -6,6 +6,7 @@ import {
   type GithubProjectItem,
   type GithubProjectSelectOption,
   type GithubProjectStatusField,
+  type ProjectV2StatusOptionInput,
 } from "./client.js";
 
 export interface GithubGraphqlClientOptions {
@@ -42,7 +43,7 @@ interface ProjectItemNode {
 interface StatusFieldNode {
   id?: string;
   name?: string;
-  options?: Array<{ id?: string; name?: string } | null> | null;
+  options?: Array<{ id?: string; name?: string; color?: string; description?: string } | null> | null;
 }
 
 const GRAPHQL_HEADERS: Record<string, string> = {
@@ -108,18 +109,42 @@ export class GithubGraphqlClient {
     return envelope.data;
   }
 
-  /** Resolve an owner login (user or org) to its GraphQL node id. */
+  /**
+   * Resolve an owner login (user or org) to its GraphQL node id. GitHub errors
+   * a field whose login kind does not match (`user(login: "org")`), so the two
+   * kinds are queried separately and a "could not resolve" error is treated as
+   * a non-match for that kind.
+   */
   async resolveOwnerId(credential: GithubCredential, owner: string): Promise<string> {
-    const data = await this.gql<{ user?: { id?: string } | null; organization?: { id?: string } | null }>(
-      credential,
-      `query($owner: String!) { user(login: $owner) { id } organization(login: $owner) { id } }`,
-      { owner },
-    );
-    const id = data.user?.id ?? data.organization?.id;
-    if (!id) {
+    const user = await this.lookupOwnerId(credential, owner, "user");
+    if (user) {
+      return user;
+    }
+    const organization = await this.lookupOwnerId(credential, owner, "organization");
+    if (!organization) {
       throw new Error(`GitHub owner "${owner}" not found for Projects v2`);
     }
-    return id;
+    return organization;
+  }
+
+  private async lookupOwnerId(
+    credential: GithubCredential,
+    owner: string,
+    kind: "user" | "organization",
+  ): Promise<string | null> {
+    try {
+      const data = await this.gql<{ [key: string]: { id?: string } | null }>(
+        credential,
+        `query($owner: String!) { ${kind}(login: $owner) { id } }`,
+        { owner },
+      );
+      return data[kind]?.id ?? null;
+    } catch (err) {
+      if (err instanceof Error && /could not resolve/i.test(err.message)) {
+        return null;
+      }
+      throw err;
+    }
   }
 
   /** Create a Project v2 board owned by the user/org login. */
@@ -150,20 +175,38 @@ export class GithubGraphqlClient {
 
   /** Find a Project v2 board owned by the user/org login by exact title, or null. */
   async getProjectByTitle(credential: GithubCredential, owner: string, title: string): Promise<GithubProject | null> {
-    const data = await this.gql<{
-      user?: { projectsV2?: { nodes?: ProjectNode[] | null } | null } | null;
-      organization?: { projectsV2?: { nodes?: ProjectNode[] | null } | null } | null;
-    }>(
-      credential,
-      `query($owner: String!, $first: Int!) {
-        user(login: $owner) { projectsV2(first: $first) { nodes { id title number url } } }
-        organization(login: $owner) { projectsV2(first: $first) { nodes { id title number url } } }
-      }`,
-      { owner, first: 100 },
-    );
-    const nodes = [...(data.user?.projectsV2?.nodes ?? []), ...(data.organization?.projectsV2?.nodes ?? [])];
-    const match = nodes.find((n) => n?.title === title);
-    return match ? { id: match.id, title: match.title, number: match.number, url: match.url } : null;
+    const asUser = await this.lookupProjectByTitle(credential, owner, title, "user");
+    if (asUser) {
+      return asUser;
+    }
+    return this.lookupProjectByTitle(credential, owner, title, "organization");
+  }
+
+  private async lookupProjectByTitle(
+    credential: GithubCredential,
+    owner: string,
+    title: string,
+    kind: "user" | "organization",
+  ): Promise<GithubProject | null> {
+    try {
+      const data = await this.gql<{
+        [key: string]: { projectsV2?: { nodes?: ProjectNode[] | null } | null } | null;
+      }>(
+        credential,
+        `query($owner: String!, $first: Int!) {
+          ${kind}(login: $owner) { projectsV2(first: $first) { nodes { id title number url } } }
+        }`,
+        { owner, first: 100 },
+      );
+      const nodes = data[kind]?.projectsV2?.nodes ?? [];
+      const match = nodes.find((n) => n?.title === title);
+      return match ? { id: match.id, title: match.title, number: match.number, url: match.url } : null;
+    } catch (err) {
+      if (err instanceof Error && /could not resolve/i.test(err.message)) {
+        return null;
+      }
+      throw err;
+    }
   }
 
   /** Add an issue (by its GraphQL node id) to a Project v2 board. */
@@ -181,22 +224,24 @@ export class GithubGraphqlClient {
 
   /** List the cards of a Project v2 board, with their linked issue + Status option. */
   async getProjectItems(credential: GithubCredential, projectId: string): Promise<GithubProjectItem[]> {
-    const data = await this.gql<{ projectV2?: { items?: { nodes?: ProjectItemNode[] | null } | null } | null }>(
+    const data = await this.gql<{ node?: { items?: { nodes?: ProjectItemNode[] | null } | null } | null }>(
       credential,
       `query($projectId: ID!, $first: Int!) {
-        projectV2(id: $projectId) {
-          items(first: $first) {
-            nodes {
-              id
-              content { ... on Issue { id number title } }
-              fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: $first) {
+              nodes {
+                id
+                content { ... on Issue { id number title } }
+                fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+              }
             }
           }
         }
       }`,
       { projectId, first: 100 },
     );
-    const nodes = data.projectV2?.items?.nodes ?? [];
+    const nodes = data.node?.items?.nodes ?? [];
     const items: GithubProjectItem[] = [];
     for (const node of nodes) {
       if (!node?.id) {
@@ -219,26 +264,33 @@ export class GithubGraphqlClient {
     credential: GithubCredential,
     projectId: string,
   ): Promise<GithubProjectStatusField> {
-    const data = await this.gql<{ projectV2?: { fields?: { nodes?: StatusFieldNode[] | null } | null } | null }>(
+    const data = await this.gql<{ node?: { fields?: { nodes?: StatusFieldNode[] | null } | null } | null }>(
       credential,
       `query($projectId: ID!, $first: Int!) {
-        projectV2(id: $projectId) {
-          fields(first: $first) {
-            nodes {
-              ... on ProjectV2SingleSelectField { id name options { id name } }
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            fields(first: $first) {
+              nodes {
+                ... on ProjectV2SingleSelectField { id name options { id name color description } }
+              }
             }
           }
         }
       }`,
       { projectId, first: 100 },
     );
-    const field = (data.projectV2?.fields?.nodes ?? []).find((n) => n?.name === "Status");
+    const field = (data.node?.fields?.nodes ?? []).find((n) => n?.name === "Status");
     if (!field?.id) {
       throw new Error(`GitHub Project ${projectId} has no Status single-select field`);
     }
     const options: GithubProjectSelectOption[] = (field.options ?? [])
-      .filter((o): o is { id: string; name: string } => Boolean(o?.id && o?.name))
-      .map((o) => ({ id: o.id, name: o.name }));
+      .filter((o): o is { id: string; name: string; color?: string; description?: string } => Boolean(o?.id && o?.name))
+      .map((o) => ({
+        id: o.id,
+        name: o.name,
+        ...(o.color ? { color: o.color } : {}),
+        ...(o.description ? { description: o.description } : {}),
+      }));
     return { fieldId: field.id, options };
   }
 
@@ -256,7 +308,7 @@ export class GithubGraphqlClient {
     }
     await this.gql(
       credential,
-      `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: ID!) {
+      `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
         updateProjectV2ItemFieldValue(input: {
           projectId: $projectId,
           itemId: $itemId,
@@ -267,6 +319,41 @@ export class GithubGraphqlClient {
         }
       }`,
       { projectId, itemId, fieldId, optionId: option.id },
+    );
+  }
+
+  /**
+   * Ensure the Status field carries the given single-select options: adds the
+   * missing ones (preserving existing options) via updateProjectV2Field, since
+   * the default Status field ships only Todo/In Progress/Done.
+   */
+  async ensureStatusFieldOptions(
+    credential: GithubCredential,
+    projectId: string,
+    options: ProjectV2StatusOptionInput[],
+  ): Promise<void> {
+    const { fieldId, options: existing } = await this.getStatusField(credential, projectId);
+    const existingNames = new Set(existing.map((o) => o.name));
+    const missing = options.filter((o) => !existingNames.has(o.name));
+    if (missing.length === 0) {
+      return;
+    }
+    const merged = [
+      ...existing.map((o) => ({
+        name: o.name,
+        color: o.color ?? "GRAY",
+        description: o.description ?? o.name,
+      })),
+      ...missing,
+    ];
+    await this.gql(
+      credential,
+      `mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+        updateProjectV2Field(input: { fieldId: $fieldId, singleSelectOptions: $options }) {
+          projectV2Field { ... on ProjectV2SingleSelectField { id } }
+        }
+      }`,
+      { fieldId, options: merged },
     );
   }
 }

@@ -89,6 +89,15 @@ export interface GithubProject {
 export interface GithubProjectSelectOption {
   id: string;
   name: string;
+  color?: string;
+  description?: string;
+}
+
+/** Input for (re)configuring a Project v2 single-select option (e.g. a Status option). */
+export interface ProjectV2StatusOptionInput {
+  name: string;
+  color: string;
+  description: string;
 }
 
 /** A single card (item) on a Project v2 board. */
@@ -282,6 +291,16 @@ export interface GitHubApi {
   ): Promise<GithubIssue>;
   /** Resolve a milestone's number by title, or null when absent. */
   getMilestoneByTitle(credential: GithubCredential, owner: string, repo: string, title: string): Promise<number | null>;
+  /** Create a milestone by title and return its number. */
+  createMilestone(credential: GithubCredential, owner: string, repo: string, title: string): Promise<number>;
+  /** Add "blocked by" issue-dependency links on an issue (G4.S5 blocked_by sync). */
+  setIssueDependencies(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    dependencyIssueIds: number[],
+  ): Promise<void>;
   /** Create a Project v2 board owned by the user/org and return it. */
   createProject(credential: GithubCredential, owner: string, title: string): Promise<GithubProject>;
   /** Find a Project v2 board owned by the user/org by title, or null. */
@@ -296,6 +315,12 @@ export interface GitHubApi {
     projectId: string,
     itemId: string,
     optionName: string,
+  ): Promise<void>;
+  /** Ensure the Project's Status field carries the given options (adds missing ones, idempotent). */
+  ensureStatusFieldOptions(
+    credential: GithubCredential,
+    projectId: string,
+    options: ProjectV2StatusOptionInput[],
   ): Promise<void>;
 }
 
@@ -897,6 +922,55 @@ export class GithubRestClient implements GitHubApi {
     return null;
   }
 
+  async createMilestone(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    title: string,
+  ): Promise<number> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/milestones`, {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    });
+    const data = (await this.json(response)) as { number?: unknown };
+    const number = this.positiveInt(data.number);
+    if (number === null) {
+      throw new Error(`GitHub failed to create milestone "${title}"`);
+    }
+    return number;
+  }
+
+  async setIssueDependencies(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    dependencyIssueIds: number[],
+  ): Promise<void> {
+    for (const id of dependencyIssueIds) {
+      try {
+        await this.request(
+          credential,
+          `/repos/${owner}/${repo}/issues/${issueNumber}/dependencies/blocked_by`,
+          {
+            method: "POST",
+            body: JSON.stringify({ issue_id: id }),
+          },
+        );
+      } catch (err) {
+        // Idempotent: GitHub 422s when the dependency already exists.
+        if (
+          err instanceof Error &&
+          (err as { status?: number }).status === 422 &&
+          /already been taken/i.test(err.message)
+        ) {
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
   async createProject(credential: GithubCredential, owner: string, title: string): Promise<GithubProject> {
     return this.graphql.createProject(credential, owner, title);
   }
@@ -920,5 +994,13 @@ export class GithubRestClient implements GitHubApi {
     optionName: string,
   ): Promise<void> {
     return this.graphql.setItemStatusField(credential, projectId, itemId, optionName);
+  }
+
+  async ensureStatusFieldOptions(
+    credential: GithubCredential,
+    projectId: string,
+    options: ProjectV2StatusOptionInput[],
+  ): Promise<void> {
+    return this.graphql.ensureStatusFieldOptions(credential, projectId, options);
   }
 }
