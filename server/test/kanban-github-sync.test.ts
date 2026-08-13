@@ -305,7 +305,7 @@ test("getRepoProjects queries the repo's linked projectsV2 and returns them (G4.
   const projects = await client.getRepoProjects(tokenCredential, "CALEO-Consulting", "caleo.int.abaplorer");
   const body = sentBody as { query: string; variables: Record<string, unknown> };
   assert.match(body.query, /repository\(owner: \$owner, name: \$name\)/);
-  assert.match(body.query, /projectsV2\(first: \$first\) \{ nodes \{ id title number url \} \}/);
+  assert.match(body.query, /projectsV2\(first: \$first\) \{ nodes \{ id title number url closed \} \}/);
   assert.deepEqual(body.variables, { owner: "CALEO-Consulting", name: "caleo.int.abaplorer", first: 100 });
   assert.deepEqual(projects, [
     { id: "PVT_1", title: "Abaplorer Project", number: 9, url: "https://github.com/orgs/caleo/projects/9" },
