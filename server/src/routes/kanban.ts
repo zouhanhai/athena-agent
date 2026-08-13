@@ -53,6 +53,58 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
     if (!employee) {
       return reply.code(401).send({ error: "unauthorized" });
     }
+    const query = request.query as { repo?: unknown; project?: unknown };
+    const repoParam = optionalString(query.repo);
+    const projectParam = optionalString(query.project);
+    if (!repoParam) {
+      return reply.code(400).send({ error: "repo is required (owner/repo form)" });
+    }
+    const parts = repoParam.split("/");
+    const owner = parts[0] ?? "";
+    const repo = parts[1] ?? "";
+    if (parts.length !== 2 || !owner || !repo) {
+      return reply.code(400).send({ error: "repo must be in owner/repo form" });
+    }
+    try {
+      const credential = await employees.getGithubCredential(employee.email);
+      if (!credential) {
+        return reply.code(400).send({ error: "no github credential registered" });
+      }
+      // G4.S5.T11/T12: resolve the Project via the repo's linked projectsV2
+      // (repository{ projectsV2 }) — works for ANY repo-linked project regardless
+      // of its title (title-guessing missed e.g. caleo.int.abaplorer → "Abaplorer
+      // Project"). getRepoProjects returns only OPEN linked projects (T12).
+      const projects = await github.getRepoProjects(credential, owner, repo);
+      // T12: serve the project the user picked in the selector (by its id), or
+      // the first open linked project when none is specified.
+      const project = projectParam
+        ? (projects.find((p) => p.id === projectParam) ?? null)
+        : (projects[0] ?? null);
+      if (!project) {
+        return reply.code(404).send({ error: `no linked GitHub Project for ${owner}/${repo}` });
+      }
+      const items = await github.getProjectItems(credential, project.id);
+      // Repo issues carry the ticket sub-issues' open/closed state, from which
+      // each Spec card's segmented sub-task progress is computed (T6).
+      const issues = await github.listIssues(credential, owner, repo, "all");
+      return buildGithubProjectBoard(project, items, issues, (issueNumber) =>
+        `https://github.com/${owner}/${repo}/issues/${issueNumber}`,
+      );
+    } catch (err) {
+      if (err instanceof GithubAuthError) {
+        return reply.code(401).send({ error: err.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // G4.S5.T12 — the open linked Projects list for the GitHub Project view's
+  // selector (a repo can have several linked Projects; closed ones are hidden).
+  app.get("/api/kanban/github-projects", async (request, reply) => {
+    const employee = await currentEmployee(request, auth);
+    if (!employee) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
     const query = request.query as { repo?: unknown };
     const repoParam = optionalString(query.repo);
     if (!repoParam) {
@@ -69,22 +121,8 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
       if (!credential) {
         return reply.code(400).send({ error: "no github credential registered" });
       }
-      // G4.S5.T11: resolve the Project via the repo's linked projectsV2
-      // (repository{ projectsV2 }) — works for ANY repo-linked project
-      // regardless of its title (title-guessing missed e.g. caleo.int.abaplorer
-      // → "Abaplorer Project"). Use the first linked project.
       const projects = await github.getRepoProjects(credential, owner, repo);
-      const project = projects[0] ?? null;
-      if (!project) {
-        return reply.code(404).send({ error: `no linked GitHub Project for ${owner}/${repo}` });
-      }
-      const items = await github.getProjectItems(credential, project.id);
-      // Repo issues carry the ticket sub-issues' open/closed state, from which
-      // each Spec card's segmented sub-task progress is computed (T6).
-      const issues = await github.listIssues(credential, owner, repo, "all");
-      return buildGithubProjectBoard(project, items, issues, (issueNumber) =>
-        `https://github.com/${owner}/${repo}/issues/${issueNumber}`,
-      );
+      return { projects };
     } catch (err) {
       if (err instanceof GithubAuthError) {
         return reply.code(401).send({ error: err.message });

@@ -677,6 +677,167 @@ test("GET /api/kanban/github-project surfaces a GitHub auth failure as 401", asy
   assert.match(res.json().error, /GitHub rejected/);
 });
 
+// ---------------------------------------------------------------------------
+// G4.S5.T12 — GET /api/kanban/github-project project selector + github-projects
+// ---------------------------------------------------------------------------
+
+test("GET /api/kanban/github-projects requires authentication", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/kanban/github-projects?repo=acme/box" });
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/kanban/github-projects requires a repo param in owner/repo form", async () => {
+  const sessionToken = await login("alice@caleo.com");
+  const noRepo = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-projects",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(noRepo.statusCode, 400);
+  const malformed = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-projects?repo=notarepo",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(malformed.statusCode, 400);
+  assert.match(malformed.json().error, /owner\/repo/);
+});
+
+test("GET /api/kanban/github-projects lists the repo's open linked projects for the selector (G4.S5.T12)", async () => {
+  const open: GithubProject = {
+    id: "PVT_open",
+    title: "zouhanhai/athena-agent",
+    number: 3,
+    url: "https://github.com/zouhanhai/athena-agent/projects/3",
+  };
+  const second: GithubProject = {
+    id: "PVT_second",
+    title: "Second project",
+    number: 4,
+    url: "https://github.com/zouhanhai/athena-agent/projects/4",
+  };
+  const github = new FakeProjectGithub(
+    new Map([["zouhanhai/athena-agent", [open, second]]]),
+    new Map(),
+  );
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-projects?repo=zouhanhai/athena-agent",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { projects: GithubProject[] }).projects, [open, second]);
+});
+
+test("GET /api/kanban/github-project serves the specified project when ?project=<id> is passed (G4.S5.T12)", async () => {
+  const open: GithubProject = {
+    id: "PVT_open",
+    title: "zouhanhai/athena-agent",
+    number: 3,
+    url: "https://github.com/zouhanhai/athena-agent/projects/3",
+  };
+  const second: GithubProject = {
+    id: "PVT_second",
+    title: "Second project",
+    number: 4,
+    url: "https://github.com/zouhanhai/athena-agent/projects/4",
+  };
+  const github = new FakeProjectGithub(
+    new Map([["zouhanhai/athena-agent", [open, second]]]),
+    new Map([
+      [open.id, [{ id: "PVTI_a", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench kanban sync", status: "Backlog" }]],
+      [second.id, [{ id: "PVTI_b", issueId: "I_2", issueNumber: 2, title: "G4.S5.T1", status: "Done" }]],
+    ]),
+  );
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent&project=PVT_second",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as GithubProjectBoard;
+  assert.equal(body.project.id, "PVT_second");
+  assert.equal(body.project.title, "Second project");
+  assert.equal(body.columns[0].cards[0].ref, "G4.S5.T1");
+});
+
+test("GET /api/kanban/github-project serves the FIRST open project when no ?project is passed (G4.S5.T12)", async () => {
+  const open: GithubProject = {
+    id: "PVT_open",
+    title: "zouhanhai/athena-agent",
+    number: 3,
+    url: "https://github.com/zouhanhai/athena-agent/projects/3",
+  };
+  const second: GithubProject = {
+    id: "PVT_second",
+    title: "Second project",
+    number: 4,
+    url: "https://github.com/zouhanhai/athena-agent/projects/4",
+  };
+  const github = new FakeProjectGithub(
+    new Map([["zouhanhai/athena-agent", [open, second]]]),
+    new Map([
+      [open.id, [{ id: "PVTI_a", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench kanban sync", status: "Backlog" }]],
+      [second.id, [{ id: "PVTI_b", issueId: "I_2", issueNumber: 2, title: "G4.S5.T1", status: "Done" }]],
+    ]),
+  );
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as GithubProjectBoard;
+  assert.equal(body.project.id, "PVT_open");
+  assert.equal(body.project.title, "zouhanhai/athena-agent");
+});
+
+test("GET /api/kanban/github-project returns 404 for an unknown ?project=<id> (G4.S5.T12)", async () => {
+  const open: GithubProject = {
+    id: "PVT_open",
+    title: "zouhanhai/athena-agent",
+    number: 3,
+    url: "https://github.com/zouhanhai/athena-agent/projects/3",
+  };
+  const github = new FakeProjectGithub(
+    new Map([["zouhanhai/athena-agent", [open]]]),
+    new Map([[open.id, []]]),
+  );
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent&project=PVT_nope",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 404);
+  assert.match(res.json().error, /no linked GitHub Project/);
+});
+
+test("GET /api/kanban/github-project returns 404 when no open project remains (all closed) (G4.S5.T12)", async () => {
+  const github = new FakeProjectGithub(new Map(), new Map());
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 404);
+  assert.match(res.json().error, /no linked GitHub Project/);
+});
+
 // G4.S5.T4 — GET /api/kanban/github-issue-comments (local detail panel discussion)
 // -----------------------------------------------------------------------------
 
