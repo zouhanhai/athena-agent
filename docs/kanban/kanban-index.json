@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T13:06:10.491Z",
+  "generated_at": "2026-08-13T13:13:24.936Z",
   "goals": [
     {
       "ref": "G1",
@@ -2400,7 +2400,7 @@
               "id": "G4.S5.T1",
               "title": "GitHub GraphQL client + Project v2 API layer (createIssue, sub-issues, milestone, label, status field)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_004c572f9ffeaeG5LYk1uyRKBe",
               "blocked_by": [],
@@ -2412,8 +2412,8 @@
                 "Server tests green (mock GitHub GraphQL), typecheck clean"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T1 (session ses_004c572f9ffeaeG5LYk1uyRKBe)",
-              "progress_updated_at": "2026-08-13T13:06:10.474Z",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T13:13:00.073Z",
               "progress_status": "in_progress"
             },
             {
