@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T14:59:45.040Z",
+  "generated_at": "2026-08-13T15:39:26.190Z",
   "goals": [
     {
       "ref": "G1",
@@ -2506,6 +2506,26 @@
                 "3b FIXED: when a worker has already manually regenerated + committed the index for the done ticket, the plugin's session.idle handler does NOT create a second `index done` commit (exactly one index commit per done)",
                 "Both verified with plugin unit tests (mock git push failure + mock worker-already-regenerated index)",
                 "Plugin tests green (npx tsx --test), server tests green, typecheck clean"
+              ]
+            },
+            {
+              "ref": "G4.S5.T6",
+              "id": "G4.S5.T6",
+              "title": "Project board shows only Spec cards — tickets stay as sub-issues (GitHub-native progress bar); spec status column = md Spec status",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T4"
+              ],
+              "acceptance_criteria": [
+                "The GitHub Project board shows ONLY the Spec main issue as a card (one card per Spec), NOT the ticket sub-issues",
+                "Ticket sub-issues remain nested under the Spec issue (click Spec to see them) and keep the GitHub-native sub-task progress bar (X/N done)",
+                "The Spec card's Status column reflects the md Spec status (backlog/active/done → board column), NOT a per-ticket aggregate",
+                "T2's createSpecIssue no longer adds ticket sub-issues to the Project (only the Spec issue is added)",
+                "The Workbench GitHub Project view (T4) also renders only Spec cards (not ticket cards)",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ]
             }
           ]
