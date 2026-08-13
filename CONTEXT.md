@@ -56,8 +56,16 @@ An atomic task under a Spec (G1.S1.T1). Decomposed by Eng Director using to-tick
 _Avoid_: task, issue
 
 **Claim Lock**:
-The mechanism for a Worker to claim a ticket: modify frontmatter status=in_progress + git push atomic operation. Push conflict = mutual exclusion lock.
+The mechanism for a Worker to claim a ticket. Since G4.S4, an OpenCode plugin auto-claims on the worker's first tool call (writes status=in_progress + assignee + session_id, regens the kanban index, one commit). The claim is atomic via git (status change + push); a push conflict = mutual exclusion lock. Workers must NOT manually claim.
 _Avoid_: lock, reservation
+
+**Progress Log**:
+A `## Progress Log` table at the bottom of each ticket md file (UTC timestamp + status + one-line progress). Written by the OpenCode plugin on real change (tool ran / status moved), rate-limited — NOT every-minute. A stale last-row timestamp IS the "stalled" signal. Kanban reads the last row → shows "updated Xs ago" + a stalled flag.
+_Avoid_: changelog, activity log
+
+**Done Double-Commit (D29)**:
+When a worker marks a ticket `done`, the plugin (on `session.idle`) regenerates + commits the kanban index as a SEPARATE commit — the worker's done commit + the plugin's index commit = two commits. Fallback so the board stays current even if the worker forgets to regen the index.
+_Avoid_: single commit on done
 
 **Wiki**:
 LLM incrementally generated interlinked markdown knowledge base (Karpathy pattern).

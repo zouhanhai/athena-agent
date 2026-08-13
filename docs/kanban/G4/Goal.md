@@ -68,9 +68,13 @@ Corresponds to Milestone M4. Three thrusts:
   wiki edit→diff-refine→RAG re-embedding (kb.edit RBAC) + Admin console (employee/permission/invite).
   Server **928/928**, web **421/421**, vue-tsc 0. End-to-end verified: QA reuse, web fallback, clarify,
   Edit→re-ingest (refinement + 4 chunks re-embedded).
-- **G4.S4 (Worker progress + auto-claim via OpenCode plugin): in progress (2026-08-13)** —
-  T1 (plugin auto-claim + Progress Log), T2 (Kanban reads Progress Log + stalled), T3 (deploy 6900XT +
-  E2E). See `docs/kanban/G4/S4/Spec.md`.
+- **G4.S4 (Worker progress + auto-claim via OpenCode plugin): DONE (2026-08-13)** —
+  T1 (plugin auto-claim + Progress Log via git-lock + session.idle done double-commit),
+  T2 (Kanban reads Progress Log + updated-ago + stalled flag), T3 (deploy GLOBAL plugin dir +
+  concurrent double-claim fix + Progress append dedupe + done double-commit + AGENTS.md manual-claim
+  removal + E2E). Plugin tests 22/22, server 930/930, web 438/438, vue-tsc 0; verified end-to-end on
+  6900XT (auto-claim once, single progress rows, separate index-done commit).
+  See `docs/kanban/G4/S4/Spec.md`.
 - **G4.S5 (Kanban ↔ GitHub Issues sync): backlog** — next after S4.
 - **G4.S6 (Remote agent federation + KB-as-MCP): backlog** — independent.
 

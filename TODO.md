@@ -63,7 +63,7 @@
     demand scan frontmatter → decide re-topic / re-classify / deprecate(fade) / reinforce. `read_count` +
     `last_reviewed` show what's used vs rotting. No LightRAG re-chunk needed (fields live in wiki md only).
   - Source: LLM Wiki v2 gist (confidence, supersession, forgetting, consolidation).
-- [ ] **Worker progress tracking via ticket-file Progress Log** — spec `docs/spec-m4-worker-progress.md` (2026-08-09)
+- [x] **Worker progress tracking via ticket-file Progress Log** — spec `docs/spec-m4-worker-progress.md` (2026-08-09) — **DONE (2026-08-13, G4.S4 T1-T3)**. OpenCode plugin auto-claims (git-lock) + appends Progress Log rows (real UTC); session.idle → done double-commit (index separate commit); Kanban reads last row + "updated Xs ago" + stalled flag; AGENTS.md manual-claim removed; plugin deployed to GLOBAL opencode dir. Plugin 22/22, server 930/930, web 438/438, vue-tsc 0. E2E verified on 6900XT.
   - Pain: OpenCode workers don't update their ticket file → can't see progress/stuck without manually
     polling the session. Make progress readable directly from the ticket md file.
   - Design: a **Progress Log table at the bottom of each ticket file** (UTC timestamp + status + one-line
