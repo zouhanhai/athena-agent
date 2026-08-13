@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T17:21:02.535Z",
+  "generated_at": "2026-08-13T17:33:54.516Z",
   "goals": [
     {
       "ref": "G1",
@@ -915,7 +915,7 @@
           "id": "g3_s1",
           "title": "G3.S1: Agent Registry",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1009,7 +1009,7 @@
           "id": "g3_s2",
           "title": "G3.S2: Employee Identity + RBAC + GitHub Credentials",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1175,7 +1175,7 @@
           "id": "g3_s3",
           "title": "G3.S3: Global Chat Panel (Conversation + Agent Cards)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1235,7 +1235,7 @@
           "id": "g3_s4",
           "title": "G3.S4: Workbench (GitHub-Style Content Area)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1388,7 +1388,7 @@
           "id": "g3_s5",
           "title": "G3.S5: Uploads Page (Per-System Ingest Detail)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1497,7 +1497,7 @@
           "id": "g3_s6",
           "title": "G3.S6: Git-Driven Development (Platform Protocol + GitHub Integration)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1604,7 +1604,7 @@
           "id": "g3_s7",
           "title": "G3.S7: Frontend Polish (Theme Toggle Animation + Design Audit)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -1651,7 +1651,7 @@
           "id": "g3_s8",
           "title": "G3.S8: Knowledge Graph UX (remove Add Data from Knowledge, topic/localized graph views)",
           "owner": "pm",
-          "status": "in_progress",
+          "status": "active",
           "milestone": "M3",
           "tickets": [
             {
@@ -2571,7 +2571,7 @@
               "id": "G4.S5.T8",
               "title": "Spec detail panel: show sub-issues list, embed panel inside Kanban (not overlay Chat), add GitHub issue jump link",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_003e695a6ffeqfPou6pOR2dT23",
               "blocked_by": [
@@ -2588,14 +2588,14 @@
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T8 (session ses_003e695a6ffeqfPou6pOR2dT23)",
-              "progress_updated_at": "2026-08-13T17:09:32.382Z",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T17:33:36.091Z",
               "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T9",
               "id": "G4.S5.T9",
-              "title": "Revert T6: add ticket sub-issues back to the Project so GitHub board view shows them spread across columns (GitHub-native behavior) — Spec card keeps aggregated progress",
+              "title": "Revert T6 (sub-issues spread across board, GitHub-native) + brand-orange accent on Spec cards in the Workbench GitHub view",
               "owner": "eng-director",
               "status": "backlog",
               "assignee": "",
@@ -2608,6 +2608,8 @@
                 "The Spec card keeps its aggregated segmented progress bar (done/total from its closed sub-issues)",
                 "T6's 'only the Spec is a Project card' change is reverted: createSpecIssue adds each ticket sub-issue back to the Project (addIssueToProject), each synced to its status column",
                 "syncSpecStatus still moves the Spec card by its md Spec status (unchanged)",
+                "In the Workbench GitHub Project view, Spec cards are visually DISTINGUISHED from sub-issue cards by a brand-orange accent (border/background tint using --caleo-primary), while sub-issue cards stay plain — so you can tell an issue from a sub-issue at a glance",
+                "The Spec-card orange accent ADAPTS to dark AND light themes (use the theme CSS-variable system; a subtle tint in light mode, a readable bright accent in dark mode — e.g. a colored left border + a very light --caleo-primary background tint that stays legible in both themes)",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ]
             }
