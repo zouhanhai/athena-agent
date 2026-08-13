@@ -76,16 +76,18 @@ Manage all with `scripts/start-all.sh` (idempotent; logs in `~/.athena-tmp/`).
   stalled flag on the Kanban board).
 - **AGENTS.md** is the worker protocol; `docs/kanban/TICKET-WORKFLOW.md` is the full workflow.
 
-## Milestones
+## Progress (git-driven kanban)
 
-| Milestone | Status | Scope |
-|-----------|--------|-------|
-| **M1** Project skeleton + personal conversation (G1) | ✅ DONE | Node/TS + Fastify + AgentSession, Vue3 + CALEO theme |
-| **M2** Knowledge base (G2) | ✅ DONE | docling ingestion, retrieval routing, graph + wiki panels |
-| **M3** Multi-agent federation + team workbench (G3) | 🔄 | agent registry, RBAC, chat panel, workbench, uploads, git-driven dev |
-| **M4** KB intelligence + RAG self-build + collaboration (G4) | 🔄 | S1 refinement ✅, S2 Neo4j RAG ✅, S3 agentic RAG ✅, S4 worker progress ✅, S5 Kanban↔Issues, S6 federation |
-| **M5** Output page (txt/blog/charts/pptx/html) | planned | — |
-| **M6** Remote agent federation + A2A | planned | agents chat as peers, MCP-first KB access |
+Work is tracked as Goals in `docs/kanban/` (each Goal → Specs → Tickets), the source of truth.
+
+| Goal | Status | Progress |
+|------|--------|----------|
+| **G1** Project skeleton + personal conversation | ✅ DONE | M1 — skeleton + AgentSession personal chat |
+| **G2** Knowledge base | ✅ DONE | M2 — docling ingestion, retrieval routing, graph + wiki |
+| **G3** Multi-agent federation + team workbench | ✅ DONE | agent registry, RBAC, chat, workbench, uploads, git-driven dev |
+| **G4** KB intelligence + RAG self-build + collaboration | 🔄 | S1 refinement ✅ · S2 Neo4j RAG ✅ · S3 agentic RAG ✅ · S4 worker progress ✅ · **S5 Kanban↔Issues (next)** · S6 federation |
+| **G5** Output page | planned | txt/blog/charts/pptx/html |
+| **G6** Remote federation + A2A | planned | agents as peers, MCP-first KB access |
 
 ## Testing
 
