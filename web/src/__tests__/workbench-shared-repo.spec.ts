@@ -17,7 +17,7 @@ import {
   fetchIssues,
   fetchIssueDetail,
 } from "@/api/github";
-import { fetchBoard, fetchGithubProjectBoard, fetchGithubIssueComments } from "@/api/kanban";
+import { fetchBoard, fetchGithubProjectBoard, fetchGithubIssueComments, fetchGithubProjects } from "@/api/kanban";
 import type { GithubRepo, GithubIssue, GithubIssueComment } from "@/api/github";
 import type { GithubProjectBoard, KanbanIndex } from "@/api/kanban";
 
@@ -34,6 +34,7 @@ vi.mock("@/api/github", () => ({
 vi.mock("@/api/kanban", () => ({
   fetchBoard: vi.fn(),
   fetchGithubProjectBoard: vi.fn(),
+  fetchGithubProjects: vi.fn(),
   fetchGithubIssueComments: vi.fn(),
   postGithubIssueComment: vi.fn(),
   TICKET_STATUSES: ["backlog", "in_progress", "done", "in_review", "approved", "rejected"],
@@ -48,6 +49,7 @@ const fetchIssuesMock = fetchIssues as unknown as ReturnType<typeof vi.fn>;
 const fetchIssueDetailMock = fetchIssueDetail as unknown as ReturnType<typeof vi.fn>;
 const fetchBoardMock = fetchBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectBoardMock = fetchGithubProjectBoard as unknown as ReturnType<typeof vi.fn>;
+const fetchGithubProjectsMock = fetchGithubProjects as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubIssueCommentsMock = fetchGithubIssueComments as unknown as ReturnType<typeof vi.fn>;
 
 const REPOS: GithubRepo[] = [
@@ -149,6 +151,9 @@ describe("Workbench shared repo selector", () => {
       errors: [],
     } satisfies KanbanIndex);
     fetchGithubProjectBoardMock.mockResolvedValue(PROJECT_BOARD);
+    fetchGithubProjectsMock.mockResolvedValue([
+      { id: "PVT_1", title: "athena-agent", number: 3, url: "https://github.com/zouhanhai/athena-agent/projects/3" },
+    ]);
     fetchGithubIssueCommentsMock.mockResolvedValue([]);
     fetchIssuesMock.mockResolvedValue(ISSUES);
     fetchIssueDetailMock.mockResolvedValue({

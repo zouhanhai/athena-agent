@@ -4,6 +4,7 @@ import {
   fetchBoard,
   fetchGithubIssueComments,
   fetchGithubProjectBoard,
+  fetchGithubProjects,
   type GithubProjectBoard,
   type KanbanIndex,
 } from "@/api/kanban";
@@ -131,11 +132,37 @@ describe("fetchGithubProjectBoard", () => {
     expect(result).toEqual(PROJECT_BOARD);
   });
 
+  it("GETs /api/kanban/github-project?repo=...&project=<id> when a project is selected (G4.S5.T12)", async () => {
+    stubFetch(jsonResponse(PROJECT_BOARD));
+    await fetchGithubProjectBoard("tok_1", "acme/box", "PVT_9");
+    const [url] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban/github-project?repo=acme%2Fbox&project=PVT_9");
+  });
+
   it("throws the server error message when the repo has no linked Project (404)", async () => {
     stubFetch(jsonResponse({ error: "no linked GitHub Project for acme/box" }, 404));
     await expect(fetchGithubProjectBoard("tok_1", "acme/box")).rejects.toThrow(
       "no linked GitHub Project for acme/box",
     );
+  });
+});
+
+describe("fetchGithubProjects", () => {
+  it("GETs /api/kanban/github-projects?repo=... with the Bearer token and returns the open projects (G4.S5.T12)", async () => {
+    const projects = [
+      { id: "PVT_1", title: "athena-agent", number: 3, url: "https://github.com/acme/box/projects/3" },
+    ];
+    stubFetch(jsonResponse({ projects }));
+    const result = await fetchGithubProjects("tok_1", "acme/box");
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban/github-projects?repo=acme%2Fbox");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok_1");
+    expect(result).toEqual(projects);
+  });
+
+  it("throws the server error message on a non-ok response", async () => {
+    stubFetch(jsonResponse({ error: "unauthorized" }, 401));
+    await expect(fetchGithubProjects("tok_1", "acme/box")).rejects.toThrow("unauthorized");
   });
 });
 

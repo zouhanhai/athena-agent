@@ -145,6 +145,15 @@ export interface GithubProjectCard {
   subIssues: GithubProjectSubIssue[];
 }
 
+/** A linked GitHub Project (v2) board, as listed for the project selector (G4.S5.T12). */
+export interface GithubProject {
+  /** GraphQL node id of the project. */
+  id: string;
+  title: string;
+  number: number;
+  url: string;
+}
+
 /** A Status column of the synced GitHub Project board. */
 export interface GithubProjectColumn {
   status: string;
@@ -159,15 +168,46 @@ export interface GithubProjectBoard {
 }
 
 /**
- * GET /api/kanban/github-project?repo=owner/repo → the selected repo's synced
- * GitHub Project v2 board (GraphQL-backed via the employee's token). Throws
- * the server error message (e.g. 404 "no linked GitHub Project") on failure.
+ * GET /api/kanban/github-projects?repo=owner/repo → the repo's OPEN linked
+ * Projects (closed ones are filtered out server-side), for the project selector
+ * (G4.S5.T12). Throws the server error message on failure.
+ */
+export async function fetchGithubProjects(
+  sessionToken: string,
+  repo: string,
+): Promise<GithubProject[]> {
+  const params = new URLSearchParams({ repo });
+  const res = await fetch(`/api/kanban/github-projects?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const message =
+      detail && typeof (detail as { error?: unknown }).error === "string"
+        ? (detail as { error: string }).error
+        : `Request failed with status ${res.status}`;
+    throw new Error(message);
+  }
+  const data = (await res.json()) as { projects: GithubProject[] };
+  return data.projects;
+}
+
+/**
+ * GET /api/kanban/github-project?repo=owner/repo[&project=<id>] → the selected
+ * repo's synced GitHub Project v2 board (GraphQL-backed via the employee's
+ * token). `projectId` picks a specific linked project; when omitted the server
+ * serves the first open one. Throws the server error message on failure (e.g.
+ * 404 "no linked GitHub Project").
  */
 export async function fetchGithubProjectBoard(
   sessionToken: string,
   repo: string,
+  projectId?: string,
 ): Promise<GithubProjectBoard> {
   const params = new URLSearchParams({ repo });
+  if (projectId) {
+    params.set("project", projectId);
+  }
   const res = await fetch(`/api/kanban/github-project?${params.toString()}`, {
     headers: { Authorization: `Bearer ${sessionToken}` },
   });

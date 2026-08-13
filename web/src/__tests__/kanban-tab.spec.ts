@@ -9,6 +9,7 @@ import {
   fetchBoard,
   fetchGithubIssueComments,
   fetchGithubProjectBoard,
+  fetchGithubProjects,
   postGithubIssueComment,
 } from "@/api/kanban";
 import { fetchFileContent } from "@/api/github";
@@ -18,6 +19,7 @@ import type { GithubProjectBoard, KanbanIndex } from "@/api/kanban";
 vi.mock("@/api/kanban", () => ({
   fetchBoard: vi.fn(),
   fetchGithubProjectBoard: vi.fn(),
+  fetchGithubProjects: vi.fn(),
   fetchGithubIssueComments: vi.fn(),
   postGithubIssueComment: vi.fn(),
   TICKET_STATUSES: [
@@ -36,6 +38,7 @@ vi.mock("@/api/github", () => ({
 
 const fetchBoardMock = fetchBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectBoardMock = fetchGithubProjectBoard as unknown as ReturnType<typeof vi.fn>;
+const fetchGithubProjectsMock = fetchGithubProjects as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubIssueCommentsMock = fetchGithubIssueComments as unknown as ReturnType<typeof vi.fn>;
 const postGithubIssueCommentMock = postGithubIssueComment as unknown as ReturnType<typeof vi.fn>;
 const fetchFileContentMock = fetchFileContent as unknown as ReturnType<typeof vi.fn>;
@@ -99,6 +102,19 @@ const REPO = {
   private: false,
   default_branch: "master",
 };
+
+// G4.S5.T12 — the repo's OPEN linked Projects for the selector. A CLOSED
+// project (e.g. the user's accidental 'untitled project') is filtered out
+// server-side, so it never reaches the frontend.
+const PROJECTS = [
+  { id: "PVT_1", title: "athena-agent", number: 3, url: "https://github.com/zouhanhai/athena-agent/projects/3" },
+];
+
+// The SECOND open project, for the switching-the-selector test.
+const PROJECTS_TWO = [
+  { id: "PVT_1", title: "athena-agent", number: 3, url: "https://github.com/zouhanhai/athena-agent/projects/3" },
+  { id: "PVT_2", title: "Second project", number: 4, url: "https://github.com/zouhanhai/athena-agent/projects/4" },
+];
 
 // T9: the synced board carries BOTH Spec cards (with sub-task progress for the
 // segmented bar + the brand-orange accent) AND ticket sub-issue cards (plain),
@@ -255,6 +271,7 @@ describe("KanbanTab", () => {
     vi.clearAllMocks();
     fetchBoardMock.mockResolvedValue(BOARD);
     fetchGithubProjectBoardMock.mockResolvedValue(PROJECT_BOARD);
+    fetchGithubProjectsMock.mockResolvedValue(PROJECTS);
     fetchGithubIssueCommentsMock.mockResolvedValue(COMMENTS);
     postGithubIssueCommentMock.mockResolvedValue({
       id: 99,
@@ -631,7 +648,8 @@ describe("KanbanTab", () => {
     await wrapper.find(".kanban-view-toggle-github").trigger("click");
     await flushPromises();
 
-    expect(fetchGithubProjectBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent");
+    expect(fetchGithubProjectsMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent");
+    expect(fetchGithubProjectBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", "PVT_1");
     const columnsEl = wrapper.findAll(".kanban-project-column");
     expect(columnsEl.length).toBe(3);
     expect(columnsEl[0].find(".kanban-project-column-title").text()).toBe("Backlog");
@@ -645,6 +663,93 @@ describe("KanbanTab", () => {
     expect(card.text()).toContain("Workbench kanban sync");
     expect(card.text()).toContain("Backlog");
     expect(card.attributes("href")).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it("lists ONLY the open linked projects in the selector (closed ones never reach the view) (G4.S5.T12)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchGithubProjectsMock.mockResolvedValue(PROJECTS);
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    const select = wrapper.findComponent({ name: "TSelect" });
+    expect(select.exists()).toBe(true);
+    // One option per OPEN linked project — the closed 'untitled project' is absent.
+    expect(select.props("options")).toEqual([
+      { label: "athena-agent", value: "PVT_1" },
+    ]);
+    // The default selection is the first open project.
+    expect(select.props("modelValue")).toBe("PVT_1");
+    expect(fetchGithubProjectBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", "PVT_1");
+    wrapper.unmount();
+  });
+
+  it("defaults the selector to the first open project and loads its board (G4.S5.T12)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchGithubProjectsMock.mockResolvedValue(PROJECTS_TWO);
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    const select = wrapper.findComponent({ name: "TSelect" });
+    expect(select.props("modelValue")).toBe("PVT_1");
+    expect(fetchGithubProjectBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", "PVT_1");
+    expect(wrapper.find(".kanban-project-board").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("switching the selector loads the chosen project's board (G4.S5.T12)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchGithubProjectsMock.mockResolvedValue(PROJECTS_TWO);
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    // User picks the second open project in the selector.
+    const select = wrapper.findComponent({ name: "TSelect" });
+    await select.vm.$emit("update:modelValue", "PVT_2");
+    await select.vm.$emit("change", "PVT_2");
+    await flushPromises();
+
+    expect(fetchGithubProjectBoardMock).toHaveBeenLastCalledWith(
+      "tok_1",
+      "zouhanhai/athena-agent",
+      "PVT_2",
+    );
+    // The choice is remembered for the next visit.
+    expect(localStorage.getItem("athena.kanban.project_id")).toBe("PVT_2");
+    wrapper.unmount();
+  });
+
+  it("remembers the last-chosen project across visits (G4.S5.T12)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    localStorage.setItem("athena.kanban.project_id", "PVT_2");
+    fetchGithubProjectsMock.mockResolvedValue(PROJECTS_TWO);
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    // The remembered project is restored instead of always the first.
+    expect(wrapper.findComponent({ name: "TSelect" }).props("modelValue")).toBe("PVT_2");
+    expect(fetchGithubProjectBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", "PVT_2");
+    wrapper.unmount();
+  });
+
+  it("shows a no-open-project hint when the repo has no open linked Project (G4.S5.T12)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchGithubProjectsMock.mockResolvedValue([]);
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".kanban-project-empty-title").text()).toContain("No open linked Project");
+    expect(fetchGithubProjectBoardMock).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 

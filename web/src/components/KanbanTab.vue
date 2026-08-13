@@ -6,8 +6,10 @@ import {
   fetchBoard,
   fetchGithubIssueComments,
   fetchGithubProjectBoard,
+  fetchGithubProjects,
   postGithubIssueComment,
   TICKET_STATUSES,
+  type GithubProject,
   type GithubProjectBoard,
   type GithubProjectCard,
   type GithubProjectSubIssue,
@@ -42,6 +44,19 @@ const view = ref<KanbanView>("local");
 const projectBoard = ref<GithubProjectBoard | null>(null);
 const projectLoading = ref(false);
 const projectRefreshed = ref("");
+
+/** The repo's OPEN linked Projects, for the project selector (G4.S5.T12). */
+const projects = ref<GithubProject[]>([]);
+const projectsLoading = ref(false);
+const selectedProjectId = ref("");
+
+/** localStorage key remembering the last-chosen project (G4.S5.T12). */
+const PROJECT_SELECTION_KEY = "athena.kanban.project_id";
+
+/** Selector options: one per open linked project (label = title). */
+const projectOptions = computed(() =>
+  projects.value.map((p) => ({ label: p.title, value: p.id })),
+);
 
 /** The status column currently expanded (clicked to widen); null = all equal-width. */
 const expandedStatus = ref<TicketStatus | null>(null);
@@ -152,15 +167,49 @@ async function loadBoard(rescan = false): Promise<void> {
   }
 }
 
-/** Load the selected repo's synced GitHub Project board (GitHub view only). */
-async function loadProject(): Promise<void> {
+/** Fetch the repo's open linked Projects, then load the board for the chosen one (G4.S5.T12). */
+async function loadProjects(): Promise<void> {
   if (!auth.sessionToken || !props.repo) {
+    projects.value = [];
+    selectedProjectId.value = "";
+    projectBoard.value = null;
+    return;
+  }
+  projectsLoading.value = true;
+  error.value = "";
+  projects.value = [];
+  selectedProjectId.value = "";
+  projectBoard.value = null;
+  try {
+    const list = await fetchGithubProjects(auth.sessionToken, props.repo.full_name);
+    projects.value = list;
+    // Default to the first open project, or the last one the user picked.
+    const saved = localStorage.getItem(PROJECT_SELECTION_KEY);
+    const remembered = list.find((p) => p.id === saved);
+    selectedProjectId.value = remembered?.id ?? list[0]?.id ?? "";
+  } catch (err) {
+    fail(err);
+  } finally {
+    projectsLoading.value = false;
+  }
+  if (selectedProjectId.value) {
+    await loadProject();
+  }
+}
+
+/** Load the board for the currently selected linked project (GitHub view only). */
+async function loadProject(): Promise<void> {
+  if (!auth.sessionToken || !props.repo || !selectedProjectId.value) {
     return;
   }
   projectLoading.value = true;
   error.value = "";
   try {
-    projectBoard.value = await fetchGithubProjectBoard(auth.sessionToken, props.repo.full_name);
+    projectBoard.value = await fetchGithubProjectBoard(
+      auth.sessionToken,
+      props.repo.full_name,
+      selectedProjectId.value,
+    );
     projectRefreshed.value = projectBoard.value.generated_at
       ? new Date(projectBoard.value.generated_at).toLocaleTimeString()
       : new Date().toLocaleTimeString();
@@ -169,6 +218,15 @@ async function loadProject(): Promise<void> {
   } finally {
     projectLoading.value = false;
   }
+}
+
+/** User picked a different linked project in the selector → load that board. */
+function onProjectChange(id: string): void {
+  selectedProjectId.value = id;
+  if (id) {
+    localStorage.setItem(PROJECT_SELECTION_KEY, id);
+  }
+  void loadProject();
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +382,7 @@ watch(
   () => {
     void loadBoard();
     if (view.value === "github") {
-      void loadProject();
+      void loadProjects();
     }
   },
   { immediate: true },
@@ -333,7 +391,7 @@ watch(
 watch(view, (next) => {
   error.value = "";
   if (next === "github") {
-    void loadProject();
+    void loadProjects();
   }
 });
 </script>
@@ -491,16 +549,32 @@ watch(view, (next) => {
             The GitHub Project view shows the board synced from the selected repo's linked Project.
           </p>
         </div>
-        <div v-else-if="projectLoading && !projectBoard" class="kanban-project-loading">
+        <div v-else-if="projectsLoading || (projectLoading && !projectBoard)" class="kanban-project-loading">
           <span class="kanban-spinner" aria-hidden="true" />
           Loading the synced board from GitHub…
+        </div>
+        <div v-else-if="projects.length === 0" class="kanban-project-empty">
+          <p class="kanban-project-empty-title">No open linked Project</p>
+          <p class="kanban-project-empty-hint">
+            This repo has no open GitHub Project linked to it.
+          </p>
         </div>
         <template v-else-if="projectBoard">
           <div class="kanban-project-board">
             <div class="kanban-project-header">
-              <span class="kanban-project-title">
-                {{ projectBoard.project?.title ?? repo!.full_name }}
-              </span>
+              <div class="kanban-project-heading">
+                <span class="kanban-project-title">Project</span>
+                <t-select
+                  class="kanban-project-select"
+                  v-model="selectedProjectId"
+                  :options="projectOptions"
+                  size="small"
+                  :loading="projectLoading"
+                  placeholder="Select a project"
+                  :aria-label="'Select the linked GitHub Project'"
+                  @change="onProjectChange"
+                />
+              </div>
               <a
                 v-if="projectBoard.project"
                 class="kanban-project-open"
@@ -857,6 +931,19 @@ watch(view, (next) => {
   gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--caleo-border);
+}
+
+/* Project selector (G4.S5.T12): label + dropdown above the board. */
+.kanban-project-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kanban-project-select {
+  min-width: 200px;
+  max-width: 100%;
 }
 
 .kanban-project-title {
