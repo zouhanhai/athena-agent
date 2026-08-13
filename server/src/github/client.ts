@@ -1,4 +1,5 @@
 import type { GithubCredential } from "../employees/employees.js";
+import { GithubGraphqlClient } from "./graphql.js";
 
 /** A GitHub repository as returned to the scoped-repos API. */
 export interface GithubRepo {
@@ -48,6 +49,10 @@ export interface GithubPull {
 
 /** An issue as returned to the browse API. */
 export interface GithubIssue {
+  /** GitHub internal issue id (used by the sub-issues API). */
+  id: number;
+  /** GitHub node id (used as the Project v2 item content id). */
+  node_id: string;
   number: number;
   title: string;
   state: string;
@@ -56,6 +61,52 @@ export interface GithubIssue {
   body: string | null;
   labels: string[];
   assignees: string[];
+}
+
+/** Input for creating an issue via POST /issues (G4.S5). */
+export interface CreateIssueInput {
+  title: string;
+  body?: string;
+  labels?: string[];
+}
+
+/** Input for creating a sub-issue under a parent issue (G4.S5). */
+export interface CreateSubIssueInput {
+  title: string;
+  body?: string;
+}
+
+/** A GitHub Project (v2) as used by the S5 sync. */
+export interface GithubProject {
+  /** GraphQL node id of the project. */
+  id: string;
+  title: string;
+  number: number;
+  url: string;
+}
+
+/** A single-select option of a Project v2 field (e.g. the Status column). */
+export interface GithubProjectSelectOption {
+  id: string;
+  name: string;
+}
+
+/** A single card (item) on a Project v2 board. */
+export interface GithubProjectItem {
+  /** GraphQL node id of the item (card). */
+  id: string;
+  /** GraphQL node id of the linked issue content, or null for a draft card. */
+  issueId: string | null;
+  issueNumber: number | null;
+  title: string | null;
+  /** The Status single-select option name, or null when unset. */
+  status: string | null;
+}
+
+/** The Status single-select field of a Project v2 board, with its options. */
+export interface GithubProjectStatusField {
+  fieldId: string;
+  options: GithubProjectSelectOption[];
 }
 
 /** A commit as returned to the browse API (message, author, date, sha). */
@@ -197,6 +248,55 @@ export interface GitHubApi {
   ): Promise<GithubCommit>;
   /** Merge a pull request. */
   mergePull(credential: GithubCredential, owner: string, repo: string, number: number): Promise<GithubMergeResult>;
+  /** Create an issue via POST /issues and return the created issue (G4.S5). */
+  createIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    input: CreateIssueInput,
+  ): Promise<GithubIssue>;
+  /** Create an issue and attach it as a sub-issue of a parent issue (G4.S5). */
+  createSubIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    parentIssueNumber: number,
+    input: CreateSubIssueInput,
+  ): Promise<GithubIssue>;
+  /** Find an issue by its exact title (for idempotent create/sync), or null. */
+  getIssueByTitle(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    title: string,
+  ): Promise<GithubIssue | null>;
+  /** Ensure the label exists on the repo, then add it to the issue. */
+  addLabel(credential: GithubCredential, owner: string, repo: string, issueNumber: number, label: string): Promise<void>;
+  /** Set the issue's milestone by its milestone number. */
+  setMilestone(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    milestoneNumber: number,
+  ): Promise<GithubIssue>;
+  /** Resolve a milestone's number by title, or null when absent. */
+  getMilestoneByTitle(credential: GithubCredential, owner: string, repo: string, title: string): Promise<number | null>;
+  /** Create a Project v2 board owned by the user/org and return it. */
+  createProject(credential: GithubCredential, owner: string, title: string): Promise<GithubProject>;
+  /** Find a Project v2 board owned by the user/org by title, or null. */
+  getProjectByTitle(credential: GithubCredential, owner: string, title: string): Promise<GithubProject | null>;
+  /** Add an issue (by node id) to a Project v2 board. */
+  addIssueToProject(credential: GithubCredential, projectId: string, contentId: string): Promise<void>;
+  /** List the cards of a Project v2 board, with their linked issue + Status option. */
+  getProjectItems(credential: GithubCredential, projectId: string): Promise<GithubProjectItem[]>;
+  /** Set an item's Status field to the given single-select option name. */
+  setItemStatusField(
+    credential: GithubCredential,
+    projectId: string,
+    itemId: string,
+    optionName: string,
+  ): Promise<void>;
 }
 
 export class GithubAuthError extends Error {}
@@ -207,6 +307,8 @@ export interface GithubRestClientOptions {
   baseUrl?: string;
   /** Injectable fetch implementation for unit tests. */
   fetchImpl?: typeof fetch;
+  /** Optional GraphQL client for the Project v2 ops. Defaults to a live one. */
+  graphql?: GithubGraphqlClient;
 }
 
 const COMMON_HEADERS: Record<string, string> = {
@@ -224,10 +326,17 @@ const SHA_RE = /^[0-9a-f]{40}$/i;
 export class GithubRestClient implements GitHubApi {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly graphql: GithubGraphqlClient;
 
   constructor(options: GithubRestClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? "https://api.github.com").replace(/\/+$/, "");
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.graphql =
+      options.graphql ??
+      new GithubGraphqlClient({
+        baseUrl: `${this.baseUrl}/graphql`,
+        fetchImpl: this.fetchImpl,
+      });
   }
 
   /** Authenticated GET/POST/PUT/DELETE against the REST API; throws on non-2xx. */
@@ -479,6 +588,8 @@ export class GithubRestClient implements GitHubApi {
     const labels = Array.isArray(issue.labels) ? issue.labels : [];
     const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
     return {
+      id: this.positiveInt(issue.id) ?? 0,
+      node_id: this.string(issue.node_id),
       number: this.positiveInt(issue.number) ?? 0,
       title: this.string(issue.title),
       state: this.string(issue.state),
@@ -663,5 +774,151 @@ export class GithubRestClient implements GitHubApi {
       message: this.string(data.message),
       sha: this.maybeString(data.sha),
     };
+  }
+
+  async createIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    input: CreateIssueInput,
+  ): Promise<GithubIssue> {
+    const body: Record<string, unknown> = { title: input.title };
+    if (input.body !== undefined) {
+      body.body = input.body;
+    }
+    if (input.labels !== undefined) {
+      body.labels = input.labels;
+    }
+    const response = await this.request(credential, `/repos/${owner}/${repo}/issues`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return (await this.toIssue(await this.json(response)))!;
+  }
+
+  async createSubIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    parentIssueNumber: number,
+    input: CreateSubIssueInput,
+  ): Promise<GithubIssue> {
+    const created = await this.createIssue(credential, owner, repo, {
+      title: input.title,
+      body: input.body,
+    });
+    await this.request(credential, `/repos/${owner}/${repo}/issues/${parentIssueNumber}/sub_issues`, {
+      method: "POST",
+      body: JSON.stringify({ sub_issue_id: created.id }),
+    });
+    return created;
+  }
+
+  async getIssueByTitle(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    title: string,
+  ): Promise<GithubIssue | null> {
+    const q = `repo:${owner}/${repo} type:issue in:title ${JSON.stringify(title)}`;
+    const response = await this.request(credential, `/search/issues?q=${encodeURIComponent(q)}&per_page=5`);
+    const data = (await this.json(response)) as { items?: unknown };
+    const items = Array.isArray(data.items) ? data.items : [];
+    for (const item of items) {
+      const issue = await this.toIssue(item);
+      if (issue && issue.title === title) {
+        return issue;
+      }
+    }
+    return null;
+  }
+
+  async addLabel(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    label: string,
+  ): Promise<void> {
+    await this.ensureLabel(credential, owner, repo, label);
+    await this.request(credential, `/repos/${owner}/${repo}/issues/${issueNumber}/labels`, {
+      method: "POST",
+      body: JSON.stringify({ labels: [label] }),
+    });
+  }
+
+  private async ensureLabel(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    name: string,
+  ): Promise<void> {
+    try {
+      await this.request(credential, `/repos/${owner}/${repo}/labels`, {
+        method: "POST",
+        body: JSON.stringify({ name, color: "0366d6" }),
+      });
+    } catch (err) {
+      if (!(err instanceof Error) || (err as { status?: number }).status !== 422) {
+        throw err;
+      }
+    }
+  }
+
+  async setMilestone(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    milestoneNumber: number,
+  ): Promise<GithubIssue> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/issues/${issueNumber}`, {
+      method: "PATCH",
+      body: JSON.stringify({ milestone: milestoneNumber }),
+    });
+    return (await this.toIssue(await this.json(response)))!;
+  }
+
+  async getMilestoneByTitle(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    title: string,
+  ): Promise<number | null> {
+    const response = await this.request(credential, `/repos/${owner}/${repo}/milestones?state=all&per_page=100`);
+    const data = await this.json(response);
+    const items = Array.isArray(data) ? data : [];
+    for (const item of items) {
+      const milestone = item as Record<string, unknown>;
+      if (this.string(milestone.title) === title) {
+        return this.positiveInt(milestone.number);
+      }
+    }
+    return null;
+  }
+
+  async createProject(credential: GithubCredential, owner: string, title: string): Promise<GithubProject> {
+    return this.graphql.createProject(credential, owner, title);
+  }
+
+  async getProjectByTitle(credential: GithubCredential, owner: string, title: string): Promise<GithubProject | null> {
+    return this.graphql.getProjectByTitle(credential, owner, title);
+  }
+
+  async addIssueToProject(credential: GithubCredential, projectId: string, contentId: string): Promise<void> {
+    return this.graphql.addIssueToProject(credential, projectId, contentId);
+  }
+
+  async getProjectItems(credential: GithubCredential, projectId: string): Promise<GithubProjectItem[]> {
+    return this.graphql.getProjectItems(credential, projectId);
+  }
+
+  async setItemStatusField(
+    credential: GithubCredential,
+    projectId: string,
+    itemId: string,
+    optionName: string,
+  ): Promise<void> {
+    return this.graphql.setItemStatusField(credential, projectId, itemId, optionName);
   }
 }

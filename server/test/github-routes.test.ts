@@ -10,6 +10,8 @@ import {
 import { createSecretCipher } from "../src/employees/crypto.js";
 import { MemoryEmployeeRegistry, type GithubCredential } from "../src/employees/employees.js";
 import type {
+  CreateIssueInput,
+  CreateSubIssueInput,
   EditFileInput,
   GitHubApi,
   GithubBranch,
@@ -19,6 +21,8 @@ import type {
   GithubIssue,
   GithubIssueComment,
   GithubMergeResult,
+  GithubProject,
+  GithubProjectItem,
   GithubPull,
   GithubRepo,
   GithubTreeEntry,
@@ -155,6 +159,89 @@ class FakeGitHubApi implements GitHubApi {
     this.record("listLabels", credential, [owner, repo]);
     return ["bug", "p1"];
   }
+  async createIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    input: CreateIssueInput,
+  ): Promise<GithubIssue> {
+    this.record("createIssue", credential, [owner, repo, input]);
+    return { ...ISSUE_SAMPLE[0], number: 20, title: input.title, body: input.body ?? null };
+  }
+  async createSubIssue(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    parentIssueNumber: number,
+    input: CreateSubIssueInput,
+  ): Promise<GithubIssue> {
+    this.record("createSubIssue", credential, [owner, repo, parentIssueNumber, input]);
+    return { ...ISSUE_SAMPLE[0], number: 21, title: input.title, body: input.body ?? null };
+  }
+  async getIssueByTitle(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    title: string,
+  ): Promise<GithubIssue | null> {
+    this.record("getIssueByTitle", credential, [owner, repo, title]);
+    return ISSUE_SAMPLE.find((issue) => issue.title === title) ?? null;
+  }
+  async addLabel(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    label: string,
+  ): Promise<void> {
+    this.record("addLabel", credential, [owner, repo, issueNumber, label]);
+  }
+  async setMilestone(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    milestoneNumber: number,
+  ): Promise<GithubIssue> {
+    this.record("setMilestone", credential, [owner, repo, issueNumber, milestoneNumber]);
+    return { ...ISSUE_SAMPLE[0], number: issueNumber };
+  }
+  async getMilestoneByTitle(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    title: string,
+  ): Promise<number | null> {
+    this.record("getMilestoneByTitle", credential, [owner, repo, title]);
+    return title === "M4" ? 4 : null;
+  }
+  async createProject(credential: GithubCredential, owner: string, title: string): Promise<GithubProject> {
+    this.record("createProject", credential, [owner, title]);
+    return { id: "PVT_1", title, number: 5, url: "https://github.com/orgs/caleo/projects/5" };
+  }
+  async getProjectByTitle(
+    credential: GithubCredential,
+    owner: string,
+    title: string,
+  ): Promise<GithubProject | null> {
+    this.record("getProjectByTitle", credential, [owner, title]);
+    return title === "G4" ? { id: "PVT_1", title, number: 5, url: "https://github.com/orgs/caleo/projects/5" } : null;
+  }
+  async addIssueToProject(credential: GithubCredential, projectId: string, contentId: string): Promise<void> {
+    this.record("addIssueToProject", credential, [projectId, contentId]);
+  }
+  async getProjectItems(credential: GithubCredential, projectId: string): Promise<GithubProjectItem[]> {
+    this.record("getProjectItems", credential, [projectId]);
+    return [];
+  }
+  async setItemStatusField(
+    credential: GithubCredential,
+    projectId: string,
+    itemId: string,
+    optionName: string,
+  ): Promise<void> {
+    this.record("setItemStatusField", credential, [projectId, itemId, optionName]);
+  }
 }
 
 let app: FastifyInstance;
@@ -198,6 +285,8 @@ const PULL_SAMPLE: GithubPull[] = [
 
 const ISSUE_SAMPLE: GithubIssue[] = [
   {
+    id: 900,
+    node_id: "I_kwDOtest",
     number: 2,
     title: "Bug",
     state: "open",

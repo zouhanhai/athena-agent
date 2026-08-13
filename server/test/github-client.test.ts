@@ -194,6 +194,8 @@ test("listPulls maps open PRs for the repo", async () => {
 });
 
 const ISSUE_BODY = {
+  id: 900,
+  node_id: "I_kwDOtest",
   number: 2,
   title: "Bug",
   state: "open",
@@ -217,6 +219,8 @@ test("listIssues maps open issues for the repo", async () => {
   assert.match(calledUrl, /\/repos\/acme\/box\/issues\?state=open/);
   assert.deepEqual(issues, [
     {
+      id: 900,
+      node_id: "I_kwDOtest",
       number: 2,
       title: "Bug",
       state: "open",
@@ -290,6 +294,8 @@ test("getIssue fetches a single issue by number and maps it", async () => {
   const issue = await client.getIssue(tokenCredential, "acme", "box", 2);
   assert.equal(calledUrl, "https://api.github.test/repos/acme/box/issues/2");
   assert.deepEqual(issue, {
+    id: 900,
+    node_id: "I_kwDOtest",
     number: 2,
     title: "Bug",
     state: "open",
