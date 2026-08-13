@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T16:05:38.659Z",
+  "generated_at": "2026-08-13T16:38:47.457Z",
   "goals": [
     {
       "ref": "G1",
@@ -2535,9 +2535,29 @@
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-13T16:05:11.263Z",
+              "progress_last_row": "ran read",
+              "progress_updated_at": "2026-08-13T16:04:40.186Z",
               "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T7",
+              "id": "G4.S5.T7",
+              "title": "Spec detail panel: show sub-issues list, embed panel inside Kanban (not overlay Chat), add GitHub issue jump link",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T6"
+              ],
+              "acceptance_criteria": [
+                "Clicking a Spec card in the GitHub Project view opens the detail panel showing the Spec md content AND a Sub-issues list (T1-T4: ref + title + status + progress)",
+                "Each sub-issue in the list is clickable to open its own detail (md + comments), like GitHub's Sub-issues block",
+                "The detail panel is an EMBEDDED side panel inside the Kanban area (covers only the Kanban tab, NOT a full-screen fixed overlay) so the right-side Chat panel stays visible",
+                "The detail panel has a 'view issue on GitHub' link (https://github.com/{owner}/{repo}/issues/{n}) and each sub-issue row links to its issue",
+                "Backend /api/kanban/github-project returns each Spec card's subIssues array (ref/title/status/number)",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ]
             }
           ]
         },

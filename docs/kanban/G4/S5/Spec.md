@@ -103,3 +103,4 @@ overwrite md (conflicts surface as a report for the plan agent).
 - T4: Workbench Kanban tab view toggle — Local kanban vs GitHub Project (the synced board); local keeps Progress Log/stalled/goal tree; GitHub view shows cards/status/discussion links.
 - T5: Fix plugin done double-commit push races (3a index commit not pushed on push-failure; 3b duplicate index commit when worker also regens).
 - T6: Project board shows only Spec cards — tickets stay as sub-issues (GitHub-native progress bar); spec status column = md Spec status.
+- T7: Spec detail panel — show sub-issues list, embed panel inside Kanban (not overlay Chat), add GitHub issue jump link.
