@@ -432,13 +432,13 @@ describe("KanbanTab", () => {
     // Initially all equal width (no inline grid-template-columns).
     expect(columnsEl.attributes("style") || "").not.toContain("grid-template-columns");
 
-    // Click the done column header → it expands (3.75fr), others narrow (0.5fr).
+    // Click the done column header → it expands (3.75fr via minmax(0,...)), others narrow (0.5fr).
     const done = columnByStatus(wrapper, "done")!;
     await done.find(".kanban-column-header").trigger("click");
     await flushPromises();
     const expandedStyle = columnsEl.attributes("style") || "";
-    expect(expandedStyle).toContain("3.75fr");
-    expect(expandedStyle).toContain("0.5fr");
+    expect(expandedStyle).toContain("minmax(0, 3.75fr)");
+    expect(expandedStyle).toContain("minmax(0, 0.5fr)");
     expect(done.classes()).toContain("kanban-column-expanded");
 
     // Click the same header again → collapses back to equal width.

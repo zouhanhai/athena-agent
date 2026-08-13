@@ -32,7 +32,11 @@ function toggleColumn(status: TicketStatus): void {
 /** Grid columns: expanded column gets a wide fraction, others narrow; else all 1fr. */
 const columnsGrid = computed(() => {
   if (!expandedStatus.value) return {};
-  const cols = TICKET_STATUSES.map((s) => (s === expandedStatus.value ? "3.75fr" : "0.5fr")).join(" ");
+  // minmax(0, ...) so the `auto` minimum width (content) never stretches a narrow
+  // column — otherwise the done column (many cards) widens even when collapsed.
+  const cols = TICKET_STATUSES.map(
+    (s) => `minmax(0, ${s === expandedStatus.value ? "3.75fr" : "0.5fr"})`,
+  ).join(" ");
   return { gridTemplateColumns: cols };
 });
 
