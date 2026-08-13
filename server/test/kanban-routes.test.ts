@@ -424,8 +424,9 @@ function projectGithub(): FakeProjectGithub {
     number: 3,
     url: "https://github.com/zouhanhai/athena-agent/projects/3",
   };
-  // Only Spec issues are Project cards since T6; ticket items (PVTI_2/PVTI_3)
-  // are present to prove the board renders Spec cards ONLY.
+  // T9 (revert T6): ticket sub-issues are cards too — each sits in its own
+  // Status column spread across the board (GitHub-native). The draft item
+  // (PVTI_4) has no linked issue and is skipped.
   const items: GithubProjectItem[] = [
     { id: "PVTI_1", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench kanban sync", status: "Backlog" },
     { id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5.T1", status: "Done" },
@@ -519,7 +520,7 @@ test("GET /api/kanban/github-project returns 404 when the repo has no linked Pro
   assert.match(res.json().error, /no linked GitHub Project/);
 });
 
-test("GET /api/kanban/github-project serves ONLY Spec cards, each with sub-task progress (G4.S5.T6)", async () => {
+test("GET /api/kanban/github-project serves Spec cards (progress) AND ticket cards spread across columns (G4.S5.T9)", async () => {
   await app.close();
   app = makeApp(undefined, projectGithub() as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
@@ -534,17 +535,21 @@ test("GET /api/kanban/github-project serves ONLY Spec cards, each with sub-task 
   assert.ok(body.generated_at, "the board must carry a generated_at timestamp");
   assert.deepEqual(
     body.columns.map((c) => c.status),
-    ["Backlog", "In Progress"],
+    ["Backlog", "In Progress", "Done"],
   );
-  // Ticket items (G4.S5.T1/G4.S5.T2) are present in the Project but must NOT
-  // render as cards — the board shows one Spec card per Spec.
+  // T9 (revert T6): ticket sub-issues render as their own cards in their own
+  // Status columns, spread across the board alongside the Spec cards.
   assert.deepEqual(
     body.columns[0].cards.map((c) => c.ref),
     ["G4.S5"],
   );
   assert.deepEqual(
     body.columns[1].cards.map((c) => c.ref),
-    ["G4.S6"],
+    ["G4.S5.T2", "G4.S6"],
+  );
+  assert.deepEqual(
+    body.columns[2].cards.map((c) => c.ref),
+    ["G4.S5.T1"],
   );
   const spec = body.columns[0].cards[0];
   assert.equal(spec.ref, "G4.S5");
@@ -553,7 +558,7 @@ test("GET /api/kanban/github-project serves ONLY Spec cards, each with sub-task 
   assert.equal(spec.url, "https://github.com/zouhanhai/athena-agent/issues/1");
   // Sub-task progress from the Spec's sub-issues (closed / total + percent).
   assert.deepEqual(spec.progress, { done: 3, total: 5, percent: 60 });
-  assert.deepEqual(body.columns[1].cards[0].progress, { done: 1, total: 2, percent: 50 });
+  assert.deepEqual(body.columns[1].cards[1].progress, { done: 1, total: 2, percent: 50 });
   // G4.S5.T8 — each Spec card carries its sub-issues (ref/title/status/number),
   // closed sub-issues → status "done", sorted by ref.
   assert.deepEqual(spec.subIssues, [
@@ -563,10 +568,16 @@ test("GET /api/kanban/github-project serves ONLY Spec cards, each with sub-task 
     { ref: "G4.S5.T4", title: "G4.S5.T4", status: "done", number: 6 },
     { ref: "G4.S5.T5", title: "G4.S5.T5", status: "open", number: 7 },
   ]);
-  assert.deepEqual(body.columns[1].cards[0].subIssues, [
+  assert.deepEqual(body.columns[1].cards[1].subIssues, [
     { ref: "G4.S6.T1", title: "G4.S6.T1", status: "done", number: 8 },
     { ref: "G4.S6.T2", title: "G4.S6.T2", status: "open", number: 9 },
   ]);
+  // Ticket cards are plain: no sub-task progress, no nested sub-issues.
+  const ticket = body.columns[1].cards[0];
+  assert.equal(ticket.ref, "G4.S5.T2");
+  assert.equal(ticket.status, "In Progress");
+  assert.deepEqual(ticket.progress, { done: 0, total: 0, percent: 0 });
+  assert.deepEqual(ticket.subIssues, []);
 });
 
 test("GET /api/kanban/github-project falls back to the repo-name project title", async () => {

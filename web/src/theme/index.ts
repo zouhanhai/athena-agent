@@ -40,6 +40,7 @@ const themePalettes: Record<ThemeMode, Record<string, string>> = {
     "--caleo-success": "#55b87f",
     "--caleo-hover": "rgba(255, 102, 51, 0.14)",
     "--caleo-card-bg": "#262a33",
+    "--caleo-primary-tint": "rgba(255, 102, 51, 0.16)",
 
     "--td-bg-color-page": "#1f2128",
     "--td-bg-color-container": "#262a33",
@@ -85,6 +86,7 @@ const themePalettes: Record<ThemeMode, Record<string, string>> = {
     "--caleo-success": "#2f9e63",
     "--caleo-hover": "rgba(255, 102, 51, 0.08)",
     "--caleo-card-bg": "#ffffff",
+    "--caleo-primary-tint": "rgba(255, 102, 51, 0.06)",
 
     "--td-bg-color-page": "#e7e9ec",
     "--td-bg-color-container": "#ffffff",

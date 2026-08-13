@@ -12,6 +12,7 @@ import {
   postGithubIssueComment,
 } from "@/api/kanban";
 import { fetchFileContent } from "@/api/github";
+import { applyTheme } from "@/theme";
 import type { GithubProjectBoard, KanbanIndex } from "@/api/kanban";
 
 vi.mock("@/api/kanban", () => ({
@@ -99,8 +100,9 @@ const REPO = {
   default_branch: "master",
 };
 
-// T6: the synced board carries ONLY Spec cards (one per Spec), each with its
-// sub-task progress (done/total + percent) for the segmented progress bar.
+// T9: the synced board carries BOTH Spec cards (with sub-task progress for the
+// segmented bar + the brand-orange accent) AND ticket sub-issue cards (plain),
+// each in its own Status column — GitHub-native board behavior.
 const PROJECT_BOARD: GithubProjectBoard = {
   project: {
     id: "PVT_1",
@@ -127,11 +129,29 @@ const PROJECT_BOARD: GithubProjectBoard = {
             { ref: "G4.S5.T5", title: "G4.S5.T5 Sync CLI", status: "open", number: 15 },
           ],
         },
+        {
+          issueNumber: 13,
+          ref: "G4.S5.T3",
+          title: "Feedback loop",
+          status: "Backlog",
+          url: "https://github.com/zouhanhai/athena-agent/issues/13",
+          progress: { done: 0, total: 0, percent: 0 },
+          subIssues: [],
+        },
       ],
     },
     {
       status: "In Progress",
       cards: [
+        {
+          issueNumber: 12,
+          ref: "G4.S5.T2",
+          title: "md→GitHub projection",
+          status: "In Progress",
+          url: "https://github.com/zouhanhai/athena-agent/issues/12",
+          progress: { done: 0, total: 0, percent: 0 },
+          subIssues: [],
+        },
         {
           issueNumber: 2,
           ref: "G4.S6",
@@ -143,6 +163,20 @@ const PROJECT_BOARD: GithubProjectBoard = {
             { ref: "G4.S6.T1", title: "G4.S6.T1 KB lifecycle", status: "done", number: 21 },
             { ref: "G4.S6.T2", title: "G4.S6.T2 Agentic RAG", status: "open", number: 22 },
           ],
+        },
+      ],
+    },
+    {
+      status: "Done",
+      cards: [
+        {
+          issueNumber: 11,
+          ref: "G4.S5.T1",
+          title: "GitHub GraphQL client",
+          status: "Done",
+          url: "https://github.com/zouhanhai/athena-agent/issues/11",
+          progress: { done: 0, total: 0, percent: 0 },
+          subIssues: [],
         },
       ],
     },
@@ -599,10 +633,11 @@ describe("KanbanTab", () => {
 
     expect(fetchGithubProjectBoardMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent");
     const columnsEl = wrapper.findAll(".kanban-project-column");
-    expect(columnsEl.length).toBe(2);
+    expect(columnsEl.length).toBe(3);
     expect(columnsEl[0].find(".kanban-project-column-title").text()).toBe("Backlog");
-    expect(columnsEl[0].find(".kanban-project-column-count").text()).toBe("1");
+    expect(columnsEl[0].find(".kanban-project-column-count").text()).toBe("2");
     expect(columnsEl[1].find(".kanban-project-column-title").text()).toBe("In Progress");
+    expect(columnsEl[2].find(".kanban-project-column-title").text()).toBe("Done");
 
     const card = columnsEl[0].find(".kanban-project-card");
     expect(card.element.tagName).toBe("BUTTON");
@@ -613,25 +648,42 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("renders ONLY Spec cards with a segmented brand-color progress bar, no ticket cards (G4.S5.T6)", async () => {
+  it("renders Spec cards (brand-orange accent + segmented progress) AND ticket sub-issue cards (plain) (G4.S5.T9)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab(REPO);
 
     await wrapper.find(".kanban-view-toggle-github").trigger("click");
     await flushPromises();
 
-    // One Spec card per Spec — ticket cards are never rendered.
+    // Both the Spec cards and the ticket sub-issue cards render, spread across
+    // their Status columns (GitHub-native, T9 reverts T6).
     const cards = wrapper.findAll(".kanban-project-card");
-    expect(cards.length).toBe(2);
-    expect(cards.map((c) => c.find(".kanban-project-card-ref").text())).toEqual(["G4.S5", "G4.S6"]);
-    expect(wrapper.text()).not.toMatch(/G4\.S[0-9]+\.T/);
+    expect(cards.length).toBe(5);
+    expect(cards.map((c) => c.find(".kanban-project-card-ref").text())).toEqual([
+      "G4.S5",
+      "G4.S5.T3",
+      "G4.S5.T2",
+      "G4.S6",
+      "G4.S5.T1",
+    ]);
+
+    // Spec cards carry the brand-accent class; ticket cards stay plain.
+    const specCards = cards.filter((c) => c.classes().includes("kanban-project-card-spec"));
+    expect(specCards.length).toBe(2);
+    expect(specCards.map((c) => c.find(".kanban-project-card-ref").text())).toEqual(["G4.S5", "G4.S6"]);
+    const ticketCards = cards.filter((c) => !c.classes().includes("kanban-project-card-spec"));
+    expect(ticketCards.map((c) => c.find(".kanban-project-card-ref").text())).toEqual([
+      "G4.S5.T3",
+      "G4.S5.T2",
+      "G4.S5.T1",
+    ]);
 
     // Header shows repo + Spec ref + issue id (ABAPlorer-style `owner/repo #id`).
-    const card = cards[0];
+    const card = specCards[0];
     expect(card.find(".kanban-project-card-repo").text()).toBe("zouhanhai/athena-agent");
     expect(card.find(".kanban-project-card-issue").text()).toBe("#1");
 
-    // Segmented progress bar: N blocks = N sub-issues; done fills a block.
+    // Spec card keeps its segmented progress bar: N blocks = N sub-issues; done fills a block.
     const blocks = card.findAll(".kanban-spec-progress-block");
     expect(blocks.length).toBe(5);
     const filled = card.findAll(".kanban-spec-progress-block-filled");
@@ -646,7 +698,41 @@ describe("KanbanTab", () => {
 
     // done / total · percent (like ABAPlorer's `4 / 5 · 80%`).
     expect(card.find(".kanban-spec-progress-text").text()).toBe("4 / 5 · 80%");
-    expect(cards[1].find(".kanban-spec-progress-text").text()).toBe("1 / 2 · 50%");
+    expect(specCards[1].find(".kanban-spec-progress-text").text()).toBe("1 / 2 · 50%");
+
+    // Ticket cards are plain: no progress bar, no accent.
+    for (const ticketCard of ticketCards) {
+      expect(ticketCard.find(".kanban-spec-progress").exists()).toBe(false);
+      expect(ticketCard.classes()).not.toContain("kanban-project-card-spec");
+    }
+    wrapper.unmount();
+  });
+
+  it("gives Spec cards a theme-adaptive brand-orange accent that stays legible in dark AND light (G4.S5.T9)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    // The Spec card gets the accent class; a ticket sub-issue card does not.
+    const specCard = wrapper.find(".kanban-project-card-spec");
+    expect(specCard.exists()).toBe(true);
+    const ticketCard = wrapper.find(".kanban-project-card:not(.kanban-project-card-spec)");
+    expect(ticketCard.exists()).toBe(true);
+    expect(ticketCard.classes()).not.toContain("kanban-project-card-spec");
+    expect(ticketCard.find(".kanban-project-card-ref").text()).toMatch(/T\d+$/);
+
+    // The accent tint CSS variable adapts to the active theme: a subtle tint in
+    // light mode, a brighter one in dark mode (theme CSS-variable system).
+    applyTheme("dark");
+    const darkTint = document.documentElement.style.getPropertyValue("--caleo-primary-tint");
+    expect(darkTint).toBeTruthy();
+    applyTheme("light");
+    const lightTint = document.documentElement.style.getPropertyValue("--caleo-primary-tint");
+    expect(lightTint).toBeTruthy();
+    expect(darkTint).not.toBe(lightTint);
+    expect(specCard.element.className).toContain("kanban-project-card-spec");
     wrapper.unmount();
   });
 
@@ -657,7 +743,7 @@ describe("KanbanTab", () => {
     await wrapper.find(".kanban-view-toggle-github").trigger("click");
     await flushPromises();
 
-    const specCard = wrapper.findAll(".kanban-project-card")[1];
+    const specCard = wrapper.findAll(".kanban-project-card-spec")[1];
     await specCard.trigger("click");
     await flushPromises();
 

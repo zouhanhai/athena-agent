@@ -115,6 +115,11 @@ function statusLabel(status: TicketStatus): string {
   return status.replace("_", " ");
 }
 
+/** True for a Spec card (`Gx.Sy` ref) — gets the brand-orange accent. Ticket sub-issue cards (`Gx.Sy.Tz`) stay plain (G4.S5.T9). */
+function isSpecCard(card: GithubProjectCard): boolean {
+  return /^G\d+\.S\d+$/.test(card.ref ?? "");
+}
+
 function cardsFor(status: TicketStatus): BoardCard[] {
   return cards.value.filter((card) => card.ticket.status === status);
 }
@@ -525,6 +530,7 @@ watch(view, (next) => {
                     :key="card.issueNumber"
                     type="button"
                     class="kanban-project-card"
+                    :class="{ 'kanban-project-card-spec': isSpecCard(card) }"
                     @click="openDetail(card)"
                   >
                     <!-- Header: repo + Spec ref + issue id, like ABAPlorer's `owner/repo #id`. -->
@@ -944,6 +950,15 @@ watch(view, (next) => {
 .kanban-project-card:hover {
   border-color: var(--caleo-primary);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+/* Brand-orange accent on Spec cards (G4.S5.T9): a Spec (issue) card is
+   distinguished from a plain ticket sub-issue card at a glance. Theme-adaptive
+   via the CSS-variable system: the tint is subtle in light mode and a readable
+   brighter accent in dark mode; the left border is the brand orange in both. */
+.kanban-project-card-spec {
+  border-left: 3px solid var(--caleo-primary);
+  background: var(--caleo-primary-tint);
 }
 
 .kanban-project-card-ref {

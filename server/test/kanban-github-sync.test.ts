@@ -1049,17 +1049,19 @@ test("createSpecIssue creates the Spec Issue + Ticket sub-issues with milestone/
   assert.ok(github.calls.includes("addLabel:10:G4"));
   assert.ok(github.calls.includes("addLabel:11:G4"));
   assert.ok(github.calls.includes("addLabel:12:G4"));
-  // T6: ONLY the Spec main issue lands on the Project — tickets stay sub-issues.
-  assert.equal(github.calls.filter((c) => c.startsWith("addIssueToProject:PVT_1:")).length, 1);
+  // T9 (revert T6): the Spec AND every ticket sub-issue land on the Project —
+  // each is its own card, GitHub-native.
+  assert.equal(github.calls.filter((c) => c.startsWith("addIssueToProject:PVT_1:")).length, 3);
   assert.ok(github.calls.includes("addIssueToProject:PVT_1:I_kwDO10:10"));
-  assert.ok(!github.calls.some((c) => c.startsWith("addIssueToProject:") && c.includes(":11:")));
-  assert.ok(!github.calls.some((c) => c.startsWith("addIssueToProject:") && c.includes(":12:")));
+  assert.ok(github.calls.includes("addIssueToProject:PVT_1:I_kwDO11:11"));
+  assert.ok(github.calls.includes("addIssueToProject:PVT_1:I_kwDO12:12"));
   // The Spec card's Status column reflects the md Spec status (in_progress → In Progress).
   assert.ok(github.calls.some((c) => c.startsWith("ensureStatusFieldOptions:PVT_1:")));
-  assert.ok(github.calls.some((c) => c === "setItemStatusField:PVT_1:PVTI_10:In Progress"));
-  // Tickets get no Status column (they are not board cards).
-  assert.ok(!github.calls.some((c) => c.startsWith("setItemStatusField:") && c.includes("PVTI_11")));
-  assert.ok(!github.calls.some((c) => c.startsWith("setItemStatusField:") && c.includes("PVTI_12")));
+  assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_10:In Progress"));
+  // Ticket sub-issue cards are synced to their own Status columns
+  // (T1 done → Done, T2 in_progress → In Progress) via the syncTicketStatus path.
+  assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_11:Done"));
+  assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_12:In Progress"));
   // Done/approved sub-issues close (native + segmented sub-task progress); others stay open.
   assert.ok(github.calls.includes("updateIssue:11::closed"));
   assert.ok(github.calls.includes("updateIssue:12::open"));
@@ -1250,11 +1252,11 @@ test("subIssuesForSpec lists a Spec's ticket sub-issues (ref/title/status/number
   assert.deepEqual(subIssuesForSpec("G4.S9", issues), []);
 });
 
-test("buildGithubProjectBoard carries each Spec card's subIssues (ref/title/status/number) (G4.S5.T8)", () => {
+test("buildGithubProjectBoard carries each Spec card's subIssues + renders ticket cards spread across columns (G4.S5.T8/T9)", () => {
   const project: GithubProject = { id: "PVT_1", title: "athena-agent", number: 3, url: "" };
   const items: GithubProjectItem[] = [
     { id: "PVTI_1", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench", status: "Backlog" },
-    // A ticket item is present but must NOT render as a card — only subIssues data.
+    // T9 (revert T6): a ticket item IS a card now — it lands in its own Status column.
     { id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5.T1", status: "Done" },
   ];
   const issues: GithubIssue[] = [
@@ -1268,9 +1270,10 @@ test("buildGithubProjectBoard carries each Spec card's subIssues (ref/title/stat
     issues,
     (n) => `https://github.com/zouhanhai/athena-agent/issues/${n}`,
   );
+  // The Spec card sits in Backlog; the ticket sub-issue card in its Done column.
   assert.deepEqual(
     board.columns.map((c) => c.cards.map((card) => card.ref)),
-    [["G4.S5"]],
+    [["G4.S5"], ["G4.S5.T1"]],
   );
   const card = board.columns[0].cards[0];
   assert.equal(card.ref, "G4.S5");
@@ -1279,6 +1282,12 @@ test("buildGithubProjectBoard carries each Spec card's subIssues (ref/title/stat
     { ref: "G4.S5.T2", title: "G4.S5.T2 md→GitHub projection", status: "open", number: 3 },
     { ref: "G4.S5.T3", title: "G4.S5.T3 Feedback loop", status: "open", number: 4 },
   ]);
+  // The ticket card is plain: no sub-task progress, no nested sub-issues.
+  const ticket = board.columns[1].cards[0];
+  assert.equal(ticket.ref, "G4.S5.T1");
+  assert.equal(ticket.status, "Done");
+  assert.deepEqual(ticket.progress, { done: 0, total: 0, percent: 0 });
+  assert.deepEqual(ticket.subIssues, []);
 });
 
 

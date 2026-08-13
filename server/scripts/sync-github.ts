@@ -169,8 +169,9 @@ switch (command) {
 
     const items = await github.getProjectItems(credential, project.id);
     await github.ensureStatusFieldOptions(credential, project.id, statusFieldOptions());
-    // T6: the Spec card's Status column reflects the md Spec status; tickets
-    // are sub-issues (no card), so they only get body/state/blocked_by synced.
+    // T9 (revert T6): the Spec card's Status column reflects the md Spec status
+    // AND each ticket sub-issue is a card synced to its own Status column —
+    // GitHub-native board behavior.
     await syncSpecStatus(github, credential, owner!, repo!, project, issue.number, spec.status, items);
     for (const ticket of tickets) {
       const ticketPayload = buildIssueForTicket(board, specRef, ticket.ref);
@@ -184,6 +185,7 @@ switch (command) {
         body: ticketPayload.body,
         state: ticketState(ticket.ticket.status),
       });
+      await syncTicketStatus(github, credential, owner!, repo!, project, ticketIssue.number, ticket.ticket.status, items);
       await syncBlockedBy(
         github,
         credential,

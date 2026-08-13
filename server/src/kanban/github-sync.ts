@@ -291,20 +291,23 @@ export async function createSpecIssue(
       // GitHub's native sub-task progress and the board's segmented bar reflect it.
       await syncTicketIssueState(github, credential, owner, repo, issue.number, ticket.ticket.status);
     }
-    // T6: tickets are sub-issues of the Spec (GitHub-native sub-task progress),
-    // NOT individual Project cards — only the Spec main issue lands on the board.
+    // T9 (revert T6): every ticket sub-issue is ALSO a Project card — added to
+    // the board so the ticket cards spread across their Status columns
+    // (GitHub-native behavior) alongside the Spec card's aggregated progress.
+    await github.addIssueToProject(credential, project.id, issue.node_id);
     await applyGoalAttrs(github, credential, owner, repo, issue.number, milestoneNumber, payload.labels);
     issues.set(ticket.ref, issue);
     ticketOutcomes.push({ ref: ticket.ref, number: issue.number, created: ticketCreated });
   }
 
-  // Phase B: the Spec card's Status column = the md Spec status; tickets keep
-  // their blocked_by dependencies (they have no column once off the board).
+  // Phase B: the Spec card's Status column = the md Spec status; each ticket
+  // sub-issue card syncs to its own Status column (syncTicketStatus).
   await github.ensureStatusFieldOptions(credential, project.id, statusFieldOptions());
   const items = await github.getProjectItems(credential, project.id);
   await syncSpecStatus(github, credential, owner, repo, project, specIssue.number, spec.status, items);
   for (const ticket of tickets) {
     const issue = issues.get(ticket.ref)!;
+    await syncTicketStatus(github, credential, owner, repo, project, issue.number, ticket.ticket.status, items);
     await syncBlockedBy(
       github,
       credential,
@@ -405,8 +408,8 @@ export async function syncSpecStatus(
  * avoid a redundant getProjectItems round-trip when the caller already fetched
  * the board; the card is added to the Project when missing.
  *
- * NOTE: since T6 tickets are sub-issues rather than Project cards, this is only
- * used by manual/legacy tooling — createSpecIssue syncs the Spec status column.
+ * createSpecIssue calls this for each ticket sub-issue (G4.S5.T9) so ticket
+ * cards spread across their Status columns — GitHub-native board behavior.
  */
 export async function syncTicketStatus(
   github: GitHubApi,
@@ -520,7 +523,7 @@ export function statusColumnName(status: string | null): string {
   return status ?? "No status";
 }
 
-/** True for a ticket ref like `G4.S5.T1` (sub-issue, not a Project card since T6). */
+/** True for a ticket ref like `G4.S5.T1` (a sub-issue card on the board). */
 function isTicketRef(ref: string): boolean {
   return /^G\d+\.S\d+\.T\d+$/.test(ref);
 }
@@ -583,10 +586,11 @@ export function subIssuesForSpec(
 
 /**
  * Build the GitHub Project board from the Project cards, grouped into Status
- * columns. Since T6 only Spec issues are cards — ticket sub-issues are skipped
- * and each Spec card carries its sub-task progress (computed from the repo's
- * issues). Known kanban statuses lead in kanban order; unknown/unset statuses
- * ("No status") trail, mirroring GitHub's native board layout.
+ * columns. Spec issues and ticket sub-issues are ALL cards (G4.S5.T9 revert of
+ * T6) — each sits in its own Status column, GitHub-native. Spec cards carry
+ * their aggregated sub-task progress (computed from the repo's issues); ticket
+ * cards are plain. Known kanban statuses lead in kanban order; unknown/unset
+ * statuses ("No status") trail, mirroring GitHub's native board layout.
  */
 export function buildGithubProjectBoard(
   project: GithubProject,
@@ -602,9 +606,6 @@ export function buildGithubProjectBoard(
     }
     const rawTitle = item.title ?? "";
     const ref = parseIssueRef(rawTitle);
-    if (ref && isTicketRef(ref)) {
-      continue; // T6: tickets are sub-issues, never individual board cards
-    }
     const displayTitle = ref ? rawTitle.slice(ref.length).trim() : rawTitle;
     const columnName = statusColumnName(item.status);
     let column = columns.get(columnName);

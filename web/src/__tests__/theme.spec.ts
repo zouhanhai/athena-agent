@@ -78,6 +78,15 @@ describe("theme css variables", () => {
     expect(dark["--caleo-bubble-user"]).toBe("#ff6633");
   });
 
+  it("defines a per-theme Spec-card accent tint: subtle in light, brighter in dark (G4.S5.T9)", () => {
+    const dark = caleoThemeVars("dark");
+    const light = caleoThemeVars("light");
+
+    expect(light["--caleo-primary-tint"]).toBeTruthy();
+    expect(dark["--caleo-primary-tint"]).toBeTruthy();
+    expect(light["--caleo-primary-tint"]).not.toBe(dark["--caleo-primary-tint"]);
+  });
+
   it("applyTheme writes theme variables onto the document root", () => {
     applyTheme("light");
     const root = document.documentElement;
