@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T20:57:25.743Z",
+  "generated_at": "2026-08-13T21:15:03.332Z",
   "goals": [
     {
       "ref": "G1",
@@ -2727,6 +2727,26 @@
                 "After a worker marks a ticket done, the plugin auto-sync creates/updates that ticket's GitHub issue + parent Spec issue on the linked Project (auto-sync actually works end-to-end)",
                 "start-all.sh loads .env.local before launching opencode serve (set -a && . .env.local && set +a), like the backend block does",
                 "Existing missing GitHub issues (G4.S5.T11/T12/T13) are created by running sync-github create G4.S5 once after the fix",
+                "Server + plugin tests green, typecheck clean; live-verified on 6900XT"
+              ]
+            },
+            {
+              "ref": "G4.S5.T15",
+              "id": "G4.S5.T15",
+              "title": "git hook auto-sync: on commit of new docs/kanban Goal/Spec/Ticket files, auto-run sync-github to create the GitHub Issues (submit-and-sync)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T14"
+              ],
+              "acceptance_criteria": [
+                "Committing new docs/kanban Goal / Spec / Ticket files auto-triggers sync-github (create) so those new board items get their GitHub Issues immediately — the GitHub Project board reflects the full kanban (incl. backlog) from the start",
+                "Trigger: a git hook (post-commit or pre-push) detects the commit contains new docs/kanban/**/Goal.md / Spec.md / T*.md files and runs `sync-github create|sync <specRef>` for each affected spec (or a full sync)",
+                "Distribution: repo ships an install script (or git core.hooksPath → repo's hooks/) so every clone gets the hook; new machine setup installs it",
+                "Idempotent + safe: sync-github create is idempotent (already exists); a sync failure logs but never blocks the commit/push",
+                "Works alongside worker-done auto-sync (T10) and manual sync — no conflict",
                 "Server + plugin tests green, typecheck clean; live-verified on 6900XT"
               ]
             }
