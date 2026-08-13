@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T15:53:43.361Z",
+  "generated_at": "2026-08-13T16:05:38.659Z",
   "goals": [
     {
       "ref": "G1",
@@ -2517,7 +2517,7 @@
               "id": "G4.S5.T6",
               "title": "Project board shows only Spec cards — tickets stay as sub-issues (GitHub-native progress bar); spec status column = md Spec status",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_0042bf9c8ffe6xxBkxwS1gql2G",
               "blocked_by": [
@@ -2535,8 +2535,8 @@
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T6 (session ses_0042bf9c8ffe6xxBkxwS1gql2G)",
-              "progress_updated_at": "2026-08-13T15:53:43.351Z",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T16:05:11.263Z",
               "progress_status": "in_progress"
             }
           ]
