@@ -23,6 +23,12 @@ const { ProgressAppender } = await import(path.join(CORE_DIR, "progress-log.js")
 const DEFAULT_ASSIGNEE = "opencode";
 const DEFAULT_MIN_INTERVAL_MS = 30_000;
 
+// Module-level per-session state — MUST live OUTSIDE the server() function so it
+// persists across tool calls. opencode re-invokes server() per event/call; if the
+// Map lived inside, s.claimed would reset on every tool call and the plugin would
+// re-attempt the claim forever, throwing ClaimConflictError on every invocation.
+const sessions = new Map<string, { ref?: string; claimed: boolean; conflicted?: string }>();
+
 /** True when the repo actually has a kanban board (docs/kanban). */
 async function boardPresent(boardRoot: string): Promise<boolean> {
   try {
@@ -38,6 +44,15 @@ async function textOf(parts: Array<{ type?: string; text?: string }>): Promise<s
     .filter((part) => part?.type === "text" && part.text)
     .map((part) => part.text as string)
     .join("\n");
+}
+
+function state(sessionID: string): { ref?: string; claimed: boolean; conflicted?: string } {
+  let s = sessions.get(sessionID);
+  if (!s) {
+    s = { claimed: false };
+    sessions.set(sessionID, s);
+  }
+  return s;
 }
 
 export default {
@@ -57,17 +72,7 @@ export default {
     const boardRoot = path.join(repoDir, "docs", "kanban");
     const minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
 
-    const sessions = new Map<string, { ref?: string; claimed: boolean; conflicted?: string }>();
     const appender = new ProgressAppender({ boardRoot, minIntervalMs });
-
-    function state(sessionID: string): { ref?: string; claimed: boolean; conflicted?: string } {
-      let s = sessions.get(sessionID);
-      if (!s) {
-        s = { claimed: false };
-        sessions.set(sessionID, s);
-      }
-      return s;
-    }
 
     return {
       // First dispatch message carries the structured prompt (§13): capture the ref.
