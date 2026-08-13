@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T08:42:36.915Z",
+  "generated_at": "2026-08-13T09:25:12.193Z",
   "goals": [
     {
       "ref": "G1",
@@ -2287,9 +2287,9 @@
               "id": "G4.S4.T2",
               "title": "Kanban reads Progress Log — parser + KanbanTab shows last row, updated-Xs-ago, stalled flag",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_0058fa093ffeUFQlOVQmsJgPuh",
               "blocked_by": [
                 "G4.S4.T1"
               ],
@@ -2300,8 +2300,9 @@
                 "Stalled is an OBSERVATION flag (board UI) — it does NOT change the ticket frontmatter status",
                 "Server + web tests green"
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S4.T2 (session ses_0058fa093ffeUFQlOVQmsJgPuh)",
+              "progress_updated_at": "2026-08-13T09:25:12.175Z"
             },
             {
               "ref": "G4.S4.T3",
