@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T16:47:56.658Z",
+  "generated_at": "2026-08-13T16:49:54.300Z",
   "goals": [
     {
       "ref": "G1",
@@ -2544,9 +2544,9 @@
               "id": "G4.S5.T7",
               "title": "Spec state machine: full lifecycle (backlog → decomposed/已分ticket → in_progress → done → in_review → approved/rejected)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_003f888d4ffe1s8yBqPkxDc3Zv",
               "blocked_by": [
                 "G4.S5.T6"
               ],
@@ -2559,7 +2559,11 @@
                 "The Project board Status field gains the new Spec columns (ensureStatusFieldOptions) so Spec cards can move to them",
                 "Schema validation rejects an unknown Spec status; state-machine canTransition applies to Specs",
                 "Server tests green, typecheck clean; live-verified on 6900XT"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T7 (session ses_003f888d4ffe1s8yBqPkxDc3Zv)",
+              "progress_updated_at": "2026-08-13T16:49:54.285Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T8",
