@@ -4,7 +4,8 @@ import type { EmployeeRegistry } from "../employees/employees.js";
 import type { RemoteBoardSource } from "../kanban/scan.js";
 import { scanRemoteBoard } from "../kanban/scan.js";
 import { toIndex, readRemoteIndex, type KanbanIndexService } from "../kanban/index-file.js";
-import { GithubAuthError } from "../github/client.js";
+import { buildGithubProjectBoard } from "../kanban/github-sync.js";
+import { GithubAuthError, type GitHubApi } from "../github/client.js";
 import { currentEmployee } from "./helpers.js";
 
 export interface KanbanRouteOptions {
@@ -12,7 +13,9 @@ export interface KanbanRouteOptions {
   index: KanbanIndexService;
   auth: AuthService;
   employees: EmployeeRegistry;
-  github: RemoteBoardSource;
+  /** Remote board scan (REST tree/contents) + the Project v2 read surface (GraphQL). */
+  github: RemoteBoardSource &
+    Pick<GitHubApi, "getProjectByTitle" | "getProjectItems" | "getIssueComments">;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -30,9 +33,89 @@ function truthy(value: unknown): boolean {
  * - GET /api/kanban?rescan=1 → forces a rescan and rebuilds the index file (fallback).
  * - GET /api/kanban?repo=owner/repo → the SELECTED repo's board, read via the
  *   signed-in employee's GitHub credential (converted to the same index shape).
+ * - GET /api/kanban/github-project?repo=owner/repo → the selected repo's SYNCED
+ *   GitHub Project v2 board (G4.S5.T4): cards grouped into Status columns, each
+ *   card linking to its GitHub issue for discussion. GraphQL-backed via the
+ *   employee's token; 404 when the repo has no linked Project.
  */
 export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteOptions): void {
   const { index, auth, employees, github } = options;
+
+  app.get("/api/kanban/github-project", async (request, reply) => {
+    const employee = await currentEmployee(request, auth);
+    if (!employee) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const query = request.query as { repo?: unknown };
+    const repoParam = optionalString(query.repo);
+    if (!repoParam) {
+      return reply.code(400).send({ error: "repo is required (owner/repo form)" });
+    }
+    const parts = repoParam.split("/");
+    const owner = parts[0] ?? "";
+    const repo = parts[1] ?? "";
+    if (parts.length !== 2 || !owner || !repo) {
+      return reply.code(400).send({ error: "repo must be in owner/repo form" });
+    }
+    try {
+      const credential = await employees.getGithubCredential(employee.email);
+      if (!credential) {
+        return reply.code(400).send({ error: "no github credential registered" });
+      }
+      // The linked Project board is titled `owner/repo` by the sync CLI, but
+      // real projects are often named after the repo alone — try both.
+      const project =
+        (await github.getProjectByTitle(credential, owner, `${owner}/${repo}`)) ??
+        (await github.getProjectByTitle(credential, owner, repo));
+      if (!project) {
+        return reply.code(404).send({ error: `no linked GitHub Project for ${owner}/${repo}` });
+      }
+      const items = await github.getProjectItems(credential, project.id);
+      return buildGithubProjectBoard(project, items, (issueNumber) =>
+        `https://github.com/${owner}/${repo}/issues/${issueNumber}`,
+      );
+    } catch (err) {
+      if (err instanceof GithubAuthError) {
+        return reply.code(401).send({ error: err.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/kanban/github-issue-comments", async (request, reply) => {
+    const employee = await currentEmployee(request, auth);
+    if (!employee) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const query = request.query as { repo?: unknown; issueNumber?: unknown };
+    const repoParam = optionalString(query.repo);
+    const issueNumber = Number(query.issueNumber);
+    if (!repoParam) {
+      return reply.code(400).send({ error: "repo is required (owner/repo form)" });
+    }
+    const parts = repoParam.split("/");
+    const owner = parts[0] ?? "";
+    const repo = parts[1] ?? "";
+    if (parts.length !== 2 || !owner || !repo) {
+      return reply.code(400).send({ error: "repo must be in owner/repo form" });
+    }
+    if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+      return reply.code(400).send({ error: "issueNumber must be a positive integer" });
+    }
+    try {
+      const credential = await employees.getGithubCredential(employee.email);
+      if (!credential) {
+        return reply.code(400).send({ error: "no github credential registered" });
+      }
+      const comments = await github.getIssueComments(credential, owner, repo, issueNumber);
+      return { comments };
+    } catch (err) {
+      if (err instanceof GithubAuthError) {
+        return reply.code(401).send({ error: err.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   app.get("/api/kanban", async (request, reply) => {
     const employee = await currentEmployee(request, auth);

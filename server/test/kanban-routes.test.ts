@@ -18,6 +18,9 @@ import {
   type KanbanIndexService,
 } from "../src/kanban/index-file.js";
 import type { GithubFileContent, GithubTreeEntry, GitHubApi } from "../src/github/client.js";
+import { GithubAuthError } from "../src/github/client.js";
+import type { GithubIssueComment, GithubProject, GithubProjectItem } from "../src/github/client.js";
+import type { GithubProjectBoard } from "../src/kanban/github-sync.js";
 
 const TEST_CIPHER = createSecretCipher("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
 
@@ -351,4 +354,307 @@ test("GET /api/kanban?repo=invalid rejects a malformed repo", async () => {
 test("GET /api/kanban?repo=owner/repo requires authentication", async () => {
   const res = await app.inject({ method: "GET", url: "/api/kanban?repo=acme/box" });
   assert.equal(res.statusCode, 401);
+});
+
+// ---------------------------------------------------------------------------
+// G4.S5.T4 — GET /api/kanban/github-project (synced GitHub Project board)
+// ---------------------------------------------------------------------------
+
+/** A RemoteBoardSource + Project v2 read surface, backed by in-memory maps. */
+class FakeProjectGithub implements RemoteBoardSource {
+  constructor(
+    private readonly projects: Map<string, GithubProject>,
+    private readonly itemsByProject: Map<string, GithubProjectItem[]>,
+    private readonly commentsByIssue: Map<number, GithubIssueComment[]> = new Map(),
+  ) {}
+  async listTree(): Promise<GithubTreeEntry[]> {
+    return [];
+  }
+  async getFileContent(): Promise<GithubFileContent> {
+    return { path: "", sha: "", size: null, content: "" };
+  }
+  async getProjectByTitle(_credential: GithubCredential, _owner: string, title: string): Promise<GithubProject | null> {
+    return this.projects.get(title) ?? null;
+  }
+  async getProjectItems(_credential: GithubCredential, projectId: string): Promise<GithubProjectItem[]> {
+    return this.itemsByProject.get(projectId) ?? [];
+  }
+  async getIssueComments(
+    _credential: GithubCredential,
+    _owner: string,
+    _repo: string,
+    issueNumber: number,
+  ): Promise<GithubIssueComment[]> {
+    return this.commentsByIssue.get(issueNumber) ?? [];
+  }
+}
+
+function projectGithub(): FakeProjectGithub {
+  const project: GithubProject = {
+    id: "PVT_1",
+    title: "zouhanhai/athena-agent",
+    number: 3,
+    url: "https://github.com/zouhanhai/athena-agent/projects/3",
+  };
+  const items: GithubProjectItem[] = [
+    { id: "PVTI_1", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench kanban sync", status: "Backlog" },
+    { id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5.T1", status: "Done" },
+    { id: "PVTI_3", issueId: "I_3", issueNumber: 3, title: "G4.S5.T2", status: "In Progress" },
+    { id: "PVTI_4", issueId: null, issueNumber: null, title: null, status: null },
+  ];
+  return new FakeProjectGithub(new Map([[project.title, project]]), new Map([[project.id, items]]));
+}
+
+function credentialEmployee(): MemoryEmployeeRegistry {
+  return new MemoryEmployeeRegistry(
+    [
+      {
+        email: "alice@caleo.com",
+        display_name: "Alice",
+        role: "member",
+        github_credential: { type: "token", value: "ghp_alice" },
+      },
+    ],
+    { cipher: TEST_CIPHER },
+  );
+}
+
+test("GET /api/kanban/github-project requires authentication", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/kanban/github-project?repo=acme/box" });
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/kanban/github-project requires a repo param in owner/repo form", async () => {
+  const sessionToken = await login("alice@caleo.com");
+  const noRepo = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(noRepo.statusCode, 400);
+  const malformed = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=notarepo",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(malformed.statusCode, 400);
+  assert.match(malformed.json().error, /owner\/repo/);
+});
+
+test("GET /api/kanban/github-project returns 400 when the user has no credential", async () => {
+  const employees = new MemoryEmployeeRegistry(
+    [{ email: "admin@caleo.com", display_name: "Admin", role: "admin" }],
+    { cipher: TEST_CIPHER },
+  );
+  await app.close();
+  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
+  const sessionToken = await login("admin@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=acme/box",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().error, /no github credential/i);
+});
+
+test("GET /api/kanban/github-project returns 404 when the repo has no linked Project", async () => {
+  await app.close();
+  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=acme/box",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 404);
+  assert.match(res.json().error, /no linked GitHub Project/);
+});
+
+test("GET /api/kanban/github-project serves the synced Project board with cards per status", async () => {
+  await app.close();
+  app = makeApp(undefined, projectGithub() as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as GithubProjectBoard;
+  assert.equal(body.project.title, "zouhanhai/athena-agent");
+  assert.ok(body.generated_at, "the board must carry a generated_at timestamp");
+  assert.deepEqual(
+    body.columns.map((c) => c.status),
+    ["Backlog", "In Progress", "Done"],
+  );
+  assert.deepEqual(
+    body.columns[0].cards.map((c) => c.ref),
+    ["G4.S5"],
+  );
+  assert.deepEqual(
+    body.columns[1].cards.map((c) => c.ref),
+    ["G4.S5.T2"],
+  );
+  const done = body.columns[2].cards[0];
+  assert.equal(done.ref, "G4.S5.T1");
+  assert.equal(done.title, "");
+  assert.equal(done.status, "Done");
+  assert.equal(done.url, "https://github.com/zouhanhai/athena-agent/issues/2");
+});
+
+test("GET /api/kanban/github-project falls back to the repo-name project title", async () => {
+  const project: GithubProject = {
+    id: "PVT_2",
+    title: "athena-agent",
+    number: 7,
+    url: "https://github.com/zouhanhai/athena-agent/projects/7",
+  };
+  const github = new FakeProjectGithub(
+    new Map([[project.title, project]]),
+    new Map([[project.id, [{ id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5.T2", status: "Done" }]]]),
+  );
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as GithubProjectBoard;
+  assert.equal(body.project.title, "athena-agent");
+  assert.equal(body.columns[0].cards[0].ref, "G4.S5.T2");
+});
+
+test("GET /api/kanban/github-project uses the employee's credential", async () => {
+  const used: string[] = [];
+  const project: GithubProject = { id: "PVT_1", title: "athena-agent", number: 3, url: "" };
+  const github = new FakeProjectGithub(
+    new Map([[project.title, project]]),
+    new Map([[project.id, []]]),
+  );
+  const original = github.getProjectByTitle.bind(github);
+  github.getProjectByTitle = async (credential, owner, title) => {
+    used.push(credential.value);
+    return original(credential, owner, title);
+  };
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.ok(used.every((v) => v === "ghp_alice"), "the board must use the employee's credential");
+});
+
+test("GET /api/kanban/github-project surfaces a GitHub auth failure as 401", async () => {
+  const github = new FakeProjectGithub(new Map(), new Map());
+  github.getProjectByTitle = async () => {
+    throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
+  };
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=zouhanhai/athena-agent",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 401);
+  assert.match(res.json().error, /GitHub rejected/);
+});
+
+// G4.S5.T4 — GET /api/kanban/github-issue-comments (local detail panel discussion)
+// -----------------------------------------------------------------------------
+
+test("GET /api/kanban/github-issue-comments requires authentication", async () => {
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-issue-comments?repo=acme/box&issueNumber=5",
+  });
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/kanban/github-issue-comments requires repo + issueNumber", async () => {
+  const sessionToken = await login("alice@caleo.com");
+  const noRepo = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-issue-comments?issueNumber=5",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(noRepo.statusCode, 400);
+  const noIssue = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-issue-comments?repo=acme/box",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(noIssue.statusCode, 400);
+  const badIssue = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-issue-comments?repo=acme/box&issueNumber=nope",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(badIssue.statusCode, 400);
+});
+
+test("GET /api/kanban/github-issue-comments serves the issue's comment thread", async () => {
+  const comments: GithubIssueComment[] = [
+    {
+      id: 11,
+      user_login: "alice",
+      body: "Let's keep the board inside the Workbench.",
+      created_at: "2026-08-13T10:00:00Z",
+      html_url: "https://github.com/zouhanhai/athena-agent/issues/5#issuecomment-11",
+    },
+  ];
+  const github = new FakeProjectGithub(
+    new Map(),
+    new Map(),
+    new Map([[5, comments]]),
+  );
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-issue-comments?repo=zouhanhai/athena-agent&issueNumber=5",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { comments: GithubIssueComment[] }).comments, comments);
+});
+
+test("GET /api/kanban/github-issue-comments returns an empty list when the issue has no comments", async () => {
+  await app.close();
+  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-issue-comments?repo=zouhanhai/athena-agent&issueNumber=9",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual((res.json() as { comments: GithubIssueComment[] }).comments, []);
+});
+
+test("GET /api/kanban/github-issue-comments surfaces a GitHub auth failure as 401", async () => {
+  const github = new FakeProjectGithub(new Map(), new Map());
+  github.getIssueComments = async () => {
+    throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
+  };
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-issue-comments?repo=zouhanhai/athena-agent&issueNumber=5",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 401);
+  assert.match(res.json().error, /GitHub rejected/);
 });

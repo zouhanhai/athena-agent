@@ -1,6 +1,12 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
-import { fetchBoard, type KanbanIndex } from "@/api/kanban";
+import {
+  fetchBoard,
+  fetchGithubIssueComments,
+  fetchGithubProjectBoard,
+  type GithubProjectBoard,
+  type KanbanIndex,
+} from "@/api/kanban";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
@@ -88,5 +94,62 @@ describe("fetchBoard", () => {
   it("throws the server error message on a non-ok response", async () => {
     stubFetch(jsonResponse({ error: "unauthorized" }, 401));
     await expect(fetchBoard("tok_1")).rejects.toThrow("unauthorized");
+  });
+});
+
+const PROJECT_BOARD: GithubProjectBoard = {
+  project: { id: "PVT_1", title: "athena-agent", number: 3, url: "https://github.com/acme/box/projects/3" },
+  columns: [
+    {
+      status: "Done",
+      cards: [
+        { issueNumber: 2, ref: "G4.S5.T1", title: "", status: "Done", url: "https://github.com/acme/box/issues/2" },
+      ],
+    },
+  ],
+  generated_at: "2026-08-13T16:00:00Z",
+};
+
+describe("fetchGithubProjectBoard", () => {
+  it("GETs /api/kanban/github-project?repo=... with the Bearer token", async () => {
+    stubFetch(jsonResponse(PROJECT_BOARD));
+    const result = await fetchGithubProjectBoard("tok_1", "acme/box");
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban/github-project?repo=acme%2Fbox");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok_1");
+    expect(result).toEqual(PROJECT_BOARD);
+  });
+
+  it("throws the server error message when the repo has no linked Project (404)", async () => {
+    stubFetch(jsonResponse({ error: "no linked GitHub Project for acme/box" }, 404));
+    await expect(fetchGithubProjectBoard("tok_1", "acme/box")).rejects.toThrow(
+      "no linked GitHub Project for acme/box",
+    );
+  });
+});
+
+const COMMENTS = [
+  {
+    id: 11,
+    user_login: "alice",
+    body: "Keep the board in the Workbench.",
+    created_at: "2026-08-13T10:00:00Z",
+    html_url: "https://github.com/acme/box/issues/5#issuecomment-11",
+  },
+];
+
+describe("fetchGithubIssueComments", () => {
+  it("GETs /api/kanban/github-issue-comments?repo=...&issueNumber=... with the Bearer token", async () => {
+    stubFetch(jsonResponse({ comments: COMMENTS }));
+    const result = await fetchGithubIssueComments("tok_1", "acme/box", 5);
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban/github-issue-comments?repo=acme%2Fbox&issueNumber=5");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok_1");
+    expect(result).toEqual(COMMENTS);
+  });
+
+  it("throws the server error message on a non-ok response", async () => {
+    stubFetch(jsonResponse({ error: "unauthorized" }, 401));
+    await expect(fetchGithubIssueComments("tok_1", "acme/box", 5)).rejects.toThrow("unauthorized");
   });
 });

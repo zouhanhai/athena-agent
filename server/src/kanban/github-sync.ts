@@ -357,3 +357,97 @@ export async function syncBlockedBy(
   }
   await github.setIssueDependencies(credential, owner, repo, issueNumber, deps);
 }
+
+// ---------------------------------------------------------------------------
+// G4.S5.T4 — GitHub Project board (read view)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a leading `Gx.Sy` / `Gx.Sy.Tz` ref off a GitHub issue title, or null
+ * when the title does not start with one (e.g. a free-form discussion issue).
+ */
+export function parseIssueRef(title: string): string | null {
+  const match = /^(G\d+\.S\d+(?:\.T\d+)?)(?=\s|$)/.exec(title.trim());
+  return match ? match[1] : null;
+}
+
+/** A card on the GitHub Project board as shown in the Workbench GitHub view. */
+export interface GithubProjectCard {
+  /** The linked issue number (draft cards carry none and are skipped). */
+  issueNumber: number;
+  /** The ticket/spec ref parsed from the issue title (e.g. "G4.S5.T1"), or null. */
+  ref: string | null;
+  /** The issue title with any ref prefix stripped (e.g. "Workbench" for "G4.S5 Workbench"). */
+  title: string;
+  /** The Project Status option name, or null when the card has no status. */
+  status: string | null;
+  /** Link to the GitHub issue for discussion. */
+  url: string;
+}
+
+/** A Status column on the GitHub Project board. */
+export interface GithubProjectColumn {
+  /** Column title: the Status option name, or "No status" for unset cards. */
+  status: string;
+  cards: GithubProjectCard[];
+}
+
+/** The GitHub Project board served by GET /api/kanban/github-project. */
+export interface GithubProjectBoard {
+  project: GithubProject;
+  columns: GithubProjectColumn[];
+  generated_at: string;
+}
+
+/** Column label for a card's Status value; null → "No status" (GitHub's native board column). */
+export function statusColumnName(status: string | null): string {
+  return status ?? "No status";
+}
+
+/**
+ * Build the GitHub Project board from the Project cards, grouped into Status
+ * columns. Known kanban statuses lead in kanban order; unknown/unset statuses
+ * ("No status") trail, mirroring GitHub's native board layout.
+ */
+export function buildGithubProjectBoard(
+  project: GithubProject,
+  items: GithubProjectItem[],
+  issueUrl: (issueNumber: number) => string,
+  generatedAt = new Date().toISOString(),
+): GithubProjectBoard {
+  const columns = new Map<string, GithubProjectColumn>();
+  for (const item of items) {
+    if (item.issueNumber === null) {
+      continue; // draft cards have no linked issue to discuss
+    }
+    const rawTitle = item.title ?? "";
+    const ref = parseIssueRef(rawTitle);
+    const displayTitle = ref ? rawTitle.slice(ref.length).trim() : rawTitle;
+    const columnName = statusColumnName(item.status);
+    let column = columns.get(columnName);
+    if (!column) {
+      column = { status: columnName, cards: [] };
+      columns.set(columnName, column);
+    }
+    column.cards.push({
+      issueNumber: item.issueNumber,
+      ref,
+      title: displayTitle,
+      status: item.status,
+      url: issueUrl(item.issueNumber),
+    });
+  }
+  const ordered: GithubProjectColumn[] = [];
+  const knownFirst = [...KANBAN_STATUS_OPTIONS.map((o) => o.name), statusColumnName(null)];
+  for (const name of knownFirst) {
+    const column = columns.get(name);
+    if (column) {
+      ordered.push(column);
+      columns.delete(name);
+    }
+  }
+  for (const column of columns.values()) {
+    ordered.push(column);
+  }
+  return { project, columns: ordered, generated_at: generatedAt };
+}
