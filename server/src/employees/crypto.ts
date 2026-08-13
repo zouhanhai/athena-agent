@@ -11,6 +11,20 @@ export interface SecretCipher {
 const PREFIX = "v1";
 
 /**
+ * Dev-only fallback AES-256 key (64 hex chars) so local runs work without
+ * `ENCRYPTION_KEY` (used by defaultSecretCipher in app.ts and the worker
+ * plugin's auto-sync credential resolution).
+ */
+export const DEV_ONLY_ENCRYPTION_KEY =
+  "d3d1e5d0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6";
+
+/** The active SecretCipher: `ENCRYPTION_KEY` env, else the dev-only fallback key. */
+export function defaultSecretCipher(): SecretCipher {
+  const key = process.env.ENCRYPTION_KEY ?? DEV_ONLY_ENCRYPTION_KEY;
+  return createSecretCipher(key);
+}
+
+/**
  * Build a SecretCipher from a 32-byte hex key. Prefer `ENCRYPTION_KEY` in
  * production; a dev-only fallback key keeps local runs working like the
  * ConsoleMailer/memory stores do for the rest of the auth stack.

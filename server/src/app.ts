@@ -12,7 +12,7 @@ import { registerEmployeeRoutes } from "./routes/employees.js";
 import { registerGithubRoutes } from "./routes/github.js";
 import { registerKanbanRoutes } from "./routes/kanban.js";
 import { registerInvitationRoutes } from "./routes/invitations.js";
-import { createSecretCipher, type SecretCipher } from "./employees/crypto.js";
+import { defaultSecretCipher, type SecretCipher } from "./employees/crypto.js";
 import { GithubRestClient, type GitHubApi } from "./github/client.js";
 import { MemoryGithubOpStore, type GithubOpStore } from "./github/ops.js";
 import { defaultBoardRoot } from "./kanban/scan.js";
@@ -274,13 +274,7 @@ export function defaultEmployeeRegistry(cipher: SecretCipher): EmployeeRegistry 
  * A dev-only fallback key keeps local runs working, mirroring the
  * ConsoleMailer/memory-store fallbacks used elsewhere in the auth stack.
  */
-export function defaultSecretCipher(): SecretCipher {
-  const key = process.env.ENCRYPTION_KEY ?? DEV_ONLY_ENCRYPTION_KEY;
-  return createSecretCipher(key);
-}
-
-const DEV_ONLY_ENCRYPTION_KEY =
-  "d3d1e5d0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6";
+export { defaultSecretCipher };
 
 /** Default GitHub client: REST API against api.github.com. */
 export function defaultGithubClient(): GitHubApi {

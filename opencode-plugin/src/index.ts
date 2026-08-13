@@ -18,10 +18,16 @@
 
 import path from "node:path";
 import { access } from "node:fs/promises";
+import { readTicketFile } from "../../server/src/kanban/board.js";
 import { parseTicketRef } from "./ticket-ref.js";
 import { claimTicketWithIndex, ClaimConflictError } from "./claim.js";
 import { ProgressAppender } from "./progress-log.js";
 import { commitDoneIndex } from "./done-commit.js";
+import {
+  specRefFromTicketRef,
+  syncSpecOnDone,
+  type SyncSpecOnDoneOptions,
+} from "./auto-sync.js";
 
 /** Minimal structural subset of the opencode plugin context (classic API). */
 export interface WorkerPluginContext {
@@ -84,6 +90,12 @@ export interface WorkerPluginOptions {
   minIntervalMs?: number;
   /** Clock override for tests; defaults to the real wall clock. */
   now?: () => Date;
+  /**
+   * md → GitHub auto-sync run after the index done commit for the done ticket's
+   * parent Spec (G4.S5.T10). Defaults to the real sync; tests inject a mock to
+   * assert the invocation and simulate best-effort failures.
+   */
+  syncSpecOnDone?: (options: SyncSpecOnDoneOptions) => Promise<unknown>;
 }
 
 const DEFAULT_ASSIGNEE = "opencode";
@@ -142,6 +154,7 @@ export function createWorkerHooks(
   const repoDir = options.repoDir ?? ctx.directory;
   const boardRoot = path.join(repoDir, "docs", "kanban");
   const minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
+  const syncSpec = options.syncSpecOnDone ?? syncSpecOnDone;
 
   const appender = appenderFor(boardRoot, { minIntervalMs, now: options.now });
 
@@ -219,6 +232,9 @@ export function createWorkerHooks(
     // Done double-commit (D29): when the claimed ticket is marked done, the
     // session.idle event triggers a SEPARATE kanban-index commit (fallback so
     // the board stays current even if the worker forgets to regen the index).
+    // After the commit, the md → GitHub sync runs for the ticket's parent Spec
+    // (G4.S5.T10) so the GitHub board's Status column updates automatically —
+    // best-effort, a sync failure never blocks or rolls back the index commit.
     event: async (input) => {
       const evt = input.event;
       if (!evt || evt.type !== "session.idle") return;
@@ -236,6 +252,24 @@ export function createWorkerHooks(
             service: "athena.worker",
             level: "error",
             message: `done-index commit failed for ${s.ref}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          },
+        });
+      }
+      const { ticket } = await readTicketFile(boardRoot, s.ref);
+      if (ticket.status !== "done") return;
+      const specRef = specRefFromTicketRef(s.ref);
+      if (!specRef) return;
+      try {
+        await syncSpec({ repoDir, boardRoot, specRef });
+      } catch (err) {
+        // Best-effort: log the failure, never block or roll back the done flow.
+        await ctx.client.app.log({
+          body: {
+            service: "athena.worker",
+            level: "error",
+            message: `md→GitHub sync for ${specRef} failed (best-effort, done not blocked): ${
               err instanceof Error ? err.message : String(err)
             }`,
           },

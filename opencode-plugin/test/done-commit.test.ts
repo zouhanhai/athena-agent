@@ -9,6 +9,7 @@ import { renderBoardMd } from "../../server/src/kanban/frontmatter.js";
 import { refToPath, readTicketFile, writeTicketFile } from "../../server/src/kanban/board.js";
 import { buildIndexFile } from "../../server/src/kanban/index-file.js";
 import { createWorkerHooks } from "../src/index.js";
+import type { SyncSpecOnDoneOptions } from "../src/auto-sync.js";
 
 const run = promisify(execFile);
 
@@ -337,6 +338,106 @@ test("session.idle for an unclaimed session does NOT commit", async () => {
     await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "ses_other" } } });
     const after = Number(await git(repo, ["rev-list", "--count", "HEAD"]));
     assert.equal(after, before, "foreign session idle must not trigger the index commit");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// G4.S5.T10 — done → md→GitHub auto-sync for the ticket's parent Spec
+// ---------------------------------------------------------------------------
+
+function mockSyncHooks(repo: string, logs: string[] = [], syncs: string[] = [], failWith?: Error) {
+  const syncSpecOnDone = async (options: SyncSpecOnDoneOptions) => {
+    syncs.push(options.specRef);
+    if (failWith) {
+      throw failWith;
+    }
+  };
+  return {
+    hooks: createWorkerHooks(makeCtx(repo, logs), { repoDir: repo, syncSpecOnDone }),
+    syncs,
+    logs,
+  };
+}
+
+test("session.idle on a done ticket triggers the md→GitHub sync for the parent Spec (G4.S5.T10)", async () => {
+  const { base, repo, remote } = await setupGitRepo();
+  try {
+    const { hooks, syncs } = mockSyncHooks(repo);
+    await hooks["chat.message"]!(
+      { sessionID: SESSION, agent: "build", messageID: "m1" },
+      { message: {}, parts: [{ type: "text", text: DISPATCH }] },
+    );
+    await hooks["tool.execute.before"]!({ tool: "read", sessionID: SESSION, callID: "c1" }, { args: {} });
+
+    // Worker marks done (does NOT regenerate the index).
+    await markDone(repo, false);
+
+    const before = Number(await git(repo, ["rev-list", "--count", "HEAD"]));
+    await hooks.event!({ event: { type: "session.idle", properties: { sessionID: SESSION } } });
+    const after = Number(await git(repo, ["rev-list", "--count", "HEAD"]));
+
+    // The plugin derived G1.S1.T1 → G1.S1 and ran the sync for the parent Spec.
+    assert.deepEqual(syncs, ["G1.S1"], "sync invoked with the parent spec ref");
+    // The index done commit still lands alongside the sync.
+    assert.equal(after, before + 1, "index commit happens before/independent of the sync");
+    const lastMsg = await git(repo, ["log", "-1", "--format=%s"]);
+    assert.equal(lastMsg, "index done G1.S1.T1");
+
+    // Pushed: a fresh clone sees both commits.
+    const verify = path.join(base, "verify");
+    await git(base, ["clone", remote, "verify"]);
+    const recent = await git(verify, ["log", "-2", "--format=%s"]);
+    const lines = recent.split("\n").filter(Boolean);
+    assert.equal(lines[0], "index done G1.S1.T1");
+    assert.equal(lines[1], "done G1.S1.T1 (worker)");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("a sync failure is best-effort: the index done commit still lands (G4.S5.T10)", async () => {
+  const { base, repo } = await setupGitRepo();
+  try {
+    const { hooks, syncs, logs } = mockSyncHooks(repo, [], [], new Error("gh token expired"));
+    await hooks["chat.message"]!(
+      { sessionID: SESSION, agent: "build", messageID: "m1" },
+      { message: {}, parts: [{ type: "text", text: DISPATCH }] },
+    );
+    await hooks["tool.execute.before"]!({ tool: "read", sessionID: SESSION, callID: "c1" }, { args: {} });
+    await markDone(repo, false);
+
+    const before = Number(await git(repo, ["rev-list", "--count", "HEAD"]));
+    // The sync throws, but the event must NOT reject and the index commit lands.
+    await assert.doesNotReject(
+      hooks.event!({ event: { type: "session.idle", properties: { sessionID: SESSION } } }),
+    );
+    const after = Number(await git(repo, ["rev-list", "--count", "HEAD"]));
+    assert.equal(after, before + 1, "index commit not rolled back by a sync failure");
+    assert.deepEqual(syncs, ["G1.S1"], "the sync was attempted");
+    assert.ok(
+      logs.some((m) => /md→GitHub sync for G1\.S1 failed/.test(m)),
+      "the sync failure is logged best-effort",
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("session.idle does NOT trigger the GitHub sync when the ticket is not done (G4.S5.T10)", async () => {
+  const { base, repo } = await setupGitRepo();
+  try {
+    const { hooks, syncs } = mockSyncHooks(repo);
+    await hooks["chat.message"]!(
+      { sessionID: SESSION, agent: "build", messageID: "m1" },
+      { message: {}, parts: [{ type: "text", text: DISPATCH }] },
+    );
+    await hooks["tool.execute.before"]!({ tool: "read", sessionID: SESSION, callID: "c1" }, { args: {} });
+
+    // Claimed but still in_progress — idling must not sync (or commit).
+    await hooks.event!({ event: { type: "session.idle", properties: { sessionID: SESSION } } });
+    assert.deepEqual(syncs, [], "no sync while the ticket is not done");
   } finally {
     await rm(base, { recursive: true, force: true });
   }
