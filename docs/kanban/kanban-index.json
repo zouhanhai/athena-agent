@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T15:39:26.190Z",
+  "generated_at": "2026-08-13T15:53:43.361Z",
   "goals": [
     {
       "ref": "G1",
@@ -2497,36 +2497,47 @@
               "id": "G4.S5.T5",
               "title": "Fix plugin done double-commit races: (3a) index commit not pushed on push-failure, (3b) duplicate index commit when worker also regens",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0045c5a0dffeT18SNX8N7DhpCs",
               "blocked_by": [],
               "acceptance_criteria": [
                 "3a FIXED: when the plugin's `index done <ref>` commit push fails and rebase makes the index already reflect done, the local un-pushed commit is still pushed (no more `[ahead 1]` orphan index commits on 6900XT)",
                 "3b FIXED: when a worker has already manually regenerated + committed the index for the done ticket, the plugin's session.idle handler does NOT create a second `index done` commit (exactly one index commit per done)",
                 "Both verified with plugin unit tests (mock git push failure + mock worker-already-regenerated index)",
                 "Plugin tests green (npx tsx --test), server tests green, typecheck clean"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T15:07:01.914Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T6",
               "id": "G4.S5.T6",
               "title": "Project board shows only Spec cards — tickets stay as sub-issues (GitHub-native progress bar); spec status column = md Spec status",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_0042bf9c8ffe6xxBkxwS1gql2G",
               "blocked_by": [
                 "G4.S5.T4"
               ],
               "acceptance_criteria": [
-                "The GitHub Project board shows ONLY the Spec main issue as a card (one card per Spec), NOT the ticket sub-issues",
-                "Ticket sub-issues remain nested under the Spec issue (click Spec to see them) and keep the GitHub-native sub-task progress bar (X/N done)",
-                "The Spec card's Status column reflects the md Spec status (backlog/active/done → board column), NOT a per-ticket aggregate",
-                "T2's createSpecIssue no longer adds ticket sub-issues to the Project (only the Spec issue is added)",
-                "The Workbench GitHub Project view (T4) also renders only Spec cards (not ticket cards)",
+                "The GitHub Project board shows ONE card per Spec (not per-ticket) — aligned with ABAPlorer's board",
+                "Ticket sub-issues remain nested under the Spec issue (click Spec to see them)",
+                "Each Spec card shows a SEGMENTED progress bar at the bottom (N blocks = N sub-issues; each done sub-issue fills one block, like ABAPlorer's `4 / 5 · 80%`)",
+                "The progress bar uses OUR brand palette (filled = --caleo-primary #ff6633, empty = theme-muted) and adapts to dark AND light themes (NOT ABAPlorer's purple)",
+                "The Spec card's Status column = the Spec's kanban status (md Spec status: backlog/active/done mapped to board column), NOT a per-ticket aggregate",
+                "The card header shows the repo + Spec ref (like ABAPlorer's `owner/repo #id`)",
+                "T2's createSpecIssue adds ONLY the Spec to the Project (ticket sub-issues are not individual cards)",
+                "The Workbench GitHub Project view (T4) also renders only Spec cards with the segmented progress bar",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T6 (session ses_0042bf9c8ffe6xxBkxwS1gql2G)",
+              "progress_updated_at": "2026-08-13T15:53:43.351Z",
+              "progress_status": "in_progress"
             }
           ]
         },
