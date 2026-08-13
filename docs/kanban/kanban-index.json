@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T14:21:04.649Z",
+  "generated_at": "2026-08-13T14:42:34.453Z",
   "goals": [
     {
       "ref": "G1",
@@ -2462,8 +2462,8 @@
                 "Server tests green (mock GitHub), typecheck clean"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-13T14:14:21.452Z",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T14:13:50.723Z",
               "progress_status": "in_progress"
             },
             {
@@ -2471,7 +2471,7 @@
               "id": "G4.S5.T4",
               "title": "Workbench Kanban tab view toggle — Local kanban vs GitHub Project (synced board)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_00480d7dcffeD2IXlm3VZwaQ3Z",
               "blocked_by": [
@@ -2480,14 +2480,16 @@
               "acceptance_criteria": [
                 "KanbanTab has a view toggle: Local kanban | GitHub Project",
                 "Local view = the existing board (Progress Log, updated-ago, stalled flag, goal tree, column expand)",
-                "GitHub Project view = the synced board from GitHub: cards per status column, ticket refs, status, and a link to the GitHub issue/project page for discussion",
+                "GitHub Project view = the synced board from GitHub: cards per status column, ticket refs, status",
+                "Clicking a card in the GitHub Project view opens a LOCAL detail panel (does NOT leave the Workbench): shows the ticket details pulled from local md (description, Progress Log, frontmatter) + the GitHub issue comments fetched via API",
                 "The GitHub view reads the Project items via a backend endpoint (GraphQL-backed, using the employee token)",
                 "Switching views does not break the existing local board behavior",
                 "Web tests green + vue-tsc clean"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T4 (session ses_00480d7dcffeD2IXlm3VZwaQ3Z)",
-              "progress_updated_at": "2026-08-13T14:21:04.639Z",
+              "completed_at": "2026-08-13",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T14:42:22.888Z",
               "progress_status": "in_progress"
             }
           ]
