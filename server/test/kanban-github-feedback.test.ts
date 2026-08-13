@@ -432,7 +432,7 @@ test("buildSpecDraft proposes a new spec under an existing goal (next ref, DRAFT
   assert.equal(draft.kind, "create_spec");
   assert.equal(draft.doc.ref, "G4.S6");
   assert.equal(draft.doc.frontmatter.parent, "G4");
-  assert.equal(draft.doc.frontmatter.status, "active");
+  assert.equal(draft.doc.frontmatter.status, "backlog");
   await cleanup();
 });
 

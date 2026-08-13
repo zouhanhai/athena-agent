@@ -27,7 +27,7 @@ import {
   buildIssueForTicket,
   createSpecIssue,
   findSpecInBoard,
-  KANBAN_STATUS_OPTIONS,
+  statusFieldOptions,
   statusToColumn,
   syncBlockedBy,
   syncSpecStatus,
@@ -168,7 +168,7 @@ switch (command) {
     }
 
     const items = await github.getProjectItems(credential, project.id);
-    await github.ensureStatusFieldOptions(credential, project.id, KANBAN_STATUS_OPTIONS);
+    await github.ensureStatusFieldOptions(credential, project.id, statusFieldOptions());
     // T6: the Spec card's Status column reflects the md Spec status; tickets
     // are sub-issues (no card), so they only get body/state/blocked_by synced.
     await syncSpecStatus(github, credential, owner!, repo!, project, issue.number, spec.status, items);
@@ -217,7 +217,7 @@ switch (command) {
       break;
     }
     const project = await resolveProject(github, credential);
-    await github.ensureStatusFieldOptions(credential, project.id, KANBAN_STATUS_OPTIONS);
+    await github.ensureStatusFieldOptions(credential, project.id, statusFieldOptions());
     await syncTicketStatus(github, credential, owner!, repo!, project, issue.number, column as TicketStatus);
     console.log(`  card #${issue.number} → Status "${statusToColumn(column as TicketStatus)}"`);
     break;

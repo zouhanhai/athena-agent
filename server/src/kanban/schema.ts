@@ -16,6 +16,41 @@ export type BoardLayer = (typeof LAYERS)[number];
 export const TICKET_STATUSES = ["backlog", "in_progress", "done", "in_review", "approved", "rejected", "canceled"] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
+/**
+ * Spec statuses follow the Spec state machine (G4.S5.T7): the planning phase
+ * (`backlog → decomposed`), execution (`in_progress → done`), review
+ * (`done → in_review → approved/rejected`, rejected re-decomposes) and
+ * `canceled` terminal.
+ */
+export const SPEC_STATUSES = [
+  "backlog",
+  "decomposed",
+  "in_progress",
+  "done",
+  "in_review",
+  "approved",
+  "rejected",
+  "canceled",
+] as const;
+export type SpecStatus = (typeof SPEC_STATUSES)[number];
+
+/**
+ * Legacy Spec status aliases absorbed on parse (G4.S5.T7 backward compat): the
+ * historical `active` status ≡ `in_progress`, so existing Specs still parse.
+ */
+const SPEC_STATUS_ALIASES: Readonly<Record<string, SpecStatus>> = {
+  active: "in_progress",
+};
+
+/** Map a raw Spec status to its canonical value; throws when it is unknown. */
+export function normalizeSpecStatus(raw: string): SpecStatus {
+  const status = SPEC_STATUS_ALIASES[raw] ?? raw;
+  if (!(SPEC_STATUSES as readonly string[]).includes(status)) {
+    throw new BoardSchemaError(`status must be one of: ${SPEC_STATUSES.join(", ")}`);
+  }
+  return status as SpecStatus;
+}
+
 /** Thrown when frontmatter does not conform to the G.S.T schema. */
 export class BoardSchemaError extends Error {}
 
@@ -77,12 +112,16 @@ export function parseGoal(fm: FrontmatterMap): GoalFrontmatter {
 export function parseSpec(fm: FrontmatterMap): SpecFrontmatter {
   const common = requireCommon(fm);
   if (fm.layer !== "S") throw new BoardSchemaError("Spec frontmatter must have layer: S");
+  const status = normalizeSpecStatus(common.status);
   return {
-    ...common,
+    id: common.id,
+    title: common.title,
+    owner: common.owner,
     layer: "S",
     parent: requireString(fm, "parent"),
     milestone: optionalString(fm, "milestone"),
     acceptance_criteria: requireStringArray(fm, "acceptance_criteria"),
+    status,
   };
 }
 
@@ -141,6 +180,7 @@ export interface SpecFrontmatter extends BoardFrontmatterBase {
   parent: string;
   milestone?: string;
   acceptance_criteria: string[];
+  status: SpecStatus;
 }
 
 export interface TicketFrontmatter extends BoardFrontmatterBase {

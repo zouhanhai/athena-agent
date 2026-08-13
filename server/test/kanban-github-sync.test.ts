@@ -7,6 +7,7 @@ import {
   kanbanStatusToProjectStatus,
   projectStatusToKanbanStatus,
 } from "../src/kanban/status-map.js";
+import { SPEC_STATUSES } from "../src/kanban/schema.js";
 import {
   GithubAuthError,
   GithubCredentialUnsupportedError,
@@ -79,18 +80,46 @@ test("status mapping round-trips in both directions", () => {
   }
 });
 
-test("Spec statuses map to board columns (backlog/active/done) (G4.S5.T6)", () => {
+test("Spec statuses map to Project columns across the full lifecycle (G4.S5.T7)", () => {
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.backlog, "Backlog");
-  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.active, "In Progress");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.decomposed, "In Progress");
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.in_progress, "In Progress");
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.done, "Done");
-  assert.equal(kanbanSpecStatusToProjectStatus("active"), "In Progress");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.in_review, "In Review");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.approved, "Approved");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.rejected, "Rejected");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.canceled, "Rejected");
+  assert.equal(kanbanSpecStatusToProjectStatus("backlog"), "Backlog");
+  assert.equal(kanbanSpecStatusToProjectStatus("decomposed"), "In Progress");
+  assert.equal(kanbanSpecStatusToProjectStatus("in_progress"), "In Progress");
   assert.equal(kanbanSpecStatusToProjectStatus("done"), "Done");
+  assert.equal(kanbanSpecStatusToProjectStatus("in_review"), "In Review");
+  assert.equal(kanbanSpecStatusToProjectStatus("approved"), "Approved");
+  assert.equal(kanbanSpecStatusToProjectStatus("rejected"), "Rejected");
+  assert.equal(kanbanSpecStatusToProjectStatus("canceled"), "Rejected");
+  // legacy `active` Spec status still maps via the alias (G4.S5.T7 backward compat)
+  assert.equal(kanbanSpecStatusToProjectStatus("active"), "In Progress");
 });
 
 test("an unknown Spec status maps to null (the card is left untouched) (G4.S5.T6)", () => {
   assert.equal(kanbanSpecStatusToProjectStatus("weird"), null);
   assert.equal(kanbanSpecStatusToProjectStatus(""), null);
+});
+
+test("KANBAN_SPEC_STATUS_OPTIONS carries a column for every Spec status (G4.S5.T7)", () => {
+  const names = new Set(KANBAN_SPEC_STATUS_OPTIONS.map((o) => o.name));
+  for (const status of SPEC_STATUSES) {
+    assert.ok(names.has(kanbanSpecStatusToProjectStatus(status)!), `column for ${status}`);
+  }
+});
+
+test("statusFieldOptions merges ticket + Spec Status options without duplicates (G4.S5.T7)", () => {
+  const options = statusFieldOptions();
+  const names = options.map((o) => o.name);
+  assert.equal(new Set(names).size, names.length, "no duplicate option names");
+  for (const column of ["Backlog", "In Progress", "Done", "In Review", "Approved", "Rejected", "Canceled"]) {
+    assert.ok(names.includes(column), `status options include ${column}`);
+  }
 });
 
 test("gql posts the query + variables to the GraphQL endpoint with the token", async () => {
@@ -697,11 +726,13 @@ import type {
 } from "../src/github/client.js";
 import type { GitHubApi } from "../src/github/client.js";
 import {
+  KANBAN_SPEC_STATUS_OPTIONS,
   blockedByToDeps,
   buildIssueForSpec,
   buildIssueForTicket,
   createSpecIssue,
   goalToMilestoneAndLabel,
+  statusFieldOptions,
   statusToColumn,
   stripProgressLog,
   subTaskProgress,
@@ -909,8 +940,9 @@ class RecordingGithub {
       setIssueDependencies: async (_c, _o, _r, number, ids) => {
         this.calls.push(`setIssueDependencies:${number}:${ids.join(",")}`);
       },
-      ensureStatusFieldOptions: async (_c, projectId) => {
-        this.calls.push(`ensureStatusFieldOptions:${projectId}`);
+      ensureStatusFieldOptions: async (_c, projectId, options) => {
+        const names = (options as ProjectV2StatusOptionInput[]).map((o) => o.name).join("|");
+        this.calls.push(`ensureStatusFieldOptions:${projectId}:${names}`);
       },
     };
     return github as GitHubApi;
@@ -1021,7 +1053,7 @@ test("createSpecIssue creates the Spec Issue + Ticket sub-issues with milestone/
   assert.ok(!github.calls.some((c) => c.startsWith("addIssueToProject:") && c.includes(":11:")));
   assert.ok(!github.calls.some((c) => c.startsWith("addIssueToProject:") && c.includes(":12:")));
   // The Spec card's Status column reflects the md Spec status (in_progress → In Progress).
-  assert.ok(github.calls.includes("ensureStatusFieldOptions:PVT_1"));
+  assert.ok(github.calls.some((c) => c.startsWith("ensureStatusFieldOptions:PVT_1:")));
   assert.ok(github.calls.some((c) => c === "setItemStatusField:PVT_1:PVTI_10:In Progress"));
   // Tickets get no Status column (they are not board cards).
   assert.ok(!github.calls.some((c) => c.startsWith("setItemStatusField:") && c.includes("PVTI_11")));
@@ -1064,6 +1096,17 @@ test("createSpecIssue is idempotent: re-run updates in place, never duplicates",
 
   // Milestone not recreated on re-run.
   assert.equal(github.calls.filter((c) => c === "createMilestone:M4").length, 0);
+});
+
+test("createSpecIssue ensures the merged Status options cover the Spec lifecycle columns (G4.S5.T7)", async () => {
+  const github = new RecordingGithub();
+  await createSpecIssue(github.asApi(), tokenCredential, "caleo", "athena", board, "G4.S5", project);
+  const call = github.calls.find((c) => c.startsWith("ensureStatusFieldOptions:PVT_1:"));
+  assert.ok(call, "ensureStatusFieldOptions was called with the Project");
+  const names = call!.split(":").slice(2).join(":").split("|");
+  for (const column of ["Backlog", "In Progress", "Done", "In Review", "Approved", "Rejected", "Canceled"]) {
+    assert.ok(names.includes(column), `Status options include ${column}`);
+  }
 });
 
 test("syncTicketStatus moves a ticket's card to the right Status column", async () => {

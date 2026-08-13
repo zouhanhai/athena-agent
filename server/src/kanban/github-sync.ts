@@ -45,6 +45,33 @@ export const KANBAN_STATUS_OPTIONS: ProjectV2StatusOptionInput[] = [
   { name: "Canceled", color: "GRAY", description: "No longer planned" },
 ];
 
+/**
+ * The Project Status single-select options the Spec cards need (G4.S5.T7).
+ * Spec statuses project onto Backlog / In Progress / Done / In Review /
+ * Approved / Rejected — the full lifecycle columns.
+ */
+export const KANBAN_SPEC_STATUS_OPTIONS: ProjectV2StatusOptionInput[] = [
+  { name: "Backlog", color: "GRAY", description: "Spec defined, tickets not yet decomposed" },
+  { name: "In Progress", color: "BLUE", description: "Tickets decomposed / executing" },
+  { name: "Done", color: "GREEN", description: "Tickets complete" },
+  { name: "In Review", color: "YELLOW", description: "Acceptance review" },
+  { name: "Approved", color: "GREEN", description: "Spec accepted" },
+  { name: "Rejected", color: "RED", description: "Spec rejected — re-decompose" },
+];
+
+/**
+ * Every Status option the board needs (tickets + Specs), deduplicated by name
+ * (ticket entries win for shared column names). ensureStatusFieldOptions adds
+ * exactly these to the Project board's Status field.
+ */
+export function statusFieldOptions(): ProjectV2StatusOptionInput[] {
+  const byName = new Map<string, ProjectV2StatusOptionInput>();
+  for (const option of [...KANBAN_STATUS_OPTIONS, ...KANBAN_SPEC_STATUS_OPTIONS]) {
+    byName.set(option.name, option);
+  }
+  return [...byName.values()];
+}
+
 /** Strip a `Gx.Sy.Tz:` (or `Gx.Sy:`) ref prefix from an md title, if present. */
 export function stripRefPrefix(title: string, ref: string): string {
   const prefix = `${ref}:`;
@@ -273,7 +300,7 @@ export async function createSpecIssue(
 
   // Phase B: the Spec card's Status column = the md Spec status; tickets keep
   // their blocked_by dependencies (they have no column once off the board).
-  await github.ensureStatusFieldOptions(credential, project.id, KANBAN_STATUS_OPTIONS);
+  await github.ensureStatusFieldOptions(credential, project.id, statusFieldOptions());
   const items = await github.getProjectItems(credential, project.id);
   await syncSpecStatus(github, credential, owner, repo, project, specIssue.number, spec.status, items);
   for (const ticket of tickets) {

@@ -6,6 +6,7 @@ import {
   parseTicket,
   parseBoardFrontmatter,
   TICKET_STATUSES,
+  SPEC_STATUSES,
   LAYERS,
   BoardSchemaError,
   type GoalFrontmatter,
@@ -28,6 +29,76 @@ test("TICKET_STATUSES follows the state machine", () => {
 
 test("LAYERS are G / S / T", () => {
   assert.deepEqual(LAYERS, ["G", "S", "T"]);
+});
+
+test("SPEC_STATUSES covers the full Spec lifecycle (G4.S5.T7)", () => {
+  assert.deepEqual(SPEC_STATUSES, [
+    "backlog",
+    "decomposed",
+    "in_progress",
+    "done",
+    "in_review",
+    "approved",
+    "rejected",
+    "canceled",
+  ]);
+});
+
+test("parseSpec maps the legacy `active` Spec status to in_progress (G4.S5.T7)", () => {
+  const fm = parseSpec(
+    parseFrontmatter(`---
+id: g3_s6
+title: "G3.S6: Git-Driven Development"
+layer: S
+parent: G3
+owner: pm
+status: active
+milestone: M3
+acceptance_criteria:
+  - "G.S.T board structure defined"
+---
+`),
+  );
+  assert.equal(fm.status, "in_progress");
+});
+
+test("parseSpec accepts every full-lifecycle Spec status (G4.S5.T7)", () => {
+  for (const status of SPEC_STATUSES) {
+    const fm = parseSpec(
+      parseFrontmatter(`---
+id: s1
+title: S1
+layer: S
+parent: G1
+owner: pm
+status: ${status}
+acceptance_criteria:
+  - x
+---
+`),
+    );
+    assert.equal(fm.status, status, `parseSpec keeps ${status}`);
+  }
+});
+
+test("parseSpec rejects an unknown Spec status (G4.S5.T7)", () => {
+  assert.throws(
+    () =>
+      parseSpec(
+        parseFrontmatter(`---
+id: s1
+title: S1
+layer: S
+parent: G1
+owner: pm
+status: nope
+acceptance_criteria:
+  - x
+---
+`),
+      ),
+    BoardSchemaError,
+  );
 });
 
 test("parseGoal accepts a valid Goal frontmatter", () => {
@@ -268,7 +339,7 @@ test("the parsed Goal/Spec/Ticket types carry the right shape", () => {
     layer: "S",
     parent: "G1",
     owner: "pm",
-    status: "active",
+    status: "in_progress",
     acceptance_criteria: [],
   };
   const ticket: TicketFrontmatter = {

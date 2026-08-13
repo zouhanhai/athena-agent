@@ -131,7 +131,7 @@ export function buildSpec(ref: string, draft: SpecDraft): BoardFileBase {
     layer: "S",
     parent: parentRef(ref),
     owner: draft.owner ?? PLANNING_OWNER.spec,
-    status: "active",
+    status: "backlog",
     milestone: draft.milestone,
     acceptance_criteria: draft.acceptance_criteria,
   };

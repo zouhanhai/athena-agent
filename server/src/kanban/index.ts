@@ -3,6 +3,8 @@ export type { FrontmatterMap, FrontmatterValue } from "./frontmatter.js";
 export {
   LAYERS,
   TICKET_STATUSES,
+  SPEC_STATUSES,
+  normalizeSpecStatus,
   parseGoal,
   parseSpec,
   parseTicket,
@@ -12,6 +14,7 @@ export {
 export type {
   BoardLayer,
   TicketStatus,
+  SpecStatus,
   BoardFrontmatter,
   BoardFrontmatterBase,
   GoalFrontmatter,
@@ -160,14 +163,22 @@ export {
 export type { RoleId, RoleStage, RoleSoul } from "./roles.js";
 export {
   STATE_MACHINE,
+  SPEC_STATE_MACHINE,
   TRANSITION_ACTOR,
+  SPEC_TRANSITION_ACTOR,
   canTransition,
   transitionsFrom,
   transitionsTo,
   transitionId,
+  specTransitionId,
   actorFor,
 } from "./state-machine.js";
-export type { TransitionId } from "./state-machine.js";
+export type {
+  TransitionId,
+  SpecTransitionId,
+  StateMachineKind,
+  KanbanStatus,
+} from "./state-machine.js";
 export {
   rejectTicket,
   approveTicket,

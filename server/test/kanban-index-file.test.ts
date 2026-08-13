@@ -114,7 +114,7 @@ test("toIndex flattens the scanned board and carries the Progress Log last row",
     const spec = goal.specs[0];
     assert.deepEqual(
       { ref: spec.ref, id: spec.id, title: spec.title, status: spec.status },
-      { ref: "G1.S1", id: "g1.s1", title: "G1.S1: spec", status: "active" },
+      { ref: "G1.S1", id: "g1.s1", title: "G1.S1: spec", status: "in_progress" },
     );
     assert.equal(spec.milestone, "M3");
 

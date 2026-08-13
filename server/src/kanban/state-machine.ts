@@ -7,7 +7,7 @@
  * Matches docs/git-kanban-design.md §6 + §11.
  */
 
-import type { TicketStatus } from "./schema.js";
+import type { SpecStatus, TicketStatus } from "./schema.js";
 import type { RoleId } from "./roles.js";
 
 /** Edges of the ticket state machine: from-state → reachable to-states. */
@@ -21,7 +21,31 @@ export const STATE_MACHINE: Record<TicketStatus, readonly TicketStatus[]> = {
   canceled: [],
 };
 
-/** Named transitions of the state machine. */
+/**
+ * Edges of the Spec state machine (G4.S5.T7) — a full lifecycle that captures
+ * the planning phase: backlog → decomposed (tickets created) → in_progress →
+ * done → in_review → approved/rejected. Rejection re-decomposes into new
+ * tickets / a new backlog; canceled is terminal. Transitions are triggered by a
+ * plan agent / human reviewer — never automatically from ticket completion.
+ */
+export const SPEC_STATE_MACHINE: Record<SpecStatus, readonly SpecStatus[]> = {
+  backlog: ["decomposed", "in_progress"],
+  decomposed: ["in_progress"],
+  in_progress: ["done"],
+  done: ["in_review"],
+  in_review: ["approved", "rejected"],
+  approved: [],
+  rejected: ["backlog", "decomposed"],
+  canceled: [],
+};
+
+/** Which state machine a transition belongs to. */
+export type StateMachineKind = "ticket" | "spec";
+
+/** Any status the state machine layer can reason about. */
+export type KanbanStatus = TicketStatus | SpecStatus;
+
+/** The named transitions of the ticket state machine. */
 export type TransitionId =
   | "claim"
   | "report-done"
@@ -29,7 +53,17 @@ export type TransitionId =
   | "approve"
   | "reject";
 
-/** The soul role that performs each transition. */
+/** The named transitions of the Spec state machine. */
+export type SpecTransitionId =
+  | "decompose"
+  | "start"
+  | "report-done"
+  | "report-in_review"
+  | "approve"
+  | "reject"
+  | "re-decompose";
+
+/** The soul role that performs each ticket transition. */
 export const TRANSITION_ACTOR: Record<TransitionId, RoleId> = {
   claim: "worker",
   "report-done": "worker",
@@ -38,25 +72,64 @@ export const TRANSITION_ACTOR: Record<TransitionId, RoleId> = {
   reject: "reviewer",
 };
 
-/** True when the state machine allows from → to. */
-export function canTransition(from: TicketStatus, to: TicketStatus): boolean {
-  return STATE_MACHINE[from].includes(to);
+/**
+ * The soul role that performs each Spec transition (G4.S5.T7): the Eng
+ * Director (plan agent) decomposes/re-decomposes/advances the spec, the
+ * Reviewer gives the acceptance verdict.
+ */
+export const SPEC_TRANSITION_ACTOR: Record<SpecTransitionId, RoleId> = {
+  decompose: "eng-director",
+  start: "eng-director",
+  "report-done": "eng-director",
+  "report-in_review": "eng-director",
+  approve: "reviewer",
+  reject: "reviewer",
+  "re-decompose": "eng-director",
+};
+
+function machineFor(kind: StateMachineKind): Readonly<Record<string, readonly string[]>> {
+  return kind === "spec" ? SPEC_STATE_MACHINE : STATE_MACHINE;
 }
 
-/** The states reachable directly from a state ([] for terminal states). */
-export function transitionsFrom(from: TicketStatus): readonly TicketStatus[] {
-  return STATE_MACHINE[from];
+/** True when the ticket state machine allows from → to. */
+export function canTransition(from: TicketStatus, to: TicketStatus): boolean;
+/** True when the Spec state machine allows from → to. */
+export function canTransition(from: SpecStatus, to: SpecStatus, kind: "spec"): boolean;
+export function canTransition(
+  from: KanbanStatus,
+  to: KanbanStatus,
+  kind: StateMachineKind = "ticket",
+): boolean {
+  return machineFor(kind)[from]?.includes(to) ?? false;
 }
 
-/** The from-states that can reach `to` (the inverse of transitionsFrom). */
-export function transitionsTo(to: TicketStatus): TicketStatus[] {
-  return (Object.entries(STATE_MACHINE) as [TicketStatus, readonly TicketStatus[]][])
-    .filter(([, tos]) => tos.includes(to))
+/** The ticket states reachable directly from a state ([] for terminal states). */
+export function transitionsFrom(from: TicketStatus): readonly TicketStatus[];
+/** The Spec states reachable directly from a state ([] for terminal states). */
+export function transitionsFrom(from: SpecStatus, kind: "spec"): readonly SpecStatus[];
+export function transitionsFrom(
+  from: KanbanStatus,
+  kind: StateMachineKind = "ticket",
+): readonly KanbanStatus[] {
+  return (machineFor(kind)[from] ?? []) as readonly KanbanStatus[];
+}
+
+/** The ticket from-states that can reach `to` (the inverse of transitionsFrom). */
+export function transitionsTo(to: TicketStatus): TicketStatus[];
+/** The Spec from-states that can reach `to` (the inverse of transitionsFrom). */
+export function transitionsTo(to: SpecStatus, kind: "spec"): SpecStatus[];
+export function transitionsTo(
+  to: KanbanStatus,
+  kind: StateMachineKind = "ticket",
+): KanbanStatus[] {
+  const machine = machineFor(kind);
+  return (Object.entries(machine) as [KanbanStatus, readonly KanbanStatus[]][])
+    .filter(([, tos]) => (tos as readonly string[]).includes(to))
     .map(([from]) => from);
 }
 
-/** Name a transition edge, or null when it is not a valid edge. */
-export function transitionId(from: TicketStatus, to: TicketStatus): TransitionId | null {
+/** Name a ticket transition edge, or null when it is not a valid edge. */
+function ticketTransitionId(from: TicketStatus, to: TicketStatus): TransitionId | null {
   if (!canTransition(from, to)) return null;
   if (to === "in_review") return "report-in_review";
   if (to === "done") return "report-done";
@@ -66,8 +139,50 @@ export function transitionId(from: TicketStatus, to: TicketStatus): TransitionId
   return null;
 }
 
-/** The soul role that performs from → to, or null for an invalid edge. */
-export function actorFor(from: TicketStatus, to: TicketStatus): RoleId | null {
-  const id = transitionId(from, to);
+/** Name a Spec transition edge, or null when it is not a valid edge. */
+export function specTransitionId(from: SpecStatus, to: SpecStatus): SpecTransitionId | null {
+  if (!canTransition(from, to, "spec")) return null;
+  if (from === "rejected") return "re-decompose";
+  if (to === "decomposed") return "decompose";
+  if (to === "in_progress") return "start";
+  if (to === "done") return "report-done";
+  if (to === "in_review") return "report-in_review";
+  if (to === "approved") return "approve";
+  if (to === "rejected") return "reject";
+  return null;
+}
+
+/** Name a ticket transition edge, or null when it is not a valid edge. */
+export function transitionId(from: TicketStatus, to: TicketStatus): TransitionId | null;
+/** Name a Spec transition edge, or null when it is not a valid edge. */
+export function transitionId(
+  from: SpecStatus,
+  to: SpecStatus,
+  kind: "spec",
+): SpecTransitionId | null;
+export function transitionId(
+  from: KanbanStatus,
+  to: KanbanStatus,
+  kind: StateMachineKind = "ticket",
+): TransitionId | SpecTransitionId | null {
+  return kind === "spec"
+    ? specTransitionId(from as SpecStatus, to as SpecStatus)
+    : ticketTransitionId(from as TicketStatus, to as TicketStatus);
+}
+
+/** The soul role that performs a ticket transition, or null for an invalid edge. */
+export function actorFor(from: TicketStatus, to: TicketStatus): RoleId | null;
+/** The soul role that performs a Spec transition, or null for an invalid edge. */
+export function actorFor(from: SpecStatus, to: SpecStatus, kind: "spec"): RoleId | null;
+export function actorFor(
+  from: KanbanStatus,
+  to: KanbanStatus,
+  kind: StateMachineKind = "ticket",
+): RoleId | null {
+  if (kind === "spec") {
+    const id = specTransitionId(from as SpecStatus, to as SpecStatus);
+    return id === null ? null : SPEC_TRANSITION_ACTOR[id];
+  }
+  const id = ticketTransitionId(from as TicketStatus, to as TicketStatus);
   return id === null ? null : TRANSITION_ACTOR[id];
 }
