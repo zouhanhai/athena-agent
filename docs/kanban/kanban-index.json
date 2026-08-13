@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T17:33:54.516Z",
+  "generated_at": "2026-08-13T17:35:18.335Z",
   "goals": [
     {
       "ref": "G1",
@@ -2597,9 +2597,9 @@
               "id": "G4.S5.T9",
               "title": "Revert T6 (sub-issues spread across board, GitHub-native) + brand-orange accent on Spec cards in the Workbench GitHub view",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_003cef6aaffeoCnhNjKtlG17CC",
               "blocked_by": [
                 "G4.S5.T8"
               ],
@@ -2611,7 +2611,11 @@
                 "In the Workbench GitHub Project view, Spec cards are visually DISTINGUISHED from sub-issue cards by a brand-orange accent (border/background tint using --caleo-primary), while sub-issue cards stay plain — so you can tell an issue from a sub-issue at a glance",
                 "The Spec-card orange accent ADAPTS to dark AND light themes (use the theme CSS-variable system; a subtle tint in light mode, a readable bright accent in dark mode — e.g. a colored left border + a very light --caleo-primary background tint that stays legible in both themes)",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T9 (session ses_003cef6aaffeoCnhNjKtlG17CC)",
+              "progress_updated_at": "2026-08-13T17:35:18.322Z",
+              "progress_status": "in_progress"
             }
           ]
         },
