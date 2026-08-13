@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T13:13:24.936Z",
+  "generated_at": "2026-08-13T13:34:50.959Z",
   "goals": [
     {
       "ref": "G1",
@@ -2421,9 +2421,9 @@
               "id": "G4.S5.T2",
               "title": "md→GitHub Project projection: Spec→main Issue (body=design), Ticket→sub-issue, status/blocked_by/label/milestone sync + sync CLI",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_004ab29dfffesK4LWA3R42ygH1",
               "blocked_by": [
                 "G4.S5.T1"
               ],
@@ -2435,7 +2435,11 @@
                 "A sync CLI/tool (board.js-style) creates + syncs md → GitHub on demand or on key transitions; idempotent (re-run doesn't duplicate)",
                 "Progress Log is NOT pushed to GitHub (only description/status/assignee/blocked_by/milestone/label sync)",
                 "Server tests green (mock GitHub), typecheck clean"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T2 (session ses_004ab29dfffesK4LWA3R42ygH1)",
+              "progress_updated_at": "2026-08-13T13:34:50.950Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T3",
