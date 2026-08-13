@@ -164,6 +164,13 @@
   - Multi-agent chat in the Chat panel: multiple agents in one conversation cooperating on a task
     (e.g. local Hermes plans → remote OpenCode implements → Athena pulls KB context), coordinating
     via the platform as the control plane (HTTP + SSE from M4).
+- [ ] **DeepSeek Harness (dsh) — future agent-engine reference (2026-08-13, NOT scheduled)**
+  - `deepseek-ai/deepseek-harness` — a general agent framework (everything is a plugin, Cordis-based;
+    model adapters / tool registry / agent loop all replaceable). Web UI `:3080` + headless.
+  - Theoretically could build our own Pi/OpenCode-style coding agent on it and replace both — but that's
+    a large effort, and dsh is in developer preview (compatibility-breaking changes). **Keep as a future
+    fallback/reference; do NOT adopt now** — current OpenCode worker + S4 plugin already works.
+  - Relevant if OpenCode/Pi no longer meet needs or dsh matures past preview.
 
 ## Naming Convention (Agent identity in the federation)
 
