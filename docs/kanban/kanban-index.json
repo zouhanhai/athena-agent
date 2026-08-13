@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T14:14:32.064Z",
+  "generated_at": "2026-08-13T14:21:04.649Z",
   "goals": [
     {
       "ref": "G1",
@@ -2471,9 +2471,9 @@
               "id": "G4.S5.T4",
               "title": "Workbench Kanban tab view toggle — Local kanban vs GitHub Project (synced board)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_00480d7dcffeD2IXlm3VZwaQ3Z",
               "blocked_by": [
                 "G4.S5.T2"
               ],
@@ -2484,7 +2484,11 @@
                 "The GitHub view reads the Project items via a backend endpoint (GraphQL-backed, using the employee token)",
                 "Switching views does not break the existing local board behavior",
                 "Web tests green + vue-tsc clean"
-              ]
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "opencode claimed G4.S5.T4 (session ses_00480d7dcffeD2IXlm3VZwaQ3Z)",
+              "progress_updated_at": "2026-08-13T14:21:04.639Z",
+              "progress_status": "in_progress"
             }
           ]
         },
