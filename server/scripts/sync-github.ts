@@ -16,8 +16,11 @@
  *   sync-github create <specRef> [--owner O --repo R --project P ...]
  *   sync-github sync <specRef>
  *   sync-github status <ticketRef> <column>
+ *   sync-github pull <specRef>            # GitHub → md status sync (origin-recorded)
+ *   sync-github feedback <specRef> [--plan-input FILE] [--mark-seen]
  *   sync-github list
  */
+import { readFile } from "node:fs/promises";
 import { scanBoard, defaultBoardRoot, type KanbanBoard } from "../src/kanban/scan.js";
 import {
   buildIssueForSpec,
@@ -29,6 +32,15 @@ import {
   syncBlockedBy,
   syncTicketStatus,
 } from "../src/kanban/github-sync.js";
+import {
+  buildFeedbackProposal,
+  buildPlanDraft,
+  markCommentsSeen,
+  pullProjectStatusChanges,
+  readFeedbackContext,
+  writeSyncState,
+} from "../src/kanban/github-feedback.js";
+import type { PlanInput } from "../src/kanban/planning.js";
 import { GithubRestClient } from "../src/github/client.js";
 import type { GithubCredential, GithubProject } from "../src/github/client.js";
 import { readTicketFile, writeBoardFile } from "../src/kanban/board.js";
@@ -53,7 +65,7 @@ const command = args[0];
 
 function fail(message: string): never {
   console.error(`error: ${message}`);
-  console.error("usage: sync-github <create|sync|status|list> [args] [--owner O --repo R --project P --employee E --board-root PATH]");
+  console.error("usage: sync-github <create|sync|status|pull|feedback|list> [args] [--owner O --repo R --project P --employee E --board-root PATH]");
   process.exit(1);
 }
 
@@ -203,6 +215,70 @@ switch (command) {
     await github.ensureStatusFieldOptions(credential, project.id, KANBAN_STATUS_OPTIONS);
     await syncTicketStatus(github, credential, owner!, repo!, project, issue.number, column as TicketStatus);
     console.log(`  card #${issue.number} → Status "${statusToColumn(column as TicketStatus)}"`);
+    break;
+  }
+
+  case "pull": {
+    const specRef = args[1];
+    if (!specRef) {
+      fail("pull requires <specRef>");
+    }
+    const project = await resolveProject(github, credential);
+    const result = await pullProjectStatusChanges(github, credential, owner!, repo!, board, project, {
+      root: boardRoot,
+      specRef,
+    });
+    console.log(`pull ${specRef}: ${result.applied.length} applied, ${result.conflicts.length} conflict(s), ${result.unchanged.length} unchanged`);
+    for (const change of result.applied) {
+      console.log(`  ${change.ref}: ${change.oldStatus} → ${change.newStatus}  (${change.origin})`);
+    }
+    for (const conflict of result.conflicts) {
+      console.log(`  CONFLICT ${conflict.ref}: ${conflict.reason}`);
+    }
+    break;
+  }
+
+  case "feedback": {
+    const specRef = args[1];
+    if (!specRef) {
+      fail("feedback requires <specRef>");
+    }
+    const planInputFile = flag("plan-input");
+    const markSeen = args.includes("--mark-seen");
+
+    const { context, state, newComments } = await readFeedbackContext(
+      github,
+      credential,
+      owner!,
+      repo!,
+      boardRoot,
+      board,
+      specRef,
+    );
+    console.log(`feedback ${specRef} (#${context.issueNumber}): ${newComments.length} new comment(s)`);
+    for (const comment of newComments) {
+      console.log(`  [${comment.created_at}] @${comment.user_login ?? "?"}: ${comment.body.split("\n")[0]}`);
+    }
+
+    if (planInputFile && newComments.length > 0) {
+      const raw = await readFile(planInputFile, "utf8");
+      const plan: PlanInput = JSON.parse(raw);
+      const { drafts } = await buildPlanDraft(boardRoot, plan);
+      const proposal = buildFeedbackProposal(specRef, context, drafts);
+      console.log(`proposal DRAFT for ${specRef}: ${drafts.length} md update(s) — NOT applied (human keeps final authority)`);
+      for (const draft of drafts) {
+        console.log(`  ${draft.kind} ${draft.doc.ref} → ${draft.doc.path}`);
+      }
+      const seen = markCommentsSeen(state, newComments, context.issueNumber);
+      await writeSyncState(boardRoot, specRef, seen);
+      console.log(`  marked ${newComments.length} comment(s) seen in sync-state.json`);
+    } else if (markSeen && newComments.length > 0) {
+      const seen = markCommentsSeen(state, newComments, context.issueNumber);
+      await writeSyncState(boardRoot, specRef, seen);
+      console.log(`  marked ${newComments.length} comment(s) seen in sync-state.json`);
+    } else if (newComments.length > 0) {
+      console.log(`  unprocessed — pass --plan-input FILE.json (PlanInput) to build a DRAFT proposal, or --mark-seen to acknowledge`);
+    }
     break;
   }
 

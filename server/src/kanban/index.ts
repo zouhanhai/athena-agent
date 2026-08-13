@@ -115,6 +115,42 @@ export type {
 export { GitClaimLock, ClaimConflictError } from "./git-lock.js";
 export type { GitClaimLockOptions } from "./git-lock.js";
 export {
+  buildOriginMarker,
+  appendGitHubSyncNote,
+  pullProjectStatusChanges,
+  SYNC_STATE_VERSION,
+  syncStatePath,
+  readSyncState,
+  writeSyncState,
+  emptySyncState,
+  dedupeComments,
+  markCommentsSeen,
+  buildFeedbackContext,
+  readFeedbackContext,
+  buildPlanDraft,
+  buildTicketDraft,
+  buildSpecDraft,
+  buildEditDraft,
+  buildFeedbackProposal,
+  applyFeedbackDraft,
+} from "./github-feedback.js";
+export type {
+  AppliedStatusChange,
+  SyncConflict,
+  PullStatusResult,
+  PullStatusOptions,
+  SyncStateComment,
+  SyncState,
+  CommentDedupResult,
+  FeedbackContext,
+  FeedbackReadResult,
+  DraftDocument,
+  MdUpdateDraft,
+  PlanDraft,
+  MdEditPatch,
+  FeedbackProposal,
+} from "./github-feedback.js";
+export {
   ROLE_IDS,
   ROLE_STAGES,
   ROLES,
