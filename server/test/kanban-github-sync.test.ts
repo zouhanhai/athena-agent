@@ -736,6 +736,7 @@ import {
   statusFieldOptions,
   statusToColumn,
   stripProgressLog,
+  stripRefPrefix,
   subIssuesForSpec,
   subTaskProgress,
   syncBlockedBy,
@@ -965,9 +966,16 @@ test("buildIssueForSpec builds the main Issue: title, body = description + link 
   assert.match(payload.body, /- \[ \] G4\.S5\.T2 md→GitHub Project projection \+ sync CLI/);
 });
 
-test("buildIssueForTicket includes description/status/assignee/blocked_by/link but never the Progress Log", () => {
+test("stripRefPrefix strips a leading `Gx.Sy.Tz:` ref prefix from a title", () => {
+  assert.equal(stripRefPrefix("G4.S5.T1: GitHub GraphQL client", "G4.S5.T1"), "GitHub GraphQL client");
+  assert.equal(stripRefPrefix("G4.S5: Kanban sync", "G4.S5"), "Kanban sync");
+  // No prefix → the title is returned unchanged.
+  assert.equal(stripRefPrefix("Plain title", "G4.S5.T1"), "Plain title");
+});
+
+test("buildIssueForTicket includes description/status/assignee/blocked_by/link but never the Progress Log (T10 title = ref + stripped title)", () => {
   const payload = buildIssueForTicket(board, "G4.S5", "G4.S5.T2");
-  assert.equal(payload.title, "G4.S5.T2");
+  assert.equal(payload.title, "G4.S5.T2 md→GitHub Project projection + sync CLI");
   assert.match(payload.body, /md is the source of truth/);
   assert.match(payload.body, /Build the projection/);
   assert.match(payload.body, /Tests green/);
@@ -1038,8 +1046,8 @@ test("createSpecIssue creates the Spec Issue + Ticket sub-issues with milestone/
   );
 
   assert.ok(github.calls.some((c) => c.startsWith("createIssue:G4.S5 Kanban")));
-  assert.ok(github.calls.includes("createSubIssue:10:G4.S5.T1"));
-  assert.ok(github.calls.includes("createSubIssue:10:G4.S5.T2"));
+  assert.ok(github.calls.includes("createSubIssue:10:G4.S5.T1 GitHub GraphQL client + Project v2 API layer"));
+  assert.ok(github.calls.includes("createSubIssue:10:G4.S5.T2 md→GitHub Project projection + sync CLI"));
   // Goal milestone created once and applied to all issues.
   assert.ok(github.calls.includes("createMilestone:M4"));
   assert.equal(github.calls.filter((c) => c === "setMilestone:10:4").length, 1);
@@ -1100,6 +1108,34 @@ test("createSpecIssue is idempotent: re-run updates in place, never duplicates",
 
   // Milestone not recreated on re-run.
   assert.equal(github.calls.filter((c) => c === "createMilestone:M4").length, 0);
+});
+
+test("createSpecIssue updates a sub-issue created with the bare-ref title, not a duplicate (T10)", async () => {
+  // Pre-T10 syncs created ticket sub-issues with ONLY the ref as their title
+  // (`G4.S5.T1`). The next sync must find them and update the title in place
+  // instead of creating a second sub-issue.
+  const t1Issue: GithubIssue = {
+    id: 901, node_id: "I_kwDO11", number: 11, title: "G4.S5.T1",
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  const t2Issue: GithubIssue = {
+    id: 902, node_id: "I_kwDO12", number: 12, title: "G4.S5.T2",
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  const github = new RecordingGithub([t1Issue, t2Issue], { milestones: { M4: 4 } });
+  const result = await createSpecIssue(github.asApi(), tokenCredential, "caleo", "athena", board, "G4.S5", project);
+
+  assert.equal(result.tickets.every((t) => t.created === false), true, "no new sub-issues created");
+  assert.equal(
+    github.calls.filter((c) => c.startsWith("createSubIssue:")).length,
+    0,
+    "existing bare-ref sub-issues are updated, never duplicated",
+  );
+  // The updated sub-issues now carry the ref + stripped title.
+  const t1 = [...github.issues.values()].find((i) => i.number === 11)!;
+  const t2 = [...github.issues.values()].find((i) => i.number === 12)!;
+  assert.equal(t1.title, "G4.S5.T1 GitHub GraphQL client + Project v2 API layer");
+  assert.equal(t2.title, "G4.S5.T2 md→GitHub Project projection + sync CLI");
 });
 
 test("createSpecIssue ensures the merged Status options cover the Spec lifecycle columns (G4.S5.T7)", async () => {

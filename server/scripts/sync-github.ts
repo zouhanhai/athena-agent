@@ -26,6 +26,7 @@ import {
   buildIssueForSpec,
   buildIssueForTicket,
   createSpecIssue,
+  findExistingTicketIssue,
   findSpecInBoard,
   statusFieldOptions,
   statusToColumn,
@@ -175,7 +176,14 @@ switch (command) {
     await syncSpecStatus(github, credential, owner!, repo!, project, issue.number, spec.status, items);
     for (const ticket of tickets) {
       const ticketPayload = buildIssueForTicket(board, specRef, ticket.ref);
-      const ticketIssue = await github.getIssueByTitle(credential, owner!, repo!, ticketPayload.title);
+      const ticketIssue = await findExistingTicketIssue(
+        github,
+        credential,
+        owner!,
+        repo!,
+        ticket.ref,
+        ticketPayload.title,
+      );
       if (!ticketIssue) {
         console.log(`  ${ticket.ref}: no GitHub issue — run create first`);
         continue;

@@ -159,9 +159,11 @@ export function stripProgressLog(body: string): string {
 }
 
 /**
- * Build the Ticket sub-issue payload: title `G4.S5.T2`, body = status /
- * assignee / blocked_by + the ticket description (Context/Task/Acceptance)
- * + a link to the md. The Progress Log is deliberately excluded.
+ * Build the Ticket sub-issue payload: title `G4.S5.T2 <ticket title>` (ref +
+ * stripped title, matching how Spec main-issue titles are built — G4.S5.T10),
+ * body = status / assignee / blocked_by + the ticket description
+ * (Context/Task/Acceptance) + a link to the md. The Progress Log is
+ * deliberately excluded.
  */
 export function buildIssueForTicket(
   board: KanbanBoard,
@@ -180,7 +182,32 @@ export function buildIssueForTicket(
     `**Assignee:** ${fm.assignee}${blocked}\n\n` +
     `${stripProgressLog(ticket.body ?? "")}\n\n` +
     `**Board file:** \`docs/kanban/${ticketRef.replace(/\./g, "/")}.md\``;
-  return { title: ticketRef, body };
+  return { title: `${ticketRef} ${stripRefPrefix(fm.title, ticketRef)}`, body };
+}
+
+/**
+ * Resolve an existing ticket sub-issue for an idempotent update. Pre-T10 syncs
+ * created sub-issues whose title was the bare ref (`G4.S5.T1`); since T10 the
+ * title is `G4.S5.T1 <title>`. Try the new title first, then fall back to the
+ * bare ref so a re-sync updates those legacy sub-issues in place instead of
+ * creating a duplicate (G4.S5.T10).
+ */
+export async function findExistingTicketIssue(
+  github: GitHubApi,
+  credential: GithubCredential,
+  owner: string,
+  repo: string,
+  ticketRef: string,
+  title: string,
+): Promise<GithubIssue | null> {
+  const byTitle = await github.getIssueByTitle(credential, owner, repo, title);
+  if (byTitle) {
+    return byTitle;
+  }
+  if (title === ticketRef) {
+    return null;
+  }
+  return github.getIssueByTitle(credential, owner, repo, ticketRef);
 }
 
 /** Kanban status → the Project Status single-select option name (status-map.ts). */
@@ -274,7 +301,14 @@ export async function createSpecIssue(
   const ticketOutcomes: SyncTicketOutcome[] = [];
   for (const ticket of tickets) {
     const ticketPayload = buildIssueForTicket(board, specRef, ticket.ref);
-    const existing = await github.getIssueByTitle(credential, owner, repo, ticketPayload.title);
+    const existing = await findExistingTicketIssue(
+      github,
+      credential,
+      owner,
+      repo,
+      ticket.ref,
+      ticketPayload.title,
+    );
     let issue: GithubIssue;
     let ticketCreated: boolean;
     if (existing) {
