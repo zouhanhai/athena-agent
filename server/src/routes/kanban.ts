@@ -17,7 +17,7 @@ export interface KanbanRouteOptions {
   github: RemoteBoardSource &
     Pick<
       GitHubApi,
-      "getProjectByTitle" | "getProjectItems" | "getIssueComments" | "listIssues" | "createIssueComment"
+      "getRepoProjects" | "getProjectItems" | "getIssueComments" | "listIssues" | "createIssueComment"
     >;
 }
 
@@ -69,11 +69,12 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
       if (!credential) {
         return reply.code(400).send({ error: "no github credential registered" });
       }
-      // The linked Project board is titled `owner/repo` by the sync CLI, but
-      // real projects are often named after the repo alone — try both.
-      const project =
-        (await github.getProjectByTitle(credential, owner, `${owner}/${repo}`)) ??
-        (await github.getProjectByTitle(credential, owner, repo));
+      // G4.S5.T11: resolve the Project via the repo's linked projectsV2
+      // (repository{ projectsV2 }) — works for ANY repo-linked project
+      // regardless of its title (title-guessing missed e.g. caleo.int.abaplorer
+      // → "Abaplorer Project"). Use the first linked project.
+      const projects = await github.getRepoProjects(credential, owner, repo);
+      const project = projects[0] ?? null;
       if (!project) {
         return reply.code(404).send({ error: `no linked GitHub Project for ${owner}/${repo}` });
       }

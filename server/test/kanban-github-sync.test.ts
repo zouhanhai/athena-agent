@@ -283,6 +283,54 @@ test("getProjectByTitle resolves a user-owned project (organization lookup error
   assert.equal(queries.length, 1);
 });
 
+test("getRepoProjects queries the repo's linked projectsV2 and returns them (G4.S5.T11)", async () => {
+  let sentBody: unknown;
+  const client = graphqlClient(async (_url, init) => {
+    sentBody = JSON.parse(String(init.body));
+    return {
+      status: 200,
+      body: {
+        data: {
+          repository: {
+            projectsV2: {
+              nodes: [
+                { id: "PVT_1", title: "Abaplorer Project", number: 9, url: "https://github.com/orgs/caleo/projects/9" },
+              ],
+            },
+          },
+        },
+      },
+    };
+  });
+  const projects = await client.getRepoProjects(tokenCredential, "CALEO-Consulting", "caleo.int.abaplorer");
+  const body = sentBody as { query: string; variables: Record<string, unknown> };
+  assert.match(body.query, /repository\(owner: \$owner, name: \$name\)/);
+  assert.match(body.query, /projectsV2\(first: \$first\) \{ nodes \{ id title number url \} \}/);
+  assert.deepEqual(body.variables, { owner: "CALEO-Consulting", name: "caleo.int.abaplorer", first: 100 });
+  assert.deepEqual(projects, [
+    { id: "PVT_1", title: "Abaplorer Project", number: 9, url: "https://github.com/orgs/caleo/projects/9" },
+  ]);
+});
+
+test("getRepoProjects returns an empty array when the repo cannot be resolved (G4.S5.T11)", async () => {
+  const client = graphqlClient(async () => ({
+    status: 200,
+    body: {
+      data: null,
+      errors: [{ message: "Could not resolve to a Repository with the name 'caleo.int.abaplorer'." }],
+    },
+  }));
+  assert.deepEqual(await client.getRepoProjects(tokenCredential, "CALEO-Consulting", "caleo.int.abaplorer"), []);
+});
+
+test("getRepoProjects returns an empty array when the repo has no linked projects (G4.S5.T11)", async () => {
+  const client = graphqlClient(async () => ({
+    status: 200,
+    body: { data: { repository: { projectsV2: { nodes: [] } } } },
+  }));
+  assert.deepEqual(await client.getRepoProjects(tokenCredential, "zouhanhai", "athena-agent"), []);
+});
+
 test("addIssueToProject posts the addProjectV2ItemById mutation", async () => {
   let sentBody: unknown;
   const client = graphqlClient(async (_url, init) => {

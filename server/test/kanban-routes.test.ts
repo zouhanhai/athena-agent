@@ -365,7 +365,8 @@ class FakeProjectGithub implements RemoteBoardSource {
   /** The comments the fake created via createIssueComment (issueNumber → body). */
   readonly createdComments: { issueNumber: number; body: string }[] = [];
   constructor(
-    private readonly projects: Map<string, GithubProject>,
+    /** Repo-linked Projects v2, keyed by "owner/repo" (G4.S5.T11). */
+    private readonly projectsByRepo: Map<string, GithubProject[]>,
     private readonly itemsByProject: Map<string, GithubProjectItem[]>,
     private readonly commentsByIssue: Map<number, GithubIssueComment[]> = new Map(),
     private readonly issuesByRepo: Map<string, GithubIssue[]> = new Map(),
@@ -393,8 +394,12 @@ class FakeProjectGithub implements RemoteBoardSource {
   async getFileContent(): Promise<GithubFileContent> {
     return { path: "", sha: "", size: null, content: "" };
   }
-  async getProjectByTitle(_credential: GithubCredential, _owner: string, title: string): Promise<GithubProject | null> {
-    return this.projects.get(title) ?? null;
+  async getRepoProjects(
+    _credential: GithubCredential,
+    owner: string,
+    repo: string,
+  ): Promise<GithubProject[]> {
+    return this.projectsByRepo.get(`${owner}/${repo}`) ?? [];
   }
   async getProjectItems(_credential: GithubCredential, projectId: string): Promise<GithubProjectItem[]> {
     return this.itemsByProject.get(projectId) ?? [];
@@ -447,7 +452,7 @@ function projectGithub(): FakeProjectGithub {
     issue(9, "G4.S6.T2", "open"),
   ];
   return new FakeProjectGithub(
-    new Map([[project.title, project]]),
+    new Map([["zouhanhai/athena-agent", [project]]]),
     new Map([[project.id, items]]),
     new Map(),
     new Map([["zouhanhai/athena-agent", issues]]),
@@ -580,7 +585,7 @@ test("GET /api/kanban/github-project serves Spec cards (progress) AND ticket car
   assert.deepEqual(ticket.subIssues, []);
 });
 
-test("GET /api/kanban/github-project falls back to the repo-name project title", async () => {
+test("GET /api/kanban/github-project resolves a repo-linked Project titled with just the repo name", async () => {
   const project: GithubProject = {
     id: "PVT_2",
     title: "athena-agent",
@@ -588,7 +593,7 @@ test("GET /api/kanban/github-project falls back to the repo-name project title",
     url: "https://github.com/zouhanhai/athena-agent/projects/7",
   };
   const github = new FakeProjectGithub(
-    new Map([[project.title, project]]),
+    new Map([["zouhanhai/athena-agent", [project]]]),
     new Map([[project.id, [{ id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5 Workbench kanban sync", status: "Done" }]]]),
   );
   await app.close();
@@ -605,17 +610,43 @@ test("GET /api/kanban/github-project falls back to the repo-name project title",
   assert.equal(body.columns[0].cards[0].ref, "G4.S5");
 });
 
+test("GET /api/kanban/github-project resolves a repo-linked Project whose title differs from the repo name (G4.S5.T11)", async () => {
+  const project: GithubProject = {
+    id: "PVT_abap",
+    title: "Abaplorer Project",
+    number: 9,
+    url: "https://github.com/orgs/caleo/projects/9",
+  };
+  const github = new FakeProjectGithub(
+    new Map([["CALEO-Consulting/caleo.int.abaplorer", [project]]]),
+    new Map([[project.id, [{ id: "PVTI_abap", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench kanban sync", status: "Backlog" }]]]),
+  );
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/kanban/github-project?repo=CALEO-Consulting/caleo.int.abaplorer",
+    headers: bearer(sessionToken),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as GithubProjectBoard;
+  assert.equal(body.project.id, "PVT_abap");
+  assert.equal(body.project.title, "Abaplorer Project");
+  assert.equal(body.columns[0].cards[0].ref, "G4.S5");
+});
+
 test("GET /api/kanban/github-project uses the employee's credential", async () => {
   const used: string[] = [];
   const project: GithubProject = { id: "PVT_1", title: "athena-agent", number: 3, url: "" };
   const github = new FakeProjectGithub(
-    new Map([[project.title, project]]),
+    new Map([["zouhanhai/athena-agent", [project]]]),
     new Map([[project.id, []]]),
   );
-  const original = github.getProjectByTitle.bind(github);
-  github.getProjectByTitle = async (credential, owner, title) => {
+  const original = github.getRepoProjects.bind(github);
+  github.getRepoProjects = async (credential, owner, repo) => {
     used.push(credential.value);
-    return original(credential, owner, title);
+    return original(credential, owner, repo);
   };
   await app.close();
   app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
@@ -631,7 +662,7 @@ test("GET /api/kanban/github-project uses the employee's credential", async () =
 
 test("GET /api/kanban/github-project surfaces a GitHub auth failure as 401", async () => {
   const github = new FakeProjectGithub(new Map(), new Map());
-  github.getProjectByTitle = async () => {
+  github.getRepoProjects = async () => {
     throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
   };
   await app.close();

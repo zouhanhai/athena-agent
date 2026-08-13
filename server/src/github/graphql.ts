@@ -209,6 +209,37 @@ export class GithubGraphqlClient {
     }
   }
 
+  /**
+   * List the Projects v2 boards linked to a repository (G4.S5.T11). This is the
+   * correct way to resolve a repo's Project: `repository(owner,name){ projectsV2 }`
+   * returns the projects linked to that repo regardless of their title, unlike
+   * title-guessing against the owner's project list.
+   */
+  async getRepoProjects(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+  ): Promise<GithubProject[]> {
+    try {
+      const data = await this.gql<{ repository?: { projectsV2?: { nodes?: ProjectNode[] | null } | null } | null }>(
+        credential,
+        `query($owner: String!, $name: String!, $first: Int!) {
+          repository(owner: $owner, name: $name) { projectsV2(first: $first) { nodes { id title number url } } }
+        }`,
+        { owner, name: repo, first: 100 },
+      );
+      const nodes = data.repository?.projectsV2?.nodes ?? [];
+      return nodes
+        .filter((n): n is ProjectNode => Boolean(n?.id))
+        .map((n) => ({ id: n.id, title: n.title, number: n.number, url: n.url }));
+    } catch (err) {
+      if (err instanceof Error && /could not resolve/i.test(err.message)) {
+        return [];
+      }
+      throw err;
+    }
+  }
+
   /** Add an issue (by its GraphQL node id) to a Project v2 board. */
   async addIssueToProject(credential: GithubCredential, projectId: string, contentId: string): Promise<void> {
     await this.gql(

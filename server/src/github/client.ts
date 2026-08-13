@@ -305,6 +305,8 @@ export interface GitHubApi {
   createProject(credential: GithubCredential, owner: string, title: string): Promise<GithubProject>;
   /** Find a Project v2 board owned by the user/org by title, or null. */
   getProjectByTitle(credential: GithubCredential, owner: string, title: string): Promise<GithubProject | null>;
+  /** List the Projects v2 boards linked to a repository (G4.S5.T11); empty when the repo is unresolvable. */
+  getRepoProjects(credential: GithubCredential, owner: string, repo: string): Promise<GithubProject[]>;
   /** Add an issue (by node id) to a Project v2 board. */
   addIssueToProject(credential: GithubCredential, projectId: string, contentId: string): Promise<void>;
   /** List the cards of a Project v2 board, with their linked issue + Status option. */
@@ -977,6 +979,14 @@ export class GithubRestClient implements GitHubApi {
 
   async getProjectByTitle(credential: GithubCredential, owner: string, title: string): Promise<GithubProject | null> {
     return this.graphql.getProjectByTitle(credential, owner, title);
+  }
+
+  async getRepoProjects(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+  ): Promise<GithubProject[]> {
+    return this.graphql.getRepoProjects(credential, owner, repo);
   }
 
   async addIssueToProject(credential: GithubCredential, projectId: string, contentId: string): Promise<void> {
