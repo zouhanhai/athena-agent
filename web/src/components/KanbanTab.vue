@@ -476,9 +476,40 @@ watch(view, (next) => {
                     class="kanban-project-card"
                     @click="openDetail(card)"
                   >
-                    <span v-if="card.ref" class="kanban-project-card-ref">{{ card.ref }}</span>
+                    <!-- Header: repo + Spec ref + issue id, like ABAPlorer's `owner/repo #id`. -->
+                    <span class="kanban-project-card-header">
+                      <span v-if="repo" class="kanban-project-card-repo">{{ repo.full_name }}</span>
+                      <span v-if="card.ref" class="kanban-project-card-ref">{{ card.ref }}</span>
+                      <span class="kanban-project-card-issue">#{{ card.issueNumber }}</span>
+                    </span>
                     <span v-if="card.title" class="kanban-project-card-title">{{ card.title }}</span>
                     <span v-if="card.status" class="kanban-project-card-status">{{ card.status }}</span>
+                    <!-- Segmented sub-task progress (G4.S5.T6): N blocks = N sub-issues,
+                         done fills a block with the brand palette (--caleo-primary), empty
+                         blocks use the theme's muted tone (--caleo-border). -->
+                    <span
+                      v-if="card.progress && card.progress.total > 0"
+                      class="kanban-spec-progress"
+                      :aria-label="`${card.progress.done} of ${card.progress.total} sub-tasks done`"
+                    >
+                      <span class="kanban-spec-progress-bar">
+                        <span
+                          v-for="i in card.progress.total"
+                          :key="i"
+                          class="kanban-spec-progress-block"
+                          :class="{ 'kanban-spec-progress-block-filled': i <= card.progress.done }"
+                          :style="{
+                            background:
+                              i <= card.progress.done
+                                ? 'var(--caleo-primary)'
+                                : 'var(--caleo-border)',
+                          }"
+                        />
+                      </span>
+                      <span class="kanban-spec-progress-text">
+                        {{ card.progress.done }} / {{ card.progress.total }} · {{ card.progress.percent }}%
+                      </span>
+                    </span>
                     <span class="kanban-project-card-link">issue #{{ card.issueNumber }} · view details</span>
                   </button>
                 </div>
@@ -796,6 +827,56 @@ watch(view, (next) => {
   font-size: 11px;
   font-weight: 700;
   color: var(--caleo-primary);
+}
+
+/* Card header (G4.S5.T6): repo + Spec ref + issue id on one line. */
+.kanban-project-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kanban-project-card-repo {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--caleo-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-project-card-issue {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+/* Segmented sub-task progress bar (G4.S5.T6) — brand palette, theme-adaptive. */
+.kanban-spec-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kanban-spec-progress-bar {
+  display: flex;
+  gap: 3px;
+}
+
+.kanban-spec-progress-block {
+  flex: 1 1 0;
+  height: 6px;
+  min-width: 4px;
+  border-radius: 2px;
+}
+
+.kanban-spec-progress-text {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
 }
 
 .kanban-project-card-title {

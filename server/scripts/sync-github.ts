@@ -30,7 +30,9 @@ import {
   KANBAN_STATUS_OPTIONS,
   statusToColumn,
   syncBlockedBy,
+  syncSpecStatus,
   syncTicketStatus,
+  ticketState,
 } from "../src/kanban/github-sync.js";
 import {
   buildFeedbackProposal,
@@ -141,7 +143,7 @@ switch (command) {
       fail("sync requires <specRef>");
     }
     const project = await resolveProject(github, credential);
-    const { tickets } = findSpecInBoard(board, specRef);
+    const { spec, tickets } = findSpecInBoard(board, specRef);
     const { payload, issue } = await requireSpecIssue(github, credential, specRef);
     await github.updateIssue(credential, owner!, repo!, issue.number, {
       title: payload.title,
@@ -167,6 +169,9 @@ switch (command) {
 
     const items = await github.getProjectItems(credential, project.id);
     await github.ensureStatusFieldOptions(credential, project.id, KANBAN_STATUS_OPTIONS);
+    // T6: the Spec card's Status column reflects the md Spec status; tickets
+    // are sub-issues (no card), so they only get body/state/blocked_by synced.
+    await syncSpecStatus(github, credential, owner!, repo!, project, issue.number, spec.status, items);
     for (const ticket of tickets) {
       const ticketPayload = buildIssueForTicket(board, specRef, ticket.ref);
       const ticketIssue = await github.getIssueByTitle(credential, owner!, repo!, ticketPayload.title);
@@ -177,8 +182,8 @@ switch (command) {
       await github.updateIssue(credential, owner!, repo!, ticketIssue.number, {
         title: ticketPayload.title,
         body: ticketPayload.body,
+        state: ticketState(ticket.ticket.status),
       });
-      await syncTicketStatus(github, credential, owner!, repo!, project, ticketIssue.number, ticket.ticket.status, items);
       await syncBlockedBy(
         github,
         credential,

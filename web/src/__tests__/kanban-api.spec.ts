@@ -103,7 +103,14 @@ const PROJECT_BOARD: GithubProjectBoard = {
     {
       status: "Done",
       cards: [
-        { issueNumber: 2, ref: "G4.S5.T1", title: "", status: "Done", url: "https://github.com/acme/box/issues/2" },
+        {
+          issueNumber: 2,
+          ref: "G4.S5",
+          title: "Workbench kanban sync",
+          status: "Done",
+          url: "https://github.com/acme/box/issues/2",
+          progress: { done: 4, total: 5, percent: 80 },
+        },
       ],
     },
   ],

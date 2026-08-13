@@ -31,3 +31,21 @@ export function kanbanStatusToProjectStatus(status: TicketStatus): string {
 export function projectStatusToKanbanStatus(optionName: string): TicketStatus | null {
   return PROJECT_STATUS_TO_KANBAN_STATUS[optionName] ?? null;
 }
+
+/**
+ * Spec statuses → Project Status single-select option names (G4.S5.T6). Specs
+ * use a coarser lifecycle than tickets (`backlog/active/done`; the live board
+ * also uses `in_progress`), and the Spec card's Status column reflects the md
+ * Spec status — not a per-ticket aggregate.
+ */
+export const KANBAN_SPEC_STATUS_TO_PROJECT_STATUS: Readonly<Record<string, string>> = {
+  backlog: "Backlog",
+  active: "In Progress",
+  in_progress: "In Progress",
+  done: "Done",
+};
+
+/** Spec status → Project Status option name; null when the Spec status is unknown. */
+export function kanbanSpecStatusToProjectStatus(status: string): string | null {
+  return KANBAN_SPEC_STATUS_TO_PROJECT_STATUS[status] ?? null;
+}

@@ -19,7 +19,7 @@ import {
 } from "../src/kanban/index-file.js";
 import type { GithubFileContent, GithubTreeEntry, GitHubApi } from "../src/github/client.js";
 import { GithubAuthError } from "../src/github/client.js";
-import type { GithubIssueComment, GithubProject, GithubProjectItem } from "../src/github/client.js";
+import type { GithubIssue, GithubIssueComment, GithubProject, GithubProjectItem } from "../src/github/client.js";
 import type { GithubProjectBoard } from "../src/kanban/github-sync.js";
 
 const TEST_CIPHER = createSecretCipher("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
@@ -366,6 +366,7 @@ class FakeProjectGithub implements RemoteBoardSource {
     private readonly projects: Map<string, GithubProject>,
     private readonly itemsByProject: Map<string, GithubProjectItem[]>,
     private readonly commentsByIssue: Map<number, GithubIssueComment[]> = new Map(),
+    private readonly issuesByRepo: Map<string, GithubIssue[]> = new Map(),
   ) {}
   async listTree(): Promise<GithubTreeEntry[]> {
     return [];
@@ -387,6 +388,14 @@ class FakeProjectGithub implements RemoteBoardSource {
   ): Promise<GithubIssueComment[]> {
     return this.commentsByIssue.get(issueNumber) ?? [];
   }
+  async listIssues(
+    _credential: GithubCredential,
+    owner: string,
+    repo: string,
+    _state: string,
+  ): Promise<GithubIssue[]> {
+    return this.issuesByRepo.get(`${owner}/${repo}`) ?? [];
+  }
 }
 
 function projectGithub(): FakeProjectGithub {
@@ -396,13 +405,33 @@ function projectGithub(): FakeProjectGithub {
     number: 3,
     url: "https://github.com/zouhanhai/athena-agent/projects/3",
   };
+  // Only Spec issues are Project cards since T6; ticket items (PVTI_2/PVTI_3)
+  // are present to prove the board renders Spec cards ONLY.
   const items: GithubProjectItem[] = [
     { id: "PVTI_1", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench kanban sync", status: "Backlog" },
     { id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5.T1", status: "Done" },
     { id: "PVTI_3", issueId: "I_3", issueNumber: 3, title: "G4.S5.T2", status: "In Progress" },
     { id: "PVTI_4", issueId: null, issueNumber: null, title: null, status: null },
+    { id: "PVTI_5", issueId: "I_5", issueNumber: 5, title: "G4.S6 Knowledge lifecycle", status: "In Progress" },
   ];
-  return new FakeProjectGithub(new Map([[project.title, project]]), new Map([[project.id, items]]));
+  const issue = (number: number, title: string, state: string): GithubIssue => ({
+    id: number, node_id: `I_${number}`, number, title, state, html_url: "", user_login: "alice", body: null, labels: [], assignees: [],
+  });
+  const issues: GithubIssue[] = [
+    issue(2, "G4.S5.T1", "closed"),
+    issue(3, "G4.S5.T2", "open"),
+    issue(4, "G4.S5.T3", "closed"),
+    issue(6, "G4.S5.T4", "closed"),
+    issue(7, "G4.S5.T5", "open"),
+    issue(8, "G4.S6.T1", "closed"),
+    issue(9, "G4.S6.T2", "open"),
+  ];
+  return new FakeProjectGithub(
+    new Map([[project.title, project]]),
+    new Map([[project.id, items]]),
+    new Map(),
+    new Map([["zouhanhai/athena-agent", issues]]),
+  );
 }
 
 function credentialEmployee(): MemoryEmployeeRegistry {
@@ -471,7 +500,7 @@ test("GET /api/kanban/github-project returns 404 when the repo has no linked Pro
   assert.match(res.json().error, /no linked GitHub Project/);
 });
 
-test("GET /api/kanban/github-project serves the synced Project board with cards per status", async () => {
+test("GET /api/kanban/github-project serves ONLY Spec cards, each with sub-task progress (G4.S5.T6)", async () => {
   await app.close();
   app = makeApp(undefined, projectGithub() as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
@@ -486,21 +515,26 @@ test("GET /api/kanban/github-project serves the synced Project board with cards 
   assert.ok(body.generated_at, "the board must carry a generated_at timestamp");
   assert.deepEqual(
     body.columns.map((c) => c.status),
-    ["Backlog", "In Progress", "Done"],
+    ["Backlog", "In Progress"],
   );
+  // Ticket items (G4.S5.T1/G4.S5.T2) are present in the Project but must NOT
+  // render as cards — the board shows one Spec card per Spec.
   assert.deepEqual(
     body.columns[0].cards.map((c) => c.ref),
     ["G4.S5"],
   );
   assert.deepEqual(
     body.columns[1].cards.map((c) => c.ref),
-    ["G4.S5.T2"],
+    ["G4.S6"],
   );
-  const done = body.columns[2].cards[0];
-  assert.equal(done.ref, "G4.S5.T1");
-  assert.equal(done.title, "");
-  assert.equal(done.status, "Done");
-  assert.equal(done.url, "https://github.com/zouhanhai/athena-agent/issues/2");
+  const spec = body.columns[0].cards[0];
+  assert.equal(spec.ref, "G4.S5");
+  assert.equal(spec.title, "Workbench kanban sync");
+  assert.equal(spec.status, "Backlog");
+  assert.equal(spec.url, "https://github.com/zouhanhai/athena-agent/issues/1");
+  // Sub-task progress from the Spec's sub-issues (closed / total + percent).
+  assert.deepEqual(spec.progress, { done: 3, total: 5, percent: 60 });
+  assert.deepEqual(body.columns[1].cards[0].progress, { done: 1, total: 2, percent: 50 });
 });
 
 test("GET /api/kanban/github-project falls back to the repo-name project title", async () => {
@@ -512,7 +546,7 @@ test("GET /api/kanban/github-project falls back to the repo-name project title",
   };
   const github = new FakeProjectGithub(
     new Map([[project.title, project]]),
-    new Map([[project.id, [{ id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5.T2", status: "Done" }]]]),
+    new Map([[project.id, [{ id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5 Workbench kanban sync", status: "Done" }]]]),
   );
   await app.close();
   app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
@@ -525,7 +559,7 @@ test("GET /api/kanban/github-project falls back to the repo-name project title",
   assert.equal(res.statusCode, 200);
   const body = res.json() as GithubProjectBoard;
   assert.equal(body.project.title, "athena-agent");
-  assert.equal(body.columns[0].cards[0].ref, "G4.S5.T2");
+  assert.equal(body.columns[0].cards[0].ref, "G4.S5");
 });
 
 test("GET /api/kanban/github-project uses the employee's credential", async () => {

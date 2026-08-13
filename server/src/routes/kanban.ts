@@ -15,7 +15,7 @@ export interface KanbanRouteOptions {
   employees: EmployeeRegistry;
   /** Remote board scan (REST tree/contents) + the Project v2 read surface (GraphQL). */
   github: RemoteBoardSource &
-    Pick<GitHubApi, "getProjectByTitle" | "getProjectItems" | "getIssueComments">;
+    Pick<GitHubApi, "getProjectByTitle" | "getProjectItems" | "getIssueComments" | "listIssues">;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -71,7 +71,10 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
         return reply.code(404).send({ error: `no linked GitHub Project for ${owner}/${repo}` });
       }
       const items = await github.getProjectItems(credential, project.id);
-      return buildGithubProjectBoard(project, items, (issueNumber) =>
+      // Repo issues carry the ticket sub-issues' open/closed state, from which
+      // each Spec card's segmented sub-task progress is computed (T6).
+      const issues = await github.listIssues(credential, owner, repo, "all");
+      return buildGithubProjectBoard(project, items, issues, (issueNumber) =>
         `https://github.com/${owner}/${repo}/issues/${issueNumber}`,
       );
     } catch (err) {

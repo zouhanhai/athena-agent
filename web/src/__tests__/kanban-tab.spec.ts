@@ -92,6 +92,8 @@ const REPO = {
   default_branch: "master",
 };
 
+// T6: the synced board carries ONLY Spec cards (one per Spec), each with its
+// sub-task progress (done/total + percent) for the segmented progress bar.
 const PROJECT_BOARD: GithubProjectBoard = {
   project: {
     id: "PVT_1",
@@ -109,6 +111,7 @@ const PROJECT_BOARD: GithubProjectBoard = {
           title: "Workbench kanban sync",
           status: "Backlog",
           url: "https://github.com/zouhanhai/athena-agent/issues/1",
+          progress: { done: 4, total: 5, percent: 80 },
         },
       ],
     },
@@ -117,10 +120,11 @@ const PROJECT_BOARD: GithubProjectBoard = {
       cards: [
         {
           issueNumber: 2,
-          ref: "G4.S5.T2",
-          title: "",
+          ref: "G4.S6",
+          title: "KB lifecycle",
           status: "In Progress",
           url: "https://github.com/zouhanhai/athena-agent/issues/2",
+          progress: { done: 1, total: 2, percent: 50 },
         },
       ],
     },
@@ -584,6 +588,43 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
+  it("renders ONLY Spec cards with a segmented brand-color progress bar, no ticket cards (G4.S5.T6)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    // One Spec card per Spec — ticket cards are never rendered.
+    const cards = wrapper.findAll(".kanban-project-card");
+    expect(cards.length).toBe(2);
+    expect(cards.map((c) => c.find(".kanban-project-card-ref").text())).toEqual(["G4.S5", "G4.S6"]);
+    expect(wrapper.text()).not.toMatch(/G4\.S[0-9]+\.T/);
+
+    // Header shows repo + Spec ref + issue id (ABAPlorer-style `owner/repo #id`).
+    const card = cards[0];
+    expect(card.find(".kanban-project-card-repo").text()).toBe("zouhanhai/athena-agent");
+    expect(card.find(".kanban-project-card-issue").text()).toBe("#1");
+
+    // Segmented progress bar: N blocks = N sub-issues; done fills a block.
+    const blocks = card.findAll(".kanban-spec-progress-block");
+    expect(blocks.length).toBe(5);
+    const filled = card.findAll(".kanban-spec-progress-block-filled");
+    expect(filled.length).toBe(4);
+
+    // Brand palette: filled blocks use --caleo-primary, empty use the theme-muted border.
+    expect(filled[0].attributes("style")).toContain("--caleo-primary");
+    const empty = blocks.filter((b) => !b.classes().includes("kanban-spec-progress-block-filled"));
+    expect(empty.length).toBe(1);
+    expect(empty[0].attributes("style")).toContain("--caleo-border");
+    expect(empty[0].attributes("style")).not.toContain("--caleo-primary");
+
+    // done / total · percent (like ABAPlorer's `4 / 5 · 80%`).
+    expect(card.find(".kanban-spec-progress-text").text()).toBe("4 / 5 · 80%");
+    expect(cards[1].find(".kanban-spec-progress-text").text()).toBe("1 / 2 · 50%");
+    wrapper.unmount();
+  });
+
   it("clicking a card opens a LOCAL detail panel with md details + GitHub comments (no redirect) (G4.S5.T4)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab(REPO);
@@ -591,20 +632,20 @@ describe("KanbanTab", () => {
     await wrapper.find(".kanban-view-toggle-github").trigger("click");
     await flushPromises();
 
-    const ticketCard = wrapper.findAll(".kanban-project-card")[1];
-    await ticketCard.trigger("click");
+    const specCard = wrapper.findAll(".kanban-project-card")[1];
+    await specCard.trigger("click");
     await flushPromises();
 
     // No navigation happened; a local panel is open instead.
     expect(wrapper.find(".kanban-detail-panel").exists()).toBe(true);
-    expect(wrapper.find(".kanban-detail-ref").text()).toBe("G4.S5.T2");
+    expect(wrapper.find(".kanban-detail-ref").text()).toBe("G4.S6");
 
-    // The md file for the ticket ref is pulled from the repo and parsed.
+    // The md file for the Spec ref is pulled from the repo and parsed.
     expect(fetchFileContentMock).toHaveBeenCalledWith(
       "tok_1",
       "zouhanhai",
       "athena-agent",
-      "docs/kanban/G4/S5/T2.md",
+      "docs/kanban/G4/S6/Spec.md",
     );
     // The detail panel shows the md's frontmatter chips, description and Progress Log.
     expect(wrapper.find(".kanban-detail-fm").text()).toContain("assignee: opencode");

@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  KANBAN_SPEC_STATUS_TO_PROJECT_STATUS,
   KANBAN_STATUS_TO_PROJECT_STATUS,
+  kanbanSpecStatusToProjectStatus,
   kanbanStatusToProjectStatus,
   projectStatusToKanbanStatus,
 } from "../src/kanban/status-map.js";
@@ -75,6 +77,20 @@ test("status mapping round-trips in both directions", () => {
     assert.equal(kanbanStatusToProjectStatus(kanban as keyof typeof KANBAN_STATUS_TO_PROJECT_STATUS), option);
     assert.equal(projectStatusToKanbanStatus(option), kanban);
   }
+});
+
+test("Spec statuses map to board columns (backlog/active/done) (G4.S5.T6)", () => {
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.backlog, "Backlog");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.active, "In Progress");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.in_progress, "In Progress");
+  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.done, "Done");
+  assert.equal(kanbanSpecStatusToProjectStatus("active"), "In Progress");
+  assert.equal(kanbanSpecStatusToProjectStatus("done"), "Done");
+});
+
+test("an unknown Spec status maps to null (the card is left untouched) (G4.S5.T6)", () => {
+  assert.equal(kanbanSpecStatusToProjectStatus("weird"), null);
+  assert.equal(kanbanSpecStatusToProjectStatus(""), null);
 });
 
 test("gql posts the query + variables to the GraphQL endpoint with the token", async () => {
@@ -688,8 +704,11 @@ import {
   goalToMilestoneAndLabel,
   statusToColumn,
   stripProgressLog,
+  subTaskProgress,
   syncBlockedBy,
+  syncSpecStatus,
   syncTicketStatus,
+  ticketState,
 } from "../src/kanban/github-sync.js";
 
 const board: KanbanBoard = {
@@ -837,11 +856,12 @@ class RecordingGithub {
         return this.makeIssue(input.title, input.body);
       },
       updateIssue: async (_c, _o, _r, number, input) => {
-        this.calls.push(`updateIssue:${number}:${input.title ?? ""}`);
+        this.calls.push(`updateIssue:${number}:${input.title ?? ""}:${input.state ?? ""}`);
         const issue = this.issues.get(number)!;
         if (input.title !== undefined) issue.title = input.title;
         if (input.body !== undefined) issue.body = input.body;
         if (input.labels !== undefined) issue.labels = input.labels;
+        if (input.state !== undefined) issue.state = input.state;
         return issue;
       },
       getIssue: async (_c, _o, _r, number) => {
@@ -995,12 +1015,20 @@ test("createSpecIssue creates the Spec Issue + Ticket sub-issues with milestone/
   assert.ok(github.calls.includes("addLabel:10:G4"));
   assert.ok(github.calls.includes("addLabel:11:G4"));
   assert.ok(github.calls.includes("addLabel:12:G4"));
-  // Every issue landed on the Project board.
-  assert.equal(github.calls.filter((c) => c.startsWith("addIssueToProject:PVT_1:")).length, 3);
-  // Status columns for the tickets.
+  // T6: ONLY the Spec main issue lands on the Project — tickets stay sub-issues.
+  assert.equal(github.calls.filter((c) => c.startsWith("addIssueToProject:PVT_1:")).length, 1);
+  assert.ok(github.calls.includes("addIssueToProject:PVT_1:I_kwDO10:10"));
+  assert.ok(!github.calls.some((c) => c.startsWith("addIssueToProject:") && c.includes(":11:")));
+  assert.ok(!github.calls.some((c) => c.startsWith("addIssueToProject:") && c.includes(":12:")));
+  // The Spec card's Status column reflects the md Spec status (in_progress → In Progress).
   assert.ok(github.calls.includes("ensureStatusFieldOptions:PVT_1"));
-  assert.ok(github.calls.some((c) => c === "setItemStatusField:PVT_1:PVTI_11:Done"));
-  assert.ok(github.calls.some((c) => c === "setItemStatusField:PVT_1:PVTI_12:In Progress"));
+  assert.ok(github.calls.some((c) => c === "setItemStatusField:PVT_1:PVTI_10:In Progress"));
+  // Tickets get no Status column (they are not board cards).
+  assert.ok(!github.calls.some((c) => c.startsWith("setItemStatusField:") && c.includes("PVTI_11")));
+  assert.ok(!github.calls.some((c) => c.startsWith("setItemStatusField:") && c.includes("PVTI_12")));
+  // Done/approved sub-issues close (native + segmented sub-task progress); others stay open.
+  assert.ok(github.calls.includes("updateIssue:11::closed"));
+  assert.ok(github.calls.includes("updateIssue:12::open"));
   // T2 is blocked by T1 → issue dependency (T1's issue id = 901).
   assert.ok(github.calls.includes("setIssueDependencies:12:901"));
 });
@@ -1078,6 +1106,74 @@ test("syncBlockedBy skips the call when blocked_by resolves to nothing", async (
   const github = new RecordingGithub();
   await syncBlockedBy(github.asApi(), tokenCredential, "caleo", "athena", 12, ["G4.S9"], () => null);
   assert.equal(github.calls.some((c) => c.startsWith("setIssueDependencies")), false);
+});
+
+test("syncSpecStatus moves the Spec card to the column for its md Spec status (G4.S5.T6)", async () => {
+  const github = new RecordingGithub();
+  github.items.push({
+    id: "PVTI_30", issueId: "I_kwDO30", issueNumber: 30, title: "G4.S5 Kanban sync", status: null,
+  });
+  await syncSpecStatus(github.asApi(), tokenCredential, "caleo", "athena", project, 30, "active");
+  assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_30:In Progress"));
+});
+
+test("syncSpecStatus maps backlog/done spec statuses to Backlog/Done (G4.S5.T6)", async () => {
+  const github = new RecordingGithub();
+  github.items.push({
+    id: "PVTI_31", issueId: "I_kwDO31", issueNumber: 31, title: "G4.S6", status: null,
+  });
+  await syncSpecStatus(github.asApi(), tokenCredential, "caleo", "athena", project, 31, "backlog");
+  assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_31:Backlog"));
+  await syncSpecStatus(github.asApi(), tokenCredential, "caleo", "athena", project, 31, "done");
+  assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_31:Done"));
+});
+
+test("syncSpecStatus leaves the card untouched for an unknown Spec status (G4.S5.T6)", async () => {
+  const github = new RecordingGithub();
+  github.items.push({
+    id: "PVTI_32", issueId: "I_kwDO32", issueNumber: 32, title: "G4.S7", status: null,
+  });
+  await syncSpecStatus(github.asApi(), tokenCredential, "caleo", "athena", project, 32, "weird");
+  assert.equal(github.calls.some((c) => c.startsWith("setItemStatusField")), false);
+});
+
+test("syncSpecStatus adds the Spec card to the Project when missing, then sets the status (G4.S5.T6)", async () => {
+  const github = new RecordingGithub();
+  const issue: GithubIssue = {
+    id: 906, node_id: "I_kwDO33", number: 33, title: "G4.S8", state: "open",
+    html_url: "", user_login: "alice", body: "b", labels: [], assignees: [],
+  };
+  github.issues.set(issue.number, issue);
+  await syncSpecStatus(github.asApi(), tokenCredential, "caleo", "athena", project, 33, "active");
+  assert.ok(github.calls.includes("getIssue:33"));
+  assert.ok(github.calls.includes("addIssueToProject:PVT_1:I_kwDO33:33"));
+  assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_33:In Progress"));
+});
+
+test("ticketState closes done/approved sub-issues, opens everything else (G4.S5.T6)", () => {
+  assert.equal(ticketState("done"), "closed");
+  assert.equal(ticketState("approved"), "closed");
+  assert.equal(ticketState("in_progress"), "open");
+  assert.equal(ticketState("backlog"), "open");
+  assert.equal(ticketState("in_review"), "open");
+});
+
+test("subTaskProgress counts a Spec's closed sub-issues over its total (G4.S5.T6)", () => {
+  const issues: GithubIssue[] = [
+    { id: 1, node_id: "i1", number: 2, title: "G4.S5.T1", state: "closed", html_url: "", user_login: "a", body: null, labels: [], assignees: [] },
+    { id: 2, node_id: "i2", number: 3, title: "G4.S5.T2", state: "open", html_url: "", user_login: "a", body: null, labels: [], assignees: [] },
+    { id: 3, node_id: "i3", number: 4, title: "G4.S5.T3", state: "closed", html_url: "", user_login: "a", body: null, labels: [], assignees: [] },
+    // Not a sub-issue of G4.S5: a sibling spec's ticket + the spec issue itself.
+    { id: 4, node_id: "i4", number: 5, title: "G4.S5.T10", state: "closed", html_url: "", user_login: "a", body: null, labels: [], assignees: [] },
+    { id: 5, node_id: "i5", number: 6, title: "G4.S5 Workbench", state: "open", html_url: "", user_login: "a", body: null, labels: [], assignees: [] },
+    { id: 6, node_id: "i6", number: 7, title: "G4.S6.T1", state: "closed", html_url: "", user_login: "a", body: null, labels: [], assignees: [] },
+  ];
+  // G4.S5 sub-issues: T1/T3/T10 closed, T2 open → 3/4 = 75%. The spec issue
+  // itself ("G4.S5 Workbench") and a sibling spec's ticket (G4.S6.T1) don't count.
+  assert.deepEqual(subTaskProgress("G4.S5", issues), { done: 3, total: 4, percent: 75 });
+  assert.deepEqual(subTaskProgress("G4.S6", issues), { done: 1, total: 1, percent: 100 });
+  assert.deepEqual(subTaskProgress("G4.S9", issues), { done: 0, total: 0, percent: 0 });
+  assert.deepEqual(subTaskProgress(null, issues), { done: 0, total: 0, percent: 0 });
 });
 
 

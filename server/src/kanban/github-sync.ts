@@ -28,7 +28,7 @@ import type {
 import type { GitHubApi } from "../github/client.js";
 import type { GoalFrontmatter, SpecFrontmatter, TicketStatus } from "./schema.js";
 import type { BoardTicket, KanbanBoard } from "./scan.js";
-import { kanbanStatusToProjectStatus } from "./status-map.js";
+import { kanbanSpecStatusToProjectStatus, kanbanStatusToProjectStatus } from "./status-map.js";
 
 /**
  * The Project Status single-select options the kanban board needs. GitHub's
@@ -211,7 +211,7 @@ export async function createSpecIssue(
   specRef: string,
   project: GithubProject,
 ): Promise<SyncResult> {
-  const { goal, tickets } = findSpecInBoard(board, specRef);
+  const { goal, spec, tickets } = findSpecInBoard(board, specRef);
 
   let milestoneNumber: number | null = null;
   const { milestone, label } = goalToMilestoneAndLabel(goal);
@@ -254,24 +254,30 @@ export async function createSpecIssue(
       issue = await github.updateIssue(credential, owner, repo, existing.number, {
         title: ticketPayload.title,
         body: ticketPayload.body,
+        state: ticketState(ticket.ticket.status),
       });
       ticketCreated = false;
     } else {
       issue = await github.createSubIssue(credential, owner, repo, specIssue.number, ticketPayload);
       ticketCreated = true;
+      // Newly created sub-issues are open; a done ticket's sub-issue closes so
+      // GitHub's native sub-task progress and the board's segmented bar reflect it.
+      await syncTicketIssueState(github, credential, owner, repo, issue.number, ticket.ticket.status);
     }
-    await github.addIssueToProject(credential, project.id, issue.node_id);
+    // T6: tickets are sub-issues of the Spec (GitHub-native sub-task progress),
+    // NOT individual Project cards — only the Spec main issue lands on the board.
     await applyGoalAttrs(github, credential, owner, repo, issue.number, milestoneNumber, payload.labels);
     issues.set(ticket.ref, issue);
     ticketOutcomes.push({ ref: ticket.ref, number: issue.number, created: ticketCreated });
   }
 
-  // Phase B needs every issue resolved: status columns + blocked_by dependencies.
+  // Phase B: the Spec card's Status column = the md Spec status; tickets keep
+  // their blocked_by dependencies (they have no column once off the board).
   await github.ensureStatusFieldOptions(credential, project.id, KANBAN_STATUS_OPTIONS);
   const items = await github.getProjectItems(credential, project.id);
+  await syncSpecStatus(github, credential, owner, repo, project, specIssue.number, spec.status, items);
   for (const ticket of tickets) {
     const issue = issues.get(ticket.ref)!;
-    await syncTicketStatus(github, credential, owner, repo, project, issue.number, ticket.ticket.status, items);
     await syncBlockedBy(
       github,
       credential,
@@ -310,9 +316,70 @@ async function applyGoalAttrs(
 }
 
 /**
+ * The GitHub issue state a ticket's sub-issue should carry: done/approved →
+ * "closed" (GitHub-native + board segmented progress), everything else "open".
+ */
+export function ticketState(status: TicketStatus): "open" | "closed" {
+  return status === "done" || status === "approved" ? "closed" : "open";
+}
+
+/**
+ * Sync a ticket sub-issue's open/closed state. Done/approved tickets close
+ * (feeding GitHub's native sub-task progress X/N and our segmented bar); any
+ * other status reopens the sub-issue.
+ */
+async function syncTicketIssueState(
+  github: GitHubApi,
+  credential: GithubCredential,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  status: TicketStatus,
+): Promise<void> {
+  await github.updateIssue(credential, owner, repo, issueNumber, { state: ticketState(status) });
+}
+
+/**
+ * Move a Spec card to its Project Status column matching the md Spec status
+ * (backlog/active/done → Backlog/In Progress/Done). `items` can be passed to
+ * avoid a redundant getProjectItems round-trip; the card is added to the
+ * Project when missing. Unknown Spec statuses leave the card untouched.
+ */
+export async function syncSpecStatus(
+  github: GitHubApi,
+  credential: GithubCredential,
+  owner: string,
+  repo: string,
+  project: GithubProject,
+  specIssueNumber: number,
+  status: string,
+  items?: GithubProjectItem[],
+): Promise<void> {
+  const column = kanbanSpecStatusToProjectStatus(status);
+  if (!column) {
+    return;
+  }
+  const projectItems = items ?? (await github.getProjectItems(credential, project.id));
+  let item: GithubProjectItem | undefined = projectItems.find((it) => it.issueNumber === specIssueNumber);
+  if (!item) {
+    const issue = await github.getIssue(credential, owner, repo, specIssueNumber);
+    await github.addIssueToProject(credential, project.id, issue.node_id);
+    const refreshed = await github.getProjectItems(credential, project.id);
+    item = refreshed.find((it) => it.issueNumber === specIssueNumber);
+    if (!item) {
+      throw new Error(`issue #${specIssueNumber} is not on Project "${project.title}"`);
+    }
+  }
+  await github.setItemStatusField(credential, project.id, item.id, column);
+}
+
+/**
  * Move a ticket's card to its Project Status column. `items` can be passed to
  * avoid a redundant getProjectItems round-trip when the caller already fetched
  * the board; the card is added to the Project when missing.
+ *
+ * NOTE: since T6 tickets are sub-issues rather than Project cards, this is only
+ * used by manual/legacy tooling — createSpecIssue syncs the Spec status column.
  */
 export async function syncTicketStatus(
   github: GitHubApi,
@@ -375,7 +442,7 @@ export function parseIssueRef(title: string): string | null {
 export interface GithubProjectCard {
   /** The linked issue number (draft cards carry none and are skipped). */
   issueNumber: number;
-  /** The ticket/spec ref parsed from the issue title (e.g. "G4.S5.T1"), or null. */
+  /** The spec ref parsed from the issue title (e.g. "G4.S5"), or null. */
   ref: string | null;
   /** The issue title with any ref prefix stripped (e.g. "Workbench" for "G4.S5 Workbench"). */
   title: string;
@@ -383,6 +450,13 @@ export interface GithubProjectCard {
   status: string | null;
   /** Link to the GitHub issue for discussion. */
   url: string;
+  /**
+   * Sub-task progress of the Spec's ticket sub-issues (G4.S5.T6): total = the
+   * Spec's sub-issues, done = closed sub-issues (GitHub-native X/N), percent
+   * rounded to a whole number. `{ done: 0, total: 0, percent: 0 }` for cards
+   * without a Spec ref.
+   */
+  progress: { done: number; total: number; percent: number };
 }
 
 /** A Status column on the GitHub Project board. */
@@ -404,14 +478,45 @@ export function statusColumnName(status: string | null): string {
   return status ?? "No status";
 }
 
+/** True for a ticket ref like `G4.S5.T1` (sub-issue, not a Project card since T6). */
+function isTicketRef(ref: string): boolean {
+  return /^G\d+\.S\d+\.T\d+$/.test(ref);
+}
+
+/**
+ * Sub-task progress for a Spec card from the repo's issues: total = the Spec's
+ * ticket sub-issues (title ref `Gx.Sy.Tz`), done = the closed ones. Mirrors
+ * GitHub's native sub-task progress X/N and ABAPlorer's `4 / 5 · 80%`.
+ */
+export function subTaskProgress(
+  specRef: string | null,
+  issues: GithubIssue[],
+): { done: number; total: number; percent: number } {
+  if (!specRef) {
+    return { done: 0, total: 0, percent: 0 };
+  }
+  const prefix = `${specRef}.`;
+  const subs = issues.filter((issue) => {
+    const ref = parseIssueRef(issue.title ?? "");
+    return ref !== null && ref.startsWith(prefix) && isTicketRef(ref);
+  });
+  const done = subs.filter((issue) => issue.state === "closed").length;
+  const total = subs.length;
+  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+  return { done, total, percent };
+}
+
 /**
  * Build the GitHub Project board from the Project cards, grouped into Status
- * columns. Known kanban statuses lead in kanban order; unknown/unset statuses
+ * columns. Since T6 only Spec issues are cards — ticket sub-issues are skipped
+ * and each Spec card carries its sub-task progress (computed from the repo's
+ * issues). Known kanban statuses lead in kanban order; unknown/unset statuses
  * ("No status") trail, mirroring GitHub's native board layout.
  */
 export function buildGithubProjectBoard(
   project: GithubProject,
   items: GithubProjectItem[],
+  issues: GithubIssue[],
   issueUrl: (issueNumber: number) => string,
   generatedAt = new Date().toISOString(),
 ): GithubProjectBoard {
@@ -422,6 +527,9 @@ export function buildGithubProjectBoard(
     }
     const rawTitle = item.title ?? "";
     const ref = parseIssueRef(rawTitle);
+    if (ref && isTicketRef(ref)) {
+      continue; // T6: tickets are sub-issues, never individual board cards
+    }
     const displayTitle = ref ? rawTitle.slice(ref.length).trim() : rawTitle;
     const columnName = statusColumnName(item.status);
     let column = columns.get(columnName);
@@ -435,6 +543,7 @@ export function buildGithubProjectBoard(
       title: displayTitle,
       status: item.status,
       url: issueUrl(item.issueNumber),
+      progress: subTaskProgress(ref, issues),
     });
   }
   const ordered: GithubProjectColumn[] = [];

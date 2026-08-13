@@ -115,13 +115,13 @@ export async function fetchBoard(
 }
 
 /**
- * A card on the synced GitHub Project board (G4.S5.T4): the issue's title
- * (ref prefix parsed off), its Project Status and a link to the GitHub issue
- * for discussion.
+ * A card on the synced GitHub Project board (G4.S5.T4 + T6). Since T6 the board
+ * shows ONE Spec card per Spec (tickets are sub-issues); each card carries its
+ * sub-task progress (done/total + percent) for the segmented progress bar.
  */
 export interface GithubProjectCard {
   issueNumber: number;
-  /** The ticket/spec ref parsed from the issue title (e.g. "G4.S5.T1"), or null. */
+  /** The spec ref parsed from the issue title (e.g. "G4.S5"), or null. */
   ref: string | null;
   /** The issue title with any ref prefix stripped. */
   title: string;
@@ -129,6 +129,8 @@ export interface GithubProjectCard {
   status: string | null;
   /** Link to the GitHub issue. */
   url: string;
+  /** Sub-task progress: N sub-issues, done filled (GitHub-native X/N + percent). */
+  progress: { done: number; total: number; percent: number };
 }
 
 /** A Status column of the synced GitHub Project board. */
