@@ -179,6 +179,13 @@
     separation requested for now; design the OpenCode/agent config approach in G6 (agent federation,
     agents as first-class citizens).
 
+### M7 — Local Desktop App (G7) — local agent/worker monitoring + accurate stalled
+- [ ] **G7: Local Desktop App (Athena App)** — a cross-platform installable app that runs on the user's
+      machine, reads local repos/md directly (Progress Log + ACCURATE stalled, no web misjudgment), and
+      connects to a local OpenCode serve (session detection). Complements the web control plane:
+      web = remote collaboration (GitHub Project view), app = local development (Progress Log/stalled/kanban).
+      (2026-08-13, S5 dataflow study → two-tier decision)
+
 ## Naming Convention (Agent identity in the federation)
 
 Every agent appearing in the server has a **fixed, namespaced name**:
