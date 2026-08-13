@@ -68,9 +68,25 @@ overwrite md (conflicts surface as a report for the plan agent).
 - **Progress Log detail NOT pushed** (stays in md; avoids GitHub noise).
 - Sync CLI/tool (`sync-github.ts`, board.js-style) pushes on demand / key transitions; idempotent.
 
-### GitHub → md (feedback loop → planning)
-- Team comments/ideas on Issues → plan agent reads (deduped) → md updates (new/edited ticket/spec via
-  planning.ts). Human keeps final authority; md authoritative on conflict.
+### GitHub → md (bidirectional, changes are user-confirmed)
+- **GitHub Project changes are user-confirmed and authoritative → synced BACK to md** so both stay
+  consistent. E.g. a user drags a card to a different Status column on GitHub → that status change is
+  written to the md ticket.
+- **Every GitHub-derived change is recorded in the md file** with its origin (an audit trail: which
+  field changed, from GitHub, timestamp) — e.g. a `## GitHub sync` note or a `synced_from: github`
+  marker in the Progress Log, so a human can tell where a change came from.
+- **Comments/ideas** → plan agent reads (deduped) → proposes md updates (new/edited ticket/spec via
+  planning.ts). Human keeps final authority.
+
+### Conflict handling (md authoritative on ambiguity)
+- md is authoritative. GitHub changes are user-confirmed and sync back, but where a sync would be
+  ambiguous/conflicting it is surfaced as a report (never silently overwritten) for the plan agent to
+  reconcile. A GitHub-derived change is always marked as such in md.
+
+### Workbench view
+- The Kanban tab gets a **view toggle: Local kanban vs GitHub Project** (the synced board). User picks
+  which to see. Local view keeps Progress Log/stalled/goal tree; GitHub view shows the synced board
+  (cards, status, discussion links).
 
 ## Dependencies
 
@@ -82,4 +98,5 @@ overwrite md (conflicts surface as a report for the plan agent).
 
 - T1: GitHub GraphQL client + Project v2 API layer (createIssue, sub-issues, milestone, label, status).
 - T2: md→GitHub projection (Spec main Issue, Ticket sub-issue, status/blocked_by/milestone/label) + sync CLI.
-- T3: GitHub→md feedback loop (plan agent reads issue discussion) + md-authoritative conflict handling.
+- T3: GitHub→md sync (user-confirmed changes, origin audit) + feedback loop + md-authoritative conflict handling.
+- T4: Workbench Kanban tab view toggle — Local kanban vs GitHub Project (the synced board); local keeps Progress Log/stalled/goal tree; GitHub view shows cards/status/discussion links.

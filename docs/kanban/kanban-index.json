@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T12:38:30.997Z",
+  "generated_at": "2026-08-13T13:00:18.210Z",
   "goals": [
     {
       "ref": "G1",
@@ -2446,11 +2446,32 @@
                 "G4.S5.T2"
               ],
               "acceptance_criteria": [
+                "GitHub Project status changes (user-confirmed) sync BACK to the md ticket, each recorded with its origin (audit trail: which field, from GitHub, timestamp)",
                 "A plan-agent path reads an Issue's comments/new info and turns them into md updates (new/edited ticket or a new spec via grill → to-spec → to-ticket), flowing back into docs/kanban",
                 "New issue comments are surfaced deduped (seen-marker) so the plan agent only processes new info",
-                "Conflict handling: md is authoritative — GitHub changes are never silently overwritten; differences are surfaced as a report for the plan agent to reconcile",
-                "Human keeps final authority on spec/ticket changes (md authoritative on conflict)",
+                "Conflict handling: md is authoritative on ambiguity — GitHub changes are never silently overwritten; differences are surfaced as a report for the plan agent to reconcile",
+                "Human keeps final authority on spec/ticket changes",
                 "Server tests green (mock GitHub), typecheck clean"
+              ]
+            },
+            {
+              "ref": "G4.S5.T4",
+              "id": "G4.S5.T4",
+              "title": "Workbench Kanban tab view toggle — Local kanban vs GitHub Project (synced board)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T2"
+              ],
+              "acceptance_criteria": [
+                "KanbanTab has a view toggle: Local kanban | GitHub Project",
+                "Local view = the existing board (Progress Log, updated-ago, stalled flag, goal tree, column expand)",
+                "GitHub Project view = the synced board from GitHub: cards per status column, ticket refs, status, and a link to the GitHub issue/project page for discussion",
+                "The GitHub view reads the Project items via a backend endpoint (GraphQL-backed, using the employee token)",
+                "Switching views does not break the existing local board behavior",
+                "Web tests green + vue-tsc clean"
               ]
             }
           ]
