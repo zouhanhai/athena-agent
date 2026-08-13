@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T08:17:55.247Z",
+  "generated_at": "2026-08-13T08:42:36.915Z",
   "goals": [
     {
       "ref": "G1",
@@ -2266,7 +2266,7 @@
               "id": "G4.S4.T1",
               "title": "OpenCode plugin — auto-claim (git lock + kanban index) + Progress Log appender (real timestamps, rate-limited)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_005d4dc61ffeccjgVt91SgqaMH",
               "blocked_by": [],
@@ -2279,8 +2279,8 @@
                 "Plugin is global/resident (loaded at opencode serve startup), distinguishes workers by sessionID, parses the ticket ref from the first dispatch message",
                 "Plugin unit tests cover: claim (happy path + lost race), progress append (rate limit, real timestamp), ticket-ref parsing"
               ],
-              "progress_last_row": "progress",
-              "progress_updated_at": "UTC timestamp"
+              "progress_last_row": "all acceptance criteria met: auto-claim (happy + lost race → ClaimConflictError), claim = ONE commit (ticket + index), Progress Log rows with real wall-clock UTC timestamps + rate-limited + real-change-only; plugin resident in .opencode/plugins/; commits pushed",
+              "progress_updated_at": "2026-08-13T08:42:21Z"
             },
             {
               "ref": "G4.S4.T2",
