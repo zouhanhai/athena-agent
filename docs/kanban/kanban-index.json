@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T11:22:15.662Z",
+  "generated_at": "2026-08-13T12:38:30.997Z",
   "goals": [
     {
       "ref": "G1",
@@ -2392,9 +2392,68 @@
           "id": "s5",
           "title": "G4.S5: Kanban ↔ GitHub Issues bidirectional sync + planning feedback loop",
           "owner": "consultant",
-          "status": "backlog",
+          "status": "in_progress",
           "milestone": "M4",
-          "tickets": []
+          "tickets": [
+            {
+              "ref": "G4.S5.T1",
+              "id": "G4.S5.T1",
+              "title": "GitHub GraphQL client + Project v2 API layer (createIssue, sub-issues, milestone, label, status field)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "A GraphQL client (alongside the existing REST GithubRestClient) talks to https://api.github.com/graphql with the employee token",
+                "GitHubApi grows the operations needed for S5: createIssue, createSubIssue, getIssueByTitle, addLabel, setMilestone, getMilestoneByTitle, and Project v2 ops (createProject, addIssueToProject, getProjectItems, setItemStatusField)",
+                "Status column mapping: kanban status → Project Status single-select option (backlog/in_progress/done/in_review/approved/rejected)",
+                "The GraphQL layer reuses the existing GithubCredential token + error handling conventions",
+                "Server tests green (mock GitHub GraphQL), typecheck clean"
+              ]
+            },
+            {
+              "ref": "G4.S5.T2",
+              "id": "G4.S5.T2",
+              "title": "md→GitHub Project projection: Spec→main Issue (body=design), Ticket→sub-issue, status/blocked_by/label/milestone sync + sync CLI",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T1"
+              ],
+              "acceptance_criteria": [
+                "Each Spec → a main Issue (title `Gx.Sx <spec title>`, body = the spec description + link to docs/kanban/<ref>.md, `## Sub-tasks` mirroring its tickets as a checklist)",
+                "Each Ticket → a sub-issue of its Spec's main Issue (title `Gx.Sy.Tz`, body = ticket description + link to the md)",
+                "Ticket status syncs to the Project Status column (backlog/in_progress/done/in_review/approved/rejected)",
+                "blocked_by → GitHub issue dependency; Goal → Milestone + Label (G4) on the issues",
+                "A sync CLI/tool (board.js-style) creates + syncs md → GitHub on demand or on key transitions; idempotent (re-run doesn't duplicate)",
+                "Progress Log detail is NOT pushed (only current status/assignee)",
+                "Server tests green (mock GitHub), typecheck clean"
+              ]
+            },
+            {
+              "ref": "G4.S5.T3",
+              "id": "G4.S5.T3",
+              "title": "GitHub→md feedback loop: plan agent reads issue comments → proposes md updates (new/edited ticket/spec); md-authoritative conflict handling",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T1",
+                "G4.S5.T2"
+              ],
+              "acceptance_criteria": [
+                "A plan-agent path reads an Issue's comments/new info and turns them into md updates (new/edited ticket or a new spec via grill → to-spec → to-ticket), flowing back into docs/kanban",
+                "New issue comments are surfaced deduped (seen-marker) so the plan agent only processes new info",
+                "Conflict handling: md is authoritative — GitHub changes are never silently overwritten; differences are surfaced as a report for the plan agent to reconcile",
+                "Human keeps final authority on spec/ticket changes (md authoritative on conflict)",
+                "Server tests green (mock GitHub), typecheck clean"
+              ]
+            }
+          ]
         },
         {
           "ref": "G4.S6",
