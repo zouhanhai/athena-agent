@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T20:52:33.329Z",
+  "generated_at": "2026-08-13T20:57:14.486Z",
   "goals": [
     {
       "ref": "G1",
@@ -915,7 +915,7 @@
           "id": "g3_s1",
           "title": "G3.S1: Agent Registry",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1009,7 +1009,7 @@
           "id": "g3_s2",
           "title": "G3.S2: Employee Identity + RBAC + GitHub Credentials",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1175,7 +1175,7 @@
           "id": "g3_s3",
           "title": "G3.S3: Global Chat Panel (Conversation + Agent Cards)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1235,7 +1235,7 @@
           "id": "g3_s4",
           "title": "G3.S4: Workbench (GitHub-Style Content Area)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1388,7 +1388,7 @@
           "id": "g3_s5",
           "title": "G3.S5: Uploads Page (Per-System Ingest Detail)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1497,7 +1497,7 @@
           "id": "g3_s6",
           "title": "G3.S6: Git-Driven Development (Platform Protocol + GitHub Integration)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1604,7 +1604,7 @@
           "id": "g3_s7",
           "title": "G3.S7: Frontend Polish (Theme Toggle Animation + Design Audit)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1651,7 +1651,7 @@
           "id": "g3_s8",
           "title": "G3.S8: Knowledge Graph UX (remove Add Data from Knowledge, topic/localized graph views)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -2693,9 +2693,9 @@
               "id": "G4.S5.T13",
               "title": "Remove the stalled indicator from the web Local kanban (GitHub has no Progress Log → misjudges); preserve the logic for G7 (app version)",
               "owner": "eng-director",
-              "status": "done",
-              "assignee": "opencode",
-              "session_id": "ses_0031bfeb8ffePPktiSkeWYKzbK",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
               "blocked_by": [
                 "G4.S5.T12"
               ],
@@ -2705,11 +2705,26 @@
                 "The stalled logic (isStalled + DEFAULT_STALL_MS) is either (a) removed from the web bundle, or (b) kept in a shared module clearly marked as app-only for G7 reuse",
                 "The CSS for .kanban-card-stalled / .kanban-card-updated-stalled and the related test assertions are updated/removed",
                 "Web tests green + vue-tsc clean"
+              ]
+            },
+            {
+              "ref": "G4.S5.T14",
+              "id": "G4.S5.T14",
+              "title": "Fix plugin auto-sync: opencode serve must load .env.local (DATABASE_URL / GITHUB_TOKEN) so the worker plugin can resolve the GitHub credential and auto-create issue syncs",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T13"
               ],
-              "started_at": "2026-08-13",
-              "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-13T20:52:29.364Z",
-              "progress_status": "in_progress"
+              "acceptance_criteria": [
+                "opencode serve is started with the athena .env.local loaded (DATABASE_URL / GITHUB_TOKEN etc.) so the worker plugin's auto-sync (resolveGithubCredential → Postgres employee store or GITHUB_TOKEN) can resolve a GitHub credential",
+                "After a worker marks a ticket done, the plugin auto-sync creates/updates that ticket's GitHub issue + parent Spec issue on the linked Project (auto-sync actually works end-to-end)",
+                "start-all.sh loads .env.local before launching opencode serve (set -a && . .env.local && set +a), like the backend block does",
+                "Existing missing GitHub issues (G4.S5.T11/T12/T13) are created by running sync-github create G4.S5 once after the fix",
+                "Server + plugin tests green, typecheck clean; live-verified on 6900XT"
+              ]
             }
           ]
         },
