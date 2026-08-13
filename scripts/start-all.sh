@@ -6,14 +6,12 @@
 # each service only starts if its port is not already in use.
 #
 # Services (ports):
-#   1. LightRAG   :9621   (knowledge graph + retrieval, Postgres/pgvector)
-#   2. llm_wiki   :19828  (wiki API server; clip server :19827)
-#   3. athena-back:3000   (Fastify backend, tsx watch)
-#   4. Vite front:5173    (Vue3 dev server)
-#
-# LightRAG prerequisite: the uv tool env needs asyncpg + pgvector (install once):
-#   /home/hh/.local/bin/uv pip install --python \
-#     /home/hh/.local/share/uv/tools/lightrag-hku/bin/python asyncpg pgvector
+#   1. Neo4j     :7687   (self-built RAG graph, G4.S2)
+#   2. llm_wiki  :19828  (wiki API server; clip server :19827)
+#   3. athena-back:3000  (Fastify backend, tsx watch)
+#   4. Vite front:5173   (Vue3 dev server)
+#   5. OpenCode  :4096   (kanban worker serve; cd to athena-agent so plugin loads)
+#   6. llama-server :9632 (cross-encoder rerank, BGE-Reranker-v2-M3)
 #
 # llm_wiki: Tauri desktop app, must run under Xvfb (virtual display :99).
 #   Data dir remembered in app-state.json (~/.local/share/com.llmwiki.app),
@@ -22,7 +20,6 @@
 set -u
 
 USER_HOME="$HOME"
-LIGHTRAG_BIN="/home/hh/.local/share/uv/tools/lightrag-hku/bin/lightrag-server"
 LLM_WIKI_BIN="/home/hh/llm_wiki-dist/llm-wiki"
 LOG_DIR="$HOME/.athena-tmp"
 mkdir -p "$LOG_DIR"
@@ -60,16 +57,6 @@ else
       -e NEO4J_AUTH=neo4j/athena-spike-2026 -e NEO4J_PLUGINS='["apoc"]' \
       neo4j:2025-community < /dev/null > "$LOG_DIR/neo4j.log" 2>&1 & disown
   fi
-fi
-
-# --- 2. LightRAG -----------------------------------------------------------
-if port_in_use 9621; then
-  log "LightRAG :9621 already running"
-else
-  log "Starting LightRAG :9621"
-  cd "$HOME/lightrag"  # must cd here so .env loads
-  setsid "$LIGHTRAG_BIN" --host 0.0.0.0 --port 9621 \
-    < /dev/null > "$LOG_DIR/lightrag-server.log" 2>&1 & disown
 fi
 
 # --- 2. Xvfb (virtual display for llm_wiki) --------------------------------
@@ -122,8 +109,9 @@ if port_in_use "$OPENCODE_PORT"; then
   log "OpenCode serve :$OPENCODE_PORT already running"
 else
   log "Starting OpenCode serve :$OPENCODE_PORT"
-  setsid opencode serve --port "$OPENCODE_PORT" --hostname 0.0.0.0 \
-    < /dev/null > "$LOG_DIR/opencode-serve.log" 2>&1 & disown
+  # cd to the athena-agent repo root so the worker plugin (.opencode/plugins/) loads
+  ( cd "$HOME/athena-agent" && setsid opencode serve --port "$OPENCODE_PORT" --hostname 0.0.0.0 \
+    < /dev/null > "$LOG_DIR/opencode-serve.log" 2>&1 & disown )
 fi
 
 # --- 7. llama-server (cross-encoder rerank, G4.S2.T14) ---------------------
@@ -146,7 +134,7 @@ else
 fi
 
 log "--- All services launched. Logs in $LOG_DIR ---"
-log "Check: LightRAG http://$(hostname -I | awk '{print $1}'):9621/health"
+log "Check: Neo4j    http://$(hostname -I | awk '{print $1}'):7474/"
 log "Check: Vite     http://$(hostname -I | awk '{print $1}'):5173/"
 log "Check: OpenCode bash scripts/monitor-opencode.sh"
 log "Check: Rerank  http://$(hostname -I | awk '{print $1}'):$RERANK_PORT/"
