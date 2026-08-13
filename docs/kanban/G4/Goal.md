@@ -68,7 +68,11 @@ Corresponds to Milestone M4. Three thrusts:
   wiki edit→diff-refine→RAG re-embedding (kb.edit RBAC) + Admin console (employee/permission/invite).
   Server **928/928**, web **421/421**, vue-tsc 0. End-to-end verified: QA reuse, web fallback, clarify,
   Edit→re-ingest (refinement + 4 chunks re-embedded).
-- **G4.S3+ (KB intelligence, worker progress, issues sync, federation): backlog** — next.
+- **G4.S4 (Worker progress + auto-claim via OpenCode plugin): in progress (2026-08-13)** —
+  T1 (plugin auto-claim + Progress Log), T2 (Kanban reads Progress Log + stalled), T3 (deploy 6900XT +
+  E2E). See `docs/kanban/G4/S4/Spec.md`.
+- **G4.S5 (Kanban ↔ GitHub Issues sync): backlog** — next after S4.
+- **G4.S6 (Remote agent federation + KB-as-MCP): backlog** — independent.
 
 ## Post-G4 enhancement backlog (recorded, not scheduled)
 

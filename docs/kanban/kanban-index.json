@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-12T18:17:33.402Z",
+  "generated_at": "2026-08-13T08:01:58.746Z",
   "goals": [
     {
       "ref": "G1",
@@ -2256,12 +2256,76 @@
         },
         {
           "ref": "G4.S4",
-          "id": "s4",
-          "title": "G4.S4: Worker progress tracking via ticket-file Progress Log",
-          "owner": "consultant",
+          "id": "G4.S4",
+          "title": "G4.S4: Worker progress tracking + auto-claim via OpenCode plugin",
+          "owner": "pm",
           "status": "backlog",
-          "milestone": "M4",
-          "tickets": []
+          "tickets": [
+            {
+              "ref": "G4.S4.T1",
+              "id": "G4.S4.T1",
+              "title": "OpenCode plugin — auto-claim (git lock + kanban index) + Progress Log appender (real timestamps, rate-limited)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "On the first tool.execute of a session the plugin detects the ticket ref (from the structured dispatch prompt / session metadata) and calls claimTicket: writes status=in_progress + assignee + session_id, then git add/commit/push — the git push is the mutual-exclusion lock, effective before any work",
+                "On a lost claim race the plugin surfaces ClaimConflictError so the worker backs off (no double-claim)",
+                "The claim is ONE commit — the plugin regenerates + commits the kanban index together with the claim",
+                "The plugin appends a Progress Log row to the ticket md file on a real change (a tool ran / status moved), with a REAL wall-clock UTC timestamp (never fabricated — 2026-08-09 lesson)",
+                "Rows are appended only on a real change (not a fixed tick) and rate-limited (~1 row / N sec); a stale last-row timestamp is the stalled signal",
+                "Plugin is global/resident (loaded at opencode serve startup), distinguishes workers by sessionID, parses the ticket ref from the first dispatch message",
+                "Plugin unit tests cover: claim (happy path + lost race), progress append (rate limit, real timestamp), ticket-ref parsing"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S4.T2",
+              "id": "G4.S4.T2",
+              "title": "Kanban reads Progress Log — parser + KanbanTab shows last row, updated-Xs-ago, stalled flag",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S4.T1"
+              ],
+              "acceptance_criteria": [
+                "The kanban parser reads the `## Progress Log` table at the bottom of each ticket md file and exposes the last row (timestamp + status + progress)",
+                "KanbanTab shows the last Progress Log row + 'updated Xs ago' (from the row timestamp vs now)",
+                "KanbanTab flags a ticket as stalled when its status is in_progress and the last Progress Log timestamp is old (> ~3 min)",
+                "Stalled is an OBSERVATION flag (board UI) — it does NOT change the ticket frontmatter status",
+                "Server + web tests green"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            },
+            {
+              "ref": "G4.S4.T3",
+              "id": "G4.S4.T3",
+              "title": "Deploy plugin to 6900XT opencode serve + end-to-end verification (auto-claim + Progress Log + stalled)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S4.T1",
+                "G4.S4.T2"
+              ],
+              "acceptance_criteria": [
+                "The plugin (from T1) is installed in the 6900XT opencode serve `.opencode/plugins/` and loads on serve startup",
+                "End-to-end: a dispatched ticket is auto-claimed on first tool call (status=in_progress + assignee + session_id in git, index regenerated, one commit)",
+                "End-to-end: a dispatched worker's Progress Log rows appear in the ticket file with real wall-clock timestamps",
+                "End-to-end: KanbanTab shows the last row + updated-ago + stalled flag for a stalled in_progress ticket",
+                "Verified on the 6900XT environment (authoritative)"
+              ],
+              "progress_last_row": "progress",
+              "progress_updated_at": "UTC timestamp"
+            }
+          ]
         },
         {
           "ref": "G4.S5",
@@ -2286,7 +2350,7 @@
   ],
   "errors": [
     {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
+      "file": "/home/hai/workspace/athena-agent/docs/kanban/G4/S3/T10.md",
       "error": "layer must be one of: G, S, T"
     }
   ]
