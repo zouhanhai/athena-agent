@@ -21,6 +21,21 @@ const loading = ref(false);
 const error = ref("");
 const lastRefresh = ref("");
 
+/** The status column currently expanded (clicked to widen); null = all equal-width. */
+const expandedStatus = ref<TicketStatus | null>(null);
+
+/** Toggle a column's expansion; clicking the same column again collapses all. */
+function toggleColumn(status: TicketStatus): void {
+  expandedStatus.value = expandedStatus.value === status ? null : status;
+}
+
+/** Grid columns: expanded column gets 3fr, others 1fr; else all 1fr. */
+const columnsGrid = computed(() => {
+  if (!expandedStatus.value) return {};
+  const cols = TICKET_STATUSES.map((s) => (s === expandedStatus.value ? "3fr" : "1fr")).join(" ");
+  return { gridTemplateColumns: cols };
+});
+
 /** Live clock for the 'updated Xs ago' label — ticks so a card visibly goes stale. */
 const now = ref(Date.now());
 let nowTimer: ReturnType<typeof setInterval> | undefined;
@@ -173,14 +188,14 @@ watch(
           </div>
         </div>
 
-        <div class="kanban-columns">
+        <div class="kanban-columns" :style="columnsGrid">
           <section
             v-for="status in TICKET_STATUSES"
             :key="status"
             class="kanban-column"
-            :class="`kanban-column-${status}`"
+            :class="[`kanban-column-${status}`, { 'kanban-column-expanded': expandedStatus === status }]"
           >
-            <header class="kanban-column-header">
+            <header class="kanban-column-header" role="button" tabindex="0" @click="toggleColumn(status)">
               <span class="kanban-column-title">{{ statusLabel(status) }}</span>
               <span class="kanban-column-count">{{ cardsFor(status).length }}</span>
             </header>
@@ -483,6 +498,19 @@ watch(
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--caleo-border);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.kanban-column-header:hover {
+  background: rgba(255, 102, 51, 0.08);
+}
+
+/* The expanded column gets a subtle highlight so the widen is obvious. */
+.kanban-column-expanded {
+  outline: 1px solid var(--caleo-primary);
+  outline-offset: 1px;
 }
 
 .kanban-column-title {

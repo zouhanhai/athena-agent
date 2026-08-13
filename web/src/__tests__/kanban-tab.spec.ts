@@ -423,4 +423,30 @@ describe("KanbanTab", () => {
       vi.useRealTimers();
     }
   });
+
+  it("expands a column on header click (3fr) and collapses on the same click (all 1fr)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab();
+    const columnsEl = wrapper.find(".kanban-columns");
+
+    // Initially all equal width (no inline grid-template-columns).
+    expect(columnsEl.attributes("style") || "").not.toContain("grid-template-columns");
+
+    // Click the done column header → it expands to 3fr, others 1fr.
+    const done = columnByStatus(wrapper, "done")!;
+    await done.find(".kanban-column-header").trigger("click");
+    await flushPromises();
+    const expandedStyle = columnsEl.attributes("style") || "";
+    expect(expandedStyle).toContain("3fr");
+    expect(expandedStyle).toContain("1fr");
+    expect(done.classes()).toContain("kanban-column-expanded");
+
+    // Click the same header again → collapses back to equal width.
+    await done.find(".kanban-column-header").trigger("click");
+    await flushPromises();
+    expect(columnsEl.attributes("style") || "").not.toContain("grid-template-columns");
+    expect(done.classes()).not.toContain("kanban-column-expanded");
+
+    wrapper.unmount();
+  });
 });
