@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T17:45:28.695Z",
+  "generated_at": "2026-08-13T18:18:53.505Z",
   "goals": [
     {
       "ref": "G1",
@@ -915,7 +915,7 @@
           "id": "g3_s1",
           "title": "G3.S1: Agent Registry",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1009,7 +1009,7 @@
           "id": "g3_s2",
           "title": "G3.S2: Employee Identity + RBAC + GitHub Credentials",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1175,7 +1175,7 @@
           "id": "g3_s3",
           "title": "G3.S3: Global Chat Panel (Conversation + Agent Cards)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1235,7 +1235,7 @@
           "id": "g3_s4",
           "title": "G3.S4: Workbench (GitHub-Style Content Area)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1388,7 +1388,7 @@
           "id": "g3_s5",
           "title": "G3.S5: Uploads Page (Per-System Ingest Detail)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1497,7 +1497,7 @@
           "id": "g3_s6",
           "title": "G3.S6: Git-Driven Development (Platform Protocol + GitHub Integration)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1604,7 +1604,7 @@
           "id": "g3_s7",
           "title": "G3.S7: Frontend Polish (Theme Toggle Animation + Design Audit)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -1651,7 +1651,7 @@
           "id": "g3_s8",
           "title": "G3.S8: Knowledge Graph UX (remove Add Data from Knowledge, topic/localized graph views)",
           "owner": "pm",
-          "status": "active",
+          "status": "in_progress",
           "milestone": "M3",
           "tickets": [
             {
@@ -2589,7 +2589,7 @@
               ],
               "started_at": "2026-08-13",
               "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-13T17:33:36.091Z",
+              "progress_updated_at": "2026-08-13T17:33:01.330Z",
               "progress_status": "in_progress"
             },
             {
@@ -2616,6 +2616,25 @@
               "progress_last_row": "ran bash",
               "progress_updated_at": "2026-08-13T17:44:55.067Z",
               "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T10",
+              "id": "G4.S5.T10",
+              "title": "Ticket sub-issue title includes the ticket description: `G4.S5.T1 <title>` (like Spec) so the board card shows it, not just the ref",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T9"
+              ],
+              "acceptance_criteria": [
+                "Ticket sub-issue titles are `G4.S5.T1 <ticket title>` (ref + stripped title), matching how Spec main-issue titles are built — so the GitHub board card shows a readable description, not just the ref",
+                "Existing ticket sub-issues (created by earlier syncs with title = bare ref) have their titles updated on the next sync (idempotent, by-title resolution + update)",
+                "Spec main-issue title behavior unchanged (already `G4.S5 <title>`)",
+                "buildIssueForTicket returns `{ title: `${ticketRef} ${strippedTitle}`, body }`; stripRefPrefix handles the ticket title",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ]
             }
           ]
         },
