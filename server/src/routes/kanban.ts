@@ -15,7 +15,10 @@ export interface KanbanRouteOptions {
   employees: EmployeeRegistry;
   /** Remote board scan (REST tree/contents) + the Project v2 read surface (GraphQL). */
   github: RemoteBoardSource &
-    Pick<GitHubApi, "getProjectByTitle" | "getProjectItems" | "getIssueComments" | "listIssues">;
+    Pick<
+      GitHubApi,
+      "getProjectByTitle" | "getProjectItems" | "getIssueComments" | "listIssues" | "createIssueComment"
+    >;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -37,6 +40,10 @@ function truthy(value: unknown): boolean {
  *   GitHub Project v2 board (G4.S5.T4): cards grouped into Status columns, each
  *   card linking to its GitHub issue for discussion. GraphQL-backed via the
  *   employee's token; 404 when the repo has no linked Project.
+ * - GET /api/kanban/github-issue-comments?repo=...&issueNumber=N → the issue's
+ *   comment thread (local detail panel discussion).
+ * - POST /api/kanban/github-issue-comments → create a new comment on a GitHub
+ *   issue via the employee's token (G4.S5.T8); returns the created comment.
  */
 export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteOptions): void {
   const { index, auth, employees, github } = options;
@@ -112,6 +119,45 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
       }
       const comments = await github.getIssueComments(credential, owner, repo, issueNumber);
       return { comments };
+    } catch (err) {
+      if (err instanceof GithubAuthError) {
+        return reply.code(401).send({ error: err.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/kanban/github-issue-comments", async (request, reply) => {
+    const employee = await currentEmployee(request, auth);
+    if (!employee) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const body = (request.body ?? {}) as { repo?: unknown; issueNumber?: unknown; body?: unknown };
+    const repoParam = optionalString(body.repo);
+    const issueNumber = Number(body.issueNumber);
+    const commentBody = optionalString(body.body);
+    if (!repoParam) {
+      return reply.code(400).send({ error: "repo is required (owner/repo form)" });
+    }
+    const parts = repoParam.split("/");
+    const owner = parts[0] ?? "";
+    const repo = parts[1] ?? "";
+    if (parts.length !== 2 || !owner || !repo) {
+      return reply.code(400).send({ error: "repo must be in owner/repo form" });
+    }
+    if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+      return reply.code(400).send({ error: "issueNumber must be a positive integer" });
+    }
+    if (!commentBody) {
+      return reply.code(400).send({ error: "body is required" });
+    }
+    try {
+      const credential = await employees.getGithubCredential(employee.email);
+      if (!credential) {
+        return reply.code(400).send({ error: "no github credential registered" });
+      }
+      const comment = await github.createIssueComment(credential, owner, repo, issueNumber, commentBody);
+      return { comment };
     } catch (err) {
       if (err instanceof GithubAuthError) {
         return reply.code(401).send({ error: err.message });

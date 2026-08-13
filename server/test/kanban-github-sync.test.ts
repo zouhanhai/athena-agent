@@ -728,6 +728,7 @@ import type { GitHubApi } from "../src/github/client.js";
 import {
   KANBAN_SPEC_STATUS_OPTIONS,
   blockedByToDeps,
+  buildGithubProjectBoard,
   buildIssueForSpec,
   buildIssueForTicket,
   createSpecIssue,
@@ -735,6 +736,7 @@ import {
   statusFieldOptions,
   statusToColumn,
   stripProgressLog,
+  subIssuesForSpec,
   subTaskProgress,
   syncBlockedBy,
   syncSpecStatus,
@@ -1217,6 +1219,66 @@ test("subTaskProgress counts a Spec's closed sub-issues over its total (G4.S5.T6
   assert.deepEqual(subTaskProgress("G4.S6", issues), { done: 1, total: 1, percent: 100 });
   assert.deepEqual(subTaskProgress("G4.S9", issues), { done: 0, total: 0, percent: 0 });
   assert.deepEqual(subTaskProgress(null, issues), { done: 0, total: 0, percent: 0 });
+});
+
+// ---------------------------------------------------------------------------
+// G4.S5.T8 — Spec card sub-issues (detail panel list)
+// ---------------------------------------------------------------------------
+
+function tIssue(id: number, number: number, title: string, state: string): GithubIssue {
+  return { id, node_id: `I_${number}`, number, title, state, html_url: "", user_login: "alice", body: null, labels: [], assignees: [] };
+}
+
+test("subIssuesForSpec lists a Spec's ticket sub-issues (ref/title/status/number) (G4.S5.T8)", () => {
+  const issues: GithubIssue[] = [
+    tIssue(1, 2, "G4.S5.T1 GitHub GraphQL client", "closed"),
+    tIssue(2, 3, "G4.S5.T2 md→GitHub projection", "open"),
+    tIssue(3, 4, "G4.S5.T3 Feedback loop", "open"),
+    tIssue(4, 5, "G4.S5.T10 Workbench", "open"),
+    // The Spec issue itself + a sibling spec's ticket are NOT sub-issues.
+    tIssue(5, 6, "G4.S5 Workbench", "open"),
+    tIssue(6, 7, "G4.S6.T1 KB lifecycle", "closed"),
+  ];
+  // closed → status "done"; sorted by ref so T1..T10 read in order.
+  assert.deepEqual(subIssuesForSpec("G4.S5", issues), [
+    { ref: "G4.S5.T1", title: "G4.S5.T1 GitHub GraphQL client", status: "done", number: 2 },
+    { ref: "G4.S5.T2", title: "G4.S5.T2 md→GitHub projection", status: "open", number: 3 },
+    { ref: "G4.S5.T3", title: "G4.S5.T3 Feedback loop", status: "open", number: 4 },
+    { ref: "G4.S5.T10", title: "G4.S5.T10 Workbench", status: "open", number: 5 },
+  ]);
+  assert.deepEqual(subIssuesForSpec(null, issues), []);
+  assert.deepEqual(subIssuesForSpec("G4.S9", issues), []);
+});
+
+test("buildGithubProjectBoard carries each Spec card's subIssues (ref/title/status/number) (G4.S5.T8)", () => {
+  const project: GithubProject = { id: "PVT_1", title: "athena-agent", number: 3, url: "" };
+  const items: GithubProjectItem[] = [
+    { id: "PVTI_1", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench", status: "Backlog" },
+    // A ticket item is present but must NOT render as a card — only subIssues data.
+    { id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5.T1", status: "Done" },
+  ];
+  const issues: GithubIssue[] = [
+    tIssue(1, 2, "G4.S5.T1 GitHub GraphQL client", "closed"),
+    tIssue(2, 3, "G4.S5.T2 md→GitHub projection", "open"),
+    tIssue(3, 4, "G4.S5.T3 Feedback loop", "open"),
+  ];
+  const board = buildGithubProjectBoard(
+    project,
+    items,
+    issues,
+    (n) => `https://github.com/zouhanhai/athena-agent/issues/${n}`,
+  );
+  assert.deepEqual(
+    board.columns.map((c) => c.cards.map((card) => card.ref)),
+    [["G4.S5"]],
+  );
+  const card = board.columns[0].cards[0];
+  assert.equal(card.ref, "G4.S5");
+  assert.deepEqual(card.subIssues, [
+    { ref: "G4.S5.T1", title: "G4.S5.T1 GitHub GraphQL client", status: "done", number: 2 },
+    { ref: "G4.S5.T2", title: "G4.S5.T2 md→GitHub projection", status: "open", number: 3 },
+    { ref: "G4.S5.T3", title: "G4.S5.T3 Feedback loop", status: "open", number: 4 },
+  ]);
 });
 
 

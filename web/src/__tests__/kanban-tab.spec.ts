@@ -5,7 +5,12 @@ import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 
 import KanbanTab from "@/components/KanbanTab.vue";
-import { fetchBoard, fetchGithubIssueComments, fetchGithubProjectBoard } from "@/api/kanban";
+import {
+  fetchBoard,
+  fetchGithubIssueComments,
+  fetchGithubProjectBoard,
+  postGithubIssueComment,
+} from "@/api/kanban";
 import { fetchFileContent } from "@/api/github";
 import type { GithubProjectBoard, KanbanIndex } from "@/api/kanban";
 
@@ -13,6 +18,7 @@ vi.mock("@/api/kanban", () => ({
   fetchBoard: vi.fn(),
   fetchGithubProjectBoard: vi.fn(),
   fetchGithubIssueComments: vi.fn(),
+  postGithubIssueComment: vi.fn(),
   TICKET_STATUSES: [
     "backlog",
     "in_progress",
@@ -30,6 +36,7 @@ vi.mock("@/api/github", () => ({
 const fetchBoardMock = fetchBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectBoardMock = fetchGithubProjectBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubIssueCommentsMock = fetchGithubIssueComments as unknown as ReturnType<typeof vi.fn>;
+const postGithubIssueCommentMock = postGithubIssueComment as unknown as ReturnType<typeof vi.fn>;
 const fetchFileContentMock = fetchFileContent as unknown as ReturnType<typeof vi.fn>;
 
 const BOARD: KanbanIndex = {
@@ -112,6 +119,13 @@ const PROJECT_BOARD: GithubProjectBoard = {
           status: "Backlog",
           url: "https://github.com/zouhanhai/athena-agent/issues/1",
           progress: { done: 4, total: 5, percent: 80 },
+          subIssues: [
+            { ref: "G4.S5.T1", title: "G4.S5.T1 GitHub GraphQL client", status: "done", number: 11 },
+            { ref: "G4.S5.T2", title: "G4.S5.T2 md→GitHub projection", status: "open", number: 12 },
+            { ref: "G4.S5.T3", title: "G4.S5.T3 Feedback loop", status: "open", number: 13 },
+            { ref: "G4.S5.T4", title: "G4.S5.T4 Workbench toggle", status: "open", number: 14 },
+            { ref: "G4.S5.T5", title: "G4.S5.T5 Sync CLI", status: "open", number: 15 },
+          ],
         },
       ],
     },
@@ -125,6 +139,10 @@ const PROJECT_BOARD: GithubProjectBoard = {
           status: "In Progress",
           url: "https://github.com/zouhanhai/athena-agent/issues/2",
           progress: { done: 1, total: 2, percent: 50 },
+          subIssues: [
+            { ref: "G4.S6.T1", title: "G4.S6.T1 KB lifecycle", status: "done", number: 21 },
+            { ref: "G4.S6.T2", title: "G4.S6.T2 Agentic RAG", status: "open", number: 22 },
+          ],
         },
       ],
     },
@@ -204,6 +222,13 @@ describe("KanbanTab", () => {
     fetchBoardMock.mockResolvedValue(BOARD);
     fetchGithubProjectBoardMock.mockResolvedValue(PROJECT_BOARD);
     fetchGithubIssueCommentsMock.mockResolvedValue(COMMENTS);
+    postGithubIssueCommentMock.mockResolvedValue({
+      id: 99,
+      user_login: "alice",
+      body: "Posted from the panel",
+      created_at: "2026-08-13T13:00:00Z",
+      html_url: "https://github.com/zouhanhai/athena-agent/issues/1#issuecomment-99",
+    });
     fetchFileContentMock.mockResolvedValue({
       path: "docs/kanban/G4/S5/T4.md",
       sha: "s",
@@ -760,6 +785,145 @@ describe("KanbanTab", () => {
     await wrapper.find(".kanban-refresh").trigger("click");
     await flushPromises();
     expect(fetchGithubProjectBoardMock.mock.calls.length).toBe(callsAfterEntry + 1);
+    wrapper.unmount();
+  });
+
+  it("shows the Spec's sub-issues list (ref/title/status/number) in the detail panel (G4.S5.T8)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+    await wrapper.find(".kanban-project-card").trigger("click");
+    await flushPromises();
+
+    const rows = wrapper.findAll(".kanban-detail-subissue");
+    expect(rows.length).toBe(5);
+    expect(rows[0].text()).toContain("G4.S5.T1");
+    expect(rows[0].text()).toContain("done");
+    expect(rows[0].text()).toContain("#11");
+    expect(rows[1].text()).toContain("G4.S5.T2");
+    expect(rows[1].text()).toContain("open");
+    expect(rows[1].text()).toContain("#12");
+    wrapper.unmount();
+  });
+
+  it("clicking a sub-issue opens its own detail (md + comments) (G4.S5.T8)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+    await wrapper.find(".kanban-project-card").trigger("click");
+    await flushPromises();
+
+    await wrapper.find(".kanban-detail-subissue-main").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".kanban-detail-ref").text()).toBe("G4.S5.T1");
+    expect(fetchFileContentMock).toHaveBeenCalledWith(
+      "tok_1",
+      "zouhanhai",
+      "athena-agent",
+      "docs/kanban/G4/S5/T1.md",
+    );
+    expect(fetchGithubIssueCommentsMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", 11);
+    // A sub-issue has no nested sub-issues of its own.
+    expect(wrapper.findAll(".kanban-detail-subissue").length).toBe(0);
+    wrapper.unmount();
+  });
+
+  it("embeds the detail panel inside the Kanban area (not a full-screen overlay) (G4.S5.T8)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+    await wrapper.find(".kanban-project-card").trigger("click");
+    await flushPromises();
+
+    const overlay = wrapper.find(".kanban-detail-overlay");
+    expect(overlay.exists()).toBe(true);
+    // Embedded non-modal panel — never the old full-screen modal overlay.
+    expect(overlay.classes()).toContain("kanban-detail-embedded");
+    expect(wrapper.find(".kanban-detail-panel").attributes("aria-modal")).not.toBe("true");
+    wrapper.unmount();
+  });
+
+  it("the 'view in Issues' action emits open-issue (local nav, not a GitHub redirect) (G4.S5.T8)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+    await wrapper.find(".kanban-project-card").trigger("click");
+    await flushPromises();
+
+    // Header action locates the Spec issue.
+    await wrapper.find(".kanban-detail-locate").trigger("click");
+    expect(wrapper.emitted("open-issue")).toHaveLength(1);
+    expect(wrapper.emitted("open-issue")![0]).toEqual([{ issueNumber: 1 }]);
+
+    // A sub-issue row's action locates that sub-issue's issue.
+    await wrapper.find(".kanban-detail-subissue-locate").trigger("click");
+    expect(wrapper.emitted("open-issue")).toHaveLength(2);
+    expect(wrapper.emitted("open-issue")![1]).toEqual([{ issueNumber: 11 }]);
+    wrapper.unmount();
+  });
+
+  it("posts a new GitHub comment from the panel and shows it (G4.S5.T8)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+    await wrapper.find(".kanban-project-card").trigger("click");
+    await flushPromises();
+
+    await wrapper.find(".kanban-detail-comment-input").setValue("Posted from the panel");
+    await wrapper.find(".kanban-detail-comment-submit").trigger("click");
+    await flushPromises();
+
+    expect(postGithubIssueCommentMock).toHaveBeenCalledWith(
+      "tok_1",
+      "zouhanhai/athena-agent",
+      1,
+      "Posted from the panel",
+    );
+    const comments = wrapper.findAll(".kanban-detail-comment");
+    expect(comments.length).toBe(2);
+    expect(comments.at(-1)?.find(".kanban-detail-comment-body").text()).toContain("Posted from the panel");
+    expect((wrapper.find(".kanban-detail-comment-input").element as HTMLTextAreaElement).value).toBe("");
+    wrapper.unmount();
+  });
+
+  it("shows the Spec status from the md frontmatter, incl. the decomposed state (G4.S5.T8)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchFileContentMock.mockResolvedValue({
+      path: "docs/kanban/G4/S5/Spec.md",
+      sha: "s",
+      size: 1,
+      content: `---
+id: s5
+title: "G4.S5: sync"
+layer: S
+parent: G4
+status: decomposed
+---
+
+# Body
+
+Decomposed into tickets.
+`,
+    });
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+    await wrapper.find(".kanban-project-card").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".kanban-detail-fm").text()).toContain("status: decomposed");
     wrapper.unmount();
   });
 });

@@ -303,4 +303,21 @@ describe("IssuesTab", () => {
     expect(wrapper.find(".issue-detail").exists()).toBe(false);
     wrapper.unmount();
   });
+
+  it("locates an issue from locateIssueNumber: loads all, opens its detail, highlights the row (G4.S5.T8)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = mount(IssuesTab, {
+      props: { repo: REPOS[0], locateIssueNumber: 3 },
+      global: { plugins: [createPinia(), TDesign] },
+    });
+    await flushPromises();
+
+    // The locate widened the filter to "all" so a closed issue is findable.
+    expect(fetchIssuesMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "athena-agent", "all");
+    // The target's row is highlighted and its detail is open.
+    expect(wrapper.find('.issue-row[data-number="3"]').classes()).toContain("issue-row-located");
+    expect(wrapper.find(".issue-detail").exists()).toBe(true);
+    expect(wrapper.find(".issue-view-title").exists()).toBe(true);
+    wrapper.unmount();
+  });
 });

@@ -114,10 +114,20 @@ export async function fetchBoard(
   return (await res.json()) as KanbanIndex;
 }
 
+/** A sub-issue (ticket) of a Spec card, for the detail panel's Sub-issues list (G4.S5.T8). */
+export interface GithubProjectSubIssue {
+  ref: string;
+  title: string;
+  /** Closed sub-issues read as "done"; everything else is "open". */
+  status: string;
+  number: number;
+}
+
 /**
  * A card on the synced GitHub Project board (G4.S5.T4 + T6). Since T6 the board
  * shows ONE Spec card per Spec (tickets are sub-issues); each card carries its
- * sub-task progress (done/total + percent) for the segmented progress bar.
+ * sub-task progress (done/total + percent) for the segmented progress bar and,
+ * since T8, its sub-issues list for the detail panel.
  */
 export interface GithubProjectCard {
   issueNumber: number;
@@ -131,6 +141,8 @@ export interface GithubProjectCard {
   url: string;
   /** Sub-task progress: N sub-issues, done filled (GitHub-native X/N + percent). */
   progress: { done: number; total: number; percent: number };
+  /** The Spec's sub-issues (ref/title/status/number) for the detail panel. */
+  subIssues: GithubProjectSubIssue[];
 }
 
 /** A Status column of the synced GitHub Project board. */
@@ -194,4 +206,35 @@ export async function fetchGithubIssueComments(
   }
   const data = (await res.json()) as { comments: GithubIssueComment[] };
   return data.comments;
+}
+
+/**
+ * POST /api/kanban/github-issue-comments → create a new comment on a GitHub
+ * issue via the employee's token (G4.S5.T8). Returns the created comment so
+ * the detail panel can append it to the thread.
+ */
+export async function postGithubIssueComment(
+  sessionToken: string,
+  repo: string,
+  issueNumber: number,
+  body: string,
+): Promise<GithubIssueComment> {
+  const res = await fetch("/api/kanban/github-issue-comments", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ repo, issueNumber, body }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const message =
+      detail && typeof (detail as { error?: unknown }).error === "string"
+        ? (detail as { error: string }).error
+        : `Request failed with status ${res.status}`;
+    throw new Error(message);
+  }
+  const data = (await res.json()) as { comment: GithubIssueComment };
+  return data.comment;
 }

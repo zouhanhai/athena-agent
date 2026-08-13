@@ -6,9 +6,11 @@ import {
   fetchBoard,
   fetchGithubIssueComments,
   fetchGithubProjectBoard,
+  postGithubIssueComment,
   TICKET_STATUSES,
   type GithubProjectBoard,
   type GithubProjectCard,
+  type GithubProjectSubIssue,
   type KanbanIndex,
   type KanbanIndexSpec,
   type KanbanIndexTicket,
@@ -19,6 +21,11 @@ import { parseTicketMd, type ParsedTicket } from "@/kanban/ticket-md";
 import { renderMarkdown } from "@/kb/markdown";
 
 const props = defineProps<{ repo: GithubRepo | null }>();
+
+const emit = defineEmits<{
+  /** Local 'view in Issues' navigation: switch the Workbench to the Issues tab and locate this issue (G4.S5.T8). */
+  "open-issue": [payload: { issueNumber: number }];
+}>();
 
 const auth = useAuthStore();
 
@@ -165,11 +172,27 @@ async function loadProject(): Promise<void> {
 // the repo, plus the GitHub issue comment thread — no GitHub redirect.
 // ---------------------------------------------------------------------------
 
-const detailCard = ref<GithubProjectCard | null>(null);
+const detailCard = ref<DetailCard | null>(null);
 const detailMd = ref<ParsedTicket | null>(null);
 const detailComments = ref<GithubIssueComment[] | null>(null);
 const detailLoading = ref(false);
 const detailError = ref("");
+
+const newComment = ref("");
+const commentPosting = ref(false);
+const commentPostError = ref("");
+
+/**
+ * The detail panel target. A Spec card opened from the board carries its
+ * sub-issues list; a sub-issue opened from that list has none (its own tickets
+ * don't exist yet).
+ */
+type DetailCard = Pick<GithubProjectCard, "issueNumber" | "ref" | "title" | "status" | "subIssues">;
+
+/** Build the detail target for a sub-issue row (opens that ticket's own detail). */
+function subIssueCard(sub: GithubProjectSubIssue): DetailCard {
+  return { issueNumber: sub.number, ref: sub.ref, title: sub.title, status: sub.status, subIssues: [] };
+}
 
 /** Map a ref parsed off a GitHub issue title to its md file in the repo. */
 function mdPathForRef(ref: string | null): string | null {
@@ -190,12 +213,13 @@ function formatDateTime(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
-/** Open the local detail panel for a GitHub-view card and load its content. */
-async function openDetail(card: GithubProjectCard): Promise<void> {
+/** Open the local detail panel for a GitHub-view card (or sub-issue) and load its content. */
+async function openDetail(card: DetailCard): Promise<void> {
   detailCard.value = card;
   detailMd.value = null;
   detailComments.value = null;
   detailError.value = "";
+  commentPostError.value = "";
   if (!auth.sessionToken || !props.repo) {
     return;
   }
@@ -227,6 +251,33 @@ function closeDetail(): void {
   detailMd.value = null;
   detailComments.value = null;
   detailError.value = "";
+  newComment.value = "";
+  commentPostError.value = "";
+}
+
+/** POST a new GitHub comment to the open issue and append it to the thread (G4.S5.T8). */
+async function postComment(): Promise<void> {
+  const target = detailCard.value;
+  const text = newComment.value.trim();
+  if (!auth.sessionToken || !props.repo || !target || !text) {
+    return;
+  }
+  commentPosting.value = true;
+  commentPostError.value = "";
+  try {
+    const comment = await postGithubIssueComment(
+      auth.sessionToken,
+      props.repo.full_name,
+      target.issueNumber,
+      text,
+    );
+    detailComments.value = [...(detailComments.value ?? []), comment];
+    newComment.value = "";
+  } catch (err) {
+    commentPostError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    commentPosting.value = false;
+  }
 }
 
 /** Switch the tab's view; the GitHub view fetches on first entry. */
@@ -520,17 +571,31 @@ watch(view, (next) => {
       </template>
     </template>
 
-    <div v-if="detailCard" class="kanban-detail-overlay" @click.self="closeDetail">
-      <div class="kanban-detail-panel" role="dialog" aria-modal="true" aria-label="Ticket detail">
+    <div v-if="detailCard" class="kanban-detail-overlay kanban-detail-embedded">
+      <div
+        class="kanban-detail-panel"
+        role="dialog"
+        aria-label="Spec detail"
+        @click.self="closeDetail"
+      >
         <header class="kanban-detail-header">
           <div class="kanban-detail-heading">
             <span v-if="detailCard.ref" class="kanban-detail-ref">{{ detailCard.ref }}</span>
             <span v-if="detailCard.title" class="kanban-detail-title">{{ detailCard.title }}</span>
             <span v-if="detailCard.status" class="kanban-detail-status">{{ detailCard.status }}</span>
           </div>
-          <button type="button" class="kanban-detail-close" aria-label="Close detail" @click="closeDetail">
-            ×
-          </button>
+          <div class="kanban-detail-header-actions">
+            <button
+              type="button"
+              class="kanban-detail-locate"
+              @click="emit('open-issue', { issueNumber: detailCard.issueNumber })"
+            >
+              View in Issues
+            </button>
+            <button type="button" class="kanban-detail-close" aria-label="Close detail" @click="closeDetail">
+              ×
+            </button>
+          </div>
         </header>
 
         <div v-if="detailLoading" class="kanban-detail-loading">
@@ -573,6 +638,41 @@ watch(view, (next) => {
             </div>
           </section>
 
+          <!-- Sub-issues list (G4.S5.T8): clickable rows like GitHub's Sub-issues block. -->
+          <section v-if="detailCard.subIssues.length" class="kanban-detail-section">
+            <h4 class="kanban-detail-section-title">Sub-issues ({{ detailCard.subIssues.length }})</h4>
+            <div class="kanban-detail-subissues">
+              <div
+                v-for="sub in detailCard.subIssues"
+                :key="sub.number"
+                class="kanban-detail-subissue"
+              >
+                <button
+                  type="button"
+                  class="kanban-detail-subissue-main"
+                  @click="openDetail(subIssueCard(sub))"
+                >
+                  <span class="kanban-detail-subissue-ref">{{ sub.ref }}</span>
+                  <span class="kanban-detail-subissue-title">{{ sub.title }}</span>
+                  <span
+                    class="kanban-detail-subissue-status"
+                    :class="`kanban-detail-subissue-status-${sub.status}`"
+                  >
+                    {{ sub.status }}
+                  </span>
+                  <span class="kanban-detail-subissue-number">#{{ sub.number }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="kanban-detail-subissue-locate"
+                  @click="emit('open-issue', { issueNumber: sub.number })"
+                >
+                  View in Issues
+                </button>
+              </div>
+            </div>
+          </section>
+
           <section class="kanban-detail-section">
             <h4 class="kanban-detail-section-title">Discussion — issue #{{ detailCard.issueNumber }}</h4>
             <p v-if="detailComments && detailComments.length === 0" class="kanban-detail-no-comments">
@@ -587,6 +687,28 @@ watch(view, (next) => {
                 <div class="kanban-detail-comment-body" v-html="renderMarkdown(comment.body)"></div>
               </div>
             </div>
+
+            <!-- Comment input (G4.S5.T8): POSTs a new GitHub comment, then shows it. -->
+            <div class="kanban-detail-comment-box">
+              <textarea
+                v-model="newComment"
+                class="kanban-detail-comment-input"
+                rows="3"
+                placeholder="Leave a comment"
+                aria-label="New comment"
+              ></textarea>
+              <div v-if="commentPostError" class="kanban-error">{{ commentPostError }}</div>
+              <div class="kanban-detail-comment-actions">
+                <button
+                  type="button"
+                  class="kanban-detail-comment-submit"
+                  :disabled="commentPosting || !newComment.trim()"
+                  @click="postComment"
+                >
+                  {{ commentPosting ? "Posting…" : "Post comment" }}
+                </button>
+              </div>
+            </div>
           </section>
         </div>
       </div>
@@ -596,6 +718,7 @@ watch(view, (next) => {
 
 <style scoped>
 .kanban-tab {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -899,18 +1022,21 @@ watch(view, (next) => {
   color: var(--caleo-primary);
 }
 
-/* Local detail panel (G4.S5.T4): md details + GitHub comments, no redirect. */
-.kanban-detail-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  justify-content: flex-end;
-  background: rgba(0, 0, 0, 0.35);
+/* Local detail panel (G4.S5.T4): md details + GitHub comments, no redirect.
+   G4.S5.T8: EMBEDDED inside the Kanban tab (position: absolute within the
+   relative .kanban-tab) so it covers only the Kanban area — the fixed
+   right-side Chat panel stays visible and usable (no full-screen overlay). */
+.kanban-detail-embedded {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(520px, 68%);
+  max-width: 100%;
 }
 
 .kanban-detail-panel {
-  width: min(520px, 92vw);
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -926,6 +1052,33 @@ watch(view, (next) => {
   gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--caleo-border);
+}
+
+.kanban-detail-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kanban-detail-locate,
+.kanban-detail-subissue-locate {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--caleo-primary);
+  background: transparent;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kanban-detail-locate:hover,
+.kanban-detail-subissue-locate:hover {
+  background: rgba(127, 127, 127, 0.08);
+  border-color: var(--caleo-primary);
 }
 
 .kanban-detail-heading {
@@ -1082,6 +1235,127 @@ watch(view, (next) => {
 .kanban-detail-progress-text {
   font-size: 12px;
   color: var(--caleo-text);
+}
+
+/* Sub-issues list (G4.S5.T8): a GitHub Sub-issues-style block. */
+.kanban-detail-subissues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kanban-detail-subissue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(127, 127, 127, 0.06);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+}
+
+.kanban-detail-subissue-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.kanban-detail-subissue-main:hover .kanban-detail-subissue-title {
+  color: var(--caleo-primary);
+}
+
+.kanban-detail-subissue-ref {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--caleo-primary);
+}
+
+.kanban-detail-subissue-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--caleo-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-detail-subissue-status {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 999px;
+}
+
+.kanban-detail-subissue-status-done {
+  color: #1f2328;
+  background: #2da44e;
+}
+
+.kanban-detail-subissue-number {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+/* Comment input (G4.S5.T8): POSTs a new GitHub comment from the panel. */
+.kanban-detail-comment-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.kanban-detail-comment-input {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--caleo-text);
+  background: var(--caleo-body-bg);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.kanban-detail-comment-input:focus {
+  outline: none;
+  border-color: var(--caleo-primary);
+}
+
+.kanban-detail-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.kanban-detail-comment-submit {
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: var(--caleo-primary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.kanban-detail-comment-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .kanban-detail-no-comments {

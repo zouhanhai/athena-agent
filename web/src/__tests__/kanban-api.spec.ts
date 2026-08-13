@@ -110,6 +110,10 @@ const PROJECT_BOARD: GithubProjectBoard = {
           status: "Done",
           url: "https://github.com/acme/box/issues/2",
           progress: { done: 4, total: 5, percent: 80 },
+          subIssues: [
+            { ref: "G4.S5.T1", title: "G4.S5.T1 GitHub GraphQL client", status: "done", number: 11 },
+            { ref: "G4.S5.T2", title: "G4.S5.T2 md→GitHub projection", status: "open", number: 12 },
+          ],
         },
       ],
     },

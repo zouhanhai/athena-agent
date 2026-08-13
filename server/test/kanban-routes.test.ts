@@ -362,12 +362,31 @@ test("GET /api/kanban?repo=owner/repo requires authentication", async () => {
 
 /** A RemoteBoardSource + Project v2 read surface, backed by in-memory maps. */
 class FakeProjectGithub implements RemoteBoardSource {
+  /** The comments the fake created via createIssueComment (issueNumber → body). */
+  readonly createdComments: { issueNumber: number; body: string }[] = [];
   constructor(
     private readonly projects: Map<string, GithubProject>,
     private readonly itemsByProject: Map<string, GithubProjectItem[]>,
     private readonly commentsByIssue: Map<number, GithubIssueComment[]> = new Map(),
     private readonly issuesByRepo: Map<string, GithubIssue[]> = new Map(),
   ) {}
+  async createIssueComment(
+    _credential: GithubCredential,
+    _owner: string,
+    _repo: string,
+    issueNumber: number,
+    body: string,
+  ): Promise<GithubIssueComment> {
+    this.createdComments.push({ issueNumber, body });
+    const id = 500 + this.createdComments.length;
+    return {
+      id,
+      user_login: "alice",
+      body,
+      created_at: "2026-08-13T12:00:00Z",
+      html_url: `https://github.com/zouhanhai/athena-agent/issues/${issueNumber}#issuecomment-${id}`,
+    };
+  }
   async listTree(): Promise<GithubTreeEntry[]> {
     return [];
   }
@@ -535,6 +554,19 @@ test("GET /api/kanban/github-project serves ONLY Spec cards, each with sub-task 
   // Sub-task progress from the Spec's sub-issues (closed / total + percent).
   assert.deepEqual(spec.progress, { done: 3, total: 5, percent: 60 });
   assert.deepEqual(body.columns[1].cards[0].progress, { done: 1, total: 2, percent: 50 });
+  // G4.S5.T8 — each Spec card carries its sub-issues (ref/title/status/number),
+  // closed sub-issues → status "done", sorted by ref.
+  assert.deepEqual(spec.subIssues, [
+    { ref: "G4.S5.T1", title: "G4.S5.T1", status: "done", number: 2 },
+    { ref: "G4.S5.T2", title: "G4.S5.T2", status: "open", number: 3 },
+    { ref: "G4.S5.T3", title: "G4.S5.T3", status: "done", number: 4 },
+    { ref: "G4.S5.T4", title: "G4.S5.T4", status: "done", number: 6 },
+    { ref: "G4.S5.T5", title: "G4.S5.T5", status: "open", number: 7 },
+  ]);
+  assert.deepEqual(body.columns[1].cards[0].subIssues, [
+    { ref: "G4.S6.T1", title: "G4.S6.T1", status: "done", number: 8 },
+    { ref: "G4.S6.T2", title: "G4.S6.T2", status: "open", number: 9 },
+  ]);
 });
 
 test("GET /api/kanban/github-project falls back to the repo-name project title", async () => {
@@ -689,6 +721,82 @@ test("GET /api/kanban/github-issue-comments surfaces a GitHub auth failure as 40
     url: "/api/kanban/github-issue-comments?repo=zouhanhai/athena-agent&issueNumber=5",
     headers: bearer(sessionToken),
   });
+  assert.equal(res.statusCode, 401);
+  assert.match(res.json().error, /GitHub rejected/);
+});
+
+// G4.S5.T8 — POST /api/kanban/github-issue-comments (create a GitHub comment)
+// -----------------------------------------------------------------------------
+
+function postComment(sessionToken: string, payload: Record<string, unknown>) {
+  return app.inject({
+    method: "POST",
+    url: "/api/kanban/github-issue-comments",
+    payload,
+    headers: bearer(sessionToken),
+  });
+}
+
+test("POST /api/kanban/github-issue-comments requires authentication", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/kanban/github-issue-comments",
+    payload: { repo: "acme/box", issueNumber: 5, body: "hi" },
+  });
+  assert.equal(res.statusCode, 401);
+});
+
+test("POST /api/kanban/github-issue-comments requires repo / issueNumber / body", async () => {
+  const sessionToken = await login("alice@caleo.com");
+  const status = (body: Record<string, unknown>) => postComment(sessionToken, body).then((r) => r.statusCode);
+  assert.equal(await status({ issueNumber: 5, body: "hi" }), 400, "missing repo");
+  assert.equal(await status({ repo: "acme/box", body: "hi" }), 400, "missing issueNumber");
+  assert.equal(await status({ repo: "acme/box", issueNumber: 5 }), 400, "missing body");
+  assert.equal(await status({ repo: "acme/box", issueNumber: "nope", body: "hi" }), 400, "bad issueNumber");
+  assert.equal(await status({ repo: "notarepo", issueNumber: 5, body: "hi" }), 400, "malformed repo");
+});
+
+test("POST /api/kanban/github-issue-comments creates the comment via the employee's credential and returns it (G4.S5.T8)", async () => {
+  const github = new FakeProjectGithub(new Map(), new Map());
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await postComment(sessionToken, {
+    repo: "zouhanhai/athena-agent",
+    issueNumber: 5,
+    body: "Please keep the panel inside the Kanban tab.",
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { comment: GithubIssueComment };
+  assert.equal(body.comment.user_login, "alice");
+  assert.equal(body.comment.body, "Please keep the panel inside the Kanban tab.");
+  assert.deepEqual(github.createdComments, [
+    { issueNumber: 5, body: "Please keep the panel inside the Kanban tab." },
+  ]);
+});
+
+test("POST /api/kanban/github-issue-comments returns 400 when the user has no credential", async () => {
+  const employees = new MemoryEmployeeRegistry(
+    [{ email: "admin@caleo.com", display_name: "Admin", role: "admin" }],
+    { cipher: TEST_CIPHER },
+  );
+  await app.close();
+  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
+  const sessionToken = await login("admin@caleo.com");
+  const res = await postComment(sessionToken, { repo: "acme/box", issueNumber: 5, body: "hi" });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().error, /no github credential/i);
+});
+
+test("POST /api/kanban/github-issue-comments surfaces a GitHub auth failure as 401", async () => {
+  const github = new FakeProjectGithub(new Map(), new Map());
+  github.createIssueComment = async () => {
+    throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
+  };
+  await app.close();
+  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  const sessionToken = await login("alice@caleo.com");
+  const res = await postComment(sessionToken, { repo: "acme/box", issueNumber: 5, body: "hi" });
   assert.equal(res.statusCode, 401);
   assert.match(res.json().error, /GitHub rejected/);
 });

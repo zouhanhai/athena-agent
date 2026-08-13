@@ -484,6 +484,21 @@ export interface GithubProjectCard {
    * without a Spec ref.
    */
   progress: { done: number; total: number; percent: number };
+  /**
+   * The Spec's ticket sub-issues (G4.S5.T8): ref + title + status + issue
+   * number for the detail panel's clickable Sub-issues list. Empty for cards
+   * without a Spec ref.
+   */
+  subIssues: GithubProjectSubIssue[];
+}
+
+/** A sub-issue (ticket) of a Spec card, for the detail panel's Sub-issues list (G4.S5.T8). */
+export interface GithubProjectSubIssue {
+  ref: string;
+  title: string;
+  /** Closed sub-issues read as "done"; everything else is "open". */
+  status: string;
+  number: number;
 }
 
 /** A Status column on the GitHub Project board. */
@@ -534,6 +549,39 @@ export function subTaskProgress(
 }
 
 /**
+ * The Spec's ticket sub-issues (title ref `Gx.Sy.Tz`) as card detail entries
+ * (G4.S5.T8): ref, title, status (closed → "done", else "open") and the issue
+ * number. Sorted by ticket number (T1, T2, … T10) so the panel lists tickets
+ * in kanban order. A Spec with no sub-issues — or a non-Spec card (ref null) —
+ * yields `[]`.
+ */
+export function subIssuesForSpec(
+  specRef: string | null,
+  issues: GithubIssue[],
+): GithubProjectSubIssue[] {
+  if (!specRef) {
+    return [];
+  }
+  const ticketIndex = (ref: string): number => {
+    const match = /^G\d+\.S\d+\.T(\d+)$/.exec(ref);
+    return match ? Number(match[1]) : 0;
+  };
+  const prefix = `${specRef}.`;
+  return issues
+    .filter((issue) => {
+      const ref = parseIssueRef(issue.title ?? "");
+      return ref !== null && ref.startsWith(prefix) && isTicketRef(ref);
+    })
+    .map((issue) => ({
+      ref: parseIssueRef(issue.title ?? "")!,
+      title: issue.title ?? "",
+      status: issue.state === "closed" ? "done" : "open",
+      number: issue.number,
+    }))
+    .sort((a, b) => ticketIndex(a.ref) - ticketIndex(b.ref));
+}
+
+/**
  * Build the GitHub Project board from the Project cards, grouped into Status
  * columns. Since T6 only Spec issues are cards — ticket sub-issues are skipped
  * and each Spec card carries its sub-task progress (computed from the repo's
@@ -571,6 +619,7 @@ export function buildGithubProjectBoard(
       status: item.status,
       url: issueUrl(item.issueNumber),
       progress: subTaskProgress(ref, issues),
+      subIssues: subIssuesForSpec(ref, issues),
     });
   }
   const ordered: GithubProjectColumn[] = [];

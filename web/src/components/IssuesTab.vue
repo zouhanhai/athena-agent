@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
 import {
   addIssueComment,
@@ -14,7 +14,11 @@ import {
 } from "@/api/github";
 import { renderMarkdown } from "@/kb/markdown";
 
-const props = defineProps<{ repo: GithubRepo | null }>();
+const props = defineProps<{
+  repo: GithubRepo | null;
+  /** Issue to open/scroll to when set (Kanban 'view in Issues' action, G4.S5.T8). */
+  locateIssueNumber?: number | null;
+}>();
 
 const auth = useAuthStore();
 
@@ -40,6 +44,17 @@ const saveError = ref("");
 const commentBody = ref("");
 const commentSending = ref(false);
 const commentError = ref("");
+
+/** The issue row currently highlighted by a 'view in Issues' locate (G4.S5.T8). */
+const locateHighlight = ref<number | null>(null);
+
+/**
+ * Locate bookkeeping (G4.S5.T8): `locating` suppresses the state-filter
+ * watcher's reload while the locate handler drives its own load; `lastLocate`
+ * dedupes repeated locates of the same issue on one mount.
+ */
+let locating = false;
+let lastLocate = 0;
 
 const hasSession = computed(() => !!auth.sessionToken);
 
@@ -81,20 +96,26 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+let issuesReq = 0;
+
 async function loadIssues(): Promise<void> {
   const repo = props.repo;
   if (!auth.sessionToken || !repo) {
     return;
   }
   const [owner, name] = splitRepo(repo);
+  const myReq = ++issuesReq;
   loading.value = true;
   error.value = "";
   try {
-    issues.value = await fetchIssues(auth.sessionToken, owner, name, state.value);
+    const result = await fetchIssues(auth.sessionToken, owner, name, state.value);
+    if (myReq !== issuesReq) return; // a newer load superseded this one
+    issues.value = result;
   } catch (err) {
+    if (myReq !== issuesReq) return;
     fail(err);
   } finally {
-    loading.value = false;
+    if (myReq === issuesReq) loading.value = false;
   }
 }
 
@@ -243,8 +264,48 @@ watch(
 );
 
 watch(state, () => {
-  void onStateChange();
+  if (!locating) void onStateChange();
 });
+
+/**
+ * Locate an issue on demand (G4.S5.T8): the Kanban detail's 'view in Issues'
+ * action sets `locateIssueNumber`; when the Issues tab mounts/updates we load
+ * all issues, open the target and scroll/highlight its row. Immediate so a
+ * tab opened straight into the locate (lazy tab mount) still handles it.
+ */
+watch(
+  () => props.locateIssueNumber,
+  async (target) => {
+    if (target == null || target === lastLocate || !auth.sessionToken || !props.repo) {
+      return;
+    }
+    lastLocate = target;
+    locateHighlight.value = target;
+    locating = true;
+    try {
+      // The target may be open or closed — locate regardless of the filter.
+      if (state.value !== "all") {
+        state.value = "all";
+      }
+      await loadIssues();
+      const issue = issues.value.find((i) => i.number === target);
+      if (issue) {
+        await openIssue(issue);
+        await nextTick();
+        document.querySelector(`.issue-row[data-number="${target}"]`)?.scrollIntoView?.({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      }
+    } finally {
+      locating = false;
+    }
+    window.setTimeout(() => {
+      locateHighlight.value = null;
+    }, 2000);
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -285,6 +346,8 @@ watch(state, () => {
           v-for="issue in issues"
           :key="issue.number"
           class="issue-row"
+          :class="{ 'issue-row-located': locateHighlight === issue.number }"
+          :data-number="issue.number"
           role="button"
           tabindex="0"
           @click="openIssue(issue)"
@@ -573,6 +636,12 @@ watch(state, () => {
 
 .issue-row:hover {
   background: rgba(127, 127, 127, 0.06);
+}
+
+/* The row 'view in Issues' located (G4.S5.T8) — brief highlight + left accent. */
+.issue-row-located {
+  background: rgba(255, 102, 51, 0.1);
+  box-shadow: inset 3px 0 0 var(--caleo-primary);
 }
 
 .issue-state-icon {

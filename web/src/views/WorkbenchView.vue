@@ -39,6 +39,9 @@ const auth = useAuthStore();
 
 const activeTab = ref<WorkbenchTabValue>("code");
 
+/** Issue to locate when the Issues tab opens (set by a Kanban 'view in Issues' action, G4.S5.T8). */
+const locateIssueNumber = ref<number | null>(null);
+
 const repos = ref<GithubRepo[]>([]);
 const repoValue = ref("");
 const loading = ref(false);
@@ -70,6 +73,15 @@ async function loadRepos(): Promise<void> {
 onMounted(() => {
   void loadRepos();
 });
+
+/**
+ * A Kanban detail 'view in Issues' action (G4.S5.T8): switch to the Issues tab
+ * and locate that issue — local navigation, never a GitHub redirect.
+ */
+function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
+  locateIssueNumber.value = issueNumber;
+  activeTab.value = "issues";
+}
 </script>
 
 <template>
@@ -104,10 +116,14 @@ onMounted(() => {
             <CodeTab class="code-tab-host" :repo="selectedRepo" />
           </template>
           <template v-else-if="tab.value === 'issues'">
-            <IssuesTab class="issues-tab-host" :repo="selectedRepo" />
+            <IssuesTab
+              class="issues-tab-host"
+              :repo="selectedRepo"
+              :locate-issue-number="locateIssueNumber"
+            />
           </template>
           <template v-else>
-            <KanbanTab class="kanban-tab-host" :repo="selectedRepo" />
+            <KanbanTab class="kanban-tab-host" :repo="selectedRepo" @open-issue="handleOpenIssue" />
           </template>
         </div>
       </t-tab-panel>
