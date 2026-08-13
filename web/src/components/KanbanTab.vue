@@ -32,7 +32,7 @@ function toggleColumn(status: TicketStatus): void {
 /** Grid columns: expanded column gets a wide fraction, others narrow; else all 1fr. */
 const columnsGrid = computed(() => {
   if (!expandedStatus.value) return {};
-  const cols = TICKET_STATUSES.map((s) => (s === expandedStatus.value ? "4fr" : "0.5fr")).join(" ");
+  const cols = TICKET_STATUSES.map((s) => (s === expandedStatus.value ? "3.75fr" : "0.5fr")).join(" ");
   return { gridTemplateColumns: cols };
 });
 
