@@ -424,7 +424,7 @@ describe("KanbanTab", () => {
     }
   });
 
-  it("expands a column on header click (3fr) and collapses on the same click (all 1fr)", async () => {
+  it("expands a column on header click (wider) and collapses on the same click (all 1fr)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab();
     const columnsEl = wrapper.find(".kanban-columns");
@@ -432,13 +432,13 @@ describe("KanbanTab", () => {
     // Initially all equal width (no inline grid-template-columns).
     expect(columnsEl.attributes("style") || "").not.toContain("grid-template-columns");
 
-    // Click the done column header → it expands to 3fr, others 1fr.
+    // Click the done column header → it expands (5fr), others narrow (0.5fr).
     const done = columnByStatus(wrapper, "done")!;
     await done.find(".kanban-column-header").trigger("click");
     await flushPromises();
     const expandedStyle = columnsEl.attributes("style") || "";
-    expect(expandedStyle).toContain("3fr");
-    expect(expandedStyle).toContain("1fr");
+    expect(expandedStyle).toContain("5fr");
+    expect(expandedStyle).toContain("0.5fr");
     expect(done.classes()).toContain("kanban-column-expanded");
 
     // Click the same header again → collapses back to equal width.

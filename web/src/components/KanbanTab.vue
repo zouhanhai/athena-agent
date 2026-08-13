@@ -29,10 +29,10 @@ function toggleColumn(status: TicketStatus): void {
   expandedStatus.value = expandedStatus.value === status ? null : status;
 }
 
-/** Grid columns: expanded column gets 3fr, others 1fr; else all 1fr. */
+/** Grid columns: expanded column gets a wide fraction, others narrow; else all 1fr. */
 const columnsGrid = computed(() => {
   if (!expandedStatus.value) return {};
-  const cols = TICKET_STATUSES.map((s) => (s === expandedStatus.value ? "3fr" : "1fr")).join(" ");
+  const cols = TICKET_STATUSES.map((s) => (s === expandedStatus.value ? "5fr" : "0.5fr")).join(" ");
   return { gridTemplateColumns: cols };
 });
 
