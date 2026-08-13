@@ -65,7 +65,8 @@ overwrite md (conflicts surface as a report for the plan agent).
 ### md → GitHub (projection)
 - Spec → main Issue; Ticket → sub-issue (see mapping). Title traces to the md file.
 - Ticket status → Project Status column; blocked_by → issue dependency; Goal → milestone + label.
-- **Progress Log detail NOT pushed** (stays in md; avoids GitHub noise).
+- **Progress Log is NOT synced to GitHub** (stays in md only — avoids GitHub noise). A GitHub sub-issue
+  shows the ticket description + status + assignee + blocked_by, NOT the minute-level Progress Log.
 - Sync CLI/tool (`sync-github.ts`, board.js-style) pushes on demand / key transitions; idempotent.
 
 ### GitHub → md (bidirectional, changes are user-confirmed)
