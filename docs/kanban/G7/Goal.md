@@ -47,6 +47,16 @@ web version (remote collaboration, GitHub Project view, no local Progress Log/st
   does not load stalled/Progress Log local logic; app mode does (reads local filesystem). NOT a branch or
   a fork (avoids branch drift / fork duplication).
 
+## Constraints / Risks
+
+- **WTS deployment constraint (2026-08-13)**: users access the remote PC via a WEB-LINKED WTS (Windows
+  Terminal Services / virtual desktop) with only pre-installed apps (SAP GUI, Eclipse, VS Code, etc.).
+  **Users cannot install software on the WTS** → a desktop "installable app" (Tauri/Electron) may NOT be
+  installable in the WTS environment. This must be resolved before G7 is scoped: either
+  (a) app ships as a portable / no-install build that runs from the WTS desktop, (b) the WTS is a
+  non-goal environment and the app targets local dev machines only, or (c) the stalled/Progress Log
+  functionality must work in the web tier after all (e.g. worker telemetry to the platform).
+
 ## Completion Criteria
 
 See frontmatter acceptance_criteria. All Specs under G7 and their Tickets must be approved.
