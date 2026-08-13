@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T20:50:51.393Z",
+  "generated_at": "2026-08-13T20:52:33.329Z",
   "goals": [
     {
       "ref": "G1",
@@ -2693,7 +2693,7 @@
               "id": "G4.S5.T13",
               "title": "Remove the stalled indicator from the web Local kanban (GitHub has no Progress Log → misjudges); preserve the logic for G7 (app version)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_0031bfeb8ffePPktiSkeWYKzbK",
               "blocked_by": [
@@ -2707,8 +2707,8 @@
                 "Web tests green + vue-tsc clean"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T13 (session ses_0031bfeb8ffePPktiSkeWYKzbK)",
-              "progress_updated_at": "2026-08-13T20:50:51.380Z",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T20:52:29.364Z",
               "progress_status": "in_progress"
             }
           ]
