@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T09:36:41.756Z",
+  "generated_at": "2026-08-13T09:42:56.565Z",
   "goals": [
     {
       "ref": "G1",
@@ -2289,7 +2289,7 @@
               "owner": "eng-director",
               "status": "in_progress",
               "assignee": "opencode",
-              "session_id": "ses_0058519fcffe1a3gknojv65h4r",
+              "session_id": "ses_00589cf6cffejUilBt1e34hYHH",
               "blocked_by": [
                 "G4.S4.T1"
               ],
@@ -2317,10 +2317,12 @@
                 "G4.S4.T2"
               ],
               "acceptance_criteria": [
-                "The plugin (from T1) is installed in the 6900XT opencode serve `.opencode/plugins/` and loads on serve startup",
-                "End-to-end: a dispatched ticket is auto-claimed on first tool call (status=in_progress + assignee + session_id in git, index regenerated, one commit)",
+                "The plugin (from T1) is installed in the GLOBAL opencode plugin dir (`~/.config/opencode/plugins/`) and loads on serve startup regardless of serve cwd (absolute-path imports into the athena-agent repo)",
+                "End-to-end: a dispatched ticket is auto-claimed on first tool call (status=in_progress + assignee + session_id in git, index regenerated); claim happens exactly ONCE per session (no duplicate claim commits / Progress Log rows)",
                 "End-to-end: a dispatched worker's Progress Log rows appear in the ticket file with real wall-clock timestamps",
                 "End-to-end: KanbanTab shows the last row + updated-ago + stalled flag for a stalled in_progress ticket",
+                "AGENTS.md updated: the worker no longer manually claims (status/assignee/session_id + commit) — the plugin auto-claims; the manual-claim step is removed so the worker doesn't conflict with the plugin",
+                "The concurrent double-claim bug is fixed — the plugin claims exactly once even when several tool calls fire in the same tick (no duplicate claim rows / claim commits / ClaimConflictError)",
                 "Verified on the 6900XT environment (authoritative)"
               ],
               "progress_last_row": "progress",
@@ -2351,7 +2353,7 @@
   ],
   "errors": [
     {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
+      "file": "/home/hai/workspace/athena-agent/docs/kanban/G4/S3/T10.md",
       "error": "layer must be one of: G, S, T"
     }
   ]
