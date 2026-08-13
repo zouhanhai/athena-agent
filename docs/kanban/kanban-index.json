@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T10:23:04.109Z",
+  "generated_at": "2026-08-13T10:51:34.834Z",
   "goals": [
     {
       "ref": "G1",
@@ -2360,9 +2360,9 @@
                 "Verified on the 6900XT environment (authoritative)"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode completed G4.S4.T3 — all fixes + unit tests green + E2E verified on fresh 6900XT serve",
-              "progress_updated_at": "2026-08-13T10:22:41.000Z",
-              "progress_status": "done"
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T10:23:12.389Z",
+              "progress_status": "in_progress"
             }
           ]
         },
@@ -2389,8 +2389,8 @@
   ],
   "errors": [
     {
-      "file": "/home/hh/athena-agent/docs/kanban/G4/S3/T10.md",
-      "error": "layer must be one of: G, S, T"
+      "file": "/home/hai/workspace/athena-agent/docs/kanban/G4/S3/T10.md",
+      "error": "blocked_by must be a list of strings"
     }
   ]
 }
