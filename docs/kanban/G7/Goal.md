@@ -42,6 +42,10 @@ web version (remote collaboration, GitHub Project view, no local Progress Log/st
   (Progress Log + accurate stalled). (2026-08-13)
 - Local kanban view is NOT removed — it moves to the app tier (its stalled pattern is valuable there).
 - Progress Log stays in md (not committed); the app reads it locally.
+- **Single repo + feature flag (2026-08-13)**: web and app share ~90%+ code (same frontend + server), so
+  use ONE repo with a runtime/build flag (e.g. `VITE_APP_MODE=web|app` or a build-time switch). web mode
+  does not load stalled/Progress Log local logic; app mode does (reads local filesystem). NOT a branch or
+  a fork (avoids branch drift / fork duplication).
 
 ## Completion Criteria
 

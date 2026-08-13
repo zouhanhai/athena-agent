@@ -62,6 +62,8 @@ Local kanban 视图通过 **Progress Log 判断 stalled** 是很好的模式，�
 
 **stalled 天然只属于 app 版**（2026-08-13 确认）：Progress Log 不 commit → GitHub 上根本没有 Progress Log → web 版读 GitHub 天然不会有 stalled（无需专门去掉）；app 版读本地 md 有 Progress Log → stalled 准确。
 
+**实现方式：单 repo + feature flag**（2026-08-13 确认）：web 和 app 共享 ~90%+ 代码，用**同一个 repo** + 运行时/build flag（如 `VITE_APP_MODE=web|app`）区分。web 模式不加载 stalled/Progress Log 本地逻辑，app 模式加载（读本地文件系统）。**不是 branch、不是 fork**（避免 branch drift 和 fork 重复）。
+
 ## 结论
 
 Local kanban 的 stalled 判断模式有价值，但**web 场景下 Progress Log 不可见**导致误判。**方向：web 版不带 stalled 同步（专注 GitHub Project 视图），app 版带（读本机，stalled 准确）**。app 版作为本地开发工具，与 web 控制平面互补。此为 S5 收尾后的一个方向决策，细节留到 S6（远程 agent 联邦）一起设计。
