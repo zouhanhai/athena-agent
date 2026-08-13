@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T16:38:47.457Z",
+  "generated_at": "2026-08-13T16:43:36.709Z",
   "goals": [
     {
       "ref": "G1",
@@ -2554,9 +2554,32 @@
                 "Clicking a Spec card in the GitHub Project view opens the detail panel showing the Spec md content AND a Sub-issues list (T1-T4: ref + title + status + progress)",
                 "Each sub-issue in the list is clickable to open its own detail (md + comments), like GitHub's Sub-issues block",
                 "The detail panel is an EMBEDDED side panel inside the Kanban area (covers only the Kanban tab, NOT a full-screen fixed overlay) so the right-side Chat panel stays visible",
-                "The detail panel has a 'view issue on GitHub' link (https://github.com/{owner}/{repo}/issues/{n}) and each sub-issue row links to its issue",
+                "The detail panel has a 'view in Issues' action that switches the Workbench to the Issues tab and locates that issue (local, NOT a GitHub redirect); each sub-issue row also does this",
+                "The detail panel has a COMMENT INPUT: the user can type and POST a new comment to the GitHub issue (backend creates it via createIssueComment); the panel then shows it",
                 "Backend /api/kanban/github-project returns each Spec card's subIssues array (ref/title/status/number)",
+                "Backend has an endpoint to POST a new GitHub issue comment",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ]
+            },
+            {
+              "ref": "G4.S5.T8",
+              "id": "G4.S5.T8",
+              "title": "Spec state machine: extend to full lifecycle (backlog → in_progress → done → in_review → approved/rejected) matching tickets",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T6"
+              ],
+              "acceptance_criteria": [
+                "Spec status is a typed enum with the full lifecycle: backlog, in_progress, done, in_review, approved, rejected, canceled (same set as tickets)",
+                "A Spec state machine (backlog → in_progress → done → in_review → approved/rejected) is enforced for Specs, mirroring the ticket state machine; transitions triggered by a plan agent / human reviewer (not auto)",
+                "Existing Spec `active` status is mapped/absorbed (e.g. `active` ≡ `in_progress` for backward compatibility) so current Specs still parse",
+                "status-map: kanbanSpecStatusToProjectStatus covers the new states (backlog/in_progress → Backlog/In Progress, done → Done, in_review → In Review, approved → Approved, rejected/canceled → a sensible column)",
+                "The Project board Status field gains the new Spec columns (ensureStatusFieldOptions) so Spec cards can move to them",
+                "Schema validation rejects an unknown Spec status; state-machine canTransition applies to Specs",
+                "Server tests green, typecheck clean; live-verified on 6900XT"
               ]
             }
           ]
