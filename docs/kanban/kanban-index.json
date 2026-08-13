@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T10:51:34.834Z",
+  "generated_at": "2026-08-13T10:54:42.509Z",
   "goals": [
     {
       "ref": "G1",
@@ -2226,6 +2226,27 @@
               "progress_status": "done"
             },
             {
+              "ref": "G4.S3.T10",
+              "id": "G4.S3.T10",
+              "title": "Wiki edit → Athena diff-refine → RAG re-ingest (versioned correction)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "20260812T124616Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The front-end wiki page becomes editable (Save button), persisting a markdown edit back to the wiki file.",
+                "Wiki editing is permission-gated: only an admin (or a member granted `kb.edit`) can edit/save; everyone else sees the wiki read-only.",
+                "Saving creates a versioned diff (before vs after). Athena runs an INCREMENTAL refine against the diff, NOT a full re-refine from docling — it sees exactly what changed.",
+                "Athena preserves the user's manual edit (does not rewrite the corrected text), but re-derives entities/relations/chunks and flags any NEW entities/relations the edit introduced.",
+                "The corrected doc overwrites the old version, located via its wikiPath → Document → Chunk nodes (stale chunks removed, new chunks embedded).",
+                "Server + web tests green, vue-tsc + typecheck clean."
+              ],
+              "progress_last_row": "acceptance met: wiki editable + save persists (read-only default, opt-in via kb.edit); save → versioned diff → Athena diff-refine (preserves corrected text verbatim, flags new entities/relations, rechunked decision) → RAG overwrite via wikiPath (stale chunks/sections removed, unchanged chunks keep embeddings, corrected text re-embedded, new entities/relations merged); versions transient (no history kept); server 907/907 + web 394/394 + typecheck/vue-tsc clean; committed + pushed",
+              "progress_updated_at": "2026-08-12T13:13:00Z",
+              "progress_status": "done"
+            },
+            {
               "ref": "G4.S3.T11",
               "id": "G4.S3.T11",
               "title": "Admin console — sidebar admin nav + employee/permission/invite management",
@@ -2387,10 +2408,5 @@
       ]
     }
   ],
-  "errors": [
-    {
-      "file": "/home/hai/workspace/athena-agent/docs/kanban/G4/S3/T10.md",
-      "error": "blocked_by must be a list of strings"
-    }
-  ]
+  "errors": []
 }
