@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T19:54:31.157Z",
+  "generated_at": "2026-08-13T20:05:50.498Z",
   "goals": [
     {
       "ref": "G1",
@@ -2670,7 +2670,7 @@
               "id": "G4.S5.T12",
               "title": "GitHub Project view: add a project selector (choose which linked project to show); getRepoProjects returns open projects (filter closed)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_0034f878dffeMFGtgonDfDgFDf",
               "blocked_by": [
@@ -2684,8 +2684,8 @@
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ],
               "started_at": "2026-08-13",
-              "progress_last_row": "opencode claimed G4.S5.T12 (session ses_0034f878dffeMFGtgonDfDgFDf)",
-              "progress_updated_at": "2026-08-13T19:54:31.147Z",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T20:05:20.577Z",
               "progress_status": "in_progress"
             }
           ]
