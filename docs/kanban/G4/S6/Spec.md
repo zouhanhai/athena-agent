@@ -1,16 +1,16 @@
 ---
 id: s6
 title: "G4.S6: GDD (Git-Driven Development) decoupling — boundary vs athena, docs/gdd handbook, Workbench Kanban/Project sub-tab split"
+owner: consultant
 layer: S
 parent: G4
-owner: consultant
-status: backlog
 milestone: M4
 acceptance_criteria:
   - "GDD is documented as a generic, agent-agnostic dev-flow protocol in a docs/gdd/ handbook (design / setup / backend / plugins / reference), clearly separated from athena's KB/chat product"
   - "A step-by-step setup guide exists so any new project can enable GDD (templates, git hook, sync CLI, opencode plugins) on its own repo without athena coupling"
   - "Workbench separates Kanban (local GST board = GDD) and Project (GitHub view = athena generic) into sibling sub-tabs (moved ticket, ex-G4.S5.T19)"
   - "The boundary decision is recorded as ADR 0009 and referenced from the Goal"
+status: in_progress
 ---
 
 # G4.S6: GDD decoupling & packaging
