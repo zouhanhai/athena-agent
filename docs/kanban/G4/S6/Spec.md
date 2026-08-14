@@ -36,7 +36,7 @@ management is GDD (generic); whatever serves KB/Q&A is athena (product-specific)
 
 2. **gdd/docs/ handbook** (方案 B, lightweight — code stays in athena repo, docs make GDD independently
    adoptable):
-   - `gdd/docs/README.md` — what GDD is, boundary vs athena, when to use, architecture overview.
+   - `gdd/README.md` — what GDD is, boundary vs athena, when to use, architecture overview.
    - `gdd/docs/design.md` — the full GDD protocol (moved from `gdd/docs/design.md`).
    - `gdd/docs/protocol-review.md` — design decision record (moved from `gdd/docs/protocol-review.md`).
    - `gdd/docs/setup.md` — step-by-step: enable GDD on any new project (copy templates, install

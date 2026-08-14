@@ -137,7 +137,7 @@ reports false failures).
   (`gdd sync-github create <spec>`), git hooks (`gdd/hooks/`), opencode plugins (`gdd/plugin/`) and
   GST templates (`gdd/templates/`) — runs standalone on the user's local machine with just a GitHub
   token (`gh auth token` / `GITHUB_TOKEN`). athena only views GitHub; GDD never imports athena.
-- `gdd/docs/` — the **GDD handbook**: [`README.md`](gdd/docs/README.md) (what GDD is + boundary vs
+- `gdd/docs/` — the **GDD handbook**: [`README.md`](gdd/README.md) (what GDD is + boundary vs
   athena), [`design.md`](gdd/docs/design.md) (git-driven Kanban design: claim lock, Progress Log,
   state machines), [`protocol-review.md`](gdd/docs/protocol-review.md) (the GDD design decision
   record), [`setup.md`](gdd/docs/setup.md) (enable GDD on a new project), [`backend.md`](gdd/docs/backend.md)

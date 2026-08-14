@@ -568,6 +568,6 @@ either; it is a backend/dev signal (stalled detection lives in the local-desktop
   `github-sync.ts` / `github-feedback.ts` implement the md → GitHub projection and the GitHub → md
   feedback loop (see `gdd/docs/backend.md`).
 - `gdd/src/sync-github.ts` — the `sync-github` CLI (create/sync/status/pull/feedback/list).
-- `gdd/docs/README.md` + `gdd/docs/setup.md` + `gdd/docs/plugins.md` + `gdd/docs/reference.md` — the
+- `gdd/README.md` + `gdd/docs/setup.md` + `gdd/docs/plugins.md` + `gdd/docs/reference.md` — the
   handbook (adoption guide, module docs, plugin docs, concept index).
 - OpenCode plugins: https://opencode.ai/v2/docs/build/plugins
