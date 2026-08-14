@@ -1169,6 +1169,53 @@ test("createSpecIssue is idempotent: re-run updates in place, never duplicates",
   assert.equal(github.calls.filter((c) => c === "createMilestone:M4").length, 0);
 });
 
+test("createSpecIssue syncs the Spec main issue open/closed to the md Spec status (G4.S6.T2)", async () => {
+  // Update path: an existing spec issue in an in_progress spec stays open; a
+  // done spec closes it, so the Project Status column and issue list agree.
+  const specIssue: GithubIssue = {
+    id: 900, node_id: "I_kwDO10", number: 10, title: "G4.S5 Kanban ↔ GitHub Issues bidirectional sync + planning feedback loop",
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  const t1Issue: GithubIssue = {
+    id: 901, node_id: "I_kwDO11", number: 11, title: "G4.S5.T1",
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  const t2Issue: GithubIssue = {
+    id: 902, node_id: "I_kwDO12", number: 12, title: "G4.S5.T2",
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  // Board fixture's G4.S5 spec is in_progress → the existing issue must stay open.
+  const github = new RecordingGithub([specIssue, t1Issue, t2Issue], { milestones: { M4: 4 } });
+  await createSpecIssue(github.asApi(), tokenCredential, "caleo", "athena", board, "G4.S5", project);
+  const specUpdate = github.calls.find((c) => c.startsWith("updateIssue:10:"));
+  assert.ok(specUpdate, "the existing Spec main issue is updated");
+  assert.ok(specUpdate!.endsWith(":open"), "in_progress spec issue stays open");
+
+  // A done spec closes its existing main issue.
+  const doneBoard: KanbanBoard = {
+    ...board,
+    goals: board.goals.map((goal) => ({
+      ...goal,
+      specs: goal.specs.map((spec) =>
+        spec.ref === "G4.S5" ? { ...spec, spec: { ...spec.spec, status: "done" } } : spec,
+      ),
+    })),
+  };
+  const github2 = new RecordingGithub([specIssue, t1Issue, t2Issue], { milestones: { M4: 4 } });
+  await createSpecIssue(github2.asApi(), tokenCredential, "caleo", "athena", doneBoard, "G4.S5", project);
+  const specUpdateDone = github2.calls.find((c) => c.startsWith("updateIssue:10:"));
+  assert.ok(specUpdateDone!.endsWith(":closed"), "done spec issue is closed");
+
+  // Create path: a freshly created spec issue in a done spec closes right away.
+  const github3 = new RecordingGithub([], { milestones: { M4: 4 } });
+  await createSpecIssue(github3.asApi(), tokenCredential, "caleo", "athena", doneBoard, "G4.S5", project);
+  assert.ok(github3.calls.some((c) => c.startsWith("createIssue:G4.S5 Kanban")));
+  assert.ok(
+    github3.calls.some((c) => c.startsWith("updateIssue:10:") && c.endsWith(":closed")),
+    "freshly created done-spec issue is closed",
+  );
+});
+
 test("createSpecIssue updates a sub-issue created with the bare-ref title, not a duplicate (T10)", async () => {
   // Pre-T10 syncs created ticket sub-issues with ONLY the ref as their title
   // (`G4.S5.T1`). The next sync must find them and update the title in place

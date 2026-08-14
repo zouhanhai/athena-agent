@@ -10,7 +10,7 @@
  * claim/report mutually exclusive lives in ./git-lock.ts (GitClaimLock).
  */
 
-import { readTicketFile, writeBoardFile } from "./board.js";
+import { readBoardFile, readTicketFile, writeBoardFile } from "./board.js";
 import { scanBoard, type KanbanBoard, type BoardTicket } from "./scan.js";
 import { transitionsTo } from "./state-machine.js";
 import type { TicketFrontmatter, TicketStatus } from "./schema.js";
@@ -91,6 +91,29 @@ export function appendLog(body: string, date: string, entry: string): string {
 }
 
 /**
+ * G4.S6.T2 — a Spec is ticket-driven: when a backlog Spec's FIRST ticket is
+ * claimed, the Spec auto-advances `backlog → in_progress` (no manual
+ * `decomposed` step). An already-in_progress (or later) Spec is left alone;
+ * the Spec never auto-advances to done — done is review-gated (the reviewer
+ * may add tickets). A missing/unreadable Spec file does not fail the claim.
+ */
+async function advanceSpecOnFirstClaim(root: string, specRef: string): Promise<void> {
+  try {
+    const doc = await readBoardFile(root, specRef);
+    if (doc.frontmatter.layer !== "S" || doc.frontmatter.status !== "backlog") {
+      return;
+    }
+    await writeBoardFile(root, {
+      ref: specRef,
+      frontmatter: { ...doc.frontmatter, status: "in_progress" },
+      body: doc.body,
+    });
+  } catch {
+    // Spec file absent or malformed — the ticket claim still succeeds.
+  }
+}
+
+/**
  * Worker claims a ticket: validates it is claimable (backlog, unassigned to
  * someone else, never rejected), then writes status/assignee/session_id/
  * started_at and appends a Log entry. The caller (GitClaimLock) makes the
@@ -131,6 +154,8 @@ export async function claimTicket(
   };
   const log = appendLog(doc.body, date, `${input.assignee} claimed ${ref} (session ${input.sessionId})`);
   await writeBoardFile(root, { ref, frontmatter: updated, body: log });
+  // G4.S6.T2: claiming the first ticket advances a backlog Spec to in_progress.
+  await advanceSpecOnFirstClaim(root, ref.split(".").slice(0, 2).join("."));
   return { ref, log };
 }
 

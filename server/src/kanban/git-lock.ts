@@ -26,6 +26,11 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+/** The Spec ref (`Gx.Sy`) containing a ticket ref (`Gx.Sy.Tz`). */
+function specRefOf(ref: string): string {
+  return ref.split(".").slice(0, 2).join(".");
+}
+
 /** Thrown when a git push reveals another worker claimed the ticket first. */
 export class ClaimConflictError extends ClaimError {}
 
@@ -99,9 +104,12 @@ export class GitClaimLock {
    */
   async claim(ref: string, input: ClaimInput): Promise<ClaimResult> {
     const file = refToPath(ref, this.boardRoot);
+    // G4.S6.T2: the claim may also auto-advance the containing Spec
+    // (backlog → in_progress), so the spec file is committed with the claim.
+    const specFile = refToPath(specRefOf(ref), this.boardRoot);
     for (let attempts = 0; ; attempts++) {
       const result = await claimTicket(this.boardRoot, ref, input);
-      await this.commitFile(file, `claim ${ref} (in_progress)`);
+      await this.commitFiles([file, specFile], `claim ${ref} (in_progress)`);
       try {
         await this.git(["push", "origin", await this.branch()]);
         return result;

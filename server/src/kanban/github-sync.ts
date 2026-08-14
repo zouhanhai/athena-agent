@@ -298,6 +298,11 @@ export async function createSpecIssue(
   } else {
     specIssue = await github.createIssue(credential, owner, repo, payload);
     created = true;
+    // A freshly created issue starts open; a done/approved Spec's main issue
+    // closes immediately so the issue list matches the Spec status.
+    await github.updateIssue(credential, owner, repo, specIssue.number, {
+      state: specIssueState(spec.status),
+    });
   }
 
   await github.addIssueToProject(credential, project.id, specIssue.node_id);

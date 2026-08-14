@@ -242,6 +242,46 @@ test("a re-decomposed ticket is claimable again by any worker (reject→rework�
   }
 });
 
+test("claiming a backlog spec's first ticket auto-advances the spec to in_progress (G4.S6.T2)", async () => {
+  const root = await tempBoard();
+  try {
+    await writeDoc(root, "G1", goalFm("G1"));
+    await writeDoc(root, "G1.S1", specFm("G1.S1", { status: "backlog" }));
+    await writeDoc(root, "G1.S1.T1", ticketFm("G1.S1.T1"));
+    await writeDoc(root, "G1.S1.T2", ticketFm("G1.S1.T2"));
+
+    // First ticket claim advances the backlog spec → in_progress (no decomposed step).
+    await claimTicket(root, "G1.S1.T1", { assignee: "opencode", sessionId: "ses_1", now: NOW });
+    const spec = await readBoardFile(root, "G1.S1");
+    assert.equal(spec.frontmatter.status, "in_progress", "spec advanced on first claim");
+
+    // A later claim on the same spec leaves the already-in_progress spec alone.
+    await claimTicket(root, "G1.S1.T2", { assignee: "pi-c", sessionId: "ses_2", now: NOW });
+    const specAfter = await readBoardFile(root, "G1.S1");
+    assert.equal(specAfter.frontmatter.status, "in_progress");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("all tickets done does NOT auto-advance the spec to done — review-gated (G4.S6.T2)", async () => {
+  const root = await tempBoard();
+  try {
+    await writeDoc(root, "G1", goalFm("G1"));
+    await writeDoc(root, "G1.S1", specFm("G1.S1", { status: "backlog" }));
+    await writeDoc(root, "G1.S1.T1", ticketFm("G1.S1.T1"));
+
+    await claimTicket(root, "G1.S1.T1", { assignee: "opencode", sessionId: "ses_1", now: NOW });
+    await reportTicket(root, "G1.S1.T1", { status: "done", now: NOW });
+
+    // The spec must stay in_progress awaiting review — done only via review (manual/Reviewer).
+    const spec = await readBoardFile(root, "G1.S1");
+    assert.equal(spec.frontmatter.status, "in_progress", "spec stays in_progress awaiting review");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("full 6-role lifecycle: claim → done → in_review → reject → re-decompose → re-claim → approve", async () => {
   const root = await tempBoard();
   try {
