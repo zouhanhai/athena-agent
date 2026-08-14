@@ -60,5 +60,6 @@ management is GDD (generic); whatever serves KB/Q&A is athena (product-specific)
 - ADR 0009 (boundary) — done.
 - `docs/gdd/` handbook + setup guide.
 - Workbench Kanban/Project sub-tab split (T1, moved).
-- Spec state machine simplification — remove decomposed, ticket-driven in_progress (T2).
+- Spec state machine simplification — remove decomposed, ticket-driven in_progress + spec main-issue open/closed sync (T2).
+- docs/gdd/ handbook — README/design/protocol-review/setup/backend/plugins/reference + GST templates + kanban-index (T3, after T1/T2).
 - Goal.md updated (S6 = GDD, S7 = remote federation).

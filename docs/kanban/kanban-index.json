@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T12:57:16.864Z",
+  "generated_at": "2026-08-14T13:25:58.023Z",
   "goals": [
     {
       "ref": "G1",
@@ -2833,7 +2833,7 @@
             {
               "ref": "G4.S6.T1",
               "id": "G4.S6.T1",
-              "title": "Workbench: split Kanban tab into two sibling tabs — 'Kanban' (local GST board) and 'Project' (GitHub Project view) — decoupling GDD board from athena GitHub viewer (both remain sub-tabs under the Workbench)",
+              "title": "Workbench: split Kanban tab into two sibling tabs — 'Kanban' (local GST board = GDD) and 'Project' (GitHub Project view = athena generic GitHub viewer) — reflecting the GDD/athena boundary (ADR 0009); both remain sub-tabs under the Workbench",
               "owner": "eng-director",
               "status": "backlog",
               "assignee": "",
@@ -2844,6 +2844,7 @@
               "acceptance_criteria": [
                 "Workbench (top-level view) gains a 4th sub-tab 'Project' next to Code/Issues/Kanban; 'Kanban' sub-tab now shows ONLY the local GST board. All four remain sub-tabs under the Workbench (not separate top-level pages)",
                 "The GitHub Project view (board + issue detail panel + comment thread + project selector) moves out of KanbanTab into the new 'Project' sub-tab; behavior identical to today (click card → local detail panel, no GitHub redirect)",
+                "The split reflects the GDD/athena boundary (ADR 0009): Kanban (local GST) = GDD dev-flow; Project (GitHub viewing) = athena generic capability usable by non-GDD users (e.g. abaplorer uses GitHub + KB only). The Project tab must work for any repo's GitHub Project regardless of whether it uses the GDD Gx.Sx.Tx flow",
                 "'view in Issues' from a Kanban/Project card still switches to the Issues sub-tab and locates the issue (G4.S5.T8 preserved)",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ]
@@ -2863,6 +2864,29 @@
                 "Spec does NOT auto-advance to done when all tickets are done — it stays in_progress awaiting review (new tickets may be added); done only via review (manual/Reviewer)",
                 "The spec MAIN ISSUE's open/closed state is synced to the spec status: done/approved → closed; backlog/in_progress/in_review/rejected → open (so the Project Status column and the issue-list open/closed agree)",
                 "status-map, state-machine, github-sync (Project Status columns + spec issue state), GDD §7 doc, and T7 test/docs updated consistently; server + web tests green, typecheck/vue-tsc clean"
+              ]
+            },
+            {
+              "ref": "G4.S6.T3",
+              "id": "G4.S6.T3",
+              "title": "docs/gdd/ handbook — package GDD as a generic, agent-agnostic protocol: README/design/protocol-review/setup/backend/plugins/reference + GST templates + kanban-index docs; move existing design docs, copy templates",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S6.T1",
+                "G4.S6.T2"
+              ],
+              "acceptance_criteria": [
+                "docs/gdd/ exists with README.md, design.md, protocol-review.md, setup.md, backend.md, plugins.md, reference.md, and templates/ (Goal/Spec/Ticket .md.template)",
+                "design.md = full GDD protocol (moved from docs/git-kanban-design.md, refs updated); protocol-review.md = decision record (moved from docs/git-driven-protocol-review.md, refs updated)",
+                "setup.md gives step-by-step: enable GDD on any new project (copy templates, install kanban backend/hook, configure credential via gh token/GITHUB_TOKEN, run sync-github, deploy opencode plugins) with real commands + verification",
+                "backend.md documents all kanban backend modules (scan/state-machine/git-lock/schema/github-sync/github-feedback/roles/planning/lifecycle/protocol/frontmatter/index-file/progress/status-map/board/index + write-index.ts kanban-index generator) — what each does, how to run",
+                "plugins.md documents the opencode plugins (auto-claim/progress-log/done-commit/auto-sync) + deployment (global vs project)",
+                "reference.md = concept index (Gx.Sx.Tx, ticket + spec state machines incl. T2's no-decomposed/ticket-driven rule, roles, Progress Log, kanban-index, glossary)",
+                "templates/ = copies of the GST templates; docs/kanban/templates/ left intact",
+                "Boundary (vs athena KB) explained; ADR 0009 referenced"
               ]
             }
           ]
