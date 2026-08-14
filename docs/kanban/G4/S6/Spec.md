@@ -1,80 +1,63 @@
 ---
 id: s6
-title: "G4.S6: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP"
+title: "G4.S6: GDD (Git-Driven Development) decoupling — boundary vs athena, docs/gdd handbook, Workbench Kanban/Project sub-tab split"
 layer: S
 parent: G4
 owner: consultant
 status: backlog
 milestone: M4
 acceptance_criteria:
-  - "Local agents (remote WSL, LAN 6900XT, and the local Hermes) register to the platform via an invitation flow {agent_id, api_url, token}"
-  - "Communication is HTTP + SSE over a Tailscale tunnel (NOT WebSocket); Tailscale is part of this Spec"
-  - "Platform Chat panel routes to a selected remote agent's API Server, streaming tool progress (tool.started / tool.completed) into the panel"
-  - "Knowledge base exposed as an MCP server (search_knowledge / get_wiki_page / get_graph) so any agent can retrieve company KB"
-  - "Agent identity traceable: each agent connects with a unique id + token (invitation-issued); the platform knows which agent is where and how to reach it"
+  - "GDD is documented as a generic, agent-agnostic dev-flow protocol in a docs/gdd/ handbook (design / setup / backend / plugins / reference), clearly separated from athena's KB/chat product"
+  - "A step-by-step setup guide exists so any new project can enable GDD (templates, git hook, sync CLI, opencode plugins) on its own repo without athena coupling"
+  - "Workbench separates Kanban (local GST board = GDD) and Project (GitHub view = athena generic) into sibling sub-tabs (moved ticket, ex-G4.S5.T19)"
+  - "The boundary decision is recorded as ADR 0009 and referenced from the Goal"
 ---
 
-# G4.S6: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP
+# G4.S6: GDD decoupling & packaging
 
 ## Background
 
-The AgentIDE vision: users manage remote agents from the platform. Each agent stays LOCAL (tools run on
-the agent's machine); the platform is the control plane. Users send commands → forwarded to the right
-local agent → agent works locally → streams the process + result back.
+athena-agent contains two conflated capabilities (2026-08-14 user discussion): the **GDD dev-flow**
+(Gx.Sx.Tx kanban, md→GitHub sync, state machine, roles, plugins) and the **athena KB/chat product**
+(Neo4j RAG, Q&A, chat). The abaplorer team uses GitHub Issues/Projects directly and never touches GDD —
+they use athena for the KB, and still browse GitHub repo/issue/project in the Workbench. So GDD is a
+**generic protocol** that must be packageable/reusable on any project, cleanly separated from athena.
 
-**Concrete goal (user, 2026-08-09):** register BOTH
-1. the remote **WSL** agent, and
-2. the **LAN 6900XT** agent
-into the platform via the federation, so either can be controlled from the platform.
+Boundary rule (ADR 0009): **split by dev-flow vs knowledge-base** — whatever serves development-task
+management is GDD (generic); whatever serves KB/Q&A is athena (product-specific).
 
-## Full design
+## Design / Approach
 
-> **Reference (2026-08-10)**: [Avernet](https://github.com/inclusionAI/Avernet) — production-grade
-> distributed agent coordination platform (Ant Group, 12 BGs, 90%+ completion). Evaluate vs lean
-> federation; see `docs/avernet-reference.md`. Not a required dependency — lean S6 first.
+1. **Boundary decision** — recorded in `docs/adr/0009-gdd-vs-athena-boundary.md`:
+   - GDD: GST 3-layer + md templates, local Kanban board, md→GitHub sync (hook + CLI), state machine,
+     kanban-index, roles (Consultant/PM/EngD/Worker/Reviewer/Writer), opencode plugins.
+   - athena: Workbench shell + GitHub repo/issue/project viewing (generic), KB/RAG/Q&A/chat.
+   - Recommendation: new projects adopt GDD (pairs with athena); optional per project.
 
-See `docs/knowledge-rag-design.md` §8 (RAG system selection & self-build direction) and the M4
+2. **docs/gdd/ handbook** (方案 B, lightweight — code stays in athena repo, docs make GDD independently
+   adoptable):
+   - `docs/gdd/README.md` — what GDD is, boundary vs athena, when to use, architecture overview.
+   - `docs/gdd/design.md` — the full GDD protocol (moved from `docs/git-kanban-design.md`).
+   - `docs/gdd/protocol-review.md` — design decision record (moved from `docs/git-driven-protocol-review.md`).
+   - `docs/gdd/setup.md` — step-by-step: enable GDD on any new project (copy templates, install
+     `scripts/install-kanban-hook.sh` + `hooks/post-commit`, run `sync-github`, deploy opencode plugins).
+   - `docs/gdd/backend.md` — kanban backend modules (server/src/kanban/*.ts: scan/state-machine/
+     git-lock/schema/github-sync/github-feedback/roles/planning/lifecycle/protocol/frontmatter/
+     index-file/progress/status-map/board/index) — what each does, how to run.
+   - `docs/gdd/plugins.md` — opencode plugins (auto-claim / progress-log / done-commit / auto-sync).
+   - `docs/gdd/reference.md` — concept index (Gx.Sx.Tx, state machine, roles, Progress Log, glossary).
 
-See `docs/knowledge-rag-design.md` + M4 federation items in `TODO.md`. Key points:
-
-- **Tailscale is part of this Spec** — it provides the encrypted tunnel so the server can reach every
-  local agent across regions. This Spec includes: Tailscale the 6900XT + the remote WSL host, set
-  `APP_BASE_URL` to a reachable address, and make invite/magic-link URLs open remotely (currently LAN-only).
-- **Architecture**: agents stay local; platform is the control plane. **HTTP + SSE, NOT WebSocket**
-  (SSE covers real-time push; HTTP covers command send).
-- **Invitation onboarding** (like employee invites): admin generates `{agent_id, api_url, token}` →
-  hand to the agent → agent registers (auth'd, so the platform knows which agent is where/how to reach it).
-- **Chat routing**: platform Chat panel → selected remote agent's API Server (Hermes `/api/sessions/{id}/chat/stream`
-  SSE, OpenCode `/global/event`), streaming tool progress into the panel.
-- **KB as MCP server**: wrap `KnowledgeRetrievalService` (LightRAG + llm_wiki + semantic) into an MCP server;
-  each local agent adds one `mcpServers` entry over Tailscale. Bonus: Workbench GitHub + kanban ops as MCP tools.
-
-### KB-as-MCP: topic-scoped search contract for external agents
-
-When building the MCP server, the **topic contract for external agents MUST be documented** so any
-MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
-
-- **Tool**: `search_knowledge(query, topic?)` — `topic` is a wiki frontmatter topic subtree (e.g.
-  `internal/events`, `sap`, or `sap/group_reporting`). Omit/empty = whole-corpus search.
-- **How an agent chooses `topic`**: the agent's LLM decides the relevant domain(s) from the question
-  (topic = Athena's knowledge-navigation: determine topic → converge document domain → search within it).
-  The MCP tool description should teach this: "if the question is about a specific domain, pass its
-  topic subtree to scope the search; otherwise omit for a whole-corpus search."
-- **Sibling tools**: `get_wiki_page(path)` (read a wiki page's content + frontmatter), `get_graph()`
-  (knowledge-graph nodes/edges). Retrieval results carry `wikiPath`/`sectionPath` so an agent can
-  group chunks by source page and fuse analysis.
-- **Auth**: MCP server auth'd (per-employee/agent token); agents reach it over Tailscale.
-- Alias mapping (G4.S3.T6) + bilingual aliases (G4.S2.T1) apply at query time, so a
-  colloquial/cross-language term in `query` still matches canonical text within the scoped topic.
-- A2A deferred to M6.
+3. **Workbench sub-tab split** (moved ticket, ex-G4.S5.T19): keep **Kanban** (local GST = GDD) and
+   **Project** (GitHub view = athena generic) as sibling sub-tabs under the Workbench.
 
 ## Dependencies
 
-- G4.S2 (RAG) for the KB the MCP server wraps.
+- None hard (GDD is self-contained). Related: G4.S5 (GitHub sync the handbook documents), G4.S7
+  (remote federation — GDD is one workflow a remote agent can run).
 
 ## Deliverables
 
-- Tailscale setup (6900XT + remote WSL) + APP_BASE_URL / remote access.
-- Invitation-based agent onboarding + manual register form (S2.T9).
-- HTTP+SSE routing from platform Chat to remote agents with streamed progress.
-- KB MCP server (search_knowledge / get_wiki_page / get_graph).
+- ADR 0009 (boundary) — done.
+- `docs/gdd/` handbook + setup guide.
+- Workbench Kanban/Project sub-tab split (moved ticket).
+- Goal.md updated (S6 = GDD, S7 = remote federation).

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T10:05:20.598Z",
+  "generated_at": "2026-08-14T10:05:59.666Z",
   "goals": [
     {
       "ref": "G1",
@@ -2183,7 +2183,7 @@
               "acceptance_criteria": [
                 "See 'Acceptance' section"
               ],
-              "progress_last_row": "Committed + pushed (5c9a874), codegraph synced. Acceptance met: query transform (clarify/decompose→parallel→fuse), compression, retriever picker (vector/bm25/graph/hybrid), topic convergence (T4 topic-scoped search, omit for cross-domain), multi-hop graph reasoning, not-found → explicit \"not found in KB\" + web-search fallback + KB-update suggestion. search_knowledge tool = retrieval-side of KB-as-MCP contract (G4.S6). Server 857/857 tests, typecheck 0.",
+              "progress_last_row": "Committed + pushed (5c9a874), codegraph synced. Acceptance met: query transform (clarify/decompose→parallel→fuse), compression, retriever picker (vector/bm25/graph/hybrid), topic convergence (T4 topic-scoped search, omit for cross-domain), multi-hop graph reasoning, not-found → explicit \"not found in KB\" + web-search fallback + KB-update suggestion. search_knowledge tool = retrieval-side of KB-as-MCP contract (G4.S7). Server 857/857 tests, typecheck 0.",
               "progress_updated_at": "2026-08-12T12:05:00Z",
               "progress_status": "done"
             },
@@ -2793,9 +2793,9 @@
                 "The Kanban GitHub Project view also has a Refresh (it may already); if it lacks one, add it too so synced changes show up",
                 "Web tests green + vue-tsc clean"
               ],
-              "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-14T10:05:09.234Z",
-              "progress_status": "in_progress"
+              "progress_last_row": "IssuesTab Refresh button implemented (re-fetch in place with loading state, open detail preserved); Kanban GitHub-view Refresh confirmed present. Web 478/478 tests green, vue-tsc 0.",
+              "progress_updated_at": "2026-08-14T10:03:25.000Z",
+              "progress_status": "done"
             },
             {
               "ref": "G4.S5.T18",
@@ -2815,10 +2815,20 @@
                 "Status badges on GitHub Project view cards have COLOR (matching the Local kanban / GitHub status colors: In Progress yellow, Done green, Backlog gray, etc.), not the current gray pill",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT (abaplorer #201 shows 9/9)"
               ]
-            },
+            }
+          ]
+        },
+        {
+          "ref": "G4.S6",
+          "id": "s6",
+          "title": "G4.S6: GDD (Git-Driven Development) decoupling — boundary vs athena, docs/gdd handbook, Workbench Kanban/Project sub-tab split",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": [
             {
-              "ref": "G4.S5.T19",
-              "id": "G4.S5.T19",
+              "ref": "G4.S6.T1",
+              "id": "G4.S6.T1",
               "title": "Workbench: split Kanban tab into two sibling tabs — 'Kanban' (local GST board) and 'Project' (GitHub Project view) — decoupling GDD board from athena GitHub viewer (both remain sub-tabs under the Workbench)",
               "owner": "eng-director",
               "status": "backlog",
@@ -2837,9 +2847,9 @@
           ]
         },
         {
-          "ref": "G4.S6",
-          "id": "s6",
-          "title": "G4.S6: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP",
+          "ref": "G4.S7",
+          "id": "s7",
+          "title": "G4.S7: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP",
           "owner": "consultant",
           "status": "backlog",
           "milestone": "M4",

@@ -201,7 +201,7 @@
 - Consistent with D8 (single vs collab).
 
 ### D28. Federation agents adopt the protocol (confirmed by user)
-- Remote agents registering via federation (G4.S6) **see the full git-driven development flow** on
+- Remote agents registering via federation (G4.S7) **see the full git-driven development flow** on
   onboarding, then **internally analyze how to apply the workflow to their own local setup + their
   local code agent**.
 - This extends "protocol defined, each agent implements" to remote agents: they follow the same

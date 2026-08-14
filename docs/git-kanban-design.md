@@ -476,7 +476,7 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
 - **Claude Code** → hooks; **Codex** → custom tool; **Pi** → extensions.
 - With no hook capability → **fall back to AGENTS.md instructions** (LLM manually claims / writes
   progress, best-effort).
-- **Federation agents**: remote agents registering via federation (G4.S6) see the full
+- **Federation agents**: remote agents registering via federation (G4.S7) see the full
   git-driven flow on onboarding, then internally analyze how to apply it to their own local setup +
   their local code agent. The protocol is complementary to federation (a platform feature).
 

@@ -106,7 +106,7 @@ Work is tracked as Goals in `docs/kanban/` (each Goal → Specs → Tickets), th
 | **G1** Project skeleton + personal conversation | ✅ DONE | M1 — skeleton + AgentSession personal chat |
 | **G2** Knowledge base | ✅ DONE | M2 — docling ingestion, retrieval routing, graph + wiki |
 | **G3** Multi-agent federation + team workbench | ✅ DONE | agent registry, RBAC, chat, workbench, uploads, git-driven dev |
-| **G4** KB intelligence + RAG self-build + collaboration | 🔄 | S1 refinement ✅ · S2 Neo4j RAG ✅ · S3 agentic RAG ✅ · S4 worker progress ✅ · **S5 Kanban↔Issues (next)** · S6 federation |
+| **G4** KB intelligence + RAG self-build + collaboration | 🔄 | S1 refinement ✅ · S2 Neo4j RAG ✅ · S3 agentic RAG ✅ · S4 worker progress ✅ · **S5 Kanban↔Issues (next)** · S6 GDD decoupling · S7 federation |
 | **G5** Output page | planned | txt/blog/charts/pptx/html |
 | **G6** Remote federation + A2A | planned | agents as peers, MCP-first KB access |
 

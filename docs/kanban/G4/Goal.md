@@ -12,7 +12,8 @@ acceptance_criteria:
   - "G4.S3 KB confidence & lifecycle + incremental re-curation + topic-scoped search: wiki frontmatter gains read_count/last_reviewed/confidence/topic_history; Athena KB review re-topics/deprecates/reinforces; search can scope to a topic subtree"
   - "G4.S4 Worker progress tracking: OpenCode plugin appends a Progress Log row to the ticket md file on real change; Kanban shows last row + stalled flag"
   - "G4.S5 Kanban ↔ GitHub Issues bidirectional sync + planning feedback loop: Spec → Issue (title Gx.Sx), ticket status syncs, plan agent reads issue discussion back into md"
-  - "G4.S6 Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP: local agents register via invite, platform Chat routes to a remote agent with streamed progress; KB exposed as MCP server"
+  - "G4.S6 GDD decoupling: GDD dev-flow documented as a generic agent-agnostic protocol (docs/gdd handbook) separated from athena KB; Workbench splits Kanban (GST) and Project (GitHub) into sibling sub-tabs"
+  - "G4.S7 Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP: local agents register via invite, platform Chat routes to a remote agent with streamed progress; KB exposed as MCP server"
 ---
 
 # G4: RAG Self-Build, KB Intelligence & Agent Collaboration
@@ -36,7 +37,10 @@ Corresponds to Milestone M4. Three thrusts:
 - G4.S2 RAG self-build — depends on S1.
 - G4.S3 KB intelligence — builds on S1/S2.
 - G4.S4 Worker progress, G4.S5 Kanban-issues sync — independent collaboration items.
-- G4.S6 Remote federation + MCP — independent.
+- **G4.S6 GDD decoupling (prerequisite for S7)** — package the GDD dev-flow protocol (boundary vs
+  athena, docs/gdd handbook, Workbench Kanban/Project sub-tab split) so it is reusable on any project.
+- **G4.S7 Remote federation + MCP — AFTER S6**: federating/controlling remote agents assumes the GDD
+  dev-flow they run is packaged (S6) first.
 
 ## Reference design docs
 
@@ -76,7 +80,9 @@ Corresponds to Milestone M4. Three thrusts:
   6900XT (auto-claim once, single progress rows, separate index-done commit).
   See `docs/kanban/G4/S4/Spec.md`.
 - **G4.S5 (Kanban ↔ GitHub Issues sync): backlog** — next after S4.
-- **G4.S6 (Remote agent federation + KB-as-MCP): backlog** — independent.
+- **G4.S6 (GDD decoupling — boundary vs athena, docs/gdd handbook, Workbench Kanban/Project sub-tab
+  split): backlog** — prerequisite for S7.
+- **G4.S7 (Remote agent federation + KB-as-MCP): backlog** — after S6.
 
 ## Post-G4 enhancement backlog (recorded, not scheduled)
 

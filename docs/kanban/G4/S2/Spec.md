@@ -56,7 +56,7 @@ RAG-selection item in `TODO.md`. Key points:
   - **Fusion**: HybridRetriever / RRF fuses vector + BM25 + graph; ToolsRetriever lets the LLM pick the
     best retriever per query.
 - **Case-insensitive** node lookup (LightRAG's `caleo`/`CALEO` bug must not recur).
-- A2A deferred to M6; MCP-first for KB access (G4.S6).
+- A2A deferred to M6; MCP-first for KB access (G4.S7).
 - **Leiden community detection (optional enhancement, decided 2026-08-09)**: our `topic` classification is
   **document-level, human-defined** (taxonomy tree); Leiden is **entity-level, automatic** (data-driven
   clustering of densely-connected entity nodes). They are complementary, NOT the same:
@@ -69,7 +69,7 @@ RAG-selection item in `TODO.md`. Key points:
 ## Dependencies
 
 - G4.S1 (Athena refinement output contract).
-- G4.S3, G4.S6 build on this.
+- G4.S3, G4.S7 build on this.
 
 ## Deliverables
 
