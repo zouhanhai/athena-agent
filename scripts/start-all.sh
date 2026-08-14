@@ -130,8 +130,11 @@ else
     export NEO4J_USER="neo4j" \
     export NEO4J_PASSWORD="athena-spike-2026" \
     [ -f "$HOME/athena-agent/server/.env.local" ] && set -a && . "$HOME/athena-agent/server/.env.local" && set +a \
+    # NOTE: do NOT redirect stdin to /dev/null — opencode serve 1.18 exits
+    # immediately after binding when stdin is EOF. Keep stdin inherited (or a
+    # fifo/tty) so it stays up. Verified 2026-08-14.
     setsid nohup opencode serve --port "$OPENCODE_PORT" --hostname 0.0.0.0 \
-    < /dev/null > "$LOG_DIR/opencode-serve.log" 2>&1 & disown ) || true
+    > "$LOG_DIR/opencode-serve.log" 2>&1 & disown ) || true
   for _ in $(seq 1 15); do port_in_use "$OPENCODE_PORT" && break; sleep 1; done
   if port_in_use "$OPENCODE_PORT"; then
     log "OpenCode serve :$OPENCODE_PORT up"
