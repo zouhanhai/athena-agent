@@ -3,7 +3,7 @@
  *
  * Types + validation for Goal (`G{N}/Goal.md`), Spec (`G{N}/S{N}/Spec.md`)
  * and Ticket (`G{N}/S{N}/T{N}.md`) frontmatter, standardizing the structure
- * defined in docs/gdd/design.md.
+ * defined in gdd/docs/design.md.
  */
 
 import type { FrontmatterMap } from "./frontmatter.js";

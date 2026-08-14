@@ -190,6 +190,6 @@ identifiable in the server / portal:
 ## Reference
 
 - `docs/adr/0005-dialogue-structure.md` (single-Pi dialogue model, to evolve)
-- `docs/gdd/design.md` (async coordination)
+- `gdd/docs/design.md` (async coordination)
 - `docs/knowledge-rag-design.md` (knowledge context)
 - `docs/distributed-pi-collaboration.md` was the precursor (now superseded by this doc)

@@ -137,12 +137,12 @@ reports false failures).
   (`gdd sync-github create <spec>`), git hooks (`gdd/hooks/`), opencode plugins (`gdd/plugin/`) and
   GST templates (`gdd/templates/`) — runs standalone on the user's local machine with just a GitHub
   token (`gh auth token` / `GITHUB_TOKEN`). athena only views GitHub; GDD never imports athena.
-- `docs/gdd/` — the **GDD handbook**: [`README.md`](docs/gdd/README.md) (what GDD is + boundary vs
-  athena), [`design.md`](docs/gdd/design.md) (git-driven Kanban design: claim lock, Progress Log,
-  state machines), [`protocol-review.md`](docs/gdd/protocol-review.md) (the GDD design decision
-  record), [`setup.md`](docs/gdd/setup.md) (enable GDD on a new project), [`backend.md`](docs/gdd/backend.md)
-  (gdd package modules + sync-github CLI), [`plugins.md`](docs/gdd/plugins.md) (opencode plugins),
-  [`reference.md`](docs/gdd/reference.md) (concept index)
+- `gdd/docs/` — the **GDD handbook**: [`README.md`](gdd/docs/README.md) (what GDD is + boundary vs
+  athena), [`design.md`](gdd/docs/design.md) (git-driven Kanban design: claim lock, Progress Log,
+  state machines), [`protocol-review.md`](gdd/docs/protocol-review.md) (the GDD design decision
+  record), [`setup.md`](gdd/docs/setup.md) (enable GDD on a new project), [`backend.md`](gdd/docs/backend.md)
+  (gdd package modules + sync-github CLI), [`plugins.md`](gdd/docs/plugins.md) (opencode plugins),
+  [`reference.md`](gdd/docs/reference.md) (concept index)
 - `docs/knowledge-rag-design.md` — KB + RAG routing (Athena single-pass, Neo4j, fusion, rerank)
 - `docs/distributed-pi-collaboration.md` — Multi-Agent Federation (control plane, HTTP+SSE)
 - `docs/spec-m4-*.md` — G4 specs (refinement, RAG self-build, KB confidence, worker progress, kanban-issues sync)

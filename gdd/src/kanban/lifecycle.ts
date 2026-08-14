@@ -3,7 +3,7 @@
  * ticket, and the Eng Director re-decomposes a rejected ticket into a new
  * backlog ticket linked via parent_id / qa_feedback / reopen_reason.
  *
- * Matches docs/gdd/design.md §11: the original rejected ticket is
+ * Matches gdd/docs/design.md §11: the original rejected ticket is
  * preserved (status + history kept); the fix enters the board as a new ticket
  * that any worker can claim.
  */

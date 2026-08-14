@@ -3,7 +3,7 @@
 > Full review requested by the user (grill): goals / roles / protocol interfaces / state machine /
 > worker lifecycle (claim-progress-complete) / review / per-agent onboarding.
 > This file records **confirmed decisions** from the grill; the full protocol rewrite lives in
-> `docs/gdd/design.md`.
+> `gdd/docs/design.md`.
 >
 > **Superseded (G4.S6.T4, 2026-08-14):** D2 (kanban index commits) and D29 (done index double-commit)
 > are **obsolete** — the local board stack (kanban-index/scan/write-index) and the done-commit plugin

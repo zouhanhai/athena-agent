@@ -2,7 +2,7 @@
  * Ticket-ref parsing for the OpenCode worker plugin (G4.S4.T1).
  *
  * The plugin parses the ticket ref from the first dispatch message (the
- * structured dispatch prompt, docs/gdd/design.md §13):
+ * structured dispatch prompt, gdd/docs/design.md §13):
  *
  * ```
  * TICKET: G4.S3.T12

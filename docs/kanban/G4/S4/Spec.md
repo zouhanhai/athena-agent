@@ -23,7 +23,7 @@ make the git claim-lock reliable (auto-claim) so two workers can't claim the sam
 
 ## Full design
 
-See `docs/spec-m4-worker-progress.md` + `docs/gdd/design.md` (§4/§5/§6c/§10-§13). Key points:
+See `docs/spec-m4-worker-progress.md` + `gdd/docs/design.md` (§4/§5/§6c/§10-§13). Key points:
 
 ### Auto-claim (plugin owns the claim + git lock)
 - On the first `tool.execute` of a session, the plugin detects the ticket ref (from the structured
@@ -60,7 +60,7 @@ See `docs/spec-m4-worker-progress.md` + `docs/gdd/design.md` (§4/§5/§6c/§10-
   `.opencode/plugins/`), distinguishing workers by sessionID, parsing the ticket ref from the first
   dispatch message.
 - Other agents (Claude Code / Codex / Pi) implement the same integration points via their own hooks or
-  fall back to AGENTS.md instructions (§18 of docs/gdd/design.md).
+  fall back to AGENTS.md instructions (§18 of gdd/docs/design.md).
 
 ## Deliverables
 

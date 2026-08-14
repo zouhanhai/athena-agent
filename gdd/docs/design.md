@@ -562,12 +562,12 @@ either; it is a backend/dev signal (stalled detection lives in the local-desktop
 
 ## Reference
 
-- `docs/gdd/protocol-review.md` — the grill record (all decisions, formerly D1-D28) behind this design.
+- `gdd/docs/protocol-review.md` — the grill record (all decisions, formerly D1-D28) behind this design.
 - `gdd/src/kanban/` — the separated protocol/sync modules: `protocol.ts` + `git-lock.ts` + `roles.ts`
   + `state-machine.ts` implement claim/report/dispatch, git lock, role souls, state transitions;
   `github-sync.ts` / `github-feedback.ts` implement the md → GitHub projection and the GitHub → md
-  feedback loop (see `docs/gdd/backend.md`).
+  feedback loop (see `gdd/docs/backend.md`).
 - `gdd/src/sync-github.ts` — the `sync-github` CLI (create/sync/status/pull/feedback/list).
-- `docs/gdd/README.md` + `docs/gdd/setup.md` + `docs/gdd/plugins.md` + `docs/gdd/reference.md` — the
+- `gdd/docs/README.md` + `gdd/docs/setup.md` + `gdd/docs/plugins.md` + `gdd/docs/reference.md` — the
   handbook (adoption guide, module docs, plugin docs, concept index).
 - OpenCode plugins: https://opencode.ai/v2/docs/build/plugins

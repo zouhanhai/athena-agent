@@ -4,7 +4,7 @@
  * backlog ticket. Rejected tickets have no outgoing transition on the same
  * ticket: the fix enters the board as a new ticket via reDecompose (./lifecycle.ts).
  *
- * Matches docs/gdd/design.md §6 + §11.
+ * Matches gdd/docs/design.md §6 + §11.
  */
 
 import type { SpecStatus, TicketStatus } from "./schema.js";

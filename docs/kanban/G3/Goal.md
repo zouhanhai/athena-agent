@@ -25,7 +25,7 @@ Corresponds to Milestone M3. Objective: build the multi-agent federation + team 
 Reference design docs:
 - README.md (architecture overview + M3 acceptance criteria)
 - docs/g3-requirements.md (G3 requirements capture — single source of truth for G3)
-- docs/gdd/design.md (git-driven kanban mechanism, state machine, roles)
+- gdd/docs/design.md (git-driven kanban mechanism, state machine, roles)
 - docs/distributed-pi-collaboration.md (multi-agent federation architecture)
 - docs/pi-capabilities.md (Pi SDK + packages)
 - CONTEXT.md (glossary)

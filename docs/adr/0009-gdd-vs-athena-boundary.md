@@ -51,7 +51,7 @@ one tab and not separate top-level pages. So a non-GDD user (e.g. abaplorer) see
 while GDD users additionally get the local Kanban tab.
 
 **Documentation packaging (方案 B, lightweight)**: keep the GDD code in the athena repo for now, but
-organize a **`docs/gdd/` handbook** (README / design / protocol-review / setup / backend / plugins /
+organize a **`gdd/docs/` handbook** (README / design / protocol-review / setup / backend / plugins /
 reference) that (a) defines GDD, (b) explains the boundary vs athena, (c) gives a step-by-step
 **setup guide** for enabling GDD on any new project (install templates, hook, sync CLI, plugins). This
 makes GDD independently adoptable without physically splitting the repo. Physical extraction to its own
@@ -72,6 +72,6 @@ athena (KB + dev-flow views). It is optional — a project may use only the athe
 
 ## Links
 
-- `docs/gdd/design.md` (the GDD protocol design; §19 documents the GitHub sync mapping/triggers)
-- `docs/gdd/protocol-review.md` (grill record behind the design)
+- `gdd/docs/design.md` (the GDD protocol design; §19 documents the GitHub sync mapping/triggers)
+- `gdd/docs/protocol-review.md` (grill record behind the design)
 - Kanban tickets: G4.S5.T19 (Workbench Kanban/Project sub-tab split)
