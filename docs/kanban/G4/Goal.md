@@ -80,8 +80,8 @@ Corresponds to Milestone M4. Three thrusts:
   6900XT (auto-claim once, single progress rows, separate index-done commit).
   See `docs/kanban/G4/S4/Spec.md`.
 - **G4.S5 (Kanban ↔ GitHub Issues sync): DONE (2026-08-14)** — Spec→Issue projection, ticket→sub-issue sync, state machine (T7), Workbench Kanban/Issues/GitHub views, git hook auto-sync, universal board progress + status colors.
-- **G4.S6 (GDD decoupling — boundary vs athena, docs/gdd handbook, Workbench Kanban/Project sub-tab
-  split): backlog** — prerequisite for S7.
+- **G4.S6 (GDD decoupling — boundary vs athena, gdd/ package + handbook, Workbench Kanban/Project sub-tab
+  split): done** — GDD packaged + separated (T1-T5), runs standalone on the user's machine.
 - **G4.S7 (Remote agent federation + KB-as-MCP): backlog** — after S6.
 
 ## Post-G4 enhancement backlog (recorded, not scheduled)
