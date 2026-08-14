@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T09:56:45.907Z",
+  "generated_at": "2026-08-14T10:05:20.598Z",
   "goals": [
     {
       "ref": "G1",
@@ -2781,7 +2781,7 @@
               "id": "G4.S5.T17",
               "title": "Issues panel: add a Refresh button to reload the GitHub issues list (it can be stale after sync)",
               "owner": "eng-director",
-              "status": "backlog",
+              "status": "done",
               "assignee": "",
               "session_id": "",
               "blocked_by": [
@@ -2792,7 +2792,10 @@
                 "Clicking Refresh updates the list in place (loading state, no full page reload)",
                 "The Kanban GitHub Project view also has a Refresh (it may already); if it lacks one, add it too so synced changes show up",
                 "Web tests green + vue-tsc clean"
-              ]
+              ],
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-14T10:05:09.234Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S5.T18",
@@ -2816,7 +2819,7 @@
             {
               "ref": "G4.S5.T19",
               "id": "G4.S5.T19",
-              "title": "Workbench: split Kanban tab into two top-level tabs — 'Kanban' (local GST board) and 'Project' (GitHub Project view) — decoupling GDD board from athena GitHub viewer",
+              "title": "Workbench: split Kanban tab into two sibling tabs — 'Kanban' (local GST board) and 'Project' (GitHub Project view) — decoupling GDD board from athena GitHub viewer (both remain sub-tabs under the Workbench)",
               "owner": "eng-director",
               "status": "backlog",
               "assignee": "",
@@ -2825,9 +2828,9 @@
                 "G4.S5.T18"
               ],
               "acceptance_criteria": [
-                "Workbench has a separate 'Project' tab next to Code/Issues/Kanban; 'Kanban' tab now shows ONLY the local GST board",
-                "The GitHub Project view (board + issue detail panel + comment thread + project selector) moves out of KanbanTab into the new Project tab; behavior identical to today (click card → local detail panel, no GitHub redirect)",
-                "'view in Issues' from a Kanban/Project card still switches to the Issues tab and locates the issue (G4.S5.T8 preserved)",
+                "Workbench (top-level view) gains a 4th sub-tab 'Project' next to Code/Issues/Kanban; 'Kanban' sub-tab now shows ONLY the local GST board. All four remain sub-tabs under the Workbench (not separate top-level pages)",
+                "The GitHub Project view (board + issue detail panel + comment thread + project selector) moves out of KanbanTab into the new 'Project' sub-tab; behavior identical to today (click card → local detail panel, no GitHub redirect)",
+                "'view in Issues' from a Kanban/Project card still switches to the Issues sub-tab and locates the issue (G4.S5.T8 preserved)",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ]
             }
