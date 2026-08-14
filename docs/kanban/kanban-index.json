@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T11:59:40.848Z",
+  "generated_at": "2026-08-14T12:29:23.369Z",
   "goals": [
     {
       "ref": "G1",
@@ -2802,7 +2802,7 @@
               "id": "G4.S5.T18",
               "title": "GitHub board view: show sub-task progress + Spec accent for ANY issue that has sub-issues, not just Gx.Sy-named Specs (abaplorer issues currently show neither)",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_fffdbd2baffeTWD5OqklH4QvC8",
               "blocked_by": [
@@ -2816,8 +2816,8 @@
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT (abaplorer #201 shows 9/9)"
               ],
               "started_at": "2026-08-14",
-              "progress_last_row": "opencode claimed G4.S5.T18 (session ses_fffdbd2baffeTWD5OqklH4QvC8)",
-              "progress_updated_at": "2026-08-14T11:59:40.833Z",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-14T12:29:09.697Z",
               "progress_status": "in_progress"
             }
           ]
