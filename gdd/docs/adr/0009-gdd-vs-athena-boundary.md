@@ -72,6 +72,6 @@ athena (KB + dev-flow views). It is optional — a project may use only the athe
 
 ## Links
 
-- [`gdd/docs/design.md`](../../gdd/docs/design.md) — the GDD protocol design; [§19 Issues Sync](../../gdd/docs/design.md#19-issues-sync-s5--collab-mode-only) documents the GitHub sync mapping/triggers
-- [`gdd/docs/protocol-review.md`](../../gdd/docs/protocol-review.md) — grill record behind the design
+- [`gdd/docs/design.md`](../design.md) — the GDD protocol design; [§19 Issues Sync](../design.md#19-issues-sync-s5--collab-mode-only) documents the GitHub sync mapping/triggers
+- [`gdd/docs/protocol-review.md`](../protocol-review.md) — grill record behind the design
 - Kanban tickets: G4.S5.T19 (Workbench Kanban/Project sub-tab split)

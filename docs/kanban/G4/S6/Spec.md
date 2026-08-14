@@ -28,7 +28,7 @@ management is GDD (generic); whatever serves KB/Q&A is athena (product-specific)
 
 ## Design / Approach
 
-1. **Boundary decision** — recorded in `docs/adr/0009-gdd-vs-athena-boundary.md`:
+1. **Boundary decision** — recorded in `gdd/docs/adr/0009-gdd-vs-athena-boundary.md`:
    - GDD: GST 3-layer + md templates, local Kanban board, md→GitHub sync (hook + CLI), state machine,
      kanban-index, roles (Consultant/PM/EngD/Worker/Reviewer/Writer), opencode plugins.
    - athena: Workbench shell + GitHub repo/issue/project viewing (generic), KB/RAG/Q&A/chat.

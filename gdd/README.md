@@ -28,7 +28,7 @@ whichever agent tooling they already have.
 ## GDD vs athena (the boundary)
 
 GDD is **separate from athena**. athena-agent bundles two kinds of capability that must not be
-conflated ([ADR 0009](../docs/adr/0009-gdd-vs-athena-boundary.md)):
+conflated ([ADR 0009](docs/adr/0009-gdd-vs-athena-boundary.md)):
 
 | Capability | Bucket |
 |---|---|
@@ -121,4 +121,4 @@ plugins, and [`setup.md`](docs/setup.md) to adopt GDD on a new project.
 - Open an issue / comment on a Spec main-issue to discuss a feature (the feedback loop reads comments
   back into markdown as draft proposals).
 - The decision record behind the design is in [`protocol-review.md`](docs/protocol-review.md).
-- The boundary with athena is recorded in [ADR 0009](../docs/adr/0009-gdd-vs-athena-boundary.md).
+- The boundary with athena is recorded in [ADR 0009](docs/adr/0009-gdd-vs-athena-boundary.md).
