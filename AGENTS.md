@@ -95,5 +95,6 @@ the ticket's status/assignee/session_id by hand.
 - `gdd/docs/` — the GDD handbook: `README.md` (what GDD is + boundary vs athena),
   `design.md` (Kanban mechanism), `protocol-review.md` (GDD design decision record),
   `setup.md` (enable GDD on a new project), `backend.md` (gdd package modules + sync-github CLI),
-  `plugins.md` (opencode plugins), `reference.md` (concept index)
+  `plugins.md` (opencode plugins), `reference.md` (concept index),
+  `adr/` (GDD boundary decision — `0009-gdd-vs-athena-boundary.md`)
 - `docs/pi-capabilities.md` — Pi SDK + packages capabilities
