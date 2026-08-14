@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# post-commit hook — md → GitHub auto-sync on new board file commits (G4.S5.T15).
+#
+# When a commit adds/modifies new docs/kanban Goal/Spec/Ticket md files, run
+# sync-github create for each affected Spec so the GitHub Project board reflects
+# the full kanban (incl. backlog) from the start. Best-effort: a sync failure is
+# logged to a temp file and never blocks the commit.
+#
+# Installed via `scripts/install-kanban-hook.sh` (sets git core.hooksPath → hooks/).
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -z "$REPO_ROOT" ] && exit 0
+cd "$REPO_ROOT" || exit 0
+
+LOG="$HOME/.athena-tmp/kanban-hook.log"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
+
+# Determine the files added/modified in this commit under docs/kanban.
+CHANGED="$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null | grep -E '^docs/kanban/(G[0-9]+/S[0-9]+/)?(Goal\.md|Spec\.md|T[0-9]+\.md)$' || true)"
+[ -z "$CHANGED" ] && exit 0
+
+# Collect affected Spec refs: from Spec.md / T*.md paths, and new Goals' specs.
+SPECS=""
+for f in $CHANGED; do
+  case "$f" in
+    *T*.md|*Spec.md)
+      # docs/kanban/G4/S5/T1.md → G4.S5 ; docs/kanban/G4/S5/Spec.md → G4.S5
+      rel="${f#docs/kanban/}"; dir="${rel%/*}"            # G4/S5
+      spec="$(echo "$dir" | tr '/' '.')"                   # G4.S5
+      case "$spec" in
+        G[0-9]*.S[0-9]*) SPECS="$SPECS $spec" ;;
+      esac
+      ;;
+    *) : ;; # Goal.md has no spec ref of its own; its specs are created later
+  esac
+done
+
+# De-dupe and run sync-github create for each spec.
+SEEN=""
+for spec in $SPECS; do
+  case " $SEEN " in *" $spec "*) continue ;; esac
+  SEEN="$SEEN $spec"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') kanban-hook: sync $spec" >> "$LOG"
+  ( cd "$REPO_ROOT/server" && \
+    [ -f "$REPO_ROOT/server/.env.local" ] && set -a && . "$REPO_ROOT/server/.env.local" && set +a \
+    npx tsx scripts/sync-github.ts create "$spec" --owner "${GITHUB_OWNER:-}" --repo "${GITHUB_REPO:-}" \
+    >> "$LOG" 2>&1 ) || echo "kanban-hook: sync $spec FAILED (see $LOG)" >> "$LOG"
+done
+
+exit 0
