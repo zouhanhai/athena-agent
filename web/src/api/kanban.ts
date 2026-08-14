@@ -5,7 +5,7 @@
  * Scoped to the signed-in employee via their session token.
  */
 
-import type { GithubIssueComment } from "@/api/github";
+import type { GithubIssue, GithubIssueComment } from "@/api/github";
 
 /** Ticket statuses follow the git-driven state machine. */
 export type TicketStatus =
@@ -220,6 +220,33 @@ export async function fetchGithubProjectBoard(
     throw new Error(message);
   }
   return (await res.json()) as GithubProjectBoard;
+}
+
+/**
+ * GET /api/kanban/github-issue?repo=...&issueNumber=N → the GitHub issue itself
+ * (title, body, state, labels, assignees), for the GitHub-view detail panel
+ * (G4.S5.T16). The detail panel renders `body` so it matches the Issues panel.
+ * Scoped to the signed-in employee via their session token.
+ */
+export async function fetchGithubIssueBody(
+  sessionToken: string,
+  repo: string,
+  issueNumber: number,
+): Promise<GithubIssue> {
+  const params = new URLSearchParams({ repo, issueNumber: String(issueNumber) });
+  const res = await fetch(`/api/kanban/github-issue?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const message =
+      detail && typeof (detail as { error?: unknown }).error === "string"
+        ? (detail as { error: string }).error
+        : `Request failed with status ${res.status}`;
+    throw new Error(message);
+  }
+  const data = (await res.json()) as { issue: GithubIssue };
+  return data.issue;
 }
 
 /**
