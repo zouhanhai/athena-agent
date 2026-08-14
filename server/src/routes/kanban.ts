@@ -17,7 +17,12 @@ export interface KanbanRouteOptions {
   github: RemoteBoardSource &
     Pick<
       GitHubApi,
-      "getRepoProjects" | "getProjectItems" | "getIssueComments" | "listIssues" | "createIssueComment"
+      | "getRepoProjects"
+      | "getProjectItems"
+      | "getIssue"
+      | "getIssueComments"
+      | "listIssues"
+      | "createIssueComment"
     >;
 }
 
@@ -40,6 +45,8 @@ function truthy(value: unknown): boolean {
  *   GitHub Project v2 board (G4.S5.T4): cards grouped into Status columns, each
  *   card linking to its GitHub issue for discussion. GraphQL-backed via the
  *   employee's token; 404 when the repo has no linked Project.
+ * - GET /api/kanban/github-issue?repo=...&issueNumber=N → the GitHub issue itself
+ *   (title, body, state, labels, assignees) for the detail panel (G4.S5.T16).
  * - GET /api/kanban/github-issue-comments?repo=...&issueNumber=N → the issue's
  *   comment thread (local detail panel discussion).
  * - POST /api/kanban/github-issue-comments → create a new comment on a GitHub
@@ -123,6 +130,41 @@ export function registerKanbanRoutes(app: FastifyInstance, options: KanbanRouteO
       }
       const projects = await github.getRepoProjects(credential, owner, repo);
       return { projects };
+    } catch (err) {
+      if (err instanceof GithubAuthError) {
+        return reply.code(401).send({ error: err.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/kanban/github-issue", async (request, reply) => {
+    const employee = await currentEmployee(request, auth);
+    if (!employee) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const query = request.query as { repo?: unknown; issueNumber?: unknown };
+    const repoParam = optionalString(query.repo);
+    const issueNumber = Number(query.issueNumber);
+    if (!repoParam) {
+      return reply.code(400).send({ error: "repo is required (owner/repo form)" });
+    }
+    const parts = repoParam.split("/");
+    const owner = parts[0] ?? "";
+    const repo = parts[1] ?? "";
+    if (parts.length !== 2 || !owner || !repo) {
+      return reply.code(400).send({ error: "repo must be in owner/repo form" });
+    }
+    if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+      return reply.code(400).send({ error: "issueNumber must be a positive integer" });
+    }
+    try {
+      const credential = await employees.getGithubCredential(employee.email);
+      if (!credential) {
+        return reply.code(400).send({ error: "no github credential registered" });
+      }
+      const issue = await github.getIssue(credential, owner, repo, issueNumber);
+      return { issue };
     } catch (err) {
       if (err instanceof GithubAuthError) {
         return reply.code(401).send({ error: err.message });
