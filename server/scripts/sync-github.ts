@@ -48,7 +48,12 @@ import { GithubRestClient } from "../src/github/client.js";
 import type { GithubCredential, GithubProject } from "../src/github/client.js";
 import { readTicketFile, writeBoardFile } from "../src/kanban/board.js";
 import { TICKET_STATUSES, type TicketStatus } from "../src/kanban/schema.js";
-import { defaultEmployeeRegistry, defaultSecretCipher } from "../src/app.js";
+import { defaultSecretCipher } from "../src/employees/crypto.js";
+import {
+  MemoryEmployeeRegistry,
+  PostgresEmployeeRegistry,
+  type EmployeeRegistry,
+} from "../src/employees/employees.js";
 
 const args = process.argv.slice(2);
 
@@ -85,7 +90,11 @@ async function resolveCredential(): Promise<GithubCredential> {
   if (token) {
     return { type: "token", value: token };
   }
-  const employees = defaultEmployeeRegistry(defaultSecretCipher());
+  const cipher = defaultSecretCipher();
+  const connectionString = process.env.DATABASE_URL;
+  const employees: EmployeeRegistry = connectionString
+    ? new PostgresEmployeeRegistry({ connectionString, cipher })
+    : new MemoryEmployeeRegistry([], { cipher });
   await employees.seed();
   const credential = await employees.getGithubCredential(employeeEmail);
   await employees.close();

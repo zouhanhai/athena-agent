@@ -65,9 +65,13 @@ for spec in $SPECS; do
   echo "$(date '+%Y-%m-%d %H:%M:%S') kanban-hook: sync $spec ($GH_OWNER/$GH_REPO)" >> "$LOG"
   (
     cd "$REPO_ROOT/server" || exit 1
-    # Provide DATABASE_URL so sync-github can resolve the GitHub credential via
-    # the Postgres employee store (the hook env has no GITHUB_TOKEN). Mirrors
-    # start-all.sh's backend env.
+    # GitHub credential: an explicit GITHUB_TOKEN in env wins; else the local gh
+    # CLI token (gh auth token) — both work on any machine; else fall back to the
+    # Postgres employee store (DATABASE_URL, 6900XT).
+    if [ -z "${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
+      GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
+    fi
+    export GITHUB_TOKEN="${GITHUB_TOKEN:-}"
     export DATABASE_URL="${DATABASE_URL:-postgres://hh@/athena?host=/var/run/postgresql}"
     export GITHUB_EMPLOYEE="${GITHUB_EMPLOYEE:-zouha108@caleo.com}"
     if [ -f "$REPO_ROOT/server/.env.local" ]; then set -a; . "$REPO_ROOT/server/.env.local"; set +a; fi
