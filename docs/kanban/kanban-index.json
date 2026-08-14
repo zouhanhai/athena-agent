@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T14:06:24.569Z",
+  "generated_at": "2026-08-14T14:13:03.357Z",
   "goals": [
     {
       "ref": "G1",
@@ -2898,9 +2898,9 @@
               "id": "G4.S6.T4",
               "title": "Remove the local Kanban tab + local board stack (kanban-index/scan/write-index/index-file) — GitHub Project panel is the only board view; GDD keeps md + sync + Progress Log/stalled (md-level)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_fff61c703ffeoUX1YzIAHpQO6e",
               "blocked_by": [
                 "G4.S6.T1"
               ],
@@ -2910,7 +2910,11 @@
                 "The local board stack is removed: kanban-index.json + write-index.ts + scan.ts + index-file.ts + the local-board part of routes/kanban.ts (GET /api/kanban, scanRemoteBoard); GDD md files + md↔GitHub sync (sync-github/github-sync/hook/opencode plugins) + Progress Log/stalled mechanism are KEPT",
                 "GDD separation is cleaner: GDD = md (source) + sync + Progress Log/stalled (md-level, worker writes log, plan agent reads locally to detect stalled); no athena local-board display layer",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
-              ]
+              ],
+              "started_at": "2026-08-14",
+              "progress_last_row": "opencode claimed G4.S6.T4 (session ses_fff61c703ffeoUX1YzIAHpQO6e)",
+              "progress_updated_at": "2026-08-14T14:13:03.342Z",
+              "progress_status": "in_progress"
             }
           ]
         },
