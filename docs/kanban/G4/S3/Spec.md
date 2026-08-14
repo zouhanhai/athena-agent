@@ -4,7 +4,7 @@ title: "G4.S3: KB confidence & lifecycle + incremental re-curation + topic-scope
 layer: S
 parent: G4
 owner: consultant
-status: backlog
+status: done
 milestone: M4
 acceptance_criteria:
   - "Wiki frontmatter gains read_count / last_reviewed / confidence / topic_history"

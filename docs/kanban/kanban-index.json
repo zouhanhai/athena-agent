@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T11:16:41.892Z",
+  "generated_at": "2026-08-14T11:31:47.308Z",
   "goals": [
     {
       "ref": "G1",
@@ -2072,7 +2072,7 @@
           "id": "s3",
           "title": "G4.S3: KB confidence & lifecycle + incremental re-curation + topic-scoped search",
           "owner": "consultant",
-          "status": "backlog",
+          "status": "done",
           "milestone": "M4",
           "tickets": [
             {
@@ -2311,7 +2311,7 @@
           "id": "G4.S4",
           "title": "G4.S4: Worker progress tracking + auto-claim via OpenCode plugin",
           "owner": "pm",
-          "status": "backlog",
+          "status": "done",
           "tickets": [
             {
               "ref": "G4.S4.T1",
