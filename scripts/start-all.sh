@@ -81,6 +81,8 @@ if port_in_use 3000; then
   log "athena-back :3000 already running"
 else
   log "Starting athena backend :3000"
+  # Run tsx watch from a detached subshell so SSH disconnect (SIGHUP) can't kill
+  # it; export the athena env + load .env.local so the process has everything.
   ( cd "$HOME/athena-agent/server" && \
     export DATABASE_URL="postgres://hh@/athena?host=/var/run/postgresql" \
     export ADMIN_EMAIL="zouha108@caleo.com" \
@@ -90,8 +92,15 @@ else
     export NEO4J_PASSWORD="athena-spike-2026" \
     # Local secrets (RESEND_API_KEY etc.) load from a git-ignored .env.local
     [ -f "$HOME/athena-agent/server/.env.local" ] && set -a && . "$HOME/athena-agent/server/.env.local" && set +a \
-    setsid npm run dev \
-    < /dev/null > "$LOG_DIR/athena-server.log" 2>&1 & disown )
+    setsid npx tsx watch src/index.ts \
+    < /dev/null > "$LOG_DIR/athena-server.log" 2>&1 & disown -a ) || true
+  # give tsx a moment to bind :3000
+  for _ in $(seq 1 15); do port_in_use 3000 && break; sleep 1; done
+  if port_in_use 3000; then
+    log "athena-back :3000 up"
+  else
+    log "WARN athena-back :3000 not up yet — check $LOG_DIR/athena-server.log"
+  fi
 fi
 
 # --- 5. Vite frontend ------------------------------------------------------
@@ -109,9 +118,25 @@ if port_in_use "$OPENCODE_PORT"; then
   log "OpenCode serve :$OPENCODE_PORT already running"
 else
   log "Starting OpenCode serve :$OPENCODE_PORT"
-  # cd to the athena-agent repo root so the worker plugin (.opencode/plugins/) loads
-  ( cd "$HOME/athena-agent" && setsid opencode serve --port "$OPENCODE_PORT" --hostname 0.0.0.0 \
-    < /dev/null > "$LOG_DIR/opencode-serve.log" 2>&1 & disown )
+  # cd to the athena-agent repo root so the worker plugin (.opencode/plugins/) loads.
+  # Load the athena .env.local (DATABASE_URL / GITHUB_TOKEN / GITHUB_EMPLOYEE) so
+  # the worker plugin's auto-sync (resolveGithubCredential → Postgres employee
+  # store / GITHUB_TOKEN) can actually resolve a GitHub credential (G4.S5.T14).
+  ( cd "$HOME/athena-agent" && \
+    export DATABASE_URL="postgres://hh@/athena?host=/var/run/postgresql" \
+    export ADMIN_EMAIL="zouha108@caleo.com" \
+    export NEO4J_URI="bolt://localhost:7687" \
+    export NEO4J_USER="neo4j" \
+    export NEO4J_PASSWORD="athena-spike-2026" \
+    [ -f "$HOME/athena-agent/server/.env.local" ] && set -a && . "$HOME/athena-agent/server/.env.local" && set +a \
+    setsid opencode serve --port "$OPENCODE_PORT" --hostname 0.0.0.0 \
+    < /dev/null > "$LOG_DIR/opencode-serve.log" 2>&1 & disown -a ) || true
+  for _ in $(seq 1 10); do port_in_use "$OPENCODE_PORT" && break; sleep 1; done
+  if port_in_use "$OPENCODE_PORT"; then
+    log "OpenCode serve :$OPENCODE_PORT up"
+  else
+    log "WARN OpenCode serve :$OPENCODE_PORT not up yet — check $LOG_DIR/opencode-serve.log"
+  fi
 fi
 
 # --- 7. llama-server (cross-encoder rerank, G4.S2.T14) ---------------------

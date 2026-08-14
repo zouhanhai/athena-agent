@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-13T21:15:03.332Z",
+  "generated_at": "2026-08-14T07:42:38.133Z",
   "goals": [
     {
       "ref": "G1",
@@ -2716,8 +2716,8 @@
               "id": "G4.S5.T14",
               "title": "Fix plugin auto-sync: opencode serve must load .env.local (DATABASE_URL / GITHUB_TOKEN) so the worker plugin can resolve the GitHub credential and auto-create issue syncs",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
+              "status": "done",
+              "assignee": "eng-director",
               "session_id": "",
               "blocked_by": [
                 "G4.S5.T13"
