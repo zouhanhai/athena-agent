@@ -41,7 +41,8 @@ export function specRefFromTicketRef(ref: string): string | null {
 
 /**
  * Resolve the GitHub owner/repo to sync: explicit options → `GITHUB_OWNER` /
- * `GITHUB_REPO` env → the `origin` git remote (github.com URLs only).
+ * `GITHUB_REPO` env → the `caleo` remote (primary), falling back to `origin`
+ * (zouhanhai shadow). github.com URLs only.
  */
 export async function resolveGithubRepo(
   repoDir: string,
@@ -53,20 +54,23 @@ export async function resolveGithubRepo(
   if (ownerName && repoName) {
     return { owner: ownerName, repo: repoName };
   }
-  try {
-    const { stdout } = await execFileAsync("git", ["remote", "get-url", "origin"], {
-      cwd: repoDir,
-    });
-    const match = stdout.trim().match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/);
-    if (match) {
-      return { owner: match[1], repo: match[2] };
+  // caleo is the PRIMARY repo (2026-08-14); origin is the zouhanhai shadow.
+  for (const remoteName of ["caleo", "origin"]) {
+    try {
+      const { stdout } = await execFileAsync("git", ["remote", "get-url", remoteName], {
+        cwd: repoDir,
+      });
+      const match = stdout.trim().match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/);
+      if (match) {
+        return { owner: match[1], repo: match[2] };
+      }
+    } catch {
+      // no such remote → try the next
     }
-  } catch {
-    // no origin remote → fall through to the error below
   }
   throw new Error(
-    `unable to determine the GitHub owner/repo for ${repoDir} ` +
-      "(set GITHUB_OWNER/GITHUB_REPO or configure a github.com origin remote)",
+    "unable to determine the GitHub owner/repo for " + repoDir +
+      " (set GITHUB_OWNER/GITHUB_REPO or configure a github.com caleo/origin remote)",
   );
 }
 
