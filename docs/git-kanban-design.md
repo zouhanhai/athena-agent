@@ -295,27 +295,36 @@ backlog ──claim(push)──▶ in_progress ──done──▶ in_review (PR
 ### Spec state machine
 
 Specs have their own lifecycle (distinct from tickets — a Spec is a planning container, not an
-implementation unit):
+implementation unit). `decomposed` was removed (G4.S6.T2) — the lifecycle is **ticket-driven**:
 
 ```
-backlog → decomposed(已分ticket) → in_progress → done → in_review → approved / rejected
-   └────── rejected → backlog | decomposed (re-decompose)   └── canceled (terminal)
+backlog ──(first ticket claimed)──▶ in_progress ──▶ done ──▶ in_review ──▶ approved / rejected
+   ▲                                                      └────── rejected → backlog | in_progress (re-decompose)
+   └────── canceled (terminal)
 ```
 
 | State | Meaning | Set by |
 |-------|---------|--------|
-| backlog | Spec defined, tickets not yet decomposed | Eng Director |
-| decomposed (已分ticket) | Tickets split out; ready to execute | Eng Director |
-| in_progress | Tickets in development | Eng Director |
-| done | Tickets complete | Eng Director |
+| backlog | Spec defined, tickets not yet started | Eng Director |
+| in_progress | Tickets in development; auto-advances from backlog when the FIRST ticket is claimed | auto (first ticket claim) |
+| done | Tickets complete + reviewed | Reviewer/Eng Director (review) |
 | in_review | Submitted for acceptance | Eng Director |
 | approved | Accepted | Reviewer |
 | rejected | Not accepted → re-decompose | Reviewer |
 | canceled | Terminal / abandoned | Eng Director |
 
+**Ticket-driven auto-advance**: when a Spec's first ticket becomes `in_progress` (claimed), the Spec
+auto-advances `backlog → in_progress` (no manual `decomposed` step). When ALL tickets are done, the Spec
+does **NOT** auto-advance to done — it stays `in_progress` awaiting **review** (the reviewer may decide
+to add new tickets), and done is reached only via review.
+
 **Workers never change a Spec status** — they only change their own ticket. The Eng Director (plan
-agent) drives decompose/start/report-done/report-in_review/re-decompose; the Reviewer approves or
-rejects. Backward-compat: legacy `active` → `in_progress`.
+agent) drives start/report-done/report-in_review/re-decompose; the Reviewer approves or rejects.
+Backward-compat: legacy `active` → `in_progress`.
+
+**GitHub sync**: the Spec's MAIN ISSUE open/closed is synced to its md status — `done`/`approved`/
+`canceled` → closed; `backlog`/`in_progress`/`in_review`/`rejected` → open (so the Project Status column
+and the issue-list open/closed agree).
 
 ## 8. PR/Merge Integration (collab mode only)
 

@@ -17,14 +17,13 @@ export const TICKET_STATUSES = ["backlog", "in_progress", "done", "in_review", "
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
 /**
- * Spec statuses follow the Spec state machine (G4.S5.T7): the planning phase
- * (`backlog → decomposed`), execution (`in_progress → done`), review
- * (`done → in_review → approved/rejected`, rejected re-decomposes) and
- * `canceled` terminal.
+ * Spec statuses follow the Spec state machine (G4.S5.T7, simplified G4.S6.T2):
+ * backlog → in_progress (auto, ticket-driven: first ticket claim) → done → in_review →
+ * approved/rejected (rejected re-decomposes), and `canceled` terminal. `decomposed` was
+ * removed (T2) — no manual intermediate state. Legacy `active` maps to in_progress.
  */
 export const SPEC_STATUSES = [
   "backlog",
-  "decomposed",
   "in_progress",
   "done",
   "in_review",

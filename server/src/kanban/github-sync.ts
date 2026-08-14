@@ -26,7 +26,7 @@ import type {
   ProjectV2StatusOptionInput,
 } from "../github/client.js";
 import type { GitHubApi } from "../github/client.js";
-import type { GoalFrontmatter, SpecFrontmatter, TicketStatus } from "./schema.js";
+import type { GoalFrontmatter, SpecFrontmatter, SpecStatus, TicketStatus } from "./schema.js";
 import type { BoardTicket, KanbanBoard } from "./scan.js";
 import { kanbanSpecStatusToProjectStatus, kanbanStatusToProjectStatus } from "./status-map.js";
 
@@ -289,6 +289,10 @@ export async function createSpecIssue(
       title: payload.title,
       body: payload.body,
       labels: payload.labels,
+      // Sync the spec MAIN ISSUE open/closed to the md spec status (G4.S6.T2):
+      // done/approved → closed, else open — so the Project Status column and the
+      // issue-list open/closed agree (previously the spec issue stayed open forever).
+      state: specIssueState(spec.status),
     });
     created = false;
   } else {
@@ -391,6 +395,16 @@ export function ticketState(status: TicketStatus): "open" | "closed" {
   // done/approved/canceled are terminal — close the sub-issue so it drops out of
   // GitHub's native sub-task progress (X/N) and our segmented bar. canceled
   // tickets must NOT keep counting toward the progress (was: open → showed 8/9).
+  return status === "done" || status === "approved" || status === "canceled"
+    ? "closed"
+    : "open";
+}
+
+/** The GitHub issue open/closed a SPEC's main issue should carry (G4.S6.T2). */
+export function specIssueState(status: SpecStatus): "open" | "closed" {
+  // done/approved/canceled are terminal → close the spec MAIN issue so the issue
+  // list (open view) drops it and the Project Status column (Done) agrees.
+  // backlog/in_progress/in_review/rejected stay open (still active / discussable).
   return status === "done" || status === "approved" || status === "canceled"
     ? "closed"
     : "open";

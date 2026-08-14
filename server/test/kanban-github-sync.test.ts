@@ -80,9 +80,8 @@ test("status mapping round-trips in both directions", () => {
   }
 });
 
-test("Spec statuses map to Project columns across the full lifecycle (G4.S5.T7)", () => {
+test("Spec statuses map to Project columns across the full lifecycle (G4.S5.T7, G4.S6.T2)", () => {
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.backlog, "Backlog");
-  assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.decomposed, "In Progress");
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.in_progress, "In Progress");
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.done, "Done");
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.in_review, "In Review");
@@ -90,7 +89,6 @@ test("Spec statuses map to Project columns across the full lifecycle (G4.S5.T7)"
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.rejected, "Rejected");
   assert.equal(KANBAN_SPEC_STATUS_TO_PROJECT_STATUS.canceled, "Rejected");
   assert.equal(kanbanSpecStatusToProjectStatus("backlog"), "Backlog");
-  assert.equal(kanbanSpecStatusToProjectStatus("decomposed"), "In Progress");
   assert.equal(kanbanSpecStatusToProjectStatus("in_progress"), "In Progress");
   assert.equal(kanbanSpecStatusToProjectStatus("done"), "Done");
   assert.equal(kanbanSpecStatusToProjectStatus("in_review"), "In Review");
@@ -791,6 +789,7 @@ import {
   syncSpecStatus,
   syncTicketStatus,
   ticketState,
+  specIssueState,
 } from "../src/kanban/github-sync.js";
 
 const board: KanbanBoard = {
@@ -1300,6 +1299,16 @@ test("ticketState closes done/approved/canceled sub-issues, opens everything els
   assert.equal(ticketState("in_progress"), "open");
   assert.equal(ticketState("backlog"), "open");
   assert.equal(ticketState("in_review"), "open");
+});
+
+test("specIssueState closes the spec MAIN issue on done/approved/canceled, opens otherwise (G4.S6.T2)", () => {
+  assert.equal(specIssueState("done"), "closed");
+  assert.equal(specIssueState("approved"), "closed");
+  assert.equal(specIssueState("canceled"), "closed");
+  assert.equal(specIssueState("backlog"), "open");
+  assert.equal(specIssueState("in_progress"), "open");
+  assert.equal(specIssueState("in_review"), "open");
+  assert.equal(specIssueState("rejected"), "open");
 });
 
 test("subTaskProgress counts a Spec's closed sub-issues over its total (G4.S5.T6)", () => {

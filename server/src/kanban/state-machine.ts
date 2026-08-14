@@ -22,20 +22,20 @@ export const STATE_MACHINE: Record<TicketStatus, readonly TicketStatus[]> = {
 };
 
 /**
- * Edges of the Spec state machine (G4.S5.T7) — a full lifecycle that captures
- * the planning phase: backlog → decomposed (tickets created) → in_progress →
+ * Edges of the Spec state machine (G4.S5.T7, simplified G4.S6.T2) — `decomposed`
+ * removed. backlog → in_progress (auto, ticket-driven: first ticket claim) →
  * done → in_review → approved/rejected. Rejection re-decomposes into new
- * tickets / a new backlog; canceled is terminal. Transitions are triggered by a
- * plan agent / human reviewer — never automatically from ticket completion.
+ * tickets / a new backlog; canceled is terminal. done is NOT auto (waits for
+ * review, may add tickets). Transitions are triggered by a plan agent / human
+ * reviewer.
  */
 export const SPEC_STATE_MACHINE: Record<SpecStatus, readonly SpecStatus[]> = {
-  backlog: ["decomposed", "in_progress"],
-  decomposed: ["in_progress"],
+  backlog: ["in_progress"],
   in_progress: ["done"],
   done: ["in_review"],
   in_review: ["approved", "rejected"],
   approved: [],
-  rejected: ["backlog", "decomposed"],
+  rejected: ["backlog", "in_progress"],
   canceled: [],
 };
 
@@ -55,7 +55,6 @@ export type TransitionId =
 
 /** The named transitions of the Spec state machine. */
 export type SpecTransitionId =
-  | "decompose"
   | "start"
   | "report-done"
   | "report-in_review"
@@ -78,7 +77,6 @@ export const TRANSITION_ACTOR: Record<TransitionId, RoleId> = {
  * Reviewer gives the acceptance verdict.
  */
 export const SPEC_TRANSITION_ACTOR: Record<SpecTransitionId, RoleId> = {
-  decompose: "eng-director",
   start: "eng-director",
   "report-done": "eng-director",
   "report-in_review": "eng-director",
@@ -143,7 +141,6 @@ function ticketTransitionId(from: TicketStatus, to: TicketStatus): TransitionId 
 export function specTransitionId(from: SpecStatus, to: SpecStatus): SpecTransitionId | null {
   if (!canTransition(from, to, "spec")) return null;
   if (from === "rejected") return "re-decompose";
-  if (to === "decomposed") return "decompose";
   if (to === "in_progress") return "start";
   if (to === "done") return "report-done";
   if (to === "in_review") return "report-in_review";

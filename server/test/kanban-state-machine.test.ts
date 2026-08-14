@@ -104,8 +104,9 @@ test("the reject branch is the only path out of review, and re-decompose re-ente
 });
 
 // ---------------------------------------------------------------------------
-// G4.S5.T7 — Spec state machine (backlog → decomposed → in_progress → done →
-// in_review → approved/rejected; rejected → re-decompose; canceled terminal)
+// G4.S5.T7 / G4.S6.T2 — Spec state machine (backlog → in_progress → done →
+// in_review → approved/rejected; rejected → re-decompose; canceled terminal).
+// `decomposed` removed (G4.S6.T2); backlog → in_progress is ticket-driven.
 // ---------------------------------------------------------------------------
 
 test("Spec lifecycle chain backlog→in_progress→done→in_review→approved; in_review→rejected (G4.S5.T7)", () => {
@@ -121,31 +122,28 @@ test("Spec lifecycle chain backlog→in_progress→done→in_review→approved; 
   assert.equal(canTransition("in_review", "rejected", "spec"), true);
 });
 
-test("Spec machine covers the planning phase + re-decompose (G4.S5.T7)", () => {
-  assert.equal(canTransition("backlog", "decomposed", "spec"), true);
-  assert.equal(canTransition("decomposed", "in_progress", "spec"), true);
+test("Spec machine: backlog→in_progress direct + re-decompose (G4.S6.T2, no decomposed)", () => {
+  assert.equal(canTransition("backlog", "in_progress", "spec"), true);
   assert.equal(canTransition("rejected", "backlog", "spec"), true);
-  assert.equal(canTransition("rejected", "decomposed", "spec"), true);
+  assert.equal(canTransition("rejected", "in_progress", "spec"), true);
 });
 
 test("Spec illegal edges are refused; approved/canceled are terminal (G4.S5.T7)", () => {
   assert.equal(canTransition("in_progress", "in_review", "spec"), false);
   assert.equal(canTransition("backlog", "done", "spec"), false);
-  assert.equal(canTransition("decomposed", "decomposed", "spec"), false);
-  assert.equal(canTransition("decomposed", "done", "spec"), false);
+  assert.equal(canTransition("in_progress", "in_progress", "spec"), false);
   assert.equal(canTransition("approved", "backlog", "spec"), false);
   assert.equal(canTransition("canceled", "backlog", "spec"), false);
   assert.deepEqual(transitionsFrom("approved", "spec"), []);
   assert.deepEqual(transitionsFrom("canceled", "spec"), []);
 });
 
-test("Spec transitionsFrom/transitionsTo follow the lifecycle (G4.S5.T7)", () => {
-  assert.deepEqual(transitionsFrom("backlog", "spec"), ["decomposed", "in_progress"]);
-  assert.deepEqual(transitionsFrom("decomposed", "spec"), ["in_progress"]);
+test("Spec transitionsFrom/transitionsTo follow the lifecycle (G4.S6.T2)", () => {
+  assert.deepEqual(transitionsFrom("backlog", "spec"), ["in_progress"]);
   assert.deepEqual(transitionsFrom("in_progress", "spec"), ["done"]);
   assert.deepEqual(transitionsFrom("in_review", "spec"), ["approved", "rejected"]);
-  assert.deepEqual(transitionsFrom("rejected", "spec"), ["backlog", "decomposed"]);
-  assert.deepEqual(transitionsTo("in_progress", "spec"), ["backlog", "decomposed"]);
+  assert.deepEqual(transitionsFrom("rejected", "spec"), ["backlog", "in_progress"]);
+  assert.deepEqual(transitionsTo("in_progress", "spec"), ["backlog", "rejected"]);
   assert.deepEqual(transitionsTo("done", "spec"), ["in_progress"]);
   assert.deepEqual(transitionsTo("in_review", "spec"), ["done"]);
   assert.deepEqual(transitionsTo("approved", "spec"), ["in_review"]);
@@ -161,20 +159,18 @@ test("every Spec machine state is a known Spec status (G4.S5.T7)", () => {
   }
 });
 
-test("Spec transitionId names every edge; plan agent/reviewer actors (G4.S5.T7)", () => {
-  assert.equal(transitionId("backlog", "decomposed", "spec"), "decompose");
-  assert.equal(transitionId("decomposed", "in_progress", "spec"), "start");
+test("Spec transitionId names every edge; plan agent/reviewer actors (G4.S6.T2)", () => {
   assert.equal(transitionId("backlog", "in_progress", "spec"), "start");
   assert.equal(transitionId("in_progress", "done", "spec"), "report-done");
   assert.equal(transitionId("done", "in_review", "spec"), "report-in_review");
   assert.equal(transitionId("in_review", "approved", "spec"), "approve");
   assert.equal(transitionId("in_review", "rejected", "spec"), "reject");
   assert.equal(transitionId("rejected", "backlog", "spec"), "re-decompose");
-  assert.equal(transitionId("rejected", "decomposed", "spec"), "re-decompose");
+  assert.equal(transitionId("rejected", "in_progress", "spec"), "re-decompose");
   assert.equal(transitionId("approved", "backlog", "spec"), null);
-  // Decomposition is the Eng Director (plan agent); review verdicts the Reviewer.
-  assert.equal(actorFor("backlog", "decomposed", "spec"), "eng-director");
-  assert.equal(actorFor("rejected", "decomposed", "spec"), "eng-director");
+  // Review verdicts are the Reviewer's; start/report/re-decompose are Eng Director.
+  assert.equal(actorFor("backlog", "in_progress", "spec"), "eng-director");
+  assert.equal(actorFor("rejected", "in_progress", "spec"), "eng-director");
   assert.equal(actorFor("in_review", "approved", "spec"), "reviewer");
   assert.equal(actorFor("in_review", "rejected", "spec"), "reviewer");
   assert.equal(actorFor("done", "approved", "spec"), null);
@@ -182,7 +178,6 @@ test("Spec transitionId names every edge; plan agent/reviewer actors (G4.S5.T7)"
 
 test("SPEC_TRANSITION_ACTOR covers every Spec transition id with a defined role (G4.S5.T7)", () => {
   const ids: readonly SpecTransitionId[] = [
-    "decompose",
     "start",
     "report-done",
     "report-in_review",

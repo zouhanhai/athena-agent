@@ -33,14 +33,14 @@ export function projectStatusToKanbanStatus(optionName: string): TicketStatus | 
 }
 
 /**
- * Spec statuses → Project Status single-select option names (G4.S5.T6 + T7).
- * Specs use a coarser lifecycle than tickets (`backlog → decomposed → in_progress
- * → done → in_review → approved/rejected`; canceled), and the Spec card's Status
+ * Spec statuses → Project Status single-select option names (G4.S5.T6 + T7,
+ * simplified G4.S6.T2 — `decomposed` removed).
+ * Specs use a coarser lifecycle than tickets (`backlog → in_progress → done →
+ * in_review → approved/rejected`; canceled), and the Spec card's Status
  * column reflects the md Spec status — not a per-ticket aggregate.
  */
 export const KANBAN_SPEC_STATUS_TO_PROJECT_STATUS: Readonly<Record<SpecStatus, string>> = {
   backlog: "Backlog",
-  decomposed: "In Progress",
   in_progress: "In Progress",
   done: "Done",
   in_review: "In Review",

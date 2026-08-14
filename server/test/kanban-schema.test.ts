@@ -31,10 +31,9 @@ test("LAYERS are G / S / T", () => {
   assert.deepEqual(LAYERS, ["G", "S", "T"]);
 });
 
-test("SPEC_STATUSES covers the full Spec lifecycle (G4.S5.T7)", () => {
+test("SPEC_STATUSES covers the full Spec lifecycle (G4.S5.T7, G4.S6.T2)", () => {
   assert.deepEqual(SPEC_STATUSES, [
     "backlog",
-    "decomposed",
     "in_progress",
     "done",
     "in_review",
