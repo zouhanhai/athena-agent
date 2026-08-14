@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T11:40:34.352Z",
+  "generated_at": "2026-08-14T11:59:40.848Z",
   "goals": [
     {
       "ref": "G1",
@@ -2802,9 +2802,9 @@
               "id": "G4.S5.T18",
               "title": "GitHub board view: show sub-task progress + Spec accent for ANY issue that has sub-issues, not just Gx.Sy-named Specs (abaplorer issues currently show neither)",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_fffdbd2baffeTWD5OqklH4QvC8",
               "blocked_by": [
                 "G4.S5.T17"
               ],
@@ -2814,7 +2814,11 @@
                 "Gx.Sy-named Specs (athena) keep working exactly as today",
                 "Status badges on GitHub Project view cards have COLOR (matching the Local kanban / GitHub status colors: In Progress yellow, Done green, Backlog gray, etc.), not the current gray pill",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT (abaplorer #201 shows 9/9)"
-              ]
+              ],
+              "started_at": "2026-08-14",
+              "progress_last_row": "opencode claimed G4.S5.T18 (session ses_fffdbd2baffeTWD5OqklH4QvC8)",
+              "progress_updated_at": "2026-08-14T11:59:40.833Z",
+              "progress_status": "in_progress"
             }
           ]
         },
@@ -2847,7 +2851,7 @@
             {
               "ref": "G4.S6.T2",
               "id": "G4.S6.T2",
-              "title": "Spec state machine simplification: remove 'decomposed'; spec auto-advances backlog→in_progress on first ticket claim, stays in_progress after all tickets done (await review, may add tickets), done only on review",
+              "title": "Spec state machine simplification: remove 'decomposed'; spec auto-advances backlog→in_progress on first ticket claim, stays in_progress after all tickets done (await review, may add tickets), done only on review; spec MAIN ISSUE open/closed synced to spec status (done/approved→closed)",
               "owner": "eng-director",
               "status": "backlog",
               "assignee": "",
@@ -2857,7 +2861,8 @@
                 "The 'decomposed' spec status is removed from the typed enum (schema) and the spec state machine; 'active' legacy maps to in_progress",
                 "Spec auto-advances backlog → in_progress when its FIRST ticket becomes in_progress (claimed); no manual decomposed step",
                 "Spec does NOT auto-advance to done when all tickets are done — it stays in_progress awaiting review (new tickets may be added); done only via review (manual/Reviewer)",
-                "status-map, state-machine, github-sync (Project Status columns), GDD §7 doc, and T7 test/docs updated consistently; server + web tests green, typecheck/vue-tsc clean"
+                "The spec MAIN ISSUE's open/closed state is synced to the spec status: done/approved → closed; backlog/in_progress/in_review/rejected → open (so the Project Status column and the issue-list open/closed agree)",
+                "status-map, state-machine, github-sync (Project Status columns + spec issue state), GDD §7 doc, and T7 test/docs updated consistently; server + web tests green, typecheck/vue-tsc clean"
               ]
             }
           ]
