@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T13:57:05.114Z",
+  "generated_at": "2026-08-14T14:06:24.569Z",
   "goals": [
     {
       "ref": "G1",
@@ -2849,8 +2849,8 @@
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ],
               "started_at": "2026-08-14",
-              "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-14T13:56:48.946Z",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-14T13:56:12.273Z",
               "progress_status": "in_progress"
             },
             {
@@ -2891,6 +2891,25 @@
                 "reference.md = concept index (Gx.Sx.Tx, ticket + spec state machines incl. T2's no-decomposed/ticket-driven rule, roles, Progress Log, kanban-index, glossary)",
                 "templates/ = copies of the GST templates; docs/kanban/templates/ left intact",
                 "Boundary (vs athena KB) explained; ADR 0009 referenced"
+              ]
+            },
+            {
+              "ref": "G4.S6.T4",
+              "id": "G4.S6.T4",
+              "title": "Remove the local Kanban tab + local board stack (kanban-index/scan/write-index/index-file) — GitHub Project panel is the only board view; GDD keeps md + sync + Progress Log/stalled (md-level)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S6.T1"
+              ],
+              "acceptance_criteria": [
+                "Workbench has Code / Issues / Project sub-tabs (Kanban sub-tab removed); Project (GitHub Project view) is the only board view",
+                "KanbanTab.vue + its local-GST-board code are removed; the GitHub Project view (ProjectTab.vue) is kept and works identically",
+                "The local board stack is removed: kanban-index.json + write-index.ts + scan.ts + index-file.ts + the local-board part of routes/kanban.ts (GET /api/kanban, scanRemoteBoard); GDD md files + md↔GitHub sync (sync-github/github-sync/hook/opencode plugins) + Progress Log/stalled mechanism are KEPT",
+                "GDD separation is cleaner: GDD = md (source) + sync + Progress Log/stalled (md-level, worker writes log, plan agent reads locally to detect stalled); no athena local-board display layer",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ]
             }
           ]
