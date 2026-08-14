@@ -929,8 +929,13 @@ class RecordingGithub {
       },
       getIssueByTitlePrefix: async (_c, _o, _r, prefix) => {
         this.calls.push(`getIssueByTitlePrefix:${prefix}`);
+        const p = prefix.trimEnd();
         for (const [t, issue] of this.issuesByTitle) {
-          if (t === prefix || t.startsWith(prefix)) return issue;
+          // match exact, title starts with prefix, or bare ref (title === p when
+          // the existing issue title is just "G4.S5.T1" without a space)
+          if (t === p || t.startsWith(prefix) || p.startsWith(t) || t.startsWith(p + " ")) {
+            return issue;
+          }
         }
         return null;
       },
