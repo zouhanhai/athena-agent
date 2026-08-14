@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# gdd sync-github — run the md → GitHub Project sync CLI standalone.
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec node --import tsx "$DIR/../src/sync-github.ts" "$@"

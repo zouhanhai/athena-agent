@@ -97,7 +97,7 @@ export async function resolveGithubCredential(
   }
 
   throw new Error(
-    "no GitHub credential found: set GITHUB_TOKEN, run `gh auth login` (gh auth token), " +
-      "or pass --employee with the athena employee store",
+    "no GitHub credential found: set GITHUB_TOKEN or run `gh auth login` (gh auth token) — " +
+      "when running inside athena the employee store is used as a last resort (GITHUB_EMPLOYEE)",
   );
 }
