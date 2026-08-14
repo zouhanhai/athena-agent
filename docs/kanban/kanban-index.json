@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T08:30:48.214Z",
+  "generated_at": "2026-08-14T08:41:17.631Z",
   "goals": [
     {
       "ref": "G1",
@@ -2775,6 +2775,24 @@
               "progress_last_row": "opencode claimed G4.S5.T16 (session ses_0009b1c1dffei63E8amqVbQyAx)",
               "progress_updated_at": "2026-08-14T08:30:48.200Z",
               "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T17",
+              "id": "G4.S5.T17",
+              "title": "Issues panel: add a Refresh button to reload the GitHub issues list (it can be stale after sync)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T16"
+              ],
+              "acceptance_criteria": [
+                "The Issues panel (IssuesTab) has a Refresh button that re-fetches the GitHub issues list from the server, so new/updated issues (e.g. T11-T16) appear without a full page reload",
+                "Clicking Refresh updates the list in place (loading state, no full page reload)",
+                "The Kanban GitHub Project view also has a Refresh (it may already); if it lacks one, add it too so synced changes show up",
+                "Web tests green + vue-tsc clean"
+              ]
             }
           ]
         },
