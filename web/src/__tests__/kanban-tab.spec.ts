@@ -207,6 +207,47 @@ const COMMENTS = [
   },
 ];
 
+// G4.S5.T18 — an abaplorer-style board: a plain-titled parent issue (#201) that
+// HAS sub-issues must show the Spec-card orange accent + sub-task progress even
+// though its title carries no Gx.Sy ref. Its sub-issue cards stay plain white.
+const ABAPLORER_BOARD: GithubProjectBoard = {
+  project: {
+    id: "PVT_9",
+    title: "Abaplorer Project",
+    number: 9,
+    url: "https://github.com/orgs/caleo/projects/9",
+  },
+  columns: [
+    {
+      status: "Done",
+      cards: [
+        {
+          issueNumber: 201,
+          ref: null,
+          title: "ABAP Object Import",
+          status: "Done",
+          url: "https://github.com/caleo/abaplorer/issues/201",
+          progress: { done: 9, total: 9, percent: 100 },
+          subIssues: [
+            { ref: null, title: "Import tables", status: "done", number: 202 },
+            { ref: null, title: "Import BADI", status: "done", number: 203 },
+          ],
+        },
+        {
+          issueNumber: 202,
+          ref: null,
+          title: "Import tables",
+          status: "Done",
+          url: "https://github.com/caleo/abaplorer/issues/202",
+          progress: { done: 0, total: 0, percent: 0 },
+          subIssues: [],
+        },
+      ],
+    },
+  ],
+  generated_at: "2026-08-14T09:00:00Z",
+};
+
 // G4.S5.T16: the detail panel reads the GITHUB ISSUE BODY (same content the
 // Issues panel shows) — the local md / Progress Log is NOT rendered anywhere.
 const GITHUB_ISSUE = {
@@ -786,6 +827,103 @@ describe("KanbanTab", () => {
       expect(ticketCard.find(".kanban-spec-progress").exists()).toBe(false);
       expect(ticketCard.classes()).not.toContain("kanban-project-card-spec");
     }
+    wrapper.unmount();
+  });
+
+  it("treats a card whose issue HAS sub-issues as a Spec card (orange accent + progress) even without a Gx.Sy ref (G4.S5.T18)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchGithubProjectBoardMock.mockResolvedValue(ABAPLORER_BOARD);
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    const cards = wrapper.findAll(".kanban-project-card");
+    expect(cards.length).toBe(2);
+
+    // Parent #201 (no ref): gets the brand-orange accent + segmented progress.
+    const parent = cards[0];
+    expect(parent.classes()).toContain("kanban-project-card-spec");
+    expect(parent.find(".kanban-project-card-ref").exists()).toBe(false);
+    expect(parent.find(".kanban-project-card-title").text()).toBe("ABAP Object Import");
+    expect(parent.find(".kanban-spec-progress-text").text()).toBe("9 / 9 · 100%");
+    const blocks = parent.findAll(".kanban-spec-progress-block");
+    expect(blocks.length).toBe(9);
+    expect(parent.findAll(".kanban-spec-progress-block-filled").length).toBe(9);
+
+    // Sub-issue #202 (also has no ref, but is itself not a parent): plain white,
+    // no accent, no progress.
+    const sub = cards[1];
+    expect(sub.classes()).not.toContain("kanban-project-card-spec");
+    expect(sub.find(".kanban-spec-progress").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("leaves a plain issue with NO sub-issues white even when its title has no ref (G4.S5.T18)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    fetchGithubProjectBoardMock.mockResolvedValue({
+      project: ABAPLORER_BOARD.project,
+      columns: [
+        {
+          status: "Done",
+          cards: [
+            {
+              issueNumber: 999,
+              ref: null,
+              title: "Free-form discussion issue",
+              status: "Done",
+              url: "https://github.com/caleo/abaplorer/issues/999",
+              progress: { done: 0, total: 0, percent: 0 },
+              subIssues: [],
+            },
+          ],
+        },
+      ],
+      generated_at: "2026-08-14T09:00:00Z",
+    });
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    const card = wrapper.find(".kanban-project-card");
+    expect(card.classes()).not.toContain("kanban-project-card-spec");
+    expect(card.find(".kanban-spec-progress").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps Gx.Sy Spec cards orange (accent + progress) when they have sub-issues (G4.S5.T18)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    const cards = wrapper.findAll(".kanban-project-card");
+    const spec = cards.find((c) => c.find(".kanban-project-card-ref").text() === "G4.S5")!;
+    expect(spec.classes()).toContain("kanban-project-card-spec");
+    expect(spec.find(".kanban-spec-progress-text").text()).toBe("4 / 5 · 80%");
+    wrapper.unmount();
+  });
+
+  it("colors the GitHub Project status pills per status (In Progress yellow, Done green, Backlog gray) (G4.S5.T18)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    const badges = wrapper.findAll(".kanban-project-card-status");
+    expect(badges.length).toBeGreaterThan(0);
+
+    const inProgress = badges.find((b) => b.text() === "In Progress")!;
+    expect(inProgress.classes()).toContain("kanban-card-status-in_progress");
+
+    const done = badges.find((b) => b.text() === "Done")!;
+    expect(done.classes()).toContain("kanban-card-status-done");
+
+    const backlog = badges.find((b) => b.text() === "Backlog")!;
+    expect(backlog.classes()).toContain("kanban-card-status-backlog");
     wrapper.unmount();
   });
 

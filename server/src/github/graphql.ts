@@ -42,6 +42,16 @@ interface ProjectItemNode {
   fieldValueByName?: { name?: string } | null;
 }
 
+/** The GraphQL response shape of a ProjectV2 items page (G4.S5.T4). */
+interface GetProjectItemsResponse {
+  node?: {
+    items?: {
+      nodes?: ProjectItemNode[] | null;
+      pageInfo?: { hasNextPage: boolean; endCursor?: string | null } | null;
+    } | null;
+  } | null;
+}
+
 interface StatusFieldNode {
   id?: string;
   name?: string;
@@ -264,9 +274,7 @@ export class GithubGraphqlClient {
     let all: GithubProjectItem[] = [];
     let cursor: string | null = null;
     for (;;) {
-      const data = await this.gql<{
-        node?: { items?: { nodes?: ProjectItemNode[] | null; pageInfo?: { hasNextPage: boolean; endCursor?: string | null } | null } | null } | null;
-      }>(
+      const data: GetProjectItemsResponse = await this.gql<GetProjectItemsResponse>(
         credential,
         `query($projectId: ID!, $first: Int!, $after: String) {
           node(id: $projectId) {

@@ -520,23 +520,29 @@ export interface GithubProjectCard {
   /** Link to the GitHub issue for discussion. */
   url: string;
   /**
-   * Sub-task progress of the Spec's ticket sub-issues (G4.S5.T6): total = the
-   * Spec's sub-issues, done = closed sub-issues (GitHub-native X/N), percent
-   * rounded to a whole number. `{ done: 0, total: 0, percent: 0 }` for cards
-   * without a Spec ref.
+   * Sub-task progress of the card's sub-issues (G4.S5.T6): total = the card's
+   * sub-issues, done = closed sub-issues (GitHub-native X/N), percent rounded
+   * to a whole number. Since G4.S5.T18 the source is the issue's ACTUAL
+   * sub-issues (GitHub `sub_issues` relationship) for ANY parent card, not just
+   * Gx.Sy-named Specs; the Gx.Sy title-matching path remains as a fallback.
+   * `{ done: 0, total: 0, percent: 0 }` for cards with no sub-issues.
    */
   progress: { done: number; total: number; percent: number };
   /**
-   * The Spec's ticket sub-issues (G4.S5.T8): ref + title + status + issue
-   * number for the detail panel's clickable Sub-issues list. Empty for cards
-   * without a Spec ref.
+   * The card's sub-issues (G4.S5.T8): ref + title + status + issue number for
+   * the detail panel's clickable Sub-issues list. Populated for ANY card whose
+   * issue is a parent of sub-issues (G4.S5.T18). Empty for cards with none.
    */
   subIssues: GithubProjectSubIssue[];
 }
 
-/** A sub-issue (ticket) of a Spec card, for the detail panel's Sub-issues list (G4.S5.T8). */
+/** A sub-issue of a board card, for the detail panel's Sub-issues list (G4.S5.T8). */
 export interface GithubProjectSubIssue {
-  ref: string;
+  /**
+   * The `Gx.Sy` / `Gx.Sy.Tz` ref parsed from the sub-issue's title, or null for
+   * a plain-titled sub-issue (G4.S5.T18, e.g. abaplorer #202 "Import tables").
+   */
+  ref: string | null;
   title: string;
   /** Closed sub-issues read as "done"; everything else is "open". */
   status: string;
@@ -624,12 +630,85 @@ export function subIssuesForSpec(
 }
 
 /**
+ * The raw issues a Gx.Sy Spec card counts as its sub-issues by title-matching
+ * (`Gx.Sy.Tz` ref prefix). This is the athena-specific fallback used when the
+ * issue has no real GitHub sub-issues relationship (G4.S5.T18).
+ */
+function issuesForRef(ref: string | null, issues: GithubIssue[]): GithubIssue[] {
+  if (!ref) {
+    return [];
+  }
+  const prefix = `${ref}.`;
+  return issues.filter((issue) => {
+    const parsed = parseIssueRef(issue.title ?? "");
+    return parsed !== null && parsed.startsWith(prefix) && isTicketRef(parsed);
+  });
+}
+
+/** Sub-task progress from an issue's actual sub-issues: done = closed, total = count. */
+function progressFromSubIssues(subs: GithubIssue[]): { done: number; total: number; percent: number } {
+  const done = subs.filter((issue) => issue.state === "closed").length;
+  const total = subs.length;
+  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+  return { done, total, percent };
+}
+
+/** A detail entry for one of an issue's actual sub-issues (G4.S5.T18). */
+function subIssueFromIssue(issue: GithubIssue): GithubProjectSubIssue {
+  return {
+    ref: parseIssueRef(issue.title ?? ""),
+    title: issue.title ?? "",
+    status: issue.state === "closed" ? "done" : "open",
+    number: issue.number,
+  };
+}
+
+/**
+ * Resolve a card's sub-issues (G4.S5.T18): first the issue's ACTUAL sub-issues
+ * (GitHub `sub_issues` relationship, via `parent_issue_url`), then the Gx.Sy
+ * title-matching fallback for athena Specs. Returns `{ subs, viaRelationship }`
+ * so the caller can decide the progress source too.
+ */
+function resolveSubIssues(
+  issueNumber: number,
+  ref: string | null,
+  issues: GithubIssue[],
+): { subs: GithubIssue[]; viaRelationship: boolean } {
+  const byParent = new Map<number, GithubIssue[]>();
+  for (const issue of issues) {
+    const parent = parentIssueNumber(issue);
+    if (parent !== null) {
+      const list = byParent.get(parent) ?? [];
+      list.push(issue);
+      byParent.set(parent, list);
+    }
+  }
+  const actual = byParent.get(issueNumber) ?? [];
+  if (actual.length > 0) {
+    return { subs: actual, viaRelationship: true };
+  }
+  return { subs: issuesForRef(ref, issues), viaRelationship: false };
+}
+
+/** The parent issue number an issue belongs to as a sub-issue, or null. */
+function parentIssueNumber(issue: GithubIssue): number | null {
+  const url = issue.parent_issue_url;
+  if (!url) {
+    return null;
+  }
+  const match = /\/issues\/(\d+)\/?$/.exec(url);
+  return match ? Number(match[1]) : null;
+}
+
+/**
  * Build the GitHub Project board from the Project cards, grouped into Status
  * columns. Spec issues and ticket sub-issues are ALL cards (G4.S5.T9 revert of
- * T6) — each sits in its own Status column, GitHub-native. Spec cards carry
- * their aggregated sub-task progress (computed from the repo's issues); ticket
- * cards are plain. Known kanban statuses lead in kanban order; unknown/unset
- * statuses ("No status") trail, mirroring GitHub's native board layout.
+ * T6) — each sits in its own Status column, GitHub-native. Since G4.S5.T18 ANY
+ * card whose issue is a parent of sub-issues carries its sub-task progress
+ * (from the issue's actual GitHub sub-issues relationship, not just Gx.Sy
+ * title-matching); ticket cards are plain. Known kanban statuses lead in kanban
+ * order; unknown/unset statuses ("No status") trail, mirroring GitHub's native
+ * board layout.
  */
 export function buildGithubProjectBoard(
   project: GithubProject,
@@ -652,14 +731,15 @@ export function buildGithubProjectBoard(
       column = { status: columnName, cards: [] };
       columns.set(columnName, column);
     }
+    const { subs, viaRelationship } = resolveSubIssues(item.issueNumber, ref, issues);
     column.cards.push({
       issueNumber: item.issueNumber,
       ref,
       title: displayTitle,
       status: item.status,
       url: issueUrl(item.issueNumber),
-      progress: subTaskProgress(ref, issues),
-      subIssues: subIssuesForSpec(ref, issues),
+      progress: viaRelationship ? progressFromSubIssues(subs) : subTaskProgress(ref, issues),
+      subIssues: viaRelationship ? subs.map(subIssueFromIssue) : subIssuesForSpec(ref, issues),
     });
   }
   const ordered: GithubProjectColumn[] = [];

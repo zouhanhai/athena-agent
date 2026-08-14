@@ -116,7 +116,11 @@ export async function fetchBoard(
 
 /** A sub-issue (ticket) of a Spec card, for the detail panel's Sub-issues list (G4.S5.T8). */
 export interface GithubProjectSubIssue {
-  ref: string;
+  /**
+   * The `Gx.Sy` / `Gx.Sy.Tz` ref parsed from the sub-issue's title, or null for
+   * a plain-titled sub-issue (G4.S5.T18, e.g. abaplorer #202 "Import tables").
+   */
+  ref: string | null;
   title: string;
   /** Closed sub-issues read as "done"; everything else is "open". */
   status: string;

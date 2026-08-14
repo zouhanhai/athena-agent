@@ -130,9 +130,36 @@ function statusLabel(status: TicketStatus): string {
   return status.replace("_", " ");
 }
 
-/** True for a Spec card (`Gx.Sy` ref) — gets the brand-orange accent. Ticket sub-issue cards (`Gx.Sy.Tz`) stay plain (G4.S5.T9). */
+/**
+ * True for a "Spec card" — gets the brand-orange accent + segmented sub-task
+ * progress. Since G4.S5.T18 this is ANY card whose issue has sub-issues
+ * (progress.total > 0 or subIssues non-empty), not just Gx.Sy-named Specs; a
+ * Gx.Sy ref still qualifies. Ticket sub-issue cards (which have no sub-issues
+ * themselves) stay plain.
+ */
 function isSpecCard(card: GithubProjectCard): boolean {
-  return /^G\d+\.S\d+$/.test(card.ref ?? "");
+  return (
+    /^G\d+\.S\d+$/.test(card.ref ?? "") ||
+    card.progress.total > 0 ||
+    card.subIssues.length > 0
+  );
+}
+
+/** GitHub Project Status option name → the local kanban status key (G4.S5.T18). */
+const PROJECT_STATUS_TO_KANBAN: Record<string, string> = {
+  Backlog: "backlog",
+  "In Progress": "in_progress",
+  Done: "done",
+  "In Review": "in_review",
+  Approved: "approved",
+  Rejected: "rejected",
+  Canceled: "canceled",
+};
+
+/** The Local-kanban status color class for a GitHub Project Status, or "" (G4.S5.T18). */
+function statusColorClass(status: string | null): string {
+  const key = status ? PROJECT_STATUS_TO_KANBAN[status] : "";
+  return key ? `kanban-card-status-${key}` : "";
 }
 
 function cardsFor(status: TicketStatus): BoardCard[] {
@@ -587,7 +614,11 @@ watch(view, (next) => {
                       <span class="kanban-project-card-issue">#{{ card.issueNumber }}</span>
                     </span>
                     <span v-if="card.title" class="kanban-project-card-title">{{ card.title }}</span>
-                    <span v-if="card.status" class="kanban-project-card-status">{{ card.status }}</span>
+                    <span
+                      v-if="card.status"
+                      class="kanban-project-card-status"
+                      :class="statusColorClass(card.status)"
+                    >{{ card.status }}</span>
                     <!-- Segmented sub-task progress (G4.S5.T6): N blocks = N sub-issues,
                          done fills a block with the brand palette (--caleo-primary), empty
                          blocks use the theme's muted tone (--caleo-border). -->
@@ -635,7 +666,7 @@ watch(view, (next) => {
           <div class="kanban-detail-heading">
             <span v-if="detailCard.ref" class="kanban-detail-ref">{{ detailCard.ref }}</span>
             <span v-if="detailCard.title" class="kanban-detail-title">{{ detailCard.title }}</span>
-            <span v-if="detailCard.status" class="kanban-detail-status">{{ detailCard.status }}</span>
+            <span v-if="detailCard.status" class="kanban-detail-status" :class="statusColorClass(detailCard.status)">{{ detailCard.status }}</span>
           </div>
           <div class="kanban-detail-header-actions">
             <button

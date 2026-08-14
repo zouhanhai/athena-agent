@@ -61,6 +61,12 @@ export interface GithubIssue {
   body: string | null;
   labels: string[];
   assignees: string[];
+  /**
+   * The API URL of this issue's parent when it is a GitHub sub-issue
+   * (G4.S5.T18). Absent on plain issues; used to derive the parent → sub-issues
+   * relationship on the board without title-guessing.
+   */
+  parent_issue_url?: string;
 }
 
 /** Input for creating an issue via POST /issues (G4.S5). */
@@ -625,6 +631,7 @@ export class GithubRestClient implements GitHubApi {
     const user = issue.user as Record<string, unknown> | null;
     const labels = Array.isArray(issue.labels) ? issue.labels : [];
     const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
+    const parent = issue.parent_issue_url;
     return {
       id: this.positiveInt(issue.id) ?? 0,
       node_id: this.string(issue.node_id),
@@ -638,6 +645,7 @@ export class GithubRestClient implements GitHubApi {
       assignees: assignees.map((assignee) =>
         String((assignee as Record<string, unknown>)?.login ?? assignee),
       ),
+      ...(typeof parent === "string" && parent ? { parent_issue_url: parent } : {}),
     };
   }
 

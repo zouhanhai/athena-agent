@@ -1337,6 +1337,63 @@ test("subIssuesForSpec lists a Spec's ticket sub-issues (ref/title/status/number
   assert.deepEqual(subIssuesForSpec("G4.S9", issues), []);
 });
 
+test("buildGithubProjectBoard populates progress + subIssues for ANY card whose issue is a parent of sub-issues (non-Gx.Sy) (G4.S5.T18)", () => {
+  const project: GithubProject = {
+    id: "PVT_abap",
+    title: "Abaplorer Project",
+    number: 9,
+    url: "https://github.com/orgs/caleo/projects/9",
+  };
+  const items: GithubProjectItem[] = [
+    // abaplorer #201 'ABAP Object Import' — plain title, NO Gx.Sy ref, but the
+    // parent of 9 sub-issues (#202-#210). T18: it must show progress + the list.
+    { id: "PVTI_201", issueId: "I_201", issueNumber: 201, title: "ABAP Object Import", status: "Done" },
+    // A sub-issue card (#202) is on the board too — it must stay plain.
+    { id: "PVTI_202", issueId: "I_202", issueNumber: 202, title: "Import tables", status: "Done" },
+  ];
+  const sub = (id: number, number: number, title: string, state: string): GithubIssue => ({
+    id,
+    node_id: `I_${number}`,
+    number,
+    title,
+    state,
+    html_url: "",
+    user_login: "alice",
+    body: null,
+    labels: [],
+    assignees: [],
+    // GitHub sub-issues relationship: each sub-issue's parent_issue_url → #201.
+    parent_issue_url: "https://api.github.com/repos/caleo/abaplorer/issues/201",
+  });
+  const issues: GithubIssue[] = [
+    { id: 201, node_id: "I_201", number: 201, title: "ABAP Object Import", state: "open", html_url: "", user_login: "alice", body: null, labels: [], assignees: [] },
+    sub(202, 202, "Import tables", "closed"),
+    sub(203, 203, "Import BADI", "closed"),
+    sub(204, 204, "Import user-exits", "open"),
+  ];
+  const board = buildGithubProjectBoard(
+    project,
+    items,
+    issues,
+    (n) => `https://github.com/caleo/abaplorer/issues/${n}`,
+  );
+  const card = board.columns[0].cards[0];
+  assert.equal(card.ref, null, "no Gx.Sy ref parsed from a plain parent title");
+  assert.equal(card.title, "ABAP Object Import");
+  // Progress from the ACTUAL sub-issues (2 closed / 3 total) regardless of naming.
+  assert.deepEqual(card.progress, { done: 2, total: 3, percent: 67 });
+  assert.deepEqual(card.subIssues, [
+    { ref: null, title: "Import tables", status: "done", number: 202 },
+    { ref: null, title: "Import BADI", status: "done", number: 203 },
+    { ref: null, title: "Import user-exits", status: "open", number: 204 },
+  ]);
+  // The sub-issue card (#202) is plain: no progress, no nested sub-issues.
+  const subCard = board.columns[0].cards[1];
+  assert.equal(subCard.ref, null);
+  assert.deepEqual(subCard.progress, { done: 0, total: 0, percent: 0 });
+  assert.deepEqual(subCard.subIssues, []);
+});
+
 test("buildGithubProjectBoard carries each Spec card's subIssues + renders ticket cards spread across columns (G4.S5.T8/T9)", () => {
   const project: GithubProject = { id: "PVT_1", title: "athena-agent", number: 3, url: "" };
   const items: GithubProjectItem[] = [
