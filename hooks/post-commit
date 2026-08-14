@@ -37,15 +37,39 @@ for f in $CHANGED; do
 done
 
 # De-dupe and run sync-github create for each spec.
+# Resolve owner/repo from the origin remote (github.com URLs) — the hook env
+# has no GITHUB_OWNER/GITHUB_REPO, so guess-free derivation avoids empty --owner.
+ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+GH_OWNER=""
+GH_REPO=""
+case "$ORIGIN_URL" in
+  *github.com*)
+    url="${ORIGIN_URL%.git}"
+    url="${url#*github.com/}"
+    GH_OWNER="${url%%/*}"
+    GH_REPO="${url#*/}"
+    ;;
+esac
+if [ -z "$GH_OWNER" ] || [ -z "$GH_REPO" ]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S') kanban-hook: cannot derive owner/repo from origin ($ORIGIN_URL) — skipping" >> "$LOG"
+  exit 0
+fi
+
 SEEN=""
 for spec in $SPECS; do
   case " $SEEN " in *" $spec "*) continue ;; esac
   SEEN="$SEEN $spec"
-  echo "$(date '+%Y-%m-%d %H:%M:%S') kanban-hook: sync $spec" >> "$LOG"
-  ( cd "$REPO_ROOT/server" && \
-    [ -f "$REPO_ROOT/server/.env.local" ] && set -a && . "$REPO_ROOT/server/.env.local" && set +a \
-    npx tsx scripts/sync-github.ts create "$spec" --owner "${GITHUB_OWNER:-}" --repo "${GITHUB_REPO:-}" \
-    >> "$LOG" 2>&1 ) || echo "kanban-hook: sync $spec FAILED (see $LOG)" >> "$LOG"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') kanban-hook: sync $spec ($GH_OWNER/$GH_REPO)" >> "$LOG"
+  (
+    cd "$REPO_ROOT/server" || exit 1
+    # Provide DATABASE_URL so sync-github can resolve the GitHub credential via
+    # the Postgres employee store (the hook env has no GITHUB_TOKEN). Mirrors
+    # start-all.sh's backend env.
+    export DATABASE_URL="${DATABASE_URL:-postgres://hh@/athena?host=/var/run/postgresql}"
+    export GITHUB_EMPLOYEE="${GITHUB_EMPLOYEE:-zouha108@caleo.com}"
+    if [ -f "$REPO_ROOT/server/.env.local" ]; then set -a; . "$REPO_ROOT/server/.env.local"; set +a; fi
+    npx tsx scripts/sync-github.ts create "$spec" --owner "$GH_OWNER" --repo "$GH_REPO"
+  ) >> "$LOG" 2>&1 || echo "kanban-hook: sync $spec FAILED (see $LOG)" >> "$LOG"
 done
 
 exit 0
