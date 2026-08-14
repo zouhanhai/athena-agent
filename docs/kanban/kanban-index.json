@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T11:31:47.308Z",
+  "generated_at": "2026-08-14T11:40:34.352Z",
   "goals": [
     {
       "ref": "G1",
@@ -2842,6 +2842,22 @@
                 "The GitHub Project view (board + issue detail panel + comment thread + project selector) moves out of KanbanTab into the new 'Project' sub-tab; behavior identical to today (click card → local detail panel, no GitHub redirect)",
                 "'view in Issues' from a Kanban/Project card still switches to the Issues sub-tab and locates the issue (G4.S5.T8 preserved)",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ]
+            },
+            {
+              "ref": "G4.S6.T2",
+              "id": "G4.S6.T2",
+              "title": "Spec state machine simplification: remove 'decomposed'; spec auto-advances backlog→in_progress on first ticket claim, stays in_progress after all tickets done (await review, may add tickets), done only on review",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The 'decomposed' spec status is removed from the typed enum (schema) and the spec state machine; 'active' legacy maps to in_progress",
+                "Spec auto-advances backlog → in_progress when its FIRST ticket becomes in_progress (claimed); no manual decomposed step",
+                "Spec does NOT auto-advance to done when all tickets are done — it stays in_progress awaiting review (new tickets may be added); done only via review (manual/Reviewer)",
+                "status-map, state-machine, github-sync (Project Status columns), GDD §7 doc, and T7 test/docs updated consistently; server + web tests green, typecheck/vue-tsc clean"
               ]
             }
           ]
