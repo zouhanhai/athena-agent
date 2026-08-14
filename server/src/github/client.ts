@@ -505,9 +505,20 @@ export class GithubRestClient implements GitHubApi {
     resource: "pulls" | "issues",
     state: GithubIssueState = "open",
   ): Promise<unknown[]> {
-    const response = await this.request(credential, `/repos/${owner}/${repo}/${resource}?state=${state}&per_page=100`);
-    const data = await this.json(response);
-    return Array.isArray(data) ? data : [];
+    // Paginate through ALL pages (per_page=100 + page=N) so a repo with >100
+    // issues (e.g. caleo's 161) returns everything, not just the first page.
+    // Without this the GitHub Project view capped at 100 cards.
+    const all: unknown[] = [];
+    for (let page = 1; ; page++) {
+      const response = await this.request(credential, `/repos/${owner}/${repo}/${resource}?state=${state}&per_page=100&page=${page}`);
+      const data = await this.json(response);
+      const batch = Array.isArray(data) ? data : [];
+      all.push(...batch);
+      if (!Array.isArray(data) || batch.length < 100) {
+        break;
+      }
+    }
+    return all;
   }
 
   async listBranches(credential: GithubCredential, owner: string, repo: string): Promise<GithubBranch[]> {
