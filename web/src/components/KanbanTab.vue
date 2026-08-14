@@ -935,8 +935,19 @@ watch(view, (next) => {
 }
 
 .kanban-project-select {
-  min-width: 200px;
+  min-width: 240px;
   max-width: 100%;
+  flex-shrink: 0;
+}
+
+/* Show the full project title in the dropdown option — TDesign truncates with
+   ellipsis by default, which cut "zouhanhai/athena-agent" to "Pro..." (G4.S5.17). */
+.kanban-project-select .t-select__selection-item,
+.kanban-project-select .t-select__option {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .kanban-project-title {
