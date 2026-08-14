@@ -92,6 +92,8 @@ the ticket's status/assignee/session_id by hand.
 - `docs/adr/` — architecture decisions (one per file)
 - `gdd/` — the GDD package: kanban protocol/sync modules, `sync-github` CLI, hooks,
   opencode plugins (`gdd/plugin/`), GST templates; runs standalone on the user's machine
-- `docs/gdd/design.md` — Kanban mechanism
-- `docs/gdd/protocol-review.md` — GDD design decision record
+- `docs/gdd/` — the GDD handbook: `README.md` (what GDD is + boundary vs athena),
+  `design.md` (Kanban mechanism), `protocol-review.md` (GDD design decision record),
+  `setup.md` (enable GDD on a new project), `backend.md` (gdd package modules + sync-github CLI),
+  `plugins.md` (opencode plugins), `reference.md` (concept index)
 - `docs/pi-capabilities.md` — Pi SDK + packages capabilities

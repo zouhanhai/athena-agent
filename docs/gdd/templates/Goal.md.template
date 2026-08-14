@@ -1,0 +1,27 @@
+---
+id: G1
+title: "G1: <goal title>"
+layer: G
+owner: consultant          # Consultant builds the Goal (role-model)
+status: active             # active → done
+created_at: <YYYY-MM-DD>
+acceptance_criteria:
+  - "<top-level goal criterion 1>"
+  - "<top-level goal criterion 2>"
+---
+
+# G1: <goal title>
+
+## Background / Context
+Why this goal, what problem it solves...
+
+## Goal
+1. <sub-goal 1>
+2. <sub-goal 2>
+3. <sub-goal 3>
+
+## Confirmed Decisions
+- <decision 1>
+
+## Completion Criteria
+See frontmatter acceptance_criteria. All Specs under G1 and their Tickets must be approved.

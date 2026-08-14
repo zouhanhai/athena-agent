@@ -4,6 +4,11 @@
 > worker lifecycle (claim-progress-complete) / review / per-agent onboarding.
 > This file records **confirmed decisions** from the grill; the full protocol rewrite lives in
 > `docs/gdd/design.md`.
+>
+> **Superseded (G4.S6.T4, 2026-08-14):** D2 (kanban index commits) and D29 (done index double-commit)
+> are **obsolete** — the local board stack (kanban-index/scan/write-index) and the done-commit plugin
+> were removed; the GitHub Project panel is the only board view and Progress Log stays md-only. They
+> are kept below as historical record.
 
 ## Core premise (confirmed by user)
 

@@ -1,0 +1,46 @@
+---
+id: G1.S1.T1
+title: "G1.S1.T1: <title>"
+layer: T
+parent: G1.S1
+owner: eng-director       # Eng Director builds tickets (role-model)
+status: backlog           # backlog → in_progress → done → in_review* → approved / rejected
+assignee: ""              # set by the plugin on auto-claim
+session_id: ""            # set by the plugin on auto-claim
+priority: P1
+depends_on: []
+blocked_by: []
+acceptance_criteria:
+  - "<criteria 1>"
+pr: 0                     # collab mode only (PR number)
+branch: ""                # collab mode only
+---
+
+# G1.S1.T1 — <title>
+
+## Worker Workflow (REQUIRED — follow in order)
+
+1. **Find context**: read this ticket's parent Spec (`docs/kanban/G1/S1/Spec.md`) + Goal
+   (`docs/kanban/G1/Goal.md`).
+2. **Use codegraph MCP**: `codegraph explore "<area>"` before editing.
+3. **Use `implement` + `tdd` skills**: TDD (RED-GREEN-REFACTOR), write failing test first.
+4. **Milestone report**: add a semantic Progress Log row when a milestone is complete (e.g.
+   "implemented the shared repo selector") — not on every change. (REAL timestamps, do NOT fabricate.)
+5. **Commit convention**: feature-level English commits; `codegraph sync` after.
+6. **Verify + mark done**: tests green → set `status: done` → commit + push.
+
+## Context
+...
+
+## Task
+Implementation details...
+
+## Acceptance
+...
+
+## Notes
+...
+
+## Progress Log
+| UTC timestamp | status | progress |
+|---|---|---|

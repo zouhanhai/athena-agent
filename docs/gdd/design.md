@@ -24,7 +24,6 @@
 
 ```
 docs/kanban/
-├── kanban-index.json             ← generated fast-read board index (see §11); MUST be committed
 ├── G1/                           ← Goal 1 folder (created on launch)
 │   ├── Goal.md                   ← G1 grill output (owner: consultant) — to-spec input
 │   ├── S1/                       ← Spec 1
@@ -36,6 +35,9 @@ docs/kanban/
 ├── G2/                           ← Goal 2 (launched by another agent)
 │   └── ...
 └── templates/                    ← Goal/Spec/Ticket .md.template (copy on new-repo setup)
+
+> No kanban-index.json: the local board index was removed (G4.S6.T4); the GitHub Project panel is the
+> only board view and the md files themselves are the source of truth.
 
 docs/                              ← design documents (see §3)
 ├── G1-design.md                  ← whole-Goal design (mapped to Goal)
@@ -434,7 +436,7 @@ Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 ## 16. Roles (souls) — responsibility model, not strict role-play
 
 Six soul roles (Consultant / PM / Eng Director / Worker / Reviewer / Writer), each with duty /
-stages / output + state-machine bindings. Source of truth: `server/src/kanban/roles.ts`.
+stages / output + state-machine bindings. Source of truth: `gdd/src/kanban/roles.ts`.
 
 | Role | Duty | Stage | Output | Builds |
 |------|------|-------|--------|--------|
@@ -521,11 +523,11 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
 
 ### 19b. Trigger: when does md → GitHub sync run?
 
-1. **git hook (post-commit)** — a `hooks/post-commit` script detects new/modified
+1. **git hook (post-commit)** — `gdd/hooks/post-commit` detects new/modified
    `docs/kanban/**/Goal.md|Spec.md|T*.md` files in a commit and runs
    `sync-github create <specRef>` for each affected spec, so new tickets get their GitHub Issue
    immediately (submit-and-sync). Best-effort — a failure never blocks the commit. Install once per
-   clone: `bash scripts/install-kanban-hook.sh` (sets `git config core.hooksPath hooks`).
+   clone: `bash gdd/hooks/install-kanban-hook.sh` (sets `git config core.hooksPath gdd/hooks`).
 2. **Worker done (auto-sync)** — when a worker marks a ticket done, the OpenCode plugin auto-runs the
    sync for the parent spec so the board's Status columns move (no manual sync after every done).
 3. **Manual** — the Eng Director can run `sync-github create|sync <specRef>` anytime (e.g. right after
@@ -533,10 +535,12 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
 
 ### 19c. Credential & machine notes
 
-- The hook resolves the GitHub credential: an explicit `GITHUB_TOKEN` env → the local `gh auth token`
-  → the Postgres employee store (`DATABASE_URL`). So it works on any machine that has `gh` logged in.
-- `sync-github` imports only the lightweight employees/crypto modules (NOT `app.js`), so it has no
-  Neo4j/KB dependency and runs standalone.
+- The hook/CLI resolve the GitHub credential **LOCAL-token-first** (`gdd/src/credential.ts`): an
+  explicit token → `gh auth token` (gh CLI) → `GITHUB_TOKEN` env → the athena employee store ONLY as
+  an optional last-resort fallback when running inside athena (`DATABASE_URL`). So the flow works on
+  any machine with just `gh` logged in — no athena server / DB required.
+- `sync-github` runs standalone: the separated `gdd/` package has no athena dependency (no Neo4j/KB,
+  no employee store on a fresh machine).
 - New-ticket Issues first appear under "No Status" briefly (GitHub consistency delay — the board items
   snapshot right after `addIssueToProject` may not include the new item); the next sync moves it to its
   Status column. Cosmetic and self-healing.
@@ -559,8 +563,11 @@ either; it is a backend/dev signal (stalled detection lives in the local-desktop
 ## Reference
 
 - `docs/gdd/protocol-review.md` — the grill record (all decisions, formerly D1-D28) behind this design.
-- `server/src/kanban/protocol.ts` + `git-lock.ts` + `roles.ts` + `state-machine.ts` — the backend
-  implementations of claim/report/dispatch, git lock, role souls, state transitions.
-- `server/scripts/write-index.ts` — kanban index builder.
-- `docs/kanban/TICKET-WORKFLOW.md` — per-ticket worker workflow (opencode example).
+- `gdd/src/kanban/` — the separated protocol/sync modules: `protocol.ts` + `git-lock.ts` + `roles.ts`
+  + `state-machine.ts` implement claim/report/dispatch, git lock, role souls, state transitions;
+  `github-sync.ts` / `github-feedback.ts` implement the md → GitHub projection and the GitHub → md
+  feedback loop (see `docs/gdd/backend.md`).
+- `gdd/src/sync-github.ts` — the `sync-github` CLI (create/sync/status/pull/feedback/list).
+- `docs/gdd/README.md` + `docs/gdd/setup.md` + `docs/gdd/plugins.md` + `docs/gdd/reference.md` — the
+  handbook (adoption guide, module docs, plugin docs, concept index).
 - OpenCode plugins: https://opencode.ai/v2/docs/build/plugins
