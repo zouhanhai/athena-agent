@@ -5,8 +5,9 @@ import { fetchRepos, type GithubRepo } from "@/api/github";
 import CodeTab from "@/components/CodeTab.vue";
 import IssuesTab from "@/components/IssuesTab.vue";
 import KanbanTab from "@/components/KanbanTab.vue";
+import ProjectTab from "@/components/ProjectTab.vue";
 
-type WorkbenchTabValue = "code" | "issues" | "kanban";
+type WorkbenchTabValue = "code" | "issues" | "kanban" | "project";
 
 interface WorkbenchTab {
   value: WorkbenchTabValue;
@@ -32,6 +33,12 @@ const tabs: WorkbenchTab[] = [
     label: "Kanban",
     description:
       "Track Goals/Specs/Tickets as a board fed by the docs-scan.",
+  },
+  {
+    value: "project",
+    label: "Project",
+    description:
+      "View the selected repo's linked GitHub Project board, discuss issues and leave comments.",
   },
 ];
 
@@ -89,7 +96,7 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
     <header class="workbench-header">
       <div class="workbench-header-titles">
         <h2 class="workbench-title">Workbench</h2>
-        <span class="workbench-meta">3 GitHub-style tabs</span>
+        <span class="workbench-meta">4 GitHub-style tabs</span>
       </div>
       <div v-if="error" class="workbench-repo-error">{{ error }}</div>
       <t-select
@@ -122,8 +129,11 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
               :locate-issue-number="locateIssueNumber"
             />
           </template>
-          <template v-else>
+          <template v-else-if="tab.value === 'kanban'">
             <KanbanTab class="kanban-tab-host" :repo="selectedRepo" @open-issue="handleOpenIssue" />
+          </template>
+          <template v-else>
+            <ProjectTab class="project-tab-host" :repo="selectedRepo" @open-issue="handleOpenIssue" />
           </template>
         </div>
       </t-tab-panel>
@@ -256,6 +266,12 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
   gap: 0;
 }
 
+.tab-panel-project {
+  padding: 0;
+  justify-content: stretch;
+  gap: 0;
+}
+
 .code-tab-host {
   flex: 1;
   min-height: 0;
@@ -269,6 +285,12 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
 }
 
 .kanban-tab-host {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.project-tab-host {
   flex: 1;
   min-height: 0;
   width: 100%;

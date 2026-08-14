@@ -1,0 +1,1233 @@
+<script setup lang="ts">
+import { computed, ref, watch } from "vue";
+import { useAuthStore } from "@/stores/auth";
+import type { GithubIssue, GithubIssueComment, GithubRepo } from "@/api/github";
+import {
+  fetchGithubIssueBody,
+  fetchGithubIssueComments,
+  fetchGithubProjectBoard,
+  fetchGithubProjects,
+  postGithubIssueComment,
+  type GithubProject,
+  type GithubProjectBoard,
+  type GithubProjectCard,
+  type GithubProjectSubIssue,
+} from "@/api/kanban";
+import { renderMarkdown } from "@/kb/markdown";
+
+const props = defineProps<{ repo: GithubRepo | null }>();
+
+const emit = defineEmits<{
+  /** Local 'view in Issues' navigation: switch the Workbench to the Issues tab and locate this issue (G4.S5.T8). */
+  "open-issue": [payload: { issueNumber: number }];
+}>();
+
+const auth = useAuthStore();
+
+const hasSession = computed(() => !!auth.sessionToken);
+
+/** The synced GitHub Project board for the selected repo. */
+const projectBoard = ref<GithubProjectBoard | null>(null);
+const projectLoading = ref(false);
+const projectRefreshed = ref("");
+
+/** The repo's OPEN linked Projects, for the project selector (G4.S5.T12). */
+const projects = ref<GithubProject[]>([]);
+const projectsLoading = ref(false);
+const selectedProjectId = ref("");
+
+/** localStorage key remembering the last-chosen project (G4.S5.T12). */
+const PROJECT_SELECTION_KEY = "athena.kanban.project_id";
+
+/** Selector options: one per open linked project (label = title). */
+const projectOptions = computed(() =>
+  projects.value.map((p) => ({ label: p.title, value: p.id })),
+);
+
+/** Where the board comes from: the selected repo, or a hint when none is chosen. */
+const boardSource = computed(() => (props.repo ? props.repo.full_name : "No repository selected"));
+
+/**
+ * True for a "Spec card" — gets the brand-orange accent + segmented sub-task
+ * progress. Since G4.S5.T18 this is ANY card whose issue has sub-issues
+ * (progress.total > 0 or subIssues non-empty), not just Gx.Sy-named Specs; a
+ * Gx.Sy ref still qualifies. Ticket sub-issue cards (which have no sub-issues
+ * themselves) stay plain.
+ */
+function isSpecCard(card: GithubProjectCard): boolean {
+  return (
+    /^G\d+\.S\d+$/.test(card.ref ?? "") ||
+    card.progress.total > 0 ||
+    card.subIssues.length > 0
+  );
+}
+
+/** GitHub Project Status option name → the local kanban status key (G4.S5.T18). */
+const PROJECT_STATUS_TO_KANBAN: Record<string, string> = {
+  Backlog: "backlog",
+  "In Progress": "in_progress",
+  Done: "done",
+  "In Review": "in_review",
+  Approved: "approved",
+  Rejected: "rejected",
+  Canceled: "canceled",
+};
+
+/** The Local-kanban status color class for a GitHub Project Status, or "" (G4.S5.T18). */
+function statusColorClass(status: string | null): string {
+  const key = status ? PROJECT_STATUS_TO_KANBAN[status] : "";
+  return key ? `kanban-card-status-${key}` : "";
+}
+
+function fail(err: unknown): void {
+  error.value = err instanceof Error ? err.message : String(err);
+}
+
+const error = ref("");
+
+/** Fetch the repo's open linked Projects, then load the board for the chosen one (G4.S5.T12). */
+async function loadProjects(): Promise<void> {
+  if (!auth.sessionToken || !props.repo) {
+    projects.value = [];
+    selectedProjectId.value = "";
+    projectBoard.value = null;
+    return;
+  }
+  projectsLoading.value = true;
+  error.value = "";
+  projects.value = [];
+  selectedProjectId.value = "";
+  projectBoard.value = null;
+  try {
+    const list = await fetchGithubProjects(auth.sessionToken, props.repo.full_name);
+    projects.value = list;
+    // Default to the first open project, or the last one the user picked.
+    const saved = localStorage.getItem(PROJECT_SELECTION_KEY);
+    const remembered = list.find((p) => p.id === saved);
+    selectedProjectId.value = remembered?.id ?? list[0]?.id ?? "";
+  } catch (err) {
+    fail(err);
+  } finally {
+    projectsLoading.value = false;
+  }
+  if (selectedProjectId.value) {
+    await loadProject();
+  }
+}
+
+/** Load the board for the currently selected linked project. */
+async function loadProject(): Promise<void> {
+  if (!auth.sessionToken || !props.repo || !selectedProjectId.value) {
+    return;
+  }
+  projectLoading.value = true;
+  error.value = "";
+  try {
+    projectBoard.value = await fetchGithubProjectBoard(
+      auth.sessionToken,
+      props.repo.full_name,
+      selectedProjectId.value,
+    );
+    projectRefreshed.value = projectBoard.value.generated_at
+      ? new Date(projectBoard.value.generated_at).toLocaleTimeString()
+      : new Date().toLocaleTimeString();
+  } catch (err) {
+    fail(err);
+  } finally {
+    projectLoading.value = false;
+  }
+}
+
+/** User picked a different linked project in the selector → load that board. */
+function onProjectChange(id: string): void {
+  selectedProjectId.value = id;
+  if (id) {
+    localStorage.setItem(PROJECT_SELECTION_KEY, id);
+  }
+  void loadProject();
+}
+
+// ---------------------------------------------------------------------------
+// Local detail panel (G4.S5.T4): clicking a card opens a drawer with the
+// GitHub ISSUE BODY (title + body, same content the Issues panel shows), plus
+// the GitHub issue comment thread — no GitHub redirect. The Progress Log stays
+// in the md files (backend/dev-only) and is NOT shown in any frontend issue
+// detail (G4.S5.T16).
+// ---------------------------------------------------------------------------
+
+const detailCard = ref<DetailCard | null>(null);
+const detailIssue = ref<GithubIssue | null>(null);
+const detailComments = ref<GithubIssueComment[] | null>(null);
+const detailLoading = ref(false);
+const detailError = ref("");
+
+const newComment = ref("");
+const commentPosting = ref(false);
+const commentPostError = ref("");
+
+/**
+ * The detail panel target. A Spec card opened from the board carries its
+ * sub-issues list; a sub-issue opened from that list has none (its own tickets
+ * don't exist yet).
+ */
+type DetailCard = Pick<GithubProjectCard, "issueNumber" | "ref" | "title" | "status" | "subIssues">;
+
+/** Build the detail target for a sub-issue row (opens that ticket's own detail). */
+function subIssueCard(sub: GithubProjectSubIssue): DetailCard {
+  return { issueNumber: sub.number, ref: sub.ref, title: sub.title, status: sub.status, subIssues: [] };
+}
+
+function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+}
+
+/** Open the local detail panel for a card (or sub-issue) and load its content. */
+async function openDetail(card: DetailCard): Promise<void> {
+  detailCard.value = card;
+  detailIssue.value = null;
+  detailComments.value = null;
+  detailError.value = "";
+  commentPostError.value = "";
+  if (!auth.sessionToken || !props.repo) {
+    return;
+  }
+  detailLoading.value = true;
+  try {
+    detailIssue.value = await fetchGithubIssueBody(auth.sessionToken, props.repo.full_name, card.issueNumber);
+    detailComments.value = await fetchGithubIssueComments(
+      auth.sessionToken,
+      props.repo.full_name,
+      card.issueNumber,
+    );
+  } catch (err) {
+    detailError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function closeDetail(): void {
+  detailCard.value = null;
+  detailIssue.value = null;
+  detailComments.value = null;
+  detailError.value = "";
+  newComment.value = "";
+  commentPostError.value = "";
+}
+
+/** POST a new GitHub comment to the open issue and append it to the thread (G4.S5.T8). */
+async function postComment(): Promise<void> {
+  const target = detailCard.value;
+  const text = newComment.value.trim();
+  if (!auth.sessionToken || !props.repo || !target || !text) {
+    return;
+  }
+  commentPosting.value = true;
+  commentPostError.value = "";
+  try {
+    const comment = await postGithubIssueComment(
+      auth.sessionToken,
+      props.repo.full_name,
+      target.issueNumber,
+      text,
+    );
+    detailComments.value = [...(detailComments.value ?? []), comment];
+    newComment.value = "";
+  } catch (err) {
+    commentPostError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    commentPosting.value = false;
+  }
+}
+
+/** Re-pull the GitHub Project board. */
+function refresh(): void {
+  void loadProject();
+}
+
+/** Toolbar status line reflects the sync state. */
+const activeStatus = computed(() => {
+  if (projectLoading.value) return "Syncing from GitHub…";
+  if (projectRefreshed.value) return `Synced ${projectRefreshed.value}`;
+  return "";
+});
+
+/** Refresh button label reflects the sync state. */
+const refreshLabel = computed(() => (projectLoading.value ? "Syncing…" : "Refresh"));
+
+watch(
+  () => props.repo,
+  () => {
+    void loadProjects();
+  },
+  { immediate: true },
+);
+</script>
+
+<template>
+  <div class="project-tab">
+    <div v-if="!hasSession" class="kanban-empty">
+      <p class="kanban-empty-title">Sign in to view the GitHub Project</p>
+      <p class="kanban-empty-hint">Log in to see the selected repo's linked Project board.</p>
+    </div>
+
+    <template v-else>
+      <div class="kanban-toolbar">
+        <div class="kanban-toolbar-left">
+          <span class="kanban-source">{{ boardSource }}</span>
+          <span
+            v-if="activeStatus"
+            class="kanban-scan-status"
+            :class="{ 'kanban-refreshed': !projectLoading }"
+            aria-live="polite"
+          >
+            <span v-if="projectLoading" class="kanban-spinner" aria-hidden="true" />
+            {{ activeStatus }}
+          </span>
+        </div>
+        <div class="kanban-toolbar-right">
+          <button
+            type="button"
+            class="kanban-refresh"
+            :disabled="projectLoading"
+            @click="refresh"
+          >
+            <span v-if="projectLoading" class="kanban-spinner kanban-spinner-inline" aria-hidden="true" />
+            {{ refreshLabel }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="error" class="kanban-error">{{ error }}</div>
+
+      <div v-if="!repo" class="kanban-project-empty">
+        <p class="kanban-project-empty-title">Select a repository to view its GitHub Project</p>
+        <p class="kanban-project-empty-hint">
+          The Project tab shows the board of the selected repo's linked GitHub Project.
+        </p>
+      </div>
+      <div v-else-if="projectsLoading || (projectLoading && !projectBoard)" class="kanban-project-loading">
+        <span class="kanban-spinner" aria-hidden="true" />
+        Loading the synced board from GitHub…
+      </div>
+      <div v-else-if="projects.length === 0" class="kanban-project-empty">
+        <p class="kanban-project-empty-title">No open linked Project</p>
+        <p class="kanban-project-empty-hint">
+          This repo has no open GitHub Project linked to it.
+        </p>
+      </div>
+      <template v-else-if="projectBoard">
+        <div class="kanban-project-board">
+          <div class="kanban-project-header">
+            <div class="kanban-project-heading">
+              <span class="kanban-project-title">Project</span>
+              <t-select
+                class="kanban-project-select"
+                v-model="selectedProjectId"
+                :options="projectOptions"
+                size="small"
+                :loading="projectLoading"
+                placeholder="Select a project"
+                :aria-label="'Select the linked GitHub Project'"
+                @change="onProjectChange"
+              />
+            </div>
+            <a
+              v-if="projectBoard.project"
+              class="kanban-project-open"
+              :href="projectBoard.project.url"
+              target="_blank"
+              rel="noopener"
+            >
+              Open on GitHub ↗
+            </a>
+          </div>
+          <div v-if="projectBoard.columns.length === 0" class="kanban-project-empty">
+            <p class="kanban-project-empty-title">This Project has no cards yet</p>
+          </div>
+          <div v-else class="kanban-project-columns">
+            <section
+              v-for="column in projectBoard.columns"
+              :key="column.status"
+              class="kanban-project-column"
+            >
+              <header class="kanban-project-column-header">
+                <span class="kanban-project-column-title">{{ column.status }}</span>
+                <span class="kanban-project-column-count">{{ column.cards.length }}</span>
+              </header>
+              <div class="kanban-project-column-body">
+                <button
+                  v-for="card in column.cards"
+                  :key="card.issueNumber"
+                  type="button"
+                  class="kanban-project-card"
+                  :class="{ 'kanban-project-card-spec': isSpecCard(card) }"
+                  @click="openDetail(card)"
+                >
+                  <!-- Header: repo + Spec ref + issue id, like ABAPlorer's `owner/repo #id`. -->
+                  <span class="kanban-project-card-header">
+                    <span v-if="repo" class="kanban-project-card-repo">{{ repo.full_name }}</span>
+                    <span v-if="card.ref" class="kanban-project-card-ref">{{ card.ref }}</span>
+                    <span class="kanban-project-card-issue">#{{ card.issueNumber }}</span>
+                  </span>
+                  <span v-if="card.title" class="kanban-project-card-title">{{ card.title }}</span>
+                  <span
+                    v-if="card.status"
+                    class="kanban-project-card-status"
+                    :class="statusColorClass(card.status)"
+                  >{{ card.status }}</span>
+                  <!-- Segmented sub-task progress (G4.S5.T6): N blocks = N sub-issues,
+                       done fills a block with the brand palette (--caleo-primary), empty
+                       blocks use the theme's muted tone (--caleo-border). -->
+                  <span
+                    v-if="card.progress && card.progress.total > 0"
+                    class="kanban-spec-progress"
+                    :aria-label="`${card.progress.done} of ${card.progress.total} sub-tasks done`"
+                  >
+                    <span class="kanban-spec-progress-bar">
+                      <span
+                        v-for="i in card.progress.total"
+                        :key="i"
+                        class="kanban-spec-progress-block"
+                        :class="{ 'kanban-spec-progress-block-filled': i <= card.progress.done }"
+                        :style="{
+                          background:
+                            i <= card.progress.done
+                              ? 'var(--caleo-primary)'
+                              : 'var(--caleo-border)',
+                        }"
+                      />
+                    </span>
+                    <span class="kanban-spec-progress-text">
+                      {{ card.progress.done }} / {{ card.progress.total }} · {{ card.progress.percent }}%
+                    </span>
+                  </span>
+                  <span class="kanban-project-card-link">issue #{{ card.issueNumber }} · view details</span>
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </template>
+    </template>
+
+    <div v-if="detailCard" class="kanban-detail-overlay kanban-detail-embedded">
+      <div
+        class="kanban-detail-panel"
+        role="dialog"
+        aria-label="Spec detail"
+        @click.self="closeDetail"
+      >
+        <header class="kanban-detail-header">
+          <div class="kanban-detail-heading">
+            <span v-if="detailCard.ref" class="kanban-detail-ref">{{ detailCard.ref }}</span>
+            <span v-if="detailCard.title" class="kanban-detail-title">{{ detailCard.title }}</span>
+            <span v-if="detailCard.status" class="kanban-detail-status" :class="statusColorClass(detailCard.status)">{{ detailCard.status }}</span>
+          </div>
+          <div class="kanban-detail-header-actions">
+            <button
+              type="button"
+              class="kanban-detail-locate"
+              @click="emit('open-issue', { issueNumber: detailCard.issueNumber })"
+            >
+              View in Issues
+            </button>
+            <button type="button" class="kanban-detail-close" aria-label="Close detail" @click="closeDetail">
+              ×
+            </button>
+          </div>
+        </header>
+
+        <div v-if="detailLoading" class="kanban-detail-loading">
+          <span class="kanban-spinner" aria-hidden="true" />
+          Loading ticket details…
+        </div>
+
+        <div v-else class="kanban-detail-scroll">
+          <div v-if="detailError" class="kanban-error">{{ detailError }}</div>
+
+          <section v-if="detailIssue" class="kanban-detail-section">
+            <h4 class="kanban-detail-section-title">Issue (GitHub)</h4>
+            <div
+              v-if="detailIssue.body"
+              class="kanban-detail-description"
+              v-html="renderMarkdown(detailIssue.body)"
+            ></div>
+          </section>
+
+          <!-- Sub-issues list (G4.S5.T8): clickable rows like GitHub's Sub-issues block. -->
+          <section v-if="detailCard.subIssues.length" class="kanban-detail-section">
+            <h4 class="kanban-detail-section-title">Sub-issues ({{ detailCard.subIssues.length }})</h4>
+            <div class="kanban-detail-subissues">
+              <div
+                v-for="sub in detailCard.subIssues"
+                :key="sub.number"
+                class="kanban-detail-subissue"
+              >
+                <button
+                  type="button"
+                  class="kanban-detail-subissue-main"
+                  @click="openDetail(subIssueCard(sub))"
+                >
+                  <span class="kanban-detail-subissue-ref">{{ sub.ref }}</span>
+                  <span class="kanban-detail-subissue-title">{{ sub.title }}</span>
+                  <span
+                    class="kanban-detail-subissue-status"
+                    :class="`kanban-detail-subissue-status-${sub.status}`"
+                  >
+                    {{ sub.status }}
+                  </span>
+                  <span class="kanban-detail-subissue-number">#{{ sub.number }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="kanban-detail-subissue-locate"
+                  @click="emit('open-issue', { issueNumber: sub.number })"
+                >
+                  View in Issues
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section class="kanban-detail-section">
+            <h4 class="kanban-detail-section-title">Discussion — issue #{{ detailCard.issueNumber }}</h4>
+            <p v-if="detailComments && detailComments.length === 0" class="kanban-detail-no-comments">
+              No comments yet.
+            </p>
+            <div v-else-if="detailComments" class="kanban-detail-comments">
+              <div v-for="comment in detailComments" :key="comment.id" class="kanban-detail-comment">
+                <div class="kanban-detail-comment-head">
+                  <strong>{{ comment.user_login ?? "unknown" }}</strong>
+                  <span class="kanban-detail-comment-date">{{ formatDateTime(comment.created_at) }}</span>
+                </div>
+                <div class="kanban-detail-comment-body" v-html="renderMarkdown(comment.body)"></div>
+              </div>
+            </div>
+
+            <!-- Comment input (G4.S5.T8): POSTs a new GitHub comment, then shows it. -->
+            <div class="kanban-detail-comment-box">
+              <textarea
+                v-model="newComment"
+                class="kanban-detail-comment-input"
+                rows="3"
+                placeholder="Leave a comment"
+                aria-label="New comment"
+              ></textarea>
+              <div v-if="commentPostError" class="kanban-error">{{ commentPostError }}</div>
+              <div class="kanban-detail-comment-actions">
+                <button
+                  type="button"
+                  class="kanban-detail-comment-submit"
+                  :disabled="commentPosting || !newComment.trim()"
+                  @click="postComment"
+                >
+                  {{ commentPosting ? "Posting…" : "Post comment" }}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.project-tab {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-empty-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.kanban-empty-hint {
+  margin: 0;
+  font-size: 13px;
+}
+
+.kanban-error {
+  padding: 10px 14px;
+  margin: 12px 12px 0;
+  font-size: 13px;
+  color: var(--caleo-error);
+  background: rgba(213, 73, 65, 0.08);
+  border: 1px solid rgba(213, 73, 65, 0.3);
+  border-radius: 6px;
+}
+
+.kanban-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.kanban-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kanban-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.kanban-source {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.kanban-scan-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-refreshed {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid var(--caleo-border);
+  border-top-color: var(--caleo-primary);
+  border-radius: 50%;
+  animation: kanban-spin 0.7s linear infinite;
+}
+
+.kanban-spinner-inline {
+  vertical-align: -2px;
+}
+
+@keyframes kanban-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.kanban-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--caleo-text);
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.kanban-refresh:hover:not(:disabled) {
+  border-color: var(--caleo-primary);
+  color: var(--caleo-primary);
+}
+
+.kanban-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.kanban-project-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-project-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.kanban-project-empty-hint {
+  margin: 0;
+  font-size: 13px;
+}
+
+.kanban-project-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  font-size: 13px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-project-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban-project-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+/* Project selector (G4.S5.T12): label + dropdown above the board. */
+.kanban-project-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kanban-project-select {
+  min-width: 240px;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+/* Show the full project title in the dropdown option — TDesign truncates with
+   ellipsis by default, which cut "zouhanhai/athena-agent" to "Pro..." (G4.S5.17). */
+.kanban-project-select .t-select__selection-item,
+.kanban-project-select .t-select__option {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.kanban-project-title {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--caleo-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-project-open {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--caleo-primary);
+  text-decoration: none;
+}
+
+.kanban-project-open:hover {
+  text-decoration: underline;
+}
+
+.kanban-project-columns {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  padding: 12px 14px;
+  overflow: auto;
+}
+
+.kanban-project-column {
+  display: flex;
+  flex-direction: column;
+  background: rgba(127, 127, 127, 0.06);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  min-height: 0;
+}
+
+.kanban-project-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.kanban-project-column-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--caleo-text);
+}
+
+.kanban-project-column-count {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 999px;
+}
+
+.kanban-project-column-body {
+  flex: 1;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.kanban-project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  font: inherit;
+  text-align: left;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kanban-project-card:hover {
+  border-color: var(--caleo-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+/* Brand-orange accent on Spec cards (G4.S5.T9): a Spec (issue) card is
+   distinguished from a plain ticket sub-issue card at a glance. Theme-adaptive
+   via the CSS-variable system: the tint is subtle in light mode and a readable
+   brighter accent in dark mode; the left border is the brand orange in both. */
+.kanban-project-card-spec {
+  border-left: 3px solid var(--caleo-primary);
+  background: var(--caleo-primary-tint);
+}
+
+.kanban-project-card-ref {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--caleo-primary);
+}
+
+/* Card header (G4.S5.T6): repo + Spec ref + issue id on one line. */
+.kanban-project-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kanban-project-card-repo {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--caleo-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-project-card-issue {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+/* Segmented sub-task progress bar (G4.S5.T6) — brand palette, theme-adaptive. */
+.kanban-spec-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kanban-spec-progress-bar {
+  display: flex;
+  gap: 3px;
+}
+
+.kanban-spec-progress-block {
+  flex: 1 1 0;
+  height: 6px;
+  min-width: 4px;
+  border-radius: 2px;
+}
+
+.kanban-spec-progress-text {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-project-card-title {
+  font-size: 13px;
+  color: var(--caleo-text);
+}
+
+.kanban-project-card-status {
+  align-self: flex-start;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 999px;
+}
+
+.kanban-project-card-link {
+  font-size: 11px;
+  color: var(--caleo-primary);
+}
+
+/* Local detail panel (G4.S5.T4): GitHub issue body + comments, no redirect.
+   G4.S5.T8: EMBEDDED inside the Project tab (position: absolute within the
+   relative .project-tab) so it covers only the Project area — the fixed
+   right-side Chat panel stays visible and usable (no full-screen overlay). */
+.kanban-detail-embedded {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(520px, 68%);
+  max-width: 100%;
+}
+
+.kanban-detail-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--caleo-surface);
+  border-left: 1px solid var(--caleo-border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+.kanban-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.kanban-detail-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kanban-detail-locate,
+.kanban-detail-subissue-locate {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--caleo-primary);
+  background: transparent;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kanban-detail-locate:hover,
+.kanban-detail-subissue-locate:hover {
+  background: rgba(127, 127, 127, 0.08);
+  border-color: var(--caleo-primary);
+}
+
+.kanban-detail-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kanban-detail-ref {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--caleo-primary);
+}
+
+.kanban-detail-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.kanban-detail-status {
+  align-self: flex-start;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 999px;
+}
+
+.kanban-detail-close {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--caleo-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.kanban-detail-close:hover {
+  color: var(--caleo-text);
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.kanban-detail-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  font-size: 13px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.kanban-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kanban-detail-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-detail-description {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--caleo-text);
+}
+
+.kanban-detail-description :deep(pre) {
+  padding: 8px 10px;
+  background: rgba(127, 127, 127, 0.08);
+  border-radius: 6px;
+  overflow: auto;
+}
+
+/* Sub-issues list (G4.S5.T8): a GitHub Sub-issues-style block. */
+.kanban-detail-subissues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kanban-detail-subissue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(127, 127, 127, 0.06);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+}
+
+.kanban-detail-subissue-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.kanban-detail-subissue-main:hover .kanban-detail-subissue-title {
+  color: var(--caleo-primary);
+}
+
+.kanban-detail-subissue-ref {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--caleo-primary);
+}
+
+.kanban-detail-subissue-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--caleo-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-detail-subissue-status {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--caleo-text-secondary);
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 999px;
+}
+
+.kanban-detail-subissue-status-done {
+  color: #1f2328;
+  background: #2da44e;
+}
+
+.kanban-detail-subissue-number {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--caleo-text-secondary);
+}
+
+/* Comment input (G4.S5.T8): POSTs a new GitHub comment from the panel. */
+.kanban-detail-comment-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.kanban-detail-comment-input {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--caleo-text);
+  background: var(--caleo-body-bg);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.kanban-detail-comment-input:focus {
+  outline: none;
+  border-color: var(--caleo-primary);
+}
+
+.kanban-detail-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.kanban-detail-comment-submit {
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: var(--caleo-primary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.kanban-detail-comment-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.kanban-detail-no-comments {
+  margin: 0;
+  font-size: 13px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-detail-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kanban-detail-comment {
+  padding: 8px 10px;
+  background: rgba(127, 127, 127, 0.06);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+}
+
+.kanban-detail-comment-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--caleo-text);
+}
+
+.kanban-detail-comment-date {
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
+}
+
+.kanban-detail-comment-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--caleo-text);
+}
+</style>

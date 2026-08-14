@@ -65,7 +65,7 @@ describe("workbench page", () => {
     wrapper.unmount();
   });
 
-  it("renders the 3 GitHub-style tabs Code / Issues / Kanban", async () => {
+  it("renders the 4 GitHub-style tabs Code / Issues / Kanban / Project", async () => {
     const wrapper = await mountApp();
     await router.push("/workbench");
     await waitForRoute("/workbench");
@@ -74,6 +74,7 @@ describe("workbench page", () => {
     expect(labels.some((text) => text.includes("Code"))).toBe(true);
     expect(labels.some((text) => text.includes("Issues"))).toBe(true);
     expect(labels.some((text) => text.includes("Kanban"))).toBe(true);
+    expect(labels.some((text) => text.includes("Project"))).toBe(true);
     wrapper.unmount();
   });
 
@@ -85,6 +86,7 @@ describe("workbench page", () => {
     expect(wrapper.find(".tab-panel-code").exists()).toBe(true);
     expect(wrapper.find(".tab-panel-issues").exists()).toBe(false);
     expect(wrapper.find(".tab-panel-kanban").exists()).toBe(false);
+    expect(wrapper.find(".tab-panel-project").exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -112,6 +114,20 @@ describe("workbench page", () => {
     await kanban!.trigger("click");
     await flushPromises();
     expect(wrapper.find(".tab-panel-kanban").exists()).toBe(true);
+    expect(wrapper.find(".tab-panel-code").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("switches to the Project tab when clicked", async () => {
+    const wrapper = await mountApp();
+    await router.push("/workbench");
+    await waitForRoute("/workbench");
+    await flushPromises();
+    const project = tabByText(wrapper, "Project");
+    expect(project).toBeDefined();
+    await project!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".tab-panel-project").exists()).toBe(true);
     expect(wrapper.find(".tab-panel-code").exists()).toBe(false);
     wrapper.unmount();
   });

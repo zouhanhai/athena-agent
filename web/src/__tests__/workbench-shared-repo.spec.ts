@@ -8,6 +8,7 @@ import WorkbenchView from "@/views/WorkbenchView.vue";
 import CodeTab from "@/components/CodeTab.vue";
 import IssuesTab from "@/components/IssuesTab.vue";
 import KanbanTab from "@/components/KanbanTab.vue";
+import ProjectTab from "@/components/ProjectTab.vue";
 import {
   fetchRepos,
   fetchBranches,
@@ -197,7 +198,7 @@ describe("Workbench shared repo selector", () => {
     wrapper.unmount();
   });
 
-  it("drives Code, Issues and Kanban from the single selection", async () => {
+  it("drives Code, Issues, Kanban and Project from the single selection", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountWorkbench();
 
@@ -216,6 +217,11 @@ describe("Workbench shared repo selector", () => {
 
     await openTab(wrapper, "Kanban");
     expect(wrapper.findComponent(KanbanTab).props("repo")).toMatchObject({
+      full_name: "zouhanhai/athena-agent",
+    });
+
+    await openTab(wrapper, "Project");
+    expect(wrapper.findComponent(ProjectTab).props("repo")).toMatchObject({
       full_name: "zouhanhai/athena-agent",
     });
     wrapper.unmount();
@@ -239,16 +245,14 @@ describe("Workbench shared repo selector", () => {
     wrapper.unmount();
   });
 
-  it("a Kanban 'view in Issues' action switches to the Issues tab and opens that issue (G4.S5.T8)", async () => {
+  it("a Project 'view in Issues' action switches to the Issues tab and opens that issue (G4.S5.T8)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountWorkbench();
 
     await headerSelect(wrapper)!.vm.$emit("update:modelValue", "zouhanhai/athena-agent");
     await flushPromises();
-    await openTab(wrapper, "Kanban");
+    await openTab(wrapper, "Project");
 
-    await wrapper.find(".kanban-view-toggle-github").trigger("click");
-    await flushPromises();
     await wrapper.find(".kanban-project-card").trigger("click");
     await flushPromises();
 
@@ -257,7 +261,7 @@ describe("Workbench shared repo selector", () => {
 
     // Local navigation: the Workbench switched to the Issues tab (not a GitHub redirect).
     expect(wrapper.find(".tab-panel-issues").exists()).toBe(true);
-    expect(wrapper.find(".tab-panel-kanban").exists()).toBe(false);
+    expect(wrapper.find(".tab-panel-project").exists()).toBe(false);
     // IssuesTab located + opened the target issue.
     expect(fetchIssuesMock).toHaveBeenLastCalledWith("tok_1", "zouhanhai", "athena-agent", "all");
     expect(wrapper.find('.issue-row[data-number="1"]').classes()).toContain("issue-row-located");
