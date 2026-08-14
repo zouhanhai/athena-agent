@@ -32,9 +32,7 @@ export {
 export type { BoardRef, BoardFile, ParsedBoardFile, TicketDocument } from "./board.js";
 export {
   scanBoard,
-  scanRemoteBoard,
   defaultBoardRoot,
-  FileBoardScanner,
 } from "./scan.js";
 export type {
   KanbanBoard,
@@ -42,28 +40,10 @@ export type {
   BoardSpec,
   BoardTicket,
   BoardError,
-  BoardScanner,
-  RemoteBoardSource,
   ScanOptions,
 } from "./scan.js";
 export { parseProgressLog } from "./progress.js";
 export type { ProgressLogEntry } from "./progress.js";
-export {
-  INDEX_VERSION,
-  INDEX_FILENAME,
-  toIndex,
-  indexFilePath,
-  readIndexFile,
-  buildIndexFile,
-  FileKanbanIndex,
-} from "./index-file.js";
-export type {
-  KanbanIndex,
-  KanbanIndexGoal,
-  KanbanIndexSpec,
-  KanbanIndexTicket,
-  KanbanIndexService,
-} from "./index-file.js";
 export {
   PlanningError,
   goalId,

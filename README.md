@@ -78,19 +78,18 @@ passes). Downstream: llm_wiki (interlinked markdown KB) + retrieval routing.
 
 ### G3 — Multi-agent federation + team workbench
 Agent registry (PG: alias/owner/logo/capabilities/MCP), employee identity + RBAC + per-user GitHub
-credentials, a global shared Chat panel, a GitHub-style Workbench (Code / Issues / Kanban tabs), and an
-Uploads page (per-system ingest stages + chunk progress). Git-driven development protocol
-(worker-agnostic 6-role lifecycle).
+credentials, a global shared Chat panel, a GitHub-style Workbench (Code / Issues / Project tabs — the
+GitHub Project panel is the only board view), and an Uploads page (per-system ingest stages + chunk
+progress). Git-driven development protocol (worker-agnostic 6-role lifecycle).
 
 ### G4 — KB intelligence, RAG self-build & agent collaboration
 - **Kanban = git repo** — `docs/kanban/` (Goals → Specs → Tickets) is the source of truth; agents
-  write tickets directly.
+  write tickets directly. GDD = md (source) + md↔GitHub sync + Progress Log/stalled (md-level).
 - **Auto-claim plugin** (G4.S4) — an OpenCode plugin auto-claims on a worker's first tool call
-  (status/assignee/session_id + kanban-index regen, one commit), appends **Progress Log** rows (real
-  UTC), and on `done` regenerates + commits the index as a **separate commit** (`session.idle` event).
+  (status/assignee/session_id + claim row, one commit) and appends **Progress Log** rows (real UTC).
   Workers never manually claim. Plugin deploys from the GLOBAL opencode dir (`~/.config/opencode/plugins/`).
-- **Worker progress** is readable from the ticket file (last Progress Log row → "updated Xs ago" +
-  stalled flag on the Kanban board).
+- **Worker progress** is readable from the ticket file (last Progress Log row → the plan agent reads
+  the md locally to detect stalled workers).
 - **AGENTS.md** is the worker protocol; `docs/kanban/TICKET-WORKFLOW.md` is the full workflow.
 - **RAG self-build** (G4.S2): Neo4j 2026 lean store replaces LightRAG — vector + BM25 + graph + topic
   fusion, cross-encoder rerank, case-insensitive node lookup.

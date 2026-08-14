@@ -8,8 +8,8 @@
  * mutual-exclusion lock, exactly once per session even under concurrent tool
  * calls), appends Progress Log rows with REAL wall-clock UTC timestamps
  * (rate-limited + callID-deduped so one tool call appends at most one row),
- * and on `session.idle` regenerates + commits the kanban index as a SEPARATE
- * commit when the claimed ticket is `done` (done double-commit, D29).
+ * and on `session.idle` runs the md → GitHub auto-sync for the ticket's parent
+ * Spec when the claimed ticket is `done` (G4.S5.T10).
  *
  * Plugin contract (opencode classic plugin API): default export { id, server }.
  * The types are declared structurally to keep the plugin self-contained and
@@ -22,7 +22,6 @@ import { readTicketFile } from "../../server/src/kanban/board.js";
 import { parseTicketRef } from "./ticket-ref.js";
 import { claimTicketWithIndex, ClaimConflictError } from "./claim.js";
 import { ProgressAppender } from "./progress-log.js";
-import { commitDoneIndex } from "./done-commit.js";
 import {
   specRefFromTicketRef,
   syncSpecOnDone,
@@ -229,12 +228,10 @@ export function createWorkerHooks(
       await appender.append(s.ref, "in_progress", `ran ${input.tool}`);
     },
 
-    // Done double-commit (D29): when the claimed ticket is marked done, the
-    // session.idle event triggers a SEPARATE kanban-index commit (fallback so
-    // the board stays current even if the worker forgets to regen the index).
-    // After the commit, the md → GitHub sync runs for the ticket's parent Spec
-    // (G4.S5.T10) so the GitHub board's Status column updates automatically —
-    // best-effort, a sync failure never blocks or rolls back the index commit.
+    // md → GitHub auto-sync on done (G4.S5.T10): when the claimed ticket is
+    // done, session.idle runs the sync for the ticket's parent Spec so the
+    // GitHub board's Status columns update automatically — best-effort, a sync
+    // failure is logged and never blocks the idling session.
     event: async (input) => {
       const evt = input.event;
       if (!evt || evt.type !== "session.idle") return;
@@ -243,25 +240,11 @@ export function createWorkerHooks(
       const s = sessions.get(sessionID);
       if (!s?.ref || !s.claimed) return;
       if (!(await isAthenaRepo(repoDir))) return;
-      try {
-        await commitDoneIndex({ repoDir, boardRoot, ref: s.ref, sessionId: sessionID });
-      } catch (err) {
-        // Never let a plugin failure crash the idling session.
-        await ctx.client.app.log({
-          body: {
-            service: "athena.worker",
-            level: "error",
-            message: `done-index commit failed for ${s.ref}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          },
-        });
-      }
       let ticketStatus = "";
       try {
         ticketStatus = (await readTicketFile(boardRoot, s.ref)).ticket.status;
       } catch {
-        // Unreadable ticket file — the index commit already landed; skip the sync.
+        // Unreadable ticket file — nothing to sync.
         return;
       }
       if (ticketStatus !== "done") return;
@@ -270,7 +253,7 @@ export function createWorkerHooks(
       try {
         await syncSpec({ repoDir, boardRoot, specRef });
       } catch (err) {
-        // Best-effort: log the failure, never block or roll back the done flow.
+        // Best-effort: log the failure, never block the idling session.
         await ctx.client.app.log({
           body: {
             service: "athena.worker",

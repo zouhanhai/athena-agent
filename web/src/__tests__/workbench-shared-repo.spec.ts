@@ -7,7 +7,6 @@ import "tdesign-vue-next/es/style/index.css";
 import WorkbenchView from "@/views/WorkbenchView.vue";
 import CodeTab from "@/components/CodeTab.vue";
 import IssuesTab from "@/components/IssuesTab.vue";
-import KanbanTab from "@/components/KanbanTab.vue";
 import ProjectTab from "@/components/ProjectTab.vue";
 import {
   fetchRepos,
@@ -18,9 +17,9 @@ import {
   fetchIssues,
   fetchIssueDetail,
 } from "@/api/github";
-import { fetchBoard, fetchGithubIssueBody, fetchGithubProjectBoard, fetchGithubIssueComments, fetchGithubProjects } from "@/api/kanban";
+import { fetchGithubIssueBody, fetchGithubProjectBoard, fetchGithubIssueComments, fetchGithubProjects } from "@/api/kanban";
 import type { GithubRepo, GithubIssue, GithubIssueComment } from "@/api/github";
-import type { GithubProjectBoard, KanbanIndex } from "@/api/kanban";
+import type { GithubProjectBoard } from "@/api/kanban";
 
 vi.mock("@/api/github", () => ({
   fetchRepos: vi.fn(),
@@ -33,13 +32,11 @@ vi.mock("@/api/github", () => ({
 }));
 
 vi.mock("@/api/kanban", () => ({
-  fetchBoard: vi.fn(),
   fetchGithubProjectBoard: vi.fn(),
   fetchGithubProjects: vi.fn(),
   fetchGithubIssueBody: vi.fn(),
   fetchGithubIssueComments: vi.fn(),
   postGithubIssueComment: vi.fn(),
-  TICKET_STATUSES: ["backlog", "in_progress", "done", "in_review", "approved", "rejected"],
 }));
 
 const fetchReposMock = fetchRepos as unknown as ReturnType<typeof vi.fn>;
@@ -49,7 +46,6 @@ const fetchFileContentMock = fetchFileContent as unknown as ReturnType<typeof vi
 const fetchCommitsMock = fetchCommits as unknown as ReturnType<typeof vi.fn>;
 const fetchIssuesMock = fetchIssues as unknown as ReturnType<typeof vi.fn>;
 const fetchIssueDetailMock = fetchIssueDetail as unknown as ReturnType<typeof vi.fn>;
-const fetchBoardMock = fetchBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectBoardMock = fetchGithubProjectBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectsMock = fetchGithubProjects as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubIssueBodyMock = fetchGithubIssueBody as unknown as ReturnType<typeof vi.fn>;
@@ -147,12 +143,6 @@ describe("Workbench shared repo selector", () => {
     fetchTreeMock.mockResolvedValue([]);
     fetchFileContentMock.mockResolvedValue({ path: "a.ts", sha: "s", size: 1, content: "x" });
     fetchCommitsMock.mockResolvedValue([]);
-    fetchBoardMock.mockResolvedValue({
-      version: 1,
-      generated_at: "2026-08-13T16:00:00Z",
-      goals: [],
-      errors: [],
-    } satisfies KanbanIndex);
     fetchGithubProjectBoardMock.mockResolvedValue(PROJECT_BOARD);
     fetchGithubProjectsMock.mockResolvedValue([
       { id: "PVT_1", title: "athena-agent", number: 3, url: "https://github.com/zouhanhai/athena-agent/projects/3" },
@@ -198,7 +188,7 @@ describe("Workbench shared repo selector", () => {
     wrapper.unmount();
   });
 
-  it("drives Code, Issues, Kanban and Project from the single selection", async () => {
+  it("drives Code, Issues and Project from the single selection", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountWorkbench();
 
@@ -212,11 +202,6 @@ describe("Workbench shared repo selector", () => {
 
     await openTab(wrapper, "Issues");
     expect(wrapper.findComponent(IssuesTab).props("repo")).toMatchObject({
-      full_name: "zouhanhai/athena-agent",
-    });
-
-    await openTab(wrapper, "Kanban");
-    expect(wrapper.findComponent(KanbanTab).props("repo")).toMatchObject({
       full_name: "zouhanhai/athena-agent",
     });
 

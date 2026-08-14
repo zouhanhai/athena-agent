@@ -4,10 +4,9 @@ import { useAuthStore } from "@/stores/auth";
 import { fetchRepos, type GithubRepo } from "@/api/github";
 import CodeTab from "@/components/CodeTab.vue";
 import IssuesTab from "@/components/IssuesTab.vue";
-import KanbanTab from "@/components/KanbanTab.vue";
 import ProjectTab from "@/components/ProjectTab.vue";
 
-type WorkbenchTabValue = "code" | "issues" | "kanban" | "project";
+type WorkbenchTabValue = "code" | "issues" | "project";
 
 interface WorkbenchTab {
   value: WorkbenchTabValue;
@@ -29,12 +28,6 @@ const tabs: WorkbenchTab[] = [
       "View issues as a GitHub-style list with open/closed state, labels and assignees.",
   },
   {
-    value: "kanban",
-    label: "Kanban",
-    description:
-      "Track Goals/Specs/Tickets as a board fed by the docs-scan.",
-  },
-  {
     value: "project",
     label: "Project",
     description:
@@ -46,7 +39,7 @@ const auth = useAuthStore();
 
 const activeTab = ref<WorkbenchTabValue>("code");
 
-/** Issue to locate when the Issues tab opens (set by a Kanban 'view in Issues' action, G4.S5.T8). */
+/** Issue to locate when the Issues tab opens (set by a Project 'view in Issues' action, G4.S5.T8). */
 const locateIssueNumber = ref<number | null>(null);
 
 const repos = ref<GithubRepo[]>([]);
@@ -82,7 +75,7 @@ onMounted(() => {
 });
 
 /**
- * A Kanban detail 'view in Issues' action (G4.S5.T8): switch to the Issues tab
+ * A Project detail 'view in Issues' action (G4.S5.T8): switch to the Issues tab
  * and locate that issue — local navigation, never a GitHub redirect.
  */
 function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
@@ -96,7 +89,7 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
     <header class="workbench-header">
       <div class="workbench-header-titles">
         <h2 class="workbench-title">Workbench</h2>
-        <span class="workbench-meta">4 GitHub-style tabs</span>
+        <span class="workbench-meta">3 GitHub-style tabs</span>
       </div>
       <div v-if="error" class="workbench-repo-error">{{ error }}</div>
       <t-select
@@ -128,9 +121,6 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
               :repo="selectedRepo"
               :locate-issue-number="locateIssueNumber"
             />
-          </template>
-          <template v-else-if="tab.value === 'kanban'">
-            <KanbanTab class="kanban-tab-host" :repo="selectedRepo" @open-issue="handleOpenIssue" />
           </template>
           <template v-else>
             <ProjectTab class="project-tab-host" :repo="selectedRepo" @open-issue="handleOpenIssue" />
@@ -260,12 +250,6 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
   gap: 0;
 }
 
-.tab-panel-kanban {
-  padding: 0;
-  justify-content: stretch;
-  gap: 0;
-}
-
 .tab-panel-project {
   padding: 0;
   justify-content: stretch;
@@ -279,12 +263,6 @@ function handleOpenIssue({ issueNumber }: { issueNumber: number }): void {
 }
 
 .issues-tab-host {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-}
-
-.kanban-tab-host {
   flex: 1;
   min-height: 0;
   width: 100%;

@@ -15,8 +15,6 @@ import { registerInvitationRoutes } from "./routes/invitations.js";
 import { defaultSecretCipher, type SecretCipher } from "./employees/crypto.js";
 import { GithubRestClient, type GitHubApi } from "./github/client.js";
 import { MemoryGithubOpStore, type GithubOpStore } from "./github/ops.js";
-import { defaultBoardRoot } from "./kanban/scan.js";
-import { FileKanbanIndex, type KanbanIndexService } from "./kanban/index-file.js";
 import {
   MemoryAgentRegistry,
   PostgresAgentRegistry,
@@ -94,8 +92,6 @@ export interface BuildAppOptions {
   auth?: AuthService;
   github?: GitHubApi;
   ops?: GithubOpStore;
-  /** Kanban root index service (fast read + rescan/rebuild). Default: FileKanbanIndex. */
-  index?: KanbanIndexService;
   cipher?: SecretCipher;
   invitations?: InvitationService;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
@@ -281,11 +277,6 @@ export function defaultGithubClient(): GitHubApi {
   return new GithubRestClient();
 }
 
-/** Default kanban root index: reads/rebuilds docs/kanban/kanban-index.json. */
-export function defaultKanbanIndex(): KanbanIndexService {
-  return new FileKanbanIndex(defaultBoardRoot());
-}
-
 /** Default auth token store: Postgres when DATABASE_URL is set, else in-memory. */
 export function defaultAuthTokenStore(): AuthTokenStore {
   const connectionString = process.env.DATABASE_URL;
@@ -359,7 +350,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const auth = options.auth ?? defaultAuthService(employees, tokens);
   const github = options.github ?? defaultGithubClient();
   const ops = options.ops ?? new MemoryGithubOpStore();
-  const index = options.index ?? defaultKanbanIndex();
   const invitations = options.invitations ?? defaultInvitationService(employees, tokens!);
   const review = options.review ?? defaultReviewService();
   const feedback = options.feedback ?? defaultFeedbackService();
@@ -434,7 +424,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerChatRoutes(app, { manager });
   registerEmployeeRoutes(app, { employees, auth, agents: registry });
   registerGithubRoutes(app, { employees, auth, github, ops });
-  registerKanbanRoutes(app, { index, auth, employees, github });
+  registerKanbanRoutes(app, { auth, employees, github });
   registerInvitationRoutes(app, { invitations, auth });
   registerKbRoutes(app, {
     ingest: options.ingest ?? defaultIngestService(),

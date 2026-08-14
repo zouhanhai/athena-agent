@@ -13,7 +13,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { refToPath, readBoardFile } from "./board.js";
-import { buildIndexFile, indexFilePath } from "./index-file.js";
 import {
   claimTicket,
   reportTicket,
@@ -36,12 +35,6 @@ export interface GitClaimLockOptions {
   repoDir: string;
   /** Board root; defaults to <repoDir>/docs/kanban. */
   boardRoot?: string;
-  /**
-   * Regenerate the kanban root index (docs/kanban/kanban-index.json) and commit
-   * it together with the claim, in the SAME commit (git-kanban-design.md §11:
-   * "the plugin regenerates + commits the kanban index together with the claim").
-   */
-  commitIndexOnClaim?: boolean;
 }
 
 const MAX_PUSH_ATTEMPTS = 3;
@@ -59,12 +52,10 @@ const AUTHOR = { name: "opencode", email: "opencode@athena" };
 export class GitClaimLock {
   private readonly repoDir: string;
   private readonly boardRoot: string;
-  private readonly commitIndexOnClaim: boolean;
 
   constructor(options: GitClaimLockOptions) {
     this.repoDir = options.repoDir;
     this.boardRoot = options.boardRoot ?? path.join(options.repoDir, "docs", "kanban");
-    this.commitIndexOnClaim = options.commitIndexOnClaim ?? false;
   }
 
   private async git(args: string[]): Promise<string> {
@@ -110,12 +101,7 @@ export class GitClaimLock {
     const file = refToPath(ref, this.boardRoot);
     for (let attempts = 0; ; attempts++) {
       const result = await claimTicket(this.boardRoot, ref, input);
-      const files = [file];
-      if (this.commitIndexOnClaim) {
-        await buildIndexFile(this.boardRoot);
-        files.push(indexFilePath(this.boardRoot));
-      }
-      await this.commitFiles(files, `claim ${ref} (in_progress)`);
+      await this.commitFile(file, `claim ${ref} (in_progress)`);
       try {
         await this.git(["push", "origin", await this.branch()]);
         return result;

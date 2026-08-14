@@ -10,7 +10,6 @@
     "start": "tsx src/index.ts",
     "verify": "tsx src/agents/verify-agent.ts",
     "logos:generate": "tsx scripts/generate-logos.ts",
-    "kanban:index": "tsx scripts/write-index.ts",
     "sync:github": "tsx scripts/sync-github.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",

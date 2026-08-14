@@ -9,15 +9,7 @@ import {
 } from "../src/employees/auth.js";
 import { createSecretCipher } from "../src/employees/crypto.js";
 import { MemoryEmployeeRegistry, type GithubCredential } from "../src/employees/employees.js";
-import { renderBoardMd } from "../src/kanban/frontmatter.js";
-import type { RemoteBoardSource } from "../src/kanban/scan.js";
-import {
-  FileKanbanIndex,
-  defaultBoardRoot,
-  type KanbanIndex,
-  type KanbanIndexService,
-} from "../src/kanban/index-file.js";
-import type { GithubFileContent, GithubTreeEntry, GitHubApi } from "../src/github/client.js";
+import type { GitHubApi } from "../src/github/client.js";
 import { GithubAuthError } from "../src/github/client.js";
 import type { GithubIssue, GithubIssueComment, GithubProject, GithubProjectItem } from "../src/github/client.js";
 import type { GithubProjectBoard } from "../src/kanban/github-sync.js";
@@ -35,73 +27,11 @@ function tokenFromUrl(url: string): string {
   return decodeURIComponent(match[1]);
 }
 
-const INDEX_SAMPLE: KanbanIndex = {
-  version: 1,
-  generated_at: "2026-08-09T16:00:00Z",
-  goals: [
-    {
-      ref: "G1",
-      id: "g1",
-      title: "G1: goal",
-      owner: "consultant",
-      status: "active",
-      milestone: "M3",
-      specs: [
-        {
-          ref: "G1.S1",
-          id: "g1_s1",
-          title: "G1.S1: spec",
-          owner: "pm",
-          status: "active",
-          milestone: "M3",
-          tickets: [
-            {
-              ref: "G1.S1.T1",
-              id: "t1",
-              title: "G1.S1.T1: ticket",
-              owner: "eng-director",
-              status: "done",
-              assignee: "opencode",
-              session_id: "ses_x",
-              blocked_by: [],
-              acceptance_criteria: ["works"],
-              progress_last_row: "Implemented the board",
-              progress_updated_at: "2026-08-09T15:50:00Z",
-            },
-          ],
-        },
-      ],
-    },
-  ],
-  errors: [],
-};
-
-class FakeKanbanIndex implements KanbanIndexService {
-  readonly reads: number[] = [];
-  readonly rescans: number[] = [];
-  constructor(private readonly result: KanbanIndex | Error) {}
-  async read(): Promise<KanbanIndex> {
-    this.reads.push(1);
-    if (this.result instanceof Error) {
-      throw this.result;
-    }
-    return this.result;
-  }
-  async rescan(): Promise<KanbanIndex> {
-    this.rescans.push(1);
-    if (this.result instanceof Error) {
-      throw this.result;
-    }
-    return this.result;
-  }
-}
-
 let app: FastifyInstance;
 let sent: SentMail[];
 
 /** Build a fresh app with its own registry/auth so closing one never affects another. */
 function makeApp(
-  index?: KanbanIndexService,
   github?: GitHubApi,
   employees?: MemoryEmployeeRegistry,
 ): FastifyInstance {
@@ -125,7 +55,7 @@ function makeApp(
     tokens: new MemoryAuthTokenStore(),
     appBaseUrl: "http://localhost:5173",
   });
-  return buildApp({ employees: registry, auth, index, github });
+  return buildApp({ employees: registry, auth, github });
 }
 
 beforeEach(async () => {
@@ -151,217 +81,12 @@ function bearer(sessionToken: string): Record<string, string> {
   return { authorization: `Bearer ${sessionToken}` };
 }
 
-test("GET /api/kanban requires authentication", async () => {
-  const res = await app.inject({ method: "GET", url: "/api/kanban" });
-  assert.equal(res.statusCode, 401);
-});
-
-test("GET /api/kanban serves the root index without scanning", async () => {
-  const index = new FakeKanbanIndex(INDEX_SAMPLE);
-  await app.close();
-  app = makeApp(index);
-  const sessionToken = await login("alice@caleo.com");
-
-  const res = await app.inject({ method: "GET", url: "/api/kanban", headers: bearer(sessionToken) });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), INDEX_SAMPLE);
-  assert.equal(index.reads.length, 1, "the fast path must read the index");
-  assert.equal(index.rescans.length, 0, "a plain GET must not rescan");
-});
-
-test("GET /api/kanban?rescan=1 forces a rescan and rebuilds the index", async () => {
-  const index = new FakeKanbanIndex(INDEX_SAMPLE);
-  await app.close();
-  app = makeApp(index);
-  const sessionToken = await login("alice@caleo.com");
-
-  const res = await app.inject({
-    method: "GET",
-    url: "/api/kanban?rescan=1",
-    headers: bearer(sessionToken),
-  });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), INDEX_SAMPLE);
-  assert.equal(index.rescans.length, 1, "rescan=1 must rebuild the index");
-  assert.equal(index.reads.length, 0);
-});
-
-test("GET /api/kanban surfaces an index read failure as 500", async () => {
-  const failing = new FakeKanbanIndex(new Error("disk read failed"));
-  await app.close();
-  app = makeApp(failing);
-  const sessionToken = await login("alice@caleo.com");
-
-  const res = await app.inject({ method: "GET", url: "/api/kanban", headers: bearer(sessionToken) });
-  assert.equal(res.statusCode, 500);
-  assert.match(res.json().error, /disk read failed/);
-});
-
-test("GET /api/kanban with the default index reads the real repo board", async () => {
-  await app.close();
-  app = makeApp(new FileKanbanIndex(defaultBoardRoot()));
-  const sessionToken = await login("alice@caleo.com");
-
-  const res = await app.inject({ method: "GET", url: "/api/kanban", headers: bearer(sessionToken) });
-  assert.equal(res.statusCode, 200);
-  const body = res.json() as KanbanIndex;
-  assert.equal(body.version, 1);
-  assert.ok(body.generated_at, "the index must carry a generated_at timestamp");
-  assert.ok(body.goals.some((g) => g.ref === "G3"), "default index should surface G3");
-  const s6 = body.goals.find((g) => g.ref === "G3")?.specs.find((s) => s.ref === "G3.S6");
-  assert.ok(s6, "G3.S6 must appear");
-});
-
-/** Remote board source backed by an in-memory docs/kanban tree + contents. */
-class FakeRemoteGithub implements RemoteBoardSource {
-  readonly treeFetches: GithubCredential[] = [];
-  constructor(
-    private readonly tree: GithubTreeEntry[],
-    private readonly contents: Record<string, string>,
-  ) {}
-  async listTree(
-    credential: GithubCredential,
-    _owner: string,
-    _repo: string,
-    _ref?: string,
-  ): Promise<GithubTreeEntry[]> {
-    this.treeFetches.push(credential);
-    return this.tree;
-  }
-  async getFileContent(
-    _credential: GithubCredential,
-    _owner: string,
-    _repo: string,
-    p: string,
-    _ref?: string,
-  ): Promise<GithubFileContent> {
-    const content = this.contents[p];
-    return { path: p, sha: "sss", size: content.length, content };
-  }
-}
-
-function remoteTree(): GithubTreeEntry[] {
-  const tree = (type: string, path: string): GithubTreeEntry => ({
-    path,
-    type,
-    mode: "100644",
-    sha: path,
-    size: type === "blob" ? 12 : null,
-  });
-  return [
-    tree("tree", "docs/kanban"),
-    tree("tree", "docs/kanban/G1"),
-    tree("blob", "docs/kanban/G1/Goal.md"),
-    tree("tree", "docs/kanban/G1/S1"),
-    tree("blob", "docs/kanban/G1/S1/Spec.md"),
-    tree("blob", "docs/kanban/G1/S1/T1.md"),
-  ];
-}
-
-function remoteContents(): Record<string, string> {
-  return {
-    "docs/kanban/G1/Goal.md": renderBoardMd({
-      id: "g1",
-      title: "G1: goal",
-      layer: "G",
-      owner: "consultant",
-      status: "active",
-      acceptance_criteria: ["done"],
-    }, "# body\n"),
-    "docs/kanban/G1/S1/Spec.md": renderBoardMd({
-      id: "g1_s1",
-      title: "G1.S1: spec",
-      layer: "S",
-      parent: "G1",
-      owner: "pm",
-      status: "active",
-      acceptance_criteria: ["done"],
-    }, "# body\n"),
-    "docs/kanban/G1/S1/T1.md": renderBoardMd({
-      id: "t1",
-      title: "G1.S1.T1: ticket",
-      layer: "T",
-      parent: "G1.S1",
-      owner: "eng-director",
-      status: "in_progress",
-      assignee: "opencode",
-      session_id: "ses_remote",
-      blocked_by: [],
-      acceptance_criteria: ["works"],
-    }, "# body\n"),
-  };
-}
-
-test("GET /api/kanban?repo=owner/repo scans the selected repo and serves it as an index", async () => {
-  const remote = new FakeRemoteGithub(remoteTree(), remoteContents());
-  const employees = new MemoryEmployeeRegistry(
-    [{ email: "alice@caleo.com", display_name: "Alice", role: "member", github_credential: { type: "token", value: "ghp_alice" } }],
-    { cipher: TEST_CIPHER },
-  );
-  await app.close();
-  app = makeApp(undefined, remote as unknown as GitHubApi, employees);
-  const sessionToken = await login("alice@caleo.com");
-
-  const res = await app.inject({
-    method: "GET",
-    url: "/api/kanban?repo=acme/box",
-    headers: bearer(sessionToken),
-  });
-  assert.equal(res.statusCode, 200);
-  const body = res.json() as KanbanIndex;
-  assert.equal(body.version, 1);
-  assert.ok(body.generated_at, "remote boards are served in the index shape with a timestamp");
-  assert.equal(body.goals.length, 1);
-  assert.equal(body.goals[0].ref, "G1");
-  const ticket = body.goals[0].specs[0].tickets[0];
-  assert.equal(ticket.ref, "G1.S1.T1");
-  assert.equal(ticket.status, "in_progress");
-  assert.equal(ticket.assignee, "opencode");
-  assert.equal(ticket.session_id, "ses_remote");
-  assert.equal(remote.treeFetches.length, 1);
-  assert.equal(remote.treeFetches[0].value, "ghp_alice", "the board must use the employee's credential");
-});
-
-test("GET /api/kanban?repo=owner/repo returns 400 when the user has no credential", async () => {
-  const employees = new MemoryEmployeeRegistry(
-    [{ email: "admin@caleo.com", display_name: "Admin", role: "admin" }],
-    { cipher: TEST_CIPHER },
-  );
-  await app.close();
-  app = makeApp(undefined, new FakeRemoteGithub(remoteTree(), remoteContents()) as unknown as GitHubApi, employees);
-  const sessionToken = await login("admin@caleo.com");
-
-  const res = await app.inject({
-    method: "GET",
-    url: "/api/kanban?repo=acme/box",
-    headers: bearer(sessionToken),
-  });
-  assert.equal(res.statusCode, 400);
-  assert.match(res.json().error, /no github credential/i);
-});
-
-test("GET /api/kanban?repo=invalid rejects a malformed repo", async () => {
-  const sessionToken = await login("alice@caleo.com");
-  const res = await app.inject({
-    method: "GET",
-    url: "/api/kanban?repo=notarepo",
-    headers: bearer(sessionToken),
-  });
-  assert.equal(res.statusCode, 400);
-  assert.match(res.json().error, /owner\/repo/);
-});
-
-test("GET /api/kanban?repo=owner/repo requires authentication", async () => {
-  const res = await app.inject({ method: "GET", url: "/api/kanban?repo=acme/box" });
-  assert.equal(res.statusCode, 401);
-});
-
 // ---------------------------------------------------------------------------
 // G4.S5.T4 — GET /api/kanban/github-project (synced GitHub Project board)
 // ---------------------------------------------------------------------------
 
-/** A RemoteBoardSource + Project v2 read surface, backed by in-memory maps. */
-class FakeProjectGithub implements RemoteBoardSource {
+/** A Project v2 read surface, backed by in-memory maps. */
+class FakeProjectGithub {
   /** The comments the fake created via createIssueComment (issueNumber → body). */
   readonly createdComments: { issueNumber: number; body: string }[] = [];
   constructor(
@@ -387,12 +112,6 @@ class FakeProjectGithub implements RemoteBoardSource {
       created_at: "2026-08-13T12:00:00Z",
       html_url: `https://github.com/zouhanhai/athena-agent/issues/${issueNumber}#issuecomment-${id}`,
     };
-  }
-  async listTree(): Promise<GithubTreeEntry[]> {
-    return [];
-  }
-  async getFileContent(): Promise<GithubFileContent> {
-    return { path: "", sha: "", size: null, content: "" };
   }
   async getRepoProjects(
     _credential: GithubCredential,
@@ -514,7 +233,7 @@ test("GET /api/kanban/github-project returns 400 when the user has no credential
     { cipher: TEST_CIPHER },
   );
   await app.close();
-  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
+  app = makeApp(new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
   const sessionToken = await login("admin@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -527,7 +246,7 @@ test("GET /api/kanban/github-project returns 400 when the user has no credential
 
 test("GET /api/kanban/github-project returns 404 when the repo has no linked Project", async () => {
   await app.close();
-  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -540,7 +259,7 @@ test("GET /api/kanban/github-project returns 404 when the repo has no linked Pro
 
 test("GET /api/kanban/github-project serves Spec cards (progress) AND ticket cards spread across columns (G4.S5.T9)", async () => {
   await app.close();
-  app = makeApp(undefined, projectGithub() as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(projectGithub() as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -610,7 +329,7 @@ test("GET /api/kanban/github-project resolves a repo-linked Project titled with 
     new Map([[project.id, [{ id: "PVTI_2", issueId: "I_2", issueNumber: 2, title: "G4.S5 Workbench kanban sync", status: "Done" }]]]),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -635,7 +354,7 @@ test("GET /api/kanban/github-project resolves a repo-linked Project whose title 
     new Map([[project.id, [{ id: "PVTI_abap", issueId: "I_1", issueNumber: 1, title: "G4.S5 Workbench kanban sync", status: "Backlog" }]]]),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -662,7 +381,7 @@ test("GET /api/kanban/github-project uses the employee's credential", async () =
     return original(credential, owner, repo);
   };
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -679,7 +398,7 @@ test("GET /api/kanban/github-project surfaces a GitHub auth failure as 401", asy
     throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
   };
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -734,7 +453,7 @@ test("GET /api/kanban/github-projects lists the repo's open linked projects for 
     new Map(),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -766,7 +485,7 @@ test("GET /api/kanban/github-project serves the specified project when ?project=
     ]),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -801,7 +520,7 @@ test("GET /api/kanban/github-project serves the FIRST open project when no ?proj
     ]),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -826,7 +545,7 @@ test("GET /api/kanban/github-project returns 404 for an unknown ?project=<id> (G
     new Map([[open.id, []]]),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -840,7 +559,7 @@ test("GET /api/kanban/github-project returns 404 for an unknown ?project=<id> (G
 test("GET /api/kanban/github-project returns 404 when no open project remains (all closed) (G4.S5.T12)", async () => {
   const github = new FakeProjectGithub(new Map(), new Map());
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -904,7 +623,7 @@ test("GET /api/kanban/github-issue serves the issue body (title/body/state/label
     new Map([["zouhanhai/athena-agent", [issue]]]),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -921,7 +640,7 @@ test("GET /api/kanban/github-issue returns 400 when the user has no credential",
     { cipher: TEST_CIPHER },
   );
   await app.close();
-  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
+  app = makeApp(new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
   const sessionToken = await login("admin@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -938,7 +657,7 @@ test("GET /api/kanban/github-issue surfaces a GitHub auth failure as 401", async
     throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
   };
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -998,7 +717,7 @@ test("GET /api/kanban/github-issue-comments serves the issue's comment thread", 
     new Map([[5, comments]]),
   );
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -1011,7 +730,7 @@ test("GET /api/kanban/github-issue-comments serves the issue's comment thread", 
 
 test("GET /api/kanban/github-issue-comments returns an empty list when the issue has no comments", async () => {
   await app.close();
-  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -1028,7 +747,7 @@ test("GET /api/kanban/github-issue-comments surfaces a GitHub auth failure as 40
     throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
   };
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await app.inject({
     method: "GET",
@@ -1073,7 +792,7 @@ test("POST /api/kanban/github-issue-comments requires repo / issueNumber / body"
 test("POST /api/kanban/github-issue-comments creates the comment via the employee's credential and returns it (G4.S5.T8)", async () => {
   const github = new FakeProjectGithub(new Map(), new Map());
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await postComment(sessionToken, {
     repo: "zouhanhai/athena-agent",
@@ -1095,7 +814,7 @@ test("POST /api/kanban/github-issue-comments returns 400 when the user has no cr
     { cipher: TEST_CIPHER },
   );
   await app.close();
-  app = makeApp(undefined, new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
+  app = makeApp(new FakeProjectGithub(new Map(), new Map()) as unknown as GitHubApi, employees);
   const sessionToken = await login("admin@caleo.com");
   const res = await postComment(sessionToken, { repo: "acme/box", issueNumber: 5, body: "hi" });
   assert.equal(res.statusCode, 400);
@@ -1108,7 +827,7 @@ test("POST /api/kanban/github-issue-comments surfaces a GitHub auth failure as 4
     throw new GithubAuthError("GitHub rejected the credential (HTTP 401)");
   };
   await app.close();
-  app = makeApp(undefined, github as unknown as GitHubApi, credentialEmployee());
+  app = makeApp(github as unknown as GitHubApi, credentialEmployee());
   const sessionToken = await login("alice@caleo.com");
   const res = await postComment(sessionToken, { repo: "acme/box", issueNumber: 5, body: "hi" });
   assert.equal(res.statusCode, 401);

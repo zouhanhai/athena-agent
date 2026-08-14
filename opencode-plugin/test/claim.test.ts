@@ -98,7 +98,7 @@ async function cloneWorker(base: string, remote: string, name: string): Promise<
   return dir;
 }
 
-test("claim happy path: status/assignee/session_id + index regen in ONE commit, pushed", async () => {
+test("claim happy path: status/assignee/session_id + claim row in ONE commit, pushed", async () => {
   const { base, remote, repo } = await setupGitRepo();
   try {
     await claimTicketWithIndex({
@@ -108,15 +108,15 @@ test("claim happy path: status/assignee/session_id + index regen in ONE commit, 
       sessionId: "ses_abc",
     });
 
-    // The claim commit must be a SINGLE commit (not claim + index separate).
+    // The claim commit must be a SINGLE commit (the ticket md + claim row).
     const recent = await git(repo, ["log", "--oneline", "-3"]);
     const lines = recent.split("\n").filter(Boolean);
     assert.equal(await git(repo, ["log", "-1", "--format=%s"]), "claim G1.S1.T1 (in_progress)");
     assert.equal(lines.length, 2); // initial board + claim
-    // index + ticket both changed in that one commit
+    // The claim commit touches ONLY the ticket md — no local board index.
     const files = await git(repo, ["show", "--name-only", "--format=", "HEAD"]);
     assert.match(files, /docs\/kanban\/G1\/S1\/T1\.md/);
-    assert.match(files, /docs\/kanban\/kanban-index\.json/);
+    assert.doesNotMatch(files, /kanban-index\.json/);
 
     const worker = await cloneWorker(base, remote, "verify");
     const doc = await readTicketFile(path.join(worker, "docs", "kanban"), "G1.S1.T1");
