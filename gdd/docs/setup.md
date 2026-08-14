@@ -197,7 +197,7 @@ the same ticket gets a `ClaimConflictError` and backs off.
 
 If you also run athena, its Workbench **Project** tab shows the same GitHub Project v2 board (generic
 GitHub viewing, GDD not required). GDD itself never depends on athena; this is purely a visual layer.
-See [ADR 0009](../adr/0009-gdd-vs-athena-boundary.md).
+See [ADR 0009](../../docs/adr/0009-gdd-vs-athena-boundary.md).
 
 ## Recap / checklist
 

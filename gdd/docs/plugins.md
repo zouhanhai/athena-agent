@@ -132,4 +132,5 @@ tools run. Dispatch a second worker on the same ticket → it backs off with `Cl
 - GitHub access: local token (`gh auth token` / `GITHUB_TOKEN`); the athena employee store is only an
   optional fallback inside athena.
 - Other agents implement the same integration points with their own hook systems (see
-  [`design.md`](design.md) §18); the protocol is agent-agnostic, the plugin is opencode's automation.
+  [`design.md §18`](design.md#18-other-agent-onboarding)); the protocol is agent-agnostic, the plugin is
+  opencode's automation.

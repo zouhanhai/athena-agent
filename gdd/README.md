@@ -12,7 +12,7 @@ whichever agent tooling they already have.
 
 > The concrete agent used in this handbook (and throughout the protocol) is **opencode** — the
 > opencode plugins in `gdd/plugin/` automate the claim/progress/sync steps. Any agent that can run
-> git + edit markdown can participate; see [`design.md` §18](design.md) "Other Agent Onboarding".
+> git + edit markdown can participate; see [`design.md` §18](docs/design.md#18-other-agent-onboarding) "Other Agent Onboarding".
 
 ## Why GDD?
 
@@ -28,7 +28,7 @@ whichever agent tooling they already have.
 ## GDD vs athena (the boundary)
 
 GDD is **separate from athena**. athena-agent bundles two kinds of capability that must not be
-conflated ([ADR 0009](../adr/0009-gdd-vs-athena-boundary.md)):
+conflated ([ADR 0009](../docs/adr/0009-gdd-vs-athena-boundary.md)):
 
 | Capability | Bucket |
 |---|---|
@@ -77,20 +77,20 @@ gdd/bin/sync-github create G1.S1 --owner <owner> --repo <repo>
 # 4. Deploy the opencode plugins so workers auto-claim / log progress / auto-sync
 ```
 
-Full steps with verification: **[`setup.md`](setup.md)**.
+Full steps with verification: **[`setup.md`](docs/setup.md)**.
 
 ## Handbook index
 
 | Document | What it covers |
 |---|---|
 | [`README.md`](README.md) | What GDD is, boundary vs athena, when to use, this index |
-| [`design.md`](design.md) | The full GDD protocol (§1–§20): principles, structure, claim lock, state machines, roles, Progress Log, sync |
-| [`protocol-review.md`](protocol-review.md) | The design decision record (grill) behind the protocol |
-| [`setup.md`](setup.md) | Step-by-step: enable GDD on **any new project** (templates, git hook, sync CLI, plugins) |
-| [`backend.md`](backend.md) | The `gdd/` package modules + `sync-github` CLI — what each does, how to run |
-| [`plugins.md`](plugins.md) | The opencode plugins (auto-claim / progress-log / auto-sync) + deployment |
-| [`reference.md`](reference.md) | Concept index: Gx.Sx.Tx, ticket + spec state machines, roles, Progress Log, glossary |
-| [`templates/`](templates/) | Ready-to-copy Goal / Spec / Ticket markdown templates |
+| [`design.md`](docs/design.md) | The full GDD protocol (§1–§20): principles, structure, claim lock, state machines, roles, Progress Log, sync |
+| [`protocol-review.md`](docs/protocol-review.md) | The design decision record (grill) behind the protocol |
+| [`setup.md`](docs/setup.md) | Step-by-step: enable GDD on **any new project** (templates, git hook, sync CLI, plugins) |
+| [`backend.md`](docs/backend.md) | The `gdd/` package modules + `sync-github` CLI — what each does, how to run |
+| [`plugins.md`](docs/plugins.md) | The opencode plugins (auto-claim / progress-log / auto-sync) + deployment |
+| [`reference.md`](docs/reference.md) | Concept index: Gx.Sx.Tx, ticket + spec state machines, roles, Progress Log, glossary |
+| [`templates/`](docs/templates/) | Ready-to-copy Goal / Spec / Ticket markdown templates |
 
 ## The `gdd/` package
 
@@ -113,12 +113,12 @@ gdd/
 └── test/                      # 199 node:test tests for the protocol/sync modules
 ```
 
-See [`backend.md`](backend.md) for the module-by-module guide, [`plugins.md`](plugins.md) for the
-plugins, and [`setup.md`](setup.md) to adopt GDD on a new project.
+See [`backend.md`](docs/backend.md) for the module-by-module guide, [`plugins.md`](docs/plugins.md) for the
+plugins, and [`setup.md`](docs/setup.md) to adopt GDD on a new project.
 
 ## Getting involved
 
 - Open an issue / comment on a Spec main-issue to discuss a feature (the feedback loop reads comments
   back into markdown as draft proposals).
-- The decision record behind the design is in [`protocol-review.md`](protocol-review.md).
-- The boundary with athena is recorded in [ADR 0009](../adr/0009-gdd-vs-athena-boundary.md).
+- The decision record behind the design is in [`protocol-review.md`](docs/protocol-review.md).
+- The boundary with athena is recorded in [ADR 0009](../docs/adr/0009-gdd-vs-athena-boundary.md).
