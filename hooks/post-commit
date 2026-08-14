@@ -37,12 +37,17 @@ for f in $CHANGED; do
 done
 
 # De-dupe and run sync-github create for each spec.
-# Resolve owner/repo from the origin remote — supports BOTH HTTPS
+# Resolve owner/repo from the PRIMARY remote — caleo (team/primary repo) is
+# preferred; fall back to origin (zouhanhai shadow). Supports BOTH HTTPS
 # (https://github.com/OWNER/REPO.git) and SSH (git@github.com:OWNER/REPO.git)
 # URLs. The hook env has no GITHUB_OWNER/GITHUB_REPO, so guess-free derivation
 # avoids empty/malformed --owner (the SSH form was mangling owner to
 # "git@github.com:owner").
-ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+# (2026-08-14: caleo is the primary repo, zouhanhai is the shadow.)
+for REMOTE_NAME in caleo origin; do
+  ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url "$REMOTE_NAME" 2>/dev/null || true)"
+  [ -n "$ORIGIN_URL" ] && break
+done
 GH_OWNER=""
 GH_REPO=""
 case "$ORIGIN_URL" in
