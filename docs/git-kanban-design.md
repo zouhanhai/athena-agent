@@ -456,6 +456,51 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
 - GitHub → md feedback loop: plan agent reads issue discussion → creates/edits tickets or a new spec
   back into md. Human keeps authority; md authoritative on conflict.
 
+### 19a. Mapping (md kanban → GitHub Projects v2)
+
+| md kanban (source of truth) | GitHub Projects v2 |
+|---|---|
+| Repo (a multi-person project) | One Project board (linked to the repo) |
+| Goal (G4) | Milestone + a Label (`G4`) |
+| Spec (G4.S1) | Main Issue (title `G4.S1 <title>`; body = design doc; comments = discussion) |
+| Ticket (G4.S4.T1) | Sub-issue (title `G4.S4.T1 <title>`; status → Project Status column; blocked_by → issue dependency) |
+
+- The Project is resolved via `repository.projectsV2` (the repo-linked board), not by title-guessing —
+  works for any repo whose project title differs from the repo name.
+- Spec cards on the board get an aggregated segmented progress bar + a Spec-card accent; ticket
+  sub-issue cards are plain and spread across their Status columns (GitHub-native).
+- A repo can have multiple linked Projects; the Workbench GitHub view has a Project selector and shows
+  only open Projects.
+
+### 19b. Trigger: when does md → GitHub sync run?
+
+1. **git hook (post-commit)** — a `hooks/post-commit` script detects new/modified
+   `docs/kanban/**/Goal.md|Spec.md|T*.md` files in a commit and runs
+   `sync-github create <specRef>` for each affected spec, so new tickets get their GitHub Issue
+   immediately (submit-and-sync). Best-effort — a failure never blocks the commit. Install once per
+   clone: `bash scripts/install-kanban-hook.sh` (sets `git config core.hooksPath hooks`).
+2. **Worker done (auto-sync)** — when a worker marks a ticket done, the OpenCode plugin auto-runs the
+   sync for the parent spec so the board's Status columns move (no manual sync after every done).
+3. **Manual** — the Eng Director can run `sync-github create|sync <specRef>` anytime (e.g. right after
+   decomposing new tickets, "create-on-decompose", so the board reflects the full kanban incl. backlog).
+
+### 19c. Credential & machine notes
+
+- The hook resolves the GitHub credential: an explicit `GITHUB_TOKEN` env → the local `gh auth token`
+  → the Postgres employee store (`DATABASE_URL`). So it works on any machine that has `gh` logged in.
+- `sync-github` imports only the lightweight employees/crypto modules (NOT `app.js`), so it has no
+  Neo4j/KB dependency and runs standalone.
+- New-ticket Issues first appear under "No Status" briefly (GitHub consistency delay — the board items
+  snapshot right after `addIssueToProject` may not include the new item); the next sync moves it to its
+  Status column. Cosmetic and self-healing.
+
+### 19d. Progress Log is md-only
+
+The Progress Log (per-tool rows) stays in the md ticket only and is NEVER pushed to GitHub — a GitHub
+sub-issue shows the description/status/assignee/blocked_by, not the minute-level Progress Log. Frontend
+issue detail panels read the GitHub issue body (not local md), so Progress Log is not shown in the UI
+either; it is a backend/dev signal (stalled detection lives in the local-desktop app tier, G7).
+
 ## 20. Exception Handling
 
 - Worker crash leaves ticket stuck in_progress → check git log / Progress Log timestamps; if stalled
