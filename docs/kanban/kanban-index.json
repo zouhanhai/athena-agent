@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T08:00:35.124Z",
+  "generated_at": "2026-08-14T08:07:25.721Z",
   "goals": [
     {
       "ref": "G1",
@@ -2757,7 +2757,7 @@
             {
               "ref": "G4.S5.T16",
               "id": "G4.S5.T16",
-              "title": "Detail panel: Progress Log collapsible — collapsed by default, click the 'Progress Log' title to expand/collapse",
+              "title": "Kanban detail panel reads the GitHub ISSUE BODY (not local md) — Progress Log stays in md only, not shown in any frontend issue detail",
               "owner": "eng-director",
               "status": "backlog",
               "assignee": "",
@@ -2766,9 +2766,10 @@
                 "G4.S5.T15"
               ],
               "acceptance_criteria": [
-                "In the Workbench detail panel, the 'Progress Log' section is COLLAPSED by default (only the title shows)",
-                "Clicking the 'Progress Log' title toggles the list open/closed (with a ▸/▾ indicator)",
-                "The rest of the panel (description, sub-issues, comments) is unchanged",
+                "The Kanban Project detail panel (opening a card / sub-issue) renders the GITHUB ISSUE BODY (from the GitHub issue), NOT the local md — so it shows the same content as the Issues panel",
+                "Progress Log is NOT rendered in ANY frontend issue detail (Issues panel already reads GitHub body with no Progress Log; Kanban detail now matches)",
+                "Progress Log stays in the md files (backend/dev-only), never read or shown by the frontend",
+                "Sub-issues list + comments still render in the Kanban detail panel (they come from the GitHub board / issue-comments endpoints, unchanged)",
                 "Web tests green + vue-tsc clean"
               ]
             }
