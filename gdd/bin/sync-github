@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # gdd sync-github — run the md → GitHub Project sync CLI standalone.
+# Works from ANY cwd: the tsx loader is resolved from the gdd package's own
+# node_modules (not the caller's), so the CLI runs on a fresh machine with just
+# `gdd sync-github …` after `npm install` in the gdd package.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec node --import tsx "$DIR/../src/sync-github.ts" "$@"
+GDD_DIR="$(cd "$DIR/.." && pwd)"
+TSX="$(node -e "process.stdout.write(require.resolve('tsx', { paths: ['$GDD_DIR'] }))" 2>/dev/null || echo "$GDD_DIR/node_modules/tsx/dist/loader.mjs")"
+exec node --import "$TSX" "$GDD_DIR/src/sync-github.ts" "$@"
