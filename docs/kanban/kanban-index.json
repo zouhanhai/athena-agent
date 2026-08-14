@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T09:11:54.891Z",
+  "generated_at": "2026-08-14T09:56:45.907Z",
   "goals": [
     {
       "ref": "G1",
@@ -2811,6 +2811,24 @@
                 "Gx.Sy-named Specs (athena) keep working exactly as today",
                 "Status badges on GitHub Project view cards have COLOR (matching the Local kanban / GitHub status colors: In Progress yellow, Done green, Backlog gray, etc.), not the current gray pill",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT (abaplorer #201 shows 9/9)"
+              ]
+            },
+            {
+              "ref": "G4.S5.T19",
+              "id": "G4.S5.T19",
+              "title": "Workbench: split Kanban tab into two top-level tabs — 'Kanban' (local GST board) and 'Project' (GitHub Project view) — decoupling GDD board from athena GitHub viewer",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T18"
+              ],
+              "acceptance_criteria": [
+                "Workbench has a separate 'Project' tab next to Code/Issues/Kanban; 'Kanban' tab now shows ONLY the local GST board",
+                "The GitHub Project view (board + issue detail panel + comment thread + project selector) moves out of KanbanTab into the new Project tab; behavior identical to today (click card → local detail panel, no GitHub redirect)",
+                "'view in Issues' from a Kanban/Project card still switches to the Issues tab and locates the issue (G4.S5.T8 preserved)",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ]
             }
           ]
