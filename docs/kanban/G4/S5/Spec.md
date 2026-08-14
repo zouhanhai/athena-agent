@@ -4,7 +4,7 @@ title: "G4.S5: Kanban ↔ GitHub Issues bidirectional sync + planning feedback l
 layer: S
 parent: G4
 owner: consultant
-status: in_progress
+status: done
 milestone: M4
 acceptance_criteria:
   - "Each Spec → a GitHub Issue (title 'Gx.Sx <spec title>', tickets as ## Sub-tasks checklist)"

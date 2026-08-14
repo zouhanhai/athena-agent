@@ -79,7 +79,7 @@ Corresponds to Milestone M4. Three thrusts:
   removal + E2E). Plugin tests 22/22, server 930/930, web 438/438, vue-tsc 0; verified end-to-end on
   6900XT (auto-claim once, single progress rows, separate index-done commit).
   See `docs/kanban/G4/S4/Spec.md`.
-- **G4.S5 (Kanban ↔ GitHub Issues sync): backlog** — next after S4.
+- **G4.S5 (Kanban ↔ GitHub Issues sync): DONE (2026-08-14)** — Spec→Issue projection, ticket→sub-issue sync, state machine (T7), Workbench Kanban/Issues/GitHub views, git hook auto-sync, universal board progress + status colors.
 - **G4.S6 (GDD decoupling — boundary vs athena, docs/gdd handbook, Workbench Kanban/Project sub-tab
   split): backlog** — prerequisite for S7.
 - **G4.S7 (Remote agent federation + KB-as-MCP): backlog** — after S6.
