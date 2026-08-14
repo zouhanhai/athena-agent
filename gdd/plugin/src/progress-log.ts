@@ -9,7 +9,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { refToPath } from "../../server/src/kanban/board.js";
+import { refToPath } from "../../src/kanban/board.js";
 
 /** A single Progress Log data row. */
 export interface ProgressRow {

@@ -6,34 +6,26 @@
  * columns update automatically — no manual `sync-github sync <specRef>` needed.
  *
  * The sync is best-effort: a failure is logged by the caller and never blocks
- * the done commit. Credential resolution mirrors the `sync-github` CLI
- * (server/scripts/sync-github.ts): an explicit token → `GITHUB_TOKEN` env → the
- * athena employee GitHub credential store. The owner/repo come from explicit
+ * the done commit. Credential resolution is LOCAL-token-first (gdd/src/
+ * credential.ts): an explicit token → `gh auth token` (gh CLI) → `GITHUB_TOKEN`
+ * env → the athena employee store ONLY as an optional fallback when running
+ * inside athena (gdd/src/athena-employee.ts). The owner/repo come from explicit
  * options → `GITHUB_OWNER`/`GITHUB_REPO` env → the `origin` remote.
  */
 
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { scanBoard } from "../../server/src/kanban/scan.js";
-import { createSpecIssue } from "../../server/src/kanban/github-sync.js";
-import {
-  GithubRestClient,
-  type GithubProject,
-} from "../../server/src/github/client.js";
-import {
-  defaultSecretCipher,
-} from "../../server/src/employees/crypto.js";
-import {
-  MemoryEmployeeRegistry,
-  PostgresEmployeeRegistry,
-  type EmployeeRegistry,
-  type GithubCredential,
-} from "../../server/src/employees/employees.js";
+import { scanBoard } from "../../src/kanban/scan.js";
+import { createSpecIssue } from "../../src/kanban/github-sync.js";
+import { GithubClient } from "../../src/github/client.js";
+import type { GithubCredential, GithubProject } from "../../src/github/types.js";
+import { athenaEmployeeReader } from "../../src/athena-employee.js";
+import { resolveGithubCredential as resolveLocalCredential } from "../../src/credential.js";
 
 const execFileAsync = promisify(execFile);
 
-/** The employee whose stored GitHub credential the auto-sync uses by default. */
+/** The employee whose stored GitHub credential is used as a last-resort fallback. */
 export const DEFAULT_SYNC_EMPLOYEE = "zouha108@caleo.com";
 
 const TICKET_REF = /^G(\d+)\.S(\d+)\.T(\d+)$/;
@@ -78,48 +70,19 @@ export async function resolveGithubRepo(
   );
 }
 
-/** The default employee registry (Postgres when DATABASE_URL is set, else in-memory). */
-function employeeRegistry(): EmployeeRegistry {
-  const cipher = defaultSecretCipher();
-  const connectionString = process.env.DATABASE_URL;
-  return connectionString
-    ? new PostgresEmployeeRegistry({ connectionString, cipher })
-    : new MemoryEmployeeRegistry([], { cipher });
-}
-
 /**
- * Resolve a GitHub credential: an explicit token → `GITHUB_TOKEN` env → the
- * athena employee GitHub credential store (default employee `zouha108@caleo.com`,
- * override with `GITHUB_EMPLOYEE`).
+ * Resolve a GitHub credential LOCAL-token-first: an explicit token → `gh auth
+ * token` (gh CLI) → `GITHUB_TOKEN` env → the athena employee store ONLY as an
+ * optional fallback when running inside athena (gdd/src/athena-employee.ts).
  */
-export async function resolveGithubCredential(
-  token?: string,
-  employeeEmail?: string,
-): Promise<GithubCredential> {
-  const value = token ?? process.env.GITHUB_TOKEN;
-  if (value) {
-    return { type: "token", value };
-  }
-  const email = employeeEmail ?? process.env.GITHUB_EMPLOYEE ?? DEFAULT_SYNC_EMPLOYEE;
-  const registry = employeeRegistry();
-  try {
-    await registry.seed();
-    const credential = await registry.getGithubCredential(email);
-    if (!credential) {
-      throw new Error(
-        `no GitHub credential for "${email}" in the athena employee store ` +
-          "(set GITHUB_TOKEN or GITHUB_EMPLOYEE)",
-      );
-    }
-    return credential;
-  } finally {
-    await registry.close();
-  }
+export async function resolveGithubCredential(token?: string): Promise<GithubCredential> {
+  const employeeReader = await athenaEmployeeReader();
+  return resolveLocalCredential({ token, employeeReader });
 }
 
 /** The Project board for the repo: reuse by title, else create. */
 async function resolveProject(
-  github: GithubRestClient,
+  github: GithubClient,
   credential: GithubCredential,
   owner: string,
   repo: string,
@@ -143,10 +106,8 @@ export interface SyncSpecOnDoneOptions {
   owner?: string;
   /** GitHub repo override (default GITHUB_REPO env, else the origin remote). */
   repo?: string;
-  /** GitHub token override (default GITHUB_TOKEN env, else the employee store). */
+  /** GitHub token override (default GITHUB_TOKEN env, else gh CLI / athena store). */
   token?: string;
-  /** Employee whose stored credential is used (default GITHUB_EMPLOYEE env). */
-  employeeEmail?: string;
 }
 
 /**
@@ -157,8 +118,8 @@ export interface SyncSpecOnDoneOptions {
 export async function syncSpecOnDone(options: SyncSpecOnDoneOptions): Promise<void> {
   const boardRoot = options.boardRoot ?? path.join(options.repoDir, "docs", "kanban");
   const { owner, repo } = await resolveGithubRepo(options.repoDir, options.owner, options.repo);
-  const credential = await resolveGithubCredential(options.token, options.employeeEmail);
-  const github = new GithubRestClient();
+  const credential = await resolveGithubCredential(options.token);
+  const github = new GithubClient();
   const board = await scanBoard(boardRoot, { includeBody: true });
   const project = await resolveProject(github, credential, owner, repo);
   await createSpecIssue(github, credential, owner, repo, board, options.specRef, project);

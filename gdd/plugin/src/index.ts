@@ -18,7 +18,7 @@
 
 import path from "node:path";
 import { access } from "node:fs/promises";
-import { readTicketFile } from "../../server/src/kanban/board.js";
+import { readTicketFile } from "../../src/kanban/board.js";
 import { parseTicketRef } from "./ticket-ref.js";
 import { claimTicketWithIndex, ClaimConflictError } from "./claim.js";
 import { ProgressAppender } from "./progress-log.js";

@@ -4,8 +4,8 @@ import { appendProgressRow, ProgressAppender } from "../src/progress-log.js";
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { renderBoardMd } from "../../server/src/kanban/frontmatter.js";
-import { refToPath, readBoardFile } from "../../server/src/kanban/board.js";
+import { renderBoardMd } from "../../src/kanban/frontmatter.js";
+import { refToPath, readBoardFile } from "../../src/kanban/board.js";
 
 function ticketFm(ref: string): Record<string, unknown> {
   return {

@@ -11,5 +11,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "../.opencode/plugins/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "../../.opencode/plugins/**/*.ts"]
 }

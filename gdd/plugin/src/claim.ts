@@ -14,9 +14,9 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { GitClaimLock, ClaimConflictError } from "../../server/src/kanban/git-lock.js";
-import { refToPath, readTicketFile } from "../../server/src/kanban/board.js";
-import { ClaimError } from "../../server/src/kanban/protocol.js";
+import { GitClaimLock, ClaimConflictError } from "../../src/kanban/git-lock.js";
+import { refToPath, readTicketFile } from "../../src/kanban/board.js";
+import { ClaimError } from "../../src/kanban/protocol.js";
 import { appendProgressRow } from "./progress-log.js";
 
 export { ClaimConflictError };

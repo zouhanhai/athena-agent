@@ -5,14 +5,14 @@
  * Loaded at opencode serve startup from the global plugin dir
  * (`~/.config/opencode/plugins/`, G4.S4.T3) and the repo-local
  * `.opencode/plugins/` (git-kanban-design.md §18). This is a THIN deployment
- * wrapper: the entire worker logic lives in the athena-agent repo
- * (`opencode-plugin/src/index.ts`) and is imported by ABSOLUTE path, so fixes
- * land in one place and every project/serve cwd gets the current behavior.
+ * wrapper: the entire worker logic lives in the GDD package
+ * (`gdd/plugin/src/index.ts`, G4.S6.T3) and is imported by ABSOLUTE path, so
+ * fixes land in one place and every project/serve cwd gets the current behavior.
  *
  * Classic V1 plugin module: `export default { id, server }`.
  */
 
-const CORE = "/home/hh/athena-agent/opencode-plugin/src/index.js";
+const CORE = "/home/hh/athena-agent/gdd/plugin/src/index.js";
 
 export default {
   id: "athena.worker",

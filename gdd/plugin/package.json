@@ -1,7 +1,7 @@
 {
-  "name": "athena-opencode-plugin",
+  "name": "gdd-opencode-plugin",
   "version": "0.1.0",
-  "description": "athena worker OpenCode plugin: auto-claim (git lock + kanban index) + Progress Log appender",
+  "description": "gdd worker OpenCode plugin: auto-claim (git lock) + Progress Log appender + done auto-sync",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",

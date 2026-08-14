@@ -5,8 +5,8 @@ import { promisify } from "node:util";
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { renderBoardMd } from "../../server/src/kanban/frontmatter.js";
-import { refToPath, readTicketFile } from "../../server/src/kanban/board.js";
+import { renderBoardMd } from "../../src/kanban/frontmatter.js";
+import { refToPath, readTicketFile } from "../../src/kanban/board.js";
 import { createWorkerHooks } from "../src/index.js";
 
 const run = promisify(execFile);
