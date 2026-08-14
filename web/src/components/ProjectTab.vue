@@ -999,6 +999,15 @@ watch(
   border-radius: 999px;
 }
 
+/* GitHub Project Status color badges (restored from T4 — used by statusColorClass) */
+.kanban-card-status-backlog { color: #1f2328; background: #8250df; }
+.kanban-card-status-in_progress { color: #1f2328; background: #d4a72c; }
+.kanban-card-status-done { color: #1f2328; background: #2da44e; }
+.kanban-card-status-in_review { color: #1f2328; background: #a371f7; }
+.kanban-card-status-approved { color: #1f2328; background: #2da44e; }
+.kanban-card-status-rejected { color: #fff; background: #cf222e; }
+.kanban-card-status-canceled { color: #1f2328; background: #57606a; }
+
 .kanban-detail-close {
   flex: 0 0 auto;
   width: 26px;
