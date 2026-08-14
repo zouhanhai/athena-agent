@@ -258,39 +258,53 @@ export class GithubGraphqlClient {
 
   /** List the cards of a Project v2 board, with their linked issue + Status option. */
   async getProjectItems(credential: GithubCredential, projectId: string): Promise<GithubProjectItem[]> {
-    const data = await this.gql<{ node?: { items?: { nodes?: ProjectItemNode[] | null } | null } | null }>(
-      credential,
-      `query($projectId: ID!, $first: Int!) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            items(first: $first) {
-              nodes {
-                id
-                content { ... on Issue { id number title } }
-                fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+    // Paginate through ALL items (first:100 per page + pageInfo.hasNextPage/endCursor).
+    // Without pagination a project with >100 items truncates, so later issues (e.g.
+    // G4's high numbers in a 160-item board) are missed and syncSpecStatus fails.
+    let all: GithubProjectItem[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const data = await this.gql<{
+        node?: { items?: { nodes?: ProjectItemNode[] | null; pageInfo?: { hasNextPage: boolean; endCursor?: string | null } | null } | null } | null;
+      }>(
+        credential,
+        `query($projectId: ID!, $first: Int!, $after: String) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: $first, after: $after) {
+                nodes {
+                  id
+                  content { ... on Issue { id number title } }
+                  fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+                }
+                pageInfo { hasNextPage endCursor }
               }
             }
           }
+        }`,
+        { projectId, first: 100, after: cursor },
+      );
+      const nodes = data.node?.items?.nodes ?? [];
+      for (const node of nodes) {
+        if (!node?.id) {
+          continue;
         }
-      }`,
-      { projectId, first: 100 },
-    );
-    const nodes = data.node?.items?.nodes ?? [];
-    const items: GithubProjectItem[] = [];
-    for (const node of nodes) {
-      if (!node?.id) {
-        continue;
+        const issue = node.content && typeof node.content.number === "number" ? node.content : null;
+        all.push({
+          id: node.id,
+          issueId: issue?.id ?? null,
+          issueNumber: issue?.number ?? null,
+          title: issue?.title ?? null,
+          status: typeof node.fieldValueByName?.name === "string" ? node.fieldValueByName.name : null,
+        });
       }
-      const issue = node.content && typeof node.content.number === "number" ? node.content : null;
-      items.push({
-        id: node.id,
-        issueId: issue?.id ?? null,
-        issueNumber: issue?.number ?? null,
-        title: issue?.title ?? null,
-        status: typeof node.fieldValueByName?.name === "string" ? node.fieldValueByName.name : null,
-      });
+      const pageInfo = data.node?.items?.pageInfo;
+      if (!pageInfo?.hasNextPage || !pageInfo.endCursor) {
+        break;
+      }
+      cursor = pageInfo.endCursor;
     }
-    return items;
+    return all;
   }
 
   /** Resolve the Status single-select field (id + options) of a Project v2 board. */
