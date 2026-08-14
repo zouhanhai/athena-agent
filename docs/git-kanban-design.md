@@ -164,7 +164,7 @@ title: "G1.S1: <spec title>"
 layer: S
 parent: G1
 owner: pm                  # PM builds the Spec (role-model)
-status: backlog            # backlog → decomposed(已分ticket) → in_progress → done → in_review → approved / rejected
+status: backlog            # backlog → in_progress (ticket-driven) → done → in_review → approved / rejected
 acceptance_criteria:
   - "<criterion 1>"
   - "<criterion 2>"
