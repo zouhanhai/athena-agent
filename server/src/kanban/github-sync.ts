@@ -384,7 +384,12 @@ async function applyGoalAttrs(
  * "closed" (GitHub-native + board segmented progress), everything else "open".
  */
 export function ticketState(status: TicketStatus): "open" | "closed" {
-  return status === "done" || status === "approved" ? "closed" : "open";
+  // done/approved/canceled are terminal — close the sub-issue so it drops out of
+  // GitHub's native sub-task progress (X/N) and our segmented bar. canceled
+  // tickets must NOT keep counting toward the progress (was: open → showed 8/9).
+  return status === "done" || status === "approved" || status === "canceled"
+    ? "closed"
+    : "open";
 }
 
 /**

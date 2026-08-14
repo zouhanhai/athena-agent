@@ -1281,9 +1281,10 @@ test("syncSpecStatus adds the Spec card to the Project when missing, then sets t
   assert.ok(github.calls.includes("setItemStatusField:PVT_1:PVTI_33:In Progress"));
 });
 
-test("ticketState closes done/approved sub-issues, opens everything else (G4.S5.T6)", () => {
+test("ticketState closes done/approved/canceled sub-issues, opens everything else (G4.S5.T6)", () => {
   assert.equal(ticketState("done"), "closed");
   assert.equal(ticketState("approved"), "closed");
+  assert.equal(ticketState("canceled"), "closed"); // canceled is terminal — drops out of progress
   assert.equal(ticketState("in_progress"), "open");
   assert.equal(ticketState("backlog"), "open");
   assert.equal(ticketState("in_review"), "open");
