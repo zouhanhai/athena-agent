@@ -115,7 +115,8 @@ Work is tracked as Goals in `docs/kanban/` (each Goal → Specs → Tickets), th
 cd server && npm test          # node:test unit + integration (930+)
 cd web && npx vitest run       # Vue component tests (438+)
 cd web && npx vue-tsc --noEmit # typecheck
-cd opencode-plugin && npx -y tsx --test 'test/**/*.test.ts'  # plugin tests (22)
+cd gdd && npm test             # GDD protocol/sync tests (199+)
+cd gdd/plugin && npm test      # opencode worker plugin tests
 ```
 
 **Authoritative verification is on the 6900XT** (the local WSL web test env is often polluted and
@@ -132,7 +133,12 @@ reports false failures).
 
 ## Docs Index
 
-- `docs/git-kanban-design.md` — git-driven Kanban design (claim lock, Progress Log, done double-commit)
+- `gdd/` — the **GDD package** (G4.S6.T3): kanban protocol/sync modules, `sync-github` CLI
+  (`gdd sync-github create <spec>`), git hooks (`gdd/hooks/`), opencode plugins (`gdd/plugin/`) and
+  GST templates (`gdd/templates/`) — runs standalone on the user's local machine with just a GitHub
+  token (`gh auth token` / `GITHUB_TOKEN`). athena only views GitHub; GDD never imports athena.
+- `docs/gdd/design.md` — git-driven Kanban design (claim lock, Progress Log, done double-commit)
+- `docs/gdd/protocol-review.md` — the GDD design decision record (grill)
 - `docs/knowledge-rag-design.md` — KB + RAG routing (Athena single-pass, Neo4j, fusion, rerank)
 - `docs/distributed-pi-collaboration.md` — Multi-Agent Federation (control plane, HTTP+SSE)
 - `docs/spec-m4-*.md` — G4 specs (refinement, RAG self-build, KB confidence, worker progress, kanban-issues sync)

@@ -23,7 +23,7 @@ Objective: Build the technical skeleton of the entire project and run through th
 Reference design docs:
 - README.md (architecture overview + M1 acceptance criteria)
 - docs/adr/0001-node-fastify-agent-session.md (Node/TS + Fastify + AgentSession)
-- docs/git-kanban-design.md (git-driven Kanban)
+- docs/gdd/design.md (git-driven Kanban)
 - CONTEXT.md (glossary)
 
 ## Goal

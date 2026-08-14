@@ -37,8 +37,8 @@ management is GDD (generic); whatever serves KB/Q&A is athena (product-specific)
 2. **docs/gdd/ handbook** (方案 B, lightweight — code stays in athena repo, docs make GDD independently
    adoptable):
    - `docs/gdd/README.md` — what GDD is, boundary vs athena, when to use, architecture overview.
-   - `docs/gdd/design.md` — the full GDD protocol (moved from `docs/git-kanban-design.md`).
-   - `docs/gdd/protocol-review.md` — design decision record (moved from `docs/git-driven-protocol-review.md`).
+   - `docs/gdd/design.md` — the full GDD protocol (moved from `docs/gdd/design.md`).
+   - `docs/gdd/protocol-review.md` — design decision record (moved from `docs/gdd/protocol-review.md`).
    - `docs/gdd/setup.md` — step-by-step: enable GDD on any new project (copy templates, install
      `scripts/install-kanban-hook.sh` + `hooks/post-commit`, run `sync-github`, deploy opencode plugins).
    - `docs/gdd/backend.md` — kanban backend modules (server/src/kanban/*.ts: scan/state-machine/

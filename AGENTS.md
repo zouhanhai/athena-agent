@@ -40,8 +40,9 @@ backlog → in_progress → done → in_review → approved
 ```
 
 **Claiming a ticket is AUTOMATED**: the resident OpenCode plugin (`athena.worker`,
-loaded from `.opencode/plugins/` / `~/.config/opencode/plugins/`) auto-claims a
-dispatched ticket on the worker's first tool call — it writes status `in_progress`,
+loaded from `.opencode/plugins/` / `~/.config/opencode/plugins/`; the worker logic
+lives in the GDD package at `gdd/plugin/`, G4.S6.T3) auto-claims a dispatched
+ticket on the worker's first tool call — it writes status `in_progress`,
 assignee, and the session id, appends the claim row to the Progress Log, and does
 `git add + commit + push` (git push atomicity is the mutual-exclusion lock,
 preventing two workers claiming the same ticket). Workers must NOT manually claim;
@@ -89,5 +90,8 @@ the ticket's status/assignee/session_id by hand.
 
 - `README.md` — project overview + milestones
 - `docs/adr/` — architecture decisions (one per file)
-- `docs/git-kanban-design.md` — Kanban mechanism
+- `gdd/` — the GDD package: kanban protocol/sync modules, `sync-github` CLI, hooks,
+  opencode plugins (`gdd/plugin/`), GST templates; runs standalone on the user's machine
+- `docs/gdd/design.md` — Kanban mechanism
+- `docs/gdd/protocol-review.md` — GDD design decision record
 - `docs/pi-capabilities.md` — Pi SDK + packages capabilities

@@ -3,7 +3,7 @@
 > Full review requested by the user (grill): goals / roles / protocol interfaces / state machine /
 > worker lifecycle (claim-progress-complete) / review / per-agent onboarding.
 > This file records **confirmed decisions** from the grill; the full protocol rewrite lives in
-> `docs/git-kanban-design.md` (to be updated).
+> `docs/gdd/design.md`.
 
 ## Core premise (confirmed by user)
 

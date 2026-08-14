@@ -232,7 +232,7 @@ function unresolvedBlockers(board: KanbanBoard, ticket: TicketFrontmatter): stri
 /**
  * Tickets the planning agent can dispatch: backlog, unassigned, not rejected
  * and not blocked by an incomplete ticket. This is the "who should do what"
- * selection from git-kanban-design.md §10.
+ * selection from docs/gdd/design.md §10.
  */
 export function claimableTickets(board: KanbanBoard): ClaimableTicket[] {
   const out: ClaimableTicket[] = [];

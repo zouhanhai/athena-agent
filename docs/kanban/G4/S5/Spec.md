@@ -49,7 +49,7 @@ GitHub). Bidirectional sync with a planning feedback loop.
      updates (new/edited ticket/spec) → feedback into md → next sync
 ```
 
-**PR/Merge/Review (from git-kanban-design §8-9, collab mode only):**
+**PR/Merge/Review (from docs/gdd/design.md §8-9, collab mode only):**
 - **collab** (multi-person): each developer works on a feature branch → PR → reviewer
   approves/rejects → merge. `in_review` mid-state exists only here.
 - **single** (solo/small team): no PR — push master directly; reviewer reviews the diff.

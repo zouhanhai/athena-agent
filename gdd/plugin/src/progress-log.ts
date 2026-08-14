@@ -4,7 +4,7 @@
  * Appends a row to a ticket's `## Progress Log` table using a REAL wall-clock
  * UTC timestamp (2026-08-09 lesson: LLM workers fabricate timestamps). Rows are
  * appended ONLY on a real change (a tool ran) and rate-limited (~1 row / N sec)
- * so a stale last-row timestamp is the stalled signal (git-kanban-design.md §10).
+ * so a stale last-row timestamp is the stalled signal (docs/gdd/design.md §10).
  */
 
 import { readFile, writeFile } from "node:fs/promises";

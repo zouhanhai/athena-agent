@@ -6,7 +6,11 @@
 # the full kanban (incl. backlog) from the start. Best-effort: a sync failure is
 # logged to a temp file and never blocks the commit.
 #
-# Installed via `scripts/install-kanban-hook.sh` (sets git core.hooksPath → hooks/).
+# Ships with the gdd/ package (G4.S6.T3). Installed via `gdd/hooks/
+# install-kanban-hook.sh` (sets git core.hooksPath → hooks/). The sync runs the
+# gdd CLI standalone on the USER's machine with a LOCAL GitHub credential:
+# `gh auth token` (gh CLI) → `GITHUB_TOKEN` env → the athena employee store only
+# as an optional fallback when running inside athena (DATABASE_URL).
 set -u
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -69,18 +73,13 @@ for spec in $SPECS; do
   SEEN="$SEEN $spec"
   echo "$(date '+%Y-%m-%d %H:%M:%S') kanban-hook: sync $spec ($GH_OWNER/$GH_REPO)" >> "$LOG"
   (
-    cd "$REPO_ROOT/server" || exit 1
-    # GitHub credential: an explicit GITHUB_TOKEN in env wins; else the local gh
-    # CLI token (gh auth token) — both work on any machine; else fall back to the
-    # Postgres employee store (DATABASE_URL, 6900XT).
-    if [ -z "${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
-      GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
-    fi
-    export GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-    export DATABASE_URL="${DATABASE_URL:-postgres://hh@/athena?host=/var/run/postgresql}"
+    cd "$REPO_ROOT/gdd" || exit 1
+    # Local credential: `gh auth token` (gh CLI) or GITHUB_TOKEN; the athena
+    # employee store is only an optional fallback when running inside athena.
     export GITHUB_EMPLOYEE="${GITHUB_EMPLOYEE:-zouha108@caleo.com}"
+    export DATABASE_URL="${DATABASE_URL:-postgres://hh@/athena?host=/var/run/postgresql}"
     if [ -f "$REPO_ROOT/server/.env.local" ]; then set -a; . "$REPO_ROOT/server/.env.local"; set +a; fi
-    npx tsx scripts/sync-github.ts create "$spec" --owner "$GH_OWNER" --repo "$GH_REPO"
+    npx tsx src/sync-github.ts create "$spec" --owner "$GH_OWNER" --repo "$GH_REPO"
   ) >> "$LOG" 2>&1 || echo "kanban-hook: sync $spec FAILED (see $LOG)" >> "$LOG"
 done
 

@@ -72,6 +72,6 @@ athena (KB + dev-flow views). It is optional — a project may use only the athe
 
 ## Links
 
-- `docs/git-kanban-design.md` (the GDD protocol design; §19 documents the GitHub sync mapping/triggers)
-- `docs/git-driven-protocol-review.md` (grill record behind the design)
+- `docs/gdd/design.md` (the GDD protocol design; §19 documents the GitHub sync mapping/triggers)
+- `docs/gdd/protocol-review.md` (grill record behind the design)
 - Kanban tickets: G4.S5.T19 (Workbench Kanban/Project sub-tab split)

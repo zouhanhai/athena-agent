@@ -114,7 +114,7 @@ code-capable agent. It defines a **protocol** in three layers:
 1. **G.S.T board structure (protocol)**
    - The platform fixes the `docs/kanban/Gx/Sx/Tx.md` three-layer markdown
      structure (dir naming, frontmatter, state machine). Already defined in
-     `docs/git-kanban-design.md` and used by G1/G2.
+     `docs/gdd/design.md` and used by G1/G2.
 
 2. **Planning-agent onboarding protocol (how to plan)**
    - Tells a planning agent how to produce the three layers:
@@ -126,7 +126,7 @@ code-capable agent. It defines a **protocol** in three layers:
 
 3. **Code-agent claiming/reporting protocol (how to take & finish a ticket)**
    - **The worker claims the ticket ITSELF via git (claim lock / git push)** —
-     the existing `git-kanban-design.md` mechanism is unchanged. The planning
+     the existing `docs/gdd/design.md` mechanism is unchanged. The planning
      agent does NOT claim on the worker's behalf.
    - The planning agent's role is **notification / dispatch**: it tells a worker
      which ticket to take. The worker then does its own git claim-lock push.

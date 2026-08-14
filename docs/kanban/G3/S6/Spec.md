@@ -26,7 +26,7 @@ Build the git-driven development platform protocol + GitHub integration — the 
 ## Key Dependencies
 
 - G3.S2 (per-user GitHub credential)
-- docs/git-kanban-design.md (existing mechanism)
+- docs/gdd/design.md (existing mechanism)
 - matt pocock skills (grill / to-spec / to-ticket) for the planning flow
 
 ## Architecture
@@ -54,7 +54,7 @@ Kanban: scan docs/kanban/*.md → board
 ## Implementation
 
 ### 1. G.S.T board structure (protocol)
-- Standardize `docs/kanban/Gx/Sx/Tx.md` structure (dir naming, frontmatter, state machine) — already in git-kanban-design.md
+- Standardize `docs/kanban/Gx/Sx/Tx.md` structure (dir naming, frontmatter, state machine) — already in docs/gdd/design.md
 - Provide helpers/schema for reading/writing these md files
 
 ### 2. Planning-agent onboarding (grill→to-spec→to-ticket)
@@ -87,7 +87,7 @@ Kanban: scan docs/kanban/*.md → board
 
 - Spec: `docs/kanban/G3/Goal.md`
 - Requirements: `docs/g3-requirements.md` §4.2 (git-driven platform protocol)
-- Design: `docs/git-kanban-design.md` (full mechanism: G.S.T, claim lock, state machine, roles, reject flow)
+- Design: `docs/gdd/design.md` (full mechanism: G.S.T, claim lock, state machine, roles, reject flow)
 - Matt pocock skills: grill-with-docs / to-spec / to-ticket
 - GitHub REST API docs
 
@@ -95,7 +95,7 @@ Kanban: scan docs/kanban/*.md → board
 
 - `parent: G3` → `docs/kanban/G3/Goal.md`
 - Requirements: `docs/g3-requirements.md` §4.2
-- Kanban mechanism: `docs/git-kanban-design.md`
+- Kanban mechanism: `docs/gdd/design.md`
 
 ## Notes
 
@@ -106,6 +106,6 @@ Kanban: scan docs/kanban/*.md → board
 
 ## Dependencies
 
-- G3.S2 (GitHub credential), git-kanban-design.md, matt pocock skills
+- G3.S2 (GitHub credential), docs/gdd/design.md, matt pocock skills
 
 ## Log

@@ -558,7 +558,7 @@ either; it is a backend/dev signal (stalled detection lives in the local-desktop
 
 ## Reference
 
-- `docs/git-driven-protocol-review.md` — the grill record (all decisions, formerly D1-D28) behind this design.
+- `docs/gdd/protocol-review.md` — the grill record (all decisions, formerly D1-D28) behind this design.
 - `server/src/kanban/protocol.ts` + `git-lock.ts` + `roles.ts` + `state-machine.ts` — the backend
   implementations of claim/report/dispatch, git lock, role souls, state transitions.
 - `server/scripts/write-index.ts` — kanban index builder.

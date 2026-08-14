@@ -2,7 +2,7 @@
  * OpenCode worker plugin for the athena git-kanban protocol (G4.S4.T1/T3).
  *
  * Global/resident: loaded at opencode serve startup from `.opencode/plugins/`
- * (git-kanban-design.md §18) and deployed to `~/.config/opencode/plugins/`
+ * (docs/gdd/design.md §18) and deployed to `~/.config/opencode/plugins/`
  * (G4.S4.T3). Distinguishes workers by sessionID, parses the ticket ref from
  * the first dispatch message, auto-claims on the first tool call (git push =
  * mutual-exclusion lock, exactly once per session even under concurrent tool
