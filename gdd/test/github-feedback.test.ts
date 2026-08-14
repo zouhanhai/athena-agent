@@ -4,8 +4,13 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { KanbanBoard } from "../src/kanban/scan.js";
-import type { GithubCredential, GithubIssueComment, GithubProject, GithubProjectItem } from "../src/github/client.js";
-import type { GitHubApi } from "../src/github/client.js";
+import type {
+  GithubCredential,
+  GithubIssueComment,
+  GithubProject,
+  GithubProjectItem,
+  GitHubApi,
+} from "../src/github/types.js";
 import {
   appendGitHubSyncNote,
   applyFeedbackDraft,

@@ -31,8 +31,13 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { GithubCredential } from "../employees/employees.js";
-import type { GithubIssueComment, GithubProject, GithubProjectItem, GitHubApi } from "../github/client.js";
+import type {
+  GithubCredential,
+  GithubIssueComment,
+  GithubProject,
+  GithubProjectItem,
+  GitHubApi,
+} from "../github/types.js";
 import { readBoardFile, readTicketFile, refToPath, writeBoardFile } from "./board.js";
 import { findSpecInBoard, specIssueTitle } from "./github-sync.js";
 import {

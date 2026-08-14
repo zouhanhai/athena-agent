@@ -171,3 +171,30 @@ export type {
   ReDecomposeInput,
   ReDecomposeResult,
 } from "./lifecycle.js";
+export {
+  KANBAN_STATUS_OPTIONS,
+  KANBAN_SPEC_STATUS_OPTIONS,
+  statusFieldOptions,
+  stripRefPrefix,
+  specIssueTitle,
+  findSpecInBoard,
+  buildIssueForSpec,
+  stripProgressLog,
+  buildIssueForTicket,
+  findExistingTicketIssue,
+  statusToColumn,
+  blockedByToDeps,
+  goalToMilestoneAndLabel,
+  createSpecIssue,
+  ticketState,
+  specIssueState,
+  syncSpecStatus,
+  syncTicketStatus,
+  syncBlockedBy,
+} from "./github-sync.js";
+export type {
+  IssuePayload,
+  SpecProjection,
+  SyncTicketOutcome,
+  SyncResult,
+} from "./github-sync.js";

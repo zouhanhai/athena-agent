@@ -12,7 +12,7 @@ import { MemoryEmployeeRegistry, type GithubCredential } from "../src/employees/
 import type { GitHubApi } from "../src/github/client.js";
 import { GithubAuthError } from "../src/github/client.js";
 import type { GithubIssue, GithubIssueComment, GithubProject, GithubProjectItem } from "../src/github/client.js";
-import type { GithubProjectBoard } from "../src/kanban/github-sync.js";
+import type { GithubProjectBoard } from "../src/github/project-board.js";
 
 const TEST_CIPHER = createSecretCipher("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
 

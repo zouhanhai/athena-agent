@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AuthService } from "../employees/auth.js";
 import type { EmployeeRegistry } from "../employees/employees.js";
-import { buildGithubProjectBoard } from "../kanban/github-sync.js";
+import { buildGithubProjectBoard } from "../github/project-board.js";
 import { GithubAuthError, type GitHubApi } from "../github/client.js";
 import { currentEmployee } from "./helpers.js";
 
