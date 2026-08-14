@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T08:54:50.656Z",
+  "generated_at": "2026-08-14T09:11:42.828Z",
   "goals": [
     {
       "ref": "G1",
@@ -2773,7 +2773,7 @@
               ],
               "started_at": "2026-08-14",
               "progress_last_row": "ran bash",
-              "progress_updated_at": "2026-08-14T08:54:38.226Z",
+              "progress_updated_at": "2026-08-14T08:53:04.842Z",
               "progress_status": "in_progress"
             },
             {
@@ -2792,6 +2792,25 @@
                 "Clicking Refresh updates the list in place (loading state, no full page reload)",
                 "The Kanban GitHub Project view also has a Refresh (it may already); if it lacks one, add it too so synced changes show up",
                 "Web tests green + vue-tsc clean"
+              ]
+            },
+            {
+              "ref": "G4.S5.T18",
+              "id": "G4.S5.T18",
+              "title": "GitHub board view: show sub-task progress + Spec accent for ANY issue that has sub-issues, not just Gx.Sy-named Specs (abaplorer issues currently show neither)",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T17"
+              ],
+              "acceptance_criteria": [
+                "In the Workbench GitHub Project view, ANY card whose issue has sub-issues shows a sub-task progress indicator (done/total), not just cards with a Gx.Sy ref",
+                "A non-Gx.Sy issue that is a parent of sub-issues (e.g. abaplorer #201 'ABAP Object Import' with 9 sub-issues) shows progress + the Spec-card orange accent; its sub-issue cards stay plain white",
+                "Gx.Sy-named Specs (athena) keep working exactly as today",
+                "Status badges on GitHub Project view cards have COLOR (matching the Local kanban / GitHub status colors: In Progress yellow, Done green, Backlog gray, etc.), not the current gray pill",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT (abaplorer #201 shows 9/9)"
               ]
             }
           ]
