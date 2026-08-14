@@ -212,6 +212,54 @@ describe("IssuesTab", () => {
     wrapper.unmount();
   });
 
+  it("the refresh button re-fetches the issues list in place (G4.S5.T17)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountIssuesTab();
+    const callsAfterMount = fetchIssuesMock.mock.calls.length;
+    // A sync created new issues (T11-T16 → #12-#17) — stale until Refresh.
+    fetchIssuesMock.mockResolvedValue([...ISSUES, { ...ISSUES[0], number: 17, title: "New synced issue" }]);
+    await wrapper.find(".issues-refresh").trigger("click");
+    await flushPromises();
+    expect(fetchIssuesMock.mock.calls.length).toBe(callsAfterMount + 1);
+    expect(wrapper.findAll(".issue-row").length).toBe(3);
+    expect(wrapper.text()).toContain("New synced issue");
+    wrapper.unmount();
+  });
+
+  it("shows a loading state on the refresh button while re-fetching (G4.S5.T17)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    let resolveFetch!: (issues: GithubIssue[]) => void;
+    fetchIssuesMock.mockImplementation(
+      () =>
+        new Promise<GithubIssue[]>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const wrapper = await mountIssuesTab();
+    await wrapper.find(".issues-refresh").trigger("click");
+    expect(wrapper.find(".issues-refresh").attributes("disabled")).toBeDefined();
+    expect(wrapper.find(".issues-refresh").text()).toContain("Refreshing");
+    resolveFetch(ISSUES);
+    await flushPromises();
+    expect(wrapper.find(".issues-refresh").attributes("disabled")).toBeUndefined();
+    expect(wrapper.find(".issues-refresh").text()).toContain("Refresh");
+    wrapper.unmount();
+  });
+
+  it("keeps the currently-open issue detail open when the list is refreshed (G4.S5.T17)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountIssuesTab();
+    await wrapper.find(".issue-row").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".issue-detail").exists()).toBe(true);
+
+    await wrapper.find(".issues-refresh").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".issue-detail").exists()).toBe(true);
+    expect(wrapper.find(".issue-view-title").text()).toContain("Bug on login");
+    wrapper.unmount();
+  });
+
   it("opens a local detail panel when clicking an issue instead of navigating", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountIssuesTab();

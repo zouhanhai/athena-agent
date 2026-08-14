@@ -179,6 +179,12 @@ async function onStateChange(): Promise<void> {
   await loadIssues();
 }
 
+/** Re-fetch the issues list in place (G4.S5.T17): new/updated issues after a
+ *  sync appear without a full page reload. The open detail stays open. */
+function refresh(): void {
+  void loadIssues();
+}
+
 function enterEdit(): void {
   const current = detail.value;
   if (!current) {
@@ -338,6 +344,16 @@ watch(
             {{ filter.label }}
           </button>
         </div>
+        <button
+          type="button"
+          class="issues-refresh"
+          :disabled="loading"
+          aria-label="Refresh the issues list"
+          @click="refresh"
+        >
+          <span v-if="loading" class="issues-spinner" aria-hidden="true" />
+          {{ loading ? "Refreshing…" : "Refresh" }}
+        </button>
       </div>
 
       <div class="issues-list">
@@ -559,9 +575,53 @@ watch(
 .issues-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--caleo-border);
+}
+
+/* Refresh button (G4.S5.T17): re-fetches the issues list in place after a
+   sync, so new/updated issues show up without a full page reload. */
+.issues-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--caleo-text);
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.issues-refresh:hover:not(:disabled) {
+  border-color: var(--caleo-primary);
+  color: var(--caleo-primary);
+}
+
+.issues-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.issues-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid var(--caleo-border);
+  border-top-color: var(--caleo-primary);
+  border-radius: 50%;
+  animation: issues-spin 0.7s linear infinite;
+}
+
+@keyframes issues-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .issues-state-filter {

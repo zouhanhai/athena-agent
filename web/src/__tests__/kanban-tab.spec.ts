@@ -952,6 +952,30 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
+  it("the GitHub view refresh shows a syncing state while re-pulling (G4.S5.T17)", async () => {
+    localStorage.setItem("athena.session_token", "tok_1");
+    const wrapper = await mountKanbanTab(REPO);
+    await wrapper.find(".kanban-view-toggle-github").trigger("click");
+    await flushPromises();
+
+    let resolveBoard!: (board: GithubProjectBoard) => void;
+    fetchGithubProjectBoardMock.mockImplementationOnce(
+      () =>
+        new Promise<GithubProjectBoard>((resolve) => {
+          resolveBoard = resolve;
+        }),
+    );
+    await wrapper.find(".kanban-refresh").trigger("click");
+    expect(wrapper.find(".kanban-refresh").attributes("disabled")).toBeDefined();
+    expect(wrapper.find(".kanban-refresh").text()).toContain("Syncing");
+
+    resolveBoard(PROJECT_BOARD);
+    await flushPromises();
+    expect(wrapper.find(".kanban-refresh").attributes("disabled")).toBeUndefined();
+    expect(wrapper.find(".kanban-refresh").text()).toContain("Refresh");
+    wrapper.unmount();
+  });
+
   it("shows the Spec's sub-issues list (ref/title/status/number) in the detail panel (G4.S5.T8)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab(REPO);
