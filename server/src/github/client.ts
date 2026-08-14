@@ -285,6 +285,13 @@ export interface GitHubApi {
     repo: string,
     title: string,
   ): Promise<GithubIssue | null>;
+  /** Find an issue whose title starts with a prefix (e.g. "G4.S6.T1 "), or null. */
+  getIssueByTitlePrefix(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    prefix: string,
+  ): Promise<GithubIssue | null>;
   /** Ensure the label exists on the repo, then add it to the issue. */
   addLabel(credential: GithubCredential, owner: string, repo: string, issueNumber: number, label: string): Promise<void>;
   /** Set the issue's milestone by its milestone number. */
@@ -873,6 +880,25 @@ export class GithubRestClient implements GitHubApi {
     for (const item of items) {
       const issue = await this.toIssue(item);
       if (issue && issue.title === title) {
+        return issue;
+      }
+    }
+    return null;
+  }
+
+  async getIssueByTitlePrefix(
+    credential: GithubCredential,
+    owner: string,
+    repo: string,
+    prefix: string,
+  ): Promise<GithubIssue | null> {
+    const q = `repo:${owner}/${repo} type:issue in:title ${JSON.stringify(prefix)}`;
+    const response = await this.request(credential, `/search/issues?q=${encodeURIComponent(q)}&per_page=10`);
+    const data = (await this.json(response)) as { items?: unknown };
+    const items = Array.isArray(data.items) ? data.items : [];
+    for (const item of items) {
+      const issue = await this.toIssue(item);
+      if (issue && (issue.title === prefix || issue.title.startsWith(prefix))) {
         return issue;
       }
     }

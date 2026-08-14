@@ -927,6 +927,13 @@ class RecordingGithub {
         this.calls.push(`getIssueByTitle:${title}`);
         return this.issuesByTitle.get(title) ?? null;
       },
+      getIssueByTitlePrefix: async (_c, _o, _r, prefix) => {
+        this.calls.push(`getIssueByTitlePrefix:${prefix}`);
+        for (const [t, issue] of this.issuesByTitle) {
+          if (t === prefix || t.startsWith(prefix)) return issue;
+        }
+        return null;
+      },
       createIssue: async (_c, _o, _r, input) => {
         this.calls.push(`createIssue:${input.title}`);
         const issue = this.makeIssue(input.title, input.body);

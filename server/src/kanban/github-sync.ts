@@ -207,7 +207,11 @@ export async function findExistingTicketIssue(
   if (title === ticketRef) {
     return null;
   }
-  return github.getIssueByTitle(credential, owner, repo, ticketRef);
+  // Fallback: find the ticket's existing issue by its bare ref PREFIX
+  // (e.g. "G4.S6.T1") so a title change updates the existing issue in place
+  // instead of creating a duplicate. getIssueByTitle is exact-match, so here we
+  // search the ref and match any title starting with "<ref> " or equal to ref.
+  return github.getIssueByTitlePrefix(credential, owner, repo, `${ticketRef} `);
 }
 
 /** Kanban status → the Project Status single-select option name (status-map.ts). */
