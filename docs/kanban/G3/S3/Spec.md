@@ -4,7 +4,7 @@ title: "G3.S3: Global Chat Panel (Conversation + Agent Cards)"
 layer: S
 parent: G3
 owner: pm
-status: active
+status: done
 milestone: M3
 acceptance_criteria:
   - "Chat is a GLOBAL fixed right-side panel on every page (Knowledge/Wiki/Workbench/Upload), not a sidebar item"

@@ -4,7 +4,7 @@ title: "G3.S4: Workbench (GitHub-Style Content Area)"
 layer: S
 parent: G3
 owner: pm
-status: active
+status: done
 milestone: M3
 acceptance_criteria:
   - "Workbench page shows 3 tabs: Code | Issues | Kanban"

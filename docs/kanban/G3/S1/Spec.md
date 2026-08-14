@@ -4,7 +4,7 @@ title: "G3.S1: Agent Registry"
 layer: S
 parent: G3
 owner: pm
-status: active
+status: done
 milestone: M3
 acceptance_criteria:
   - "Agent registry stored in Postgres: alias, owner employee, logo, capabilities (system/MCP/tools/skills/specialty), runtime"
