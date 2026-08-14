@@ -133,16 +133,19 @@ reports false failures).
 
 ## Docs Index
 
-- `gdd/` — the **GDD package** (G4.S6.T3): kanban protocol/sync modules, `sync-github` CLI
-  (`gdd sync-github create <spec>`), git hooks (`gdd/hooks/`), opencode plugins (`gdd/plugin/`) and
-  GST templates (`gdd/templates/`) — runs standalone on the user's local machine with just a GitHub
-  token (`gh auth token` / `GITHUB_TOKEN`). athena only views GitHub; GDD never imports athena.
-- `gdd/docs/` — the **GDD handbook**: [`README.md`](gdd/README.md) (what GDD is + boundary vs
-  athena), [`design.md`](gdd/docs/design.md) (git-driven Kanban design: claim lock, Progress Log,
-  state machines), [`protocol-review.md`](gdd/docs/protocol-review.md) (the GDD design decision
-  record), [`setup.md`](gdd/docs/setup.md) (enable GDD on a new project), [`backend.md`](gdd/docs/backend.md)
+- `gdd/` — the **GDD package** (G4.S6.T3): kanban protocol/sync modules (`gdd/src/kanban/`), a
+  self-contained GitHub client + local-token credential resolver (`gdd/src/credential.ts`, `gh auth
+  token`/`GITHUB_TOKEN`, athena employee store only as optional fallback), the `sync-github` CLI
+  (`gdd sync-github create <spec>`), git hooks (`gdd/hooks/`), opencode plugins (`gdd/plugin/`) and GST
+  templates (`gdd/templates/`) — runs **standalone on the user's local machine** with just a GitHub
+  token; athena only views GitHub, GDD never imports athena.
+- `gdd/docs/` — the **GDD handbook**: [`README.md`](gdd/README.md) (what GDD is + boundary vs athena),
+  [`design.md`](gdd/docs/design.md) (git-driven Kanban design: claim lock, Progress Log, state
+  machines), [`protocol-review.md`](gdd/docs/protocol-review.md) (the GDD design decision record),
+  [`setup.md`](gdd/docs/setup.md) (enable GDD on a new project), [`backend.md`](gdd/docs/backend.md)
   (gdd package modules + sync-github CLI), [`plugins.md`](gdd/docs/plugins.md) (opencode plugins),
-  [`reference.md`](gdd/docs/reference.md) (concept index), [`adr/`](gdd/docs/adr/0009-gdd-vs-athena-boundary.md) (GDD boundary decision)
+  [`reference.md`](gdd/docs/reference.md) (concept index), [`adr/`](gdd/docs/adr/0009-gdd-vs-athena-boundary.md)
+  (GDD boundary decision), [`templates/`](gdd/docs/templates/) (GST template copies)
 - `docs/knowledge-rag-design.md` — KB + RAG routing (Athena single-pass, Neo4j, fusion, rerank)
 - `docs/distributed-pi-collaboration.md` — Multi-Agent Federation (control plane, HTTP+SSE)
 - `docs/spec-m4-*.md` — G4 specs (refinement, RAG self-build, KB confidence, worker progress, kanban-issues sync)
