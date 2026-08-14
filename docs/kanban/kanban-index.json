@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T13:25:58.023Z",
+  "generated_at": "2026-08-14T13:46:39.308Z",
   "goals": [
     {
       "ref": "G1",
@@ -2835,9 +2835,9 @@
               "id": "G4.S6.T1",
               "title": "Workbench: split Kanban tab into two sibling tabs — 'Kanban' (local GST board = GDD) and 'Project' (GitHub Project view = athena generic GitHub viewer) — reflecting the GDD/athena boundary (ADR 0009); both remain sub-tabs under the Workbench",
               "owner": "eng-director",
-              "status": "backlog",
-              "assignee": "",
-              "session_id": "",
+              "status": "in_progress",
+              "assignee": "opencode",
+              "session_id": "ses_fff7a003cffehrryVJr1YCWflY",
               "blocked_by": [
                 "G4.S5.T18"
               ],
@@ -2847,12 +2847,16 @@
                 "The split reflects the GDD/athena boundary (ADR 0009): Kanban (local GST) = GDD dev-flow; Project (GitHub viewing) = athena generic capability usable by non-GDD users (e.g. abaplorer uses GitHub + KB only). The Project tab must work for any repo's GitHub Project regardless of whether it uses the GDD Gx.Sx.Tx flow",
                 "'view in Issues' from a Kanban/Project card still switches to the Issues sub-tab and locates the issue (G4.S5.T8 preserved)",
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
-              ]
+              ],
+              "started_at": "2026-08-14",
+              "progress_last_row": "opencode claimed G4.S6.T1 (session ses_fff7a003cffehrryVJr1YCWflY)",
+              "progress_updated_at": "2026-08-14T13:46:39.294Z",
+              "progress_status": "in_progress"
             },
             {
               "ref": "G4.S6.T2",
               "id": "G4.S6.T2",
-              "title": "Spec state machine simplification: remove 'decomposed'; spec auto-advances backlog→in_progress on first ticket claim, stays in_progress after all tickets done (await review, may add tickets), done only on review; spec MAIN ISSUE open/closed synced to spec status (done/approved→closed)",
+              "title": "Spec state machine: remove 'decomposed'; ticket-driven in_progress; spec main-issue closed on done",
               "owner": "eng-director",
               "status": "backlog",
               "assignee": "",
