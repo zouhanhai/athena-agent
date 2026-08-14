@@ -58,8 +58,8 @@ management is GDD (generic); whatever serves KB/Q&A is athena (product-specific)
 ## Deliverables
 
 - ADR 0009 (boundary) — done.
-- `docs/gdd/` handbook + setup guide.
 - Workbench sub-tabs: T1 split Kanban/Project; T4 remove local Kanban tab + local board stack (kanban-index/scan), GitHub Project panel is the only board view.
 - Spec state machine simplification — remove decomposed, ticket-driven in_progress + spec main-issue open/closed sync (T2).
-- docs/gdd/ handbook — README/design/protocol-review/setup/backend/plugins/reference + GST templates + kanban-index (T3, after T1/T2).
+- GDD code separation — move GDD code (kanban protocol/sync, sync-github, hooks, plugins, templates) into an independently-runnable gdd/ package running on the user's local machine (T3, after T1/T2): split github-sync (createSpecIssue→GDD, buildGithubProjectBoard→athena), local-token-first credential.
+- docs/gdd/ handbook — README/design/protocol-review/setup/backend/plugins/reference + GST templates (T5, after T3).
 - Goal.md updated (S6 = GDD, S7 = remote federation).
