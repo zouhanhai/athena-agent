@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T07:58:26.804Z",
+  "generated_at": "2026-08-14T08:00:28.059Z",
   "goals": [
     {
       "ref": "G1",
@@ -2735,9 +2735,9 @@
               "id": "G4.S5.T15",
               "title": "git hook auto-sync: on commit of new docs/kanban Goal/Spec/Ticket files, auto-run sync-github to create the GitHub Issues (submit-and-sync)",
               "owner": "eng-director",
-              "status": "in_progress",
-              "assignee": "opencode",
-              "session_id": "ses_000b8c096ffeNER10N1t4UvuJu",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
               "blocked_by": [
                 "G4.S5.T14"
               ],
@@ -2748,11 +2748,25 @@
                 "Idempotent + safe: sync-github create is idempotent (already exists); a sync failure logs but never blocks the commit/push",
                 "Works alongside worker-done auto-sync (T10) and manual sync — no conflict",
                 "Server + plugin tests green, typecheck clean; live-verified on 6900XT"
+              ]
+            },
+            {
+              "ref": "G4.S5.T16",
+              "id": "G4.S5.T16",
+              "title": "Detail panel: Progress Log collapsible — collapsed by default, click the 'Progress Log' title to expand/collapse",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T15"
               ],
-              "started_at": "2026-08-14",
-              "progress_last_row": "opencode claimed G4.S5.T15 (session ses_000b8c096ffeNER10N1t4UvuJu)",
-              "progress_updated_at": "2026-08-14T07:58:26.786Z",
-              "progress_status": "in_progress"
+              "acceptance_criteria": [
+                "In the Workbench detail panel, the 'Progress Log' section is COLLAPSED by default (only the title shows)",
+                "Clicking the 'Progress Log' title toggles the list open/closed (with a ▸/▾ indicator)",
+                "The rest of the panel (description, sub-issues, comments) is unchanged",
+                "Web tests green + vue-tsc clean"
+              ]
             }
           ]
         },
