@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 
 import {
   fetchBoard,
+  fetchGithubIssueBody,
   fetchGithubIssueComments,
   fetchGithubProjectBoard,
   fetchGithubProjects,
@@ -189,5 +190,32 @@ describe("fetchGithubIssueComments", () => {
   it("throws the server error message on a non-ok response", async () => {
     stubFetch(jsonResponse({ error: "unauthorized" }, 401));
     await expect(fetchGithubIssueComments("tok_1", "acme/box", 5)).rejects.toThrow("unauthorized");
+  });
+});
+
+const ISSUE = {
+  number: 5,
+  title: "G4.S5 Workbench kanban sync",
+  state: "open",
+  html_url: "https://github.com/acme/box/issues/5",
+  user_login: "alice",
+  body: "## Sub-tasks\n\n- [x] T1",
+  labels: ["G4"],
+  assignees: ["alice"],
+};
+
+describe("fetchGithubIssueBody", () => {
+  it("GETs /api/kanban/github-issue?repo=...&issueNumber=... with the Bearer token and returns the issue (G4.S5.T16)", async () => {
+    stubFetch(jsonResponse({ issue: ISSUE }));
+    const result = await fetchGithubIssueBody("tok_1", "acme/box", 5);
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/kanban/github-issue?repo=acme%2Fbox&issueNumber=5");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok_1");
+    expect(result).toEqual(ISSUE);
+  });
+
+  it("throws the server error message on a non-ok response", async () => {
+    stubFetch(jsonResponse({ error: "unauthorized" }, 401));
+    await expect(fetchGithubIssueBody("tok_1", "acme/box", 5)).rejects.toThrow("unauthorized");
   });
 });

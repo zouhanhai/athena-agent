@@ -17,7 +17,7 @@ import {
   fetchIssues,
   fetchIssueDetail,
 } from "@/api/github";
-import { fetchBoard, fetchGithubProjectBoard, fetchGithubIssueComments, fetchGithubProjects } from "@/api/kanban";
+import { fetchBoard, fetchGithubIssueBody, fetchGithubProjectBoard, fetchGithubIssueComments, fetchGithubProjects } from "@/api/kanban";
 import type { GithubRepo, GithubIssue, GithubIssueComment } from "@/api/github";
 import type { GithubProjectBoard, KanbanIndex } from "@/api/kanban";
 
@@ -35,6 +35,7 @@ vi.mock("@/api/kanban", () => ({
   fetchBoard: vi.fn(),
   fetchGithubProjectBoard: vi.fn(),
   fetchGithubProjects: vi.fn(),
+  fetchGithubIssueBody: vi.fn(),
   fetchGithubIssueComments: vi.fn(),
   postGithubIssueComment: vi.fn(),
   TICKET_STATUSES: ["backlog", "in_progress", "done", "in_review", "approved", "rejected"],
@@ -50,6 +51,7 @@ const fetchIssueDetailMock = fetchIssueDetail as unknown as ReturnType<typeof vi
 const fetchBoardMock = fetchBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectBoardMock = fetchGithubProjectBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectsMock = fetchGithubProjects as unknown as ReturnType<typeof vi.fn>;
+const fetchGithubIssueBodyMock = fetchGithubIssueBody as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubIssueCommentsMock = fetchGithubIssueComments as unknown as ReturnType<typeof vi.fn>;
 
 const REPOS: GithubRepo[] = [
@@ -155,6 +157,16 @@ describe("Workbench shared repo selector", () => {
       { id: "PVT_1", title: "athena-agent", number: 3, url: "https://github.com/zouhanhai/athena-agent/projects/3" },
     ]);
     fetchGithubIssueCommentsMock.mockResolvedValue([]);
+    fetchGithubIssueBodyMock.mockResolvedValue({
+      number: 1,
+      title: "G4.S5 Workbench kanban sync",
+      state: "open",
+      html_url: "https://github.com/zouhanhai/athena-agent/issues/1",
+      user_login: "alice",
+      body: "sync design",
+      labels: [],
+      assignees: [],
+    });
     fetchIssuesMock.mockResolvedValue(ISSUES);
     fetchIssueDetailMock.mockResolvedValue({
       issue: ISSUES[0],

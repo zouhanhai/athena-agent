@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
-import { fetchFileContent, type GithubIssueComment, type GithubRepo } from "@/api/github";
+import type { GithubIssue, GithubIssueComment, GithubRepo } from "@/api/github";
 import {
   fetchBoard,
+  fetchGithubIssueBody,
   fetchGithubIssueComments,
   fetchGithubProjectBoard,
   fetchGithubProjects,
@@ -19,7 +20,6 @@ import {
   type TicketStatus,
 } from "@/api/kanban";
 import { updatedAgoText } from "@/kanban/progress";
-import { parseTicketMd, type ParsedTicket } from "@/kanban/ticket-md";
 import { renderMarkdown } from "@/kb/markdown";
 
 const props = defineProps<{ repo: GithubRepo | null }>();
@@ -231,12 +231,14 @@ function onProjectChange(id: string): void {
 
 // ---------------------------------------------------------------------------
 // Local detail panel (G4.S5.T4): clicking a GitHub-view card opens a drawer
-// with the ticket's md (frontmatter + description + Progress Log) pulled from
-// the repo, plus the GitHub issue comment thread — no GitHub redirect.
+// with the GitHub ISSUE BODY (title + body, same content the Issues panel
+// shows), plus the GitHub issue comment thread — no GitHub redirect. The
+// Progress Log stays in the md files (backend/dev-only) and is NOT shown in
+// any frontend issue detail (G4.S5.T16).
 // ---------------------------------------------------------------------------
 
 const detailCard = ref<DetailCard | null>(null);
-const detailMd = ref<ParsedTicket | null>(null);
+const detailIssue = ref<GithubIssue | null>(null);
 const detailComments = ref<GithubIssueComment[] | null>(null);
 const detailLoading = ref(false);
 const detailError = ref("");
@@ -257,20 +259,6 @@ function subIssueCard(sub: GithubProjectSubIssue): DetailCard {
   return { issueNumber: sub.number, ref: sub.ref, title: sub.title, status: sub.status, subIssues: [] };
 }
 
-/** Map a ref parsed off a GitHub issue title to its md file in the repo. */
-function mdPathForRef(ref: string | null): string | null {
-  if (!ref) {
-    return null;
-  }
-  if (/^G\d+\.S\d+\.T\d+$/.test(ref)) {
-    return `docs/kanban/${ref.replace(/\./g, "/")}.md`;
-  }
-  if (/^G\d+\.S\d+$/.test(ref)) {
-    return `docs/kanban/${ref.replace(/\./g, "/")}/Spec.md`;
-  }
-  return null;
-}
-
 function formatDateTime(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
@@ -279,29 +267,21 @@ function formatDateTime(iso: string): string {
 /** Open the local detail panel for a GitHub-view card (or sub-issue) and load its content. */
 async function openDetail(card: DetailCard): Promise<void> {
   detailCard.value = card;
-  detailMd.value = null;
+  detailIssue.value = null;
   detailComments.value = null;
   detailError.value = "";
   commentPostError.value = "";
   if (!auth.sessionToken || !props.repo) {
     return;
   }
-  const [owner, repo] = props.repo.full_name.split("/");
   detailLoading.value = true;
   try {
-    const mdPath = mdPathForRef(card.ref);
-    let parsed: ParsedTicket | null = null;
-    if (mdPath) {
-      try {
-        const file = await fetchFileContent(auth.sessionToken, owner, repo, mdPath);
-        parsed = parseTicketMd(file.content);
-      } catch {
-        // md unavailable in the repo — the panel still shows the GitHub comments.
-        parsed = null;
-      }
-    }
-    detailMd.value = parsed;
-    detailComments.value = await fetchGithubIssueComments(auth.sessionToken, props.repo.full_name, card.issueNumber);
+    detailIssue.value = await fetchGithubIssueBody(auth.sessionToken, props.repo.full_name, card.issueNumber);
+    detailComments.value = await fetchGithubIssueComments(
+      auth.sessionToken,
+      props.repo.full_name,
+      card.issueNumber,
+    );
   } catch (err) {
     detailError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -311,7 +291,7 @@ async function openDetail(card: DetailCard): Promise<void> {
 
 function closeDetail(): void {
   detailCard.value = null;
-  detailMd.value = null;
+  detailIssue.value = null;
   detailComments.value = null;
   detailError.value = "";
   newComment.value = "";
@@ -679,36 +659,13 @@ watch(view, (next) => {
         <div v-else class="kanban-detail-scroll">
           <div v-if="detailError" class="kanban-error">{{ detailError }}</div>
 
-          <section v-if="detailMd" class="kanban-detail-section">
-            <h4 class="kanban-detail-section-title">Ticket (docs/kanban)</h4>
-            <div class="kanban-detail-fm">
-              <span v-if="detailMd.frontmatter.status" class="kanban-detail-chip">
-                status: {{ detailMd.frontmatter.status }}
-              </span>
-              <span v-if="detailMd.frontmatter.assignee" class="kanban-detail-chip">
-                assignee: {{ detailMd.frontmatter.assignee }}
-              </span>
-              <span v-if="detailMd.frontmatter.owner" class="kanban-detail-chip">
-                owner: {{ detailMd.frontmatter.owner }}
-              </span>
-              <span v-if="detailMd.frontmatter.session_id" class="kanban-detail-chip">
-                session: {{ detailMd.frontmatter.session_id }}
-              </span>
-              <span v-if="detailMd.frontmatter.blocked_by" class="kanban-detail-chip">
-                blocked by: {{ detailMd.frontmatter.blocked_by }}
-              </span>
-            </div>
-            <div class="kanban-detail-description" v-html="renderMarkdown(detailMd.description)"></div>
-            <div v-if="detailMd.progressLog.length" class="kanban-detail-progress">
-              <h5 class="kanban-detail-progress-title">Progress Log</h5>
-              <ul class="kanban-detail-progress-list">
-                <li v-for="row in detailMd.progressLog" :key="row.timestamp" class="kanban-detail-progress-row">
-                  <span class="kanban-detail-progress-ts">{{ formatDateTime(row.timestamp) }}</span>
-                  <span class="kanban-detail-progress-status">{{ row.status }}</span>
-                  <span class="kanban-detail-progress-text">{{ row.progress }}</span>
-                </li>
-              </ul>
-            </div>
+          <section v-if="detailIssue" class="kanban-detail-section">
+            <h4 class="kanban-detail-section-title">Issue (GitHub)</h4>
+            <div
+              v-if="detailIssue.body"
+              class="kanban-detail-description"
+              v-html="renderMarkdown(detailIssue.body)"
+            ></div>
           </section>
 
           <!-- Sub-issues list (G4.S5.T8): clickable rows like GitHub's Sub-issues block. -->
@@ -1274,20 +1231,6 @@ watch(view, (next) => {
   color: var(--caleo-text-secondary);
 }
 
-.kanban-detail-fm {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.kanban-detail-chip {
-  padding: 1px 8px;
-  font-size: 11px;
-  color: var(--caleo-text-secondary);
-  background: rgba(127, 127, 127, 0.1);
-  border-radius: 999px;
-}
-
 .kanban-detail-description {
   font-size: 13px;
   line-height: 1.6;
@@ -1299,48 +1242,6 @@ watch(view, (next) => {
   background: rgba(127, 127, 127, 0.08);
   border-radius: 6px;
   overflow: auto;
-}
-
-.kanban-detail-progress-title {
-  margin: 0 0 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--caleo-text);
-}
-
-.kanban-detail-progress-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.kanban-detail-progress-row {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 4px 8px;
-  background: rgba(127, 127, 127, 0.06);
-  border-radius: 6px;
-}
-
-.kanban-detail-progress-ts {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--caleo-text-secondary);
-}
-
-.kanban-detail-progress-status {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--caleo-primary);
-}
-
-.kanban-detail-progress-text {
-  font-size: 12px;
-  color: var(--caleo-text);
 }
 
 /* Sub-issues list (G4.S5.T8): a GitHub Sub-issues-style block. */

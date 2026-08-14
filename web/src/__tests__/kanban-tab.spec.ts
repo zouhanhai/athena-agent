@@ -7,12 +7,12 @@ import "tdesign-vue-next/es/style/index.css";
 import KanbanTab from "@/components/KanbanTab.vue";
 import {
   fetchBoard,
+  fetchGithubIssueBody,
   fetchGithubIssueComments,
   fetchGithubProjectBoard,
   fetchGithubProjects,
   postGithubIssueComment,
 } from "@/api/kanban";
-import { fetchFileContent } from "@/api/github";
 import { applyTheme } from "@/theme";
 import type { GithubProjectBoard, KanbanIndex } from "@/api/kanban";
 
@@ -20,6 +20,7 @@ vi.mock("@/api/kanban", () => ({
   fetchBoard: vi.fn(),
   fetchGithubProjectBoard: vi.fn(),
   fetchGithubProjects: vi.fn(),
+  fetchGithubIssueBody: vi.fn(),
   fetchGithubIssueComments: vi.fn(),
   postGithubIssueComment: vi.fn(),
   TICKET_STATUSES: [
@@ -32,16 +33,12 @@ vi.mock("@/api/kanban", () => ({
   ],
 }));
 
-vi.mock("@/api/github", () => ({
-  fetchFileContent: vi.fn(),
-}));
-
 const fetchBoardMock = fetchBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectBoardMock = fetchGithubProjectBoard as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubProjectsMock = fetchGithubProjects as unknown as ReturnType<typeof vi.fn>;
+const fetchGithubIssueBodyMock = fetchGithubIssueBody as unknown as ReturnType<typeof vi.fn>;
 const fetchGithubIssueCommentsMock = fetchGithubIssueComments as unknown as ReturnType<typeof vi.fn>;
 const postGithubIssueCommentMock = postGithubIssueComment as unknown as ReturnType<typeof vi.fn>;
-const fetchFileContentMock = fetchFileContent as unknown as ReturnType<typeof vi.fn>;
 
 const BOARD: KanbanIndex = {
   version: 1,
@@ -200,41 +197,6 @@ const PROJECT_BOARD: GithubProjectBoard = {
   generated_at: "2026-08-13T16:00:00Z",
 };
 
-const TICKET_MD = `---
-id: G4.S5.T4
-title: "G4.S5.T4: Workbench Kanban view toggle"
-owner: eng-director
-status: in_progress
-assignee: opencode
-session_id: ses_1
-blocked_by: "G4.S5.T2"
----
-
-# G4.S5.T4 — Workbench Kanban view toggle
-
-## Context
-
-S5 syncs md to GitHub. This ticket adds a view toggle.
-
-## Task
-
-1. Backend endpoint.
-2. Frontend toggle.
-
-## Acceptance
-
-- Toggle works.
-
-## Progress Log
-| UTC timestamp | status | progress |
-|---|---|---|
-| 2026-08-13T14:21:04.639Z | in_progress | opencode claimed G4.S5.T4 |
-
-## Log
-
-[2026-08-13] opencode claimed G4.S5.T4
-`;
-
 const COMMENTS = [
   {
     id: 11,
@@ -244,6 +206,19 @@ const COMMENTS = [
     html_url: "https://github.com/zouhanhai/athena-agent/issues/5#issuecomment-11",
   },
 ];
+
+// G4.S5.T16: the detail panel reads the GITHUB ISSUE BODY (same content the
+// Issues panel shows) — the local md / Progress Log is NOT rendered anywhere.
+const GITHUB_ISSUE = {
+  number: 2,
+  title: "KB lifecycle",
+  state: "open",
+  html_url: "https://github.com/zouhanhai/athena-agent/issues/2",
+  user_login: "alice",
+  body: "## Context\n\nKB lifecycle is a GitHub issue body.\n\n- [x] Track confidence\n- [ ] Auto re-curate",
+  labels: ["G4"],
+  assignees: ["alice"],
+};
 
 async function mountKanbanTab(repo: typeof REPO | null = null) {
   const wrapper = mount(KanbanTab, {
@@ -273,18 +248,13 @@ describe("KanbanTab", () => {
     fetchGithubProjectBoardMock.mockResolvedValue(PROJECT_BOARD);
     fetchGithubProjectsMock.mockResolvedValue(PROJECTS);
     fetchGithubIssueCommentsMock.mockResolvedValue(COMMENTS);
+    fetchGithubIssueBodyMock.mockResolvedValue(GITHUB_ISSUE);
     postGithubIssueCommentMock.mockResolvedValue({
       id: 99,
       user_login: "alice",
       body: "Posted from the panel",
       created_at: "2026-08-13T13:00:00Z",
       html_url: "https://github.com/zouhanhai/athena-agent/issues/1#issuecomment-99",
-    });
-    fetchFileContentMock.mockResolvedValue({
-      path: "docs/kanban/G4/S5/T4.md",
-      sha: "s",
-      size: TICKET_MD.length,
-      content: TICKET_MD,
     });
   });
 
@@ -847,7 +817,7 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("clicking a card opens a LOCAL detail panel with md details + GitHub comments (no redirect) (G4.S5.T4)", async () => {
+  it("clicking a card opens a LOCAL detail panel with the GitHub issue body + GitHub comments (no redirect) (G4.S5.T16)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab(REPO);
 
@@ -862,17 +832,14 @@ describe("KanbanTab", () => {
     expect(wrapper.find(".kanban-detail-panel").exists()).toBe(true);
     expect(wrapper.find(".kanban-detail-ref").text()).toBe("G4.S6");
 
-    // The md file for the Spec ref is pulled from the repo and parsed.
-    expect(fetchFileContentMock).toHaveBeenCalledWith(
-      "tok_1",
-      "zouhanhai",
-      "athena-agent",
-      "docs/kanban/G4/S6/Spec.md",
-    );
-    // The detail panel shows the md's frontmatter chips, description and Progress Log.
-    expect(wrapper.find(".kanban-detail-fm").text()).toContain("assignee: opencode");
-    expect(wrapper.find(".kanban-detail-description").text()).toContain("This ticket adds a view toggle.");
-    expect(wrapper.find(".kanban-detail-progress-row").exists()).toBe(true);
+    // G4.S5.T16: the detail reads the GITHUB ISSUE BODY (same as the Issues
+    // panel) — NOT the local md. The local md is never fetched for the panel.
+    expect(fetchGithubIssueBodyMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", 2);
+    expect(wrapper.find(".kanban-detail-description").text()).toContain("KB lifecycle is a GitHub issue body.");
+    // No Progress Log anywhere in the detail.
+    expect(wrapper.find(".kanban-detail-progress").exists()).toBe(false);
+    expect(wrapper.find(".kanban-detail-progress-row").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Progress Log");
 
     // GitHub comments are fetched and rendered.
     expect(fetchGithubIssueCommentsMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", 2);
@@ -1005,7 +972,7 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("clicking a sub-issue opens its own detail (md + comments) (G4.S5.T8)", async () => {
+  it("clicking a sub-issue opens its own detail (GitHub issue body + comments) (G4.S5.T8)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
     const wrapper = await mountKanbanTab(REPO);
 
@@ -1018,12 +985,7 @@ describe("KanbanTab", () => {
     await flushPromises();
 
     expect(wrapper.find(".kanban-detail-ref").text()).toBe("G4.S5.T1");
-    expect(fetchFileContentMock).toHaveBeenCalledWith(
-      "tok_1",
-      "zouhanhai",
-      "athena-agent",
-      "docs/kanban/G4/S5/T1.md",
-    );
+    expect(fetchGithubIssueBodyMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", 11);
     expect(fetchGithubIssueCommentsMock).toHaveBeenCalledWith("tok_1", "zouhanhai/athena-agent", 11);
     // A sub-issue has no nested sub-issues of its own.
     expect(wrapper.findAll(".kanban-detail-subissue").length).toBe(0);
@@ -1094,24 +1056,17 @@ describe("KanbanTab", () => {
     wrapper.unmount();
   });
 
-  it("shows the Spec status from the md frontmatter, incl. the decomposed state (G4.S5.T8)", async () => {
+  it("renders the GitHub issue body — even a body with no Progress Log is shown as-is, no local md (G4.S5.T16)", async () => {
     localStorage.setItem("athena.session_token", "tok_1");
-    fetchFileContentMock.mockResolvedValue({
-      path: "docs/kanban/G4/S5/Spec.md",
-      sha: "s",
-      size: 1,
-      content: `---
-id: s5
-title: "G4.S5: sync"
-layer: S
-parent: G4
-status: decomposed
----
-
-# Body
-
-Decomposed into tickets.
-`,
+    fetchGithubIssueBodyMock.mockResolvedValue({
+      number: 2,
+      title: "KB lifecycle",
+      state: "open",
+      html_url: "https://github.com/zouhanhai/athena-agent/issues/2",
+      user_login: "alice",
+      body: "# Body\n\nDecomposed into tickets.\n",
+      labels: [],
+      assignees: [],
     });
     const wrapper = await mountKanbanTab(REPO);
 
@@ -1120,7 +1075,10 @@ Decomposed into tickets.
     await wrapper.find(".kanban-project-card").trigger("click");
     await flushPromises();
 
-    expect(wrapper.find(".kanban-detail-fm").text()).toContain("status: decomposed");
+    // The GitHub issue body renders; nothing from the local md / Progress Log.
+    expect(wrapper.find(".kanban-detail-description").text()).toContain("Decomposed into tickets.");
+    expect(wrapper.find(".kanban-detail-progress-row").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Progress Log");
     wrapper.unmount();
   });
 });
