@@ -1,17 +1,15 @@
 /**
  * md → GitHub auto-sync for the OpenCode worker plugin (G4.S5.T10).
  *
- * When a worker marks a ticket `done`, the session.idle handler commits the
- * kanban index AND then runs the md → GitHub sync for the ticket's parent Spec
- * so the GitHub Project board's Status columns update automatically — no manual
- * `sync-github sync <specRef>` needed.
+ * When a worker marks a ticket `done`, the session.idle handler runs the md →
+ * GitHub sync for the ticket's parent Spec so the GitHub Project board's Status
+ * columns update automatically — no manual `sync-github sync <specRef>` needed.
  *
  * The sync is best-effort: a failure is logged by the caller and never blocks
- * or rolls back the index done commit. Credential resolution mirrors the
- * `sync-github` CLI (server/scripts/sync-github.ts): an explicit token →
- * `GITHUB_TOKEN` env → the athena employee GitHub credential store. The
- * owner/repo come from explicit options → `GITHUB_OWNER`/`GITHUB_REPO` env →
- * the `origin` remote.
+ * the done commit. Credential resolution mirrors the `sync-github` CLI
+ * (server/scripts/sync-github.ts): an explicit token → `GITHUB_TOKEN` env → the
+ * athena employee GitHub credential store. The owner/repo come from explicit
+ * options → `GITHUB_OWNER`/`GITHUB_REPO` env → the `origin` remote.
  */
 
 import path from "node:path";
