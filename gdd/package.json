@@ -1,0 +1,23 @@
+{
+  "name": "gdd",
+  "version": "0.1.0",
+  "description": "GDD (Git-Driven Development) — generic, agent-agnostic dev-flow protocol that runs on the user's local machine: kanban protocol/sync modules, sync-github CLI, git hooks, opencode plugins, GST templates",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "sync:github": "tsx src/sync-github.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "tsx": "^4.23.7",
+    "typescript": "^5.9.3"
+  }
+}
