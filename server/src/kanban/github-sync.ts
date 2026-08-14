@@ -46,13 +46,13 @@ export const KANBAN_STATUS_OPTIONS: ProjectV2StatusOptionInput[] = [
 ];
 
 /**
- * The Project Status single-select options the Spec cards need (G4.S5.T7).
- * Spec statuses project onto Backlog / In Progress / Done / In Review /
- * Approved / Rejected — the full lifecycle columns.
+ * The Project Status single-select options the Spec cards need (G4.S5.T7 +
+ * G4.S6.T2). Spec statuses project onto Backlog / In Progress / Done / In
+ * Review / Approved / Rejected — the full lifecycle columns.
  */
 export const KANBAN_SPEC_STATUS_OPTIONS: ProjectV2StatusOptionInput[] = [
-  { name: "Backlog", color: "GRAY", description: "Spec defined, tickets not yet decomposed" },
-  { name: "In Progress", color: "BLUE", description: "Tickets decomposed / executing" },
+  { name: "Backlog", color: "GRAY", description: "Spec defined, no tickets claimed yet" },
+  { name: "In Progress", color: "BLUE", description: "First ticket claimed / executing" },
   { name: "Done", color: "GREEN", description: "Tickets complete" },
   { name: "In Review", color: "YELLOW", description: "Acceptance review" },
   { name: "Approved", color: "GREEN", description: "Spec accepted" },

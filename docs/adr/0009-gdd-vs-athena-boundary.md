@@ -12,7 +12,7 @@ athena-agent contains two distinct kinds of capability that had become conflated
 
 1. **Git-Driven Development (GDD)** — the collaborative kanban dev-flow: Gx.Sx.Tx three-layer structure,
    markdown files (`docs/kanban/*.md`) as source of truth, ticket claim-lock, state machine
-   (backlog → in_progress → done → approved/rejected, + Spec lifecycle incl. decomposed/canceled),
+   (backlog → in_progress → done → approved/rejected, + Spec lifecycle incl. canceled),
    kanban-index.json, md → GitHub Issues/Project sync (git hook + sync-github CLI), GitHub → md feedback,
    roles (Consultant/PM/Eng Director/Worker/Reviewer/Writer), Progress Log, and the opencode plugins
    (auto-claim / progress-log / done-commit / auto-sync).
