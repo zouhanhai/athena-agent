@@ -37,20 +37,23 @@ for f in $CHANGED; do
 done
 
 # De-dupe and run sync-github create for each spec.
-# Resolve owner/repo from the origin remote (github.com URLs) — the hook env
-# has no GITHUB_OWNER/GITHUB_REPO, so guess-free derivation avoids empty --owner.
+# Resolve owner/repo from the origin remote — supports BOTH HTTPS
+# (https://github.com/OWNER/REPO.git) and SSH (git@github.com:OWNER/REPO.git)
+# URLs. The hook env has no GITHUB_OWNER/GITHUB_REPO, so guess-free derivation
+# avoids empty/malformed --owner (the SSH form was mangling owner to
+# "git@github.com:owner").
 ORIGIN_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
 GH_OWNER=""
 GH_REPO=""
 case "$ORIGIN_URL" in
-  *github.com*)
+  *github.com*|*github.com:*)
     url="${ORIGIN_URL%.git}"
-    url="${url#*github.com/}"
+    url="${url##*github.com[/:]}"
     GH_OWNER="${url%%/*}"
     GH_REPO="${url#*/}"
     ;;
 esac
-if [ -z "$GH_OWNER" ] || [ -z "$GH_REPO" ]; then
+if [ -z "$GH_OWNER" ] || [ -z "$GH_REPO" ] || [ "$GH_OWNER" = "git@" ]; then
   echo "$(date '+%Y-%m-%d %H:%M:%S') kanban-hook: cannot derive owner/repo from origin ($ORIGIN_URL) — skipping" >> "$LOG"
   exit 0
 fi
