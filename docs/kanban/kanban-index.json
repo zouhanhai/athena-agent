@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T13:46:39.308Z",
+  "generated_at": "2026-08-14T13:57:05.114Z",
   "goals": [
     {
       "ref": "G1",
@@ -2835,7 +2835,7 @@
               "id": "G4.S6.T1",
               "title": "Workbench: split Kanban tab into two sibling tabs — 'Kanban' (local GST board = GDD) and 'Project' (GitHub Project view = athena generic GitHub viewer) — reflecting the GDD/athena boundary (ADR 0009); both remain sub-tabs under the Workbench",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_fff7a003cffehrryVJr1YCWflY",
               "blocked_by": [
@@ -2849,8 +2849,8 @@
                 "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
               ],
               "started_at": "2026-08-14",
-              "progress_last_row": "opencode claimed G4.S6.T1 (session ses_fff7a003cffehrryVJr1YCWflY)",
-              "progress_updated_at": "2026-08-14T13:46:39.294Z",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-14T13:56:48.946Z",
               "progress_status": "in_progress"
             },
             {
