@@ -1,0 +1,2943 @@
+{
+  "version": 1,
+  "generated_at": "2026-08-14T14:46:59.026Z",
+  "goals": [
+    {
+      "ref": "G1",
+      "id": "g1",
+      "title": "G1: Project Skeleton + AgentSession Personal Chat",
+      "owner": "hermes   # Initiator (currently played by Hermes, later employees/Pi each)",
+      "status": "done",
+      "created_at": "2026-08-04",
+      "milestone": "M1",
+      "specs": [
+        {
+          "ref": "G1.S1",
+          "id": "g1_s1",
+          "title": "G1.S1: Backend Service Skeleton (Fastify + AgentSession)",
+          "owner": "hermes",
+          "status": "done",
+          "milestone": "M1",
+          "tickets": [
+            {
+              "ref": "G1.S1.T1",
+              "id": "t1",
+              "title": "G1.S1.T1: Project Init + Pi SDK Dependency Installation",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "server/ directory exists and package.json can npm install",
+                "tsconfig.json configured with TypeScript strict mode",
+                "Dependencies include fastify + @earendil-works/pi-coding-agent",
+                "Minimal Fastify service can start and respond to health check"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S1.T2",
+              "id": "t2",
+              "title": "G1.S1.T2: Pi SDK Integration Skeleton (createAgentSession Verified)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "Can create an AgentSession with createAgentSession()",
+                "Confirm ModelRuntime can load DeepSeek model",
+                "session.prompt() can send messages and receive responses",
+                "Has a minimal reusable agent creation helper function"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S1.T3",
+              "id": "t3",
+              "title": "G1.S1.T3: AgentSession Management Module (Per-Employee Instances)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t2"
+              ],
+              "acceptance_criteria": [
+                "server/src/agents/manager.ts manages multiple AgentSessions",
+                "Can create/get/destroy sessions by userId/employeeId",
+                "Per-employee independent sessions (isolated memory/context)",
+                "SessionManager persists sessions (recoverable on restart)"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S1.T4",
+              "id": "t4",
+              "title": "G1.S1.T4: POST /api/chat Chat Endpoint",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t3"
+              ],
+              "acceptance_criteria": [
+                "POST /api/chat accepts { message, userId }",
+                "Internally calls AgentManager to get the user's AgentSession",
+                "session.prompt() processes the message and returns a response",
+                "Supports streaming responses (SSE or WebSocket)"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S1.T5",
+              "id": "t5",
+              "title": "G1.S1.T5: End-to-End Chat Tests",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t4"
+              ],
+              "acceptance_criteria": [
+                "Automated tests cover: chat/multi-turn context/error handling",
+                "Multi-turn chat maintains context (same userId reuses session)",
+                "Different userId isolation (no context leakage)",
+                "Tests pass + docs record how to run tests"
+              ],
+              "started_at": "2026-08-05"
+            }
+          ]
+        },
+        {
+          "ref": "G1.S2",
+          "id": "g1_s2",
+          "title": "G1.S2: Frontend Web Portal Skeleton (Vue3 + TDesign)",
+          "owner": "hermes",
+          "status": "done",
+          "milestone": "M1",
+          "tickets": [
+            {
+              "ref": "G1.S2.T1",
+              "id": "t1",
+              "title": "G1.S2.T1: Frontend Project Scaffold (Vue3 + Vite + TDesign)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "web/ directory exists, Vue3 + Vite + TypeScript project can start",
+                "TDesign Vue successfully imported",
+                "npm run dev can start, browser accessible",
+                "Basic components render (App skeleton)"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T2",
+              "id": "t2",
+              "title": "G1.S2.T2: Sidebar Layout + Routing + CALEO Theme",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "Sidebar layout (TDesign layout) has navigation items",
+                "Route config: /chat (personal chat) /knowledge /kanban placeholders",
+                "CALEO brand theme takes effect (orange #ff6633 etc.)",
+                "Route switching works correctly"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T3",
+              "id": "t3",
+              "title": "G1.S2.T3: Personal Chat Panel (Basic)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t2"
+              ],
+              "acceptance_criteria": [
+                "/chat page has chat interface",
+                "Can input and send messages (userId manual input or default)",
+                "Calls backend POST /api/chat and displays response",
+                "Message list displayed (user messages + Pi responses)"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T4",
+              "id": "t4",
+              "title": "G1.S2.T4: SSE Streaming Chat",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t3"
+              ],
+              "acceptance_criteria": [
+                "Frontend consumes backend SSE streaming (text/event-stream)",
+                "Chat displays response chunk-by-chunk in real time (typewriter effect)",
+                "Stream end handling (done event)"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T5",
+              "id": "t5",
+              "title": "G1.S2.T5: API Client + Pinia State Management",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t4"
+              ],
+              "acceptance_criteria": [
+                "src/api/ encapsulates POST /api/chat (non-streaming+streaming)",
+                "Pinia store manages chat state (message list/loading/error)",
+                "Components read state from store, don't call API directly",
+                "Clean and reusable (subsequent panels can reuse API layer)"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T6",
+              "id": "t6",
+              "title": "G1.S2.T6: Frontend Tests + End-to-End Chat Verification",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t5"
+              ],
+              "acceptance_criteria": [
+                "Frontend tests cover (components/state, mock API)",
+                "Frontend npm test passes",
+                "End-to-end verification: start backend+frontend, complete a personal chat in browser",
+                "G1.S2 all done → G1/M1 achieved"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T7",
+              "id": "t7",
+              "title": "G1.S2.T7: Sidebar Settings Panel + Dark/Light Theme Toggle",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Settings button at bottom of sidebar",
+                "Click settings opens panel (popover/drawer), with theme selection",
+                "Supports dark/light theme toggle",
+                "Theme applies globally: sidebar + main content unified color scheme",
+                "Theme selection persisted (localStorage)",
+                "Both themes: sidebar dark blue + content dark for dark theme; light theme unified throughout"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G1.S2.T8",
+              "id": "t8",
+              "title": "G1.S2.T8: CALEO Brand Logo",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Sidebar brand area displays CALEO official logo (replaces orange C marker)",
+                "Logo file located at web/public/caleo-logo.png",
+                "Logo displays correctly + brand name (Athena Agent / CALEO Portal)"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G1.S2.T9",
+              "id": "t9",
+              "title": "G1.S2.T9: Chat Input Box Multi-line Optimization",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Chat input box supports multi-line input (textarea, not just single line)",
+                "Input box slightly wider, height accommodates multiple lines",
+                "Enter to send / Shift+Enter for newline (or button to send)",
+                "Layout coordinates with other elements"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G1.S2.T10",
+              "id": "t10",
+              "title": "G1.S2.T10: Theme System Refinement (Dark Unified + Light Layering)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Dark theme: sidebar overall (including footer/Settings) uniformly dark, no white areas",
+                "Dark theme: input boxes/chat bubbles/menus etc. TDesign components dark",
+                "Dark theme: sidebar nav menu not protruding, coordinated with aside",
+                "Light theme: areas have layering (background light gray + card white + border/shadow), not flat white",
+                "Light theme: sidebar light gray, main content area card-based",
+                "Chat bubbles have color differentiation (dark/light coordinated): AI reply vs user send distinct",
+                "System overrides TDesign --td-* variables, making components follow theme"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T11",
+              "id": "t11",
+              "title": "G1.S2.T11: CALEO Logo Layout Adjustment",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "CALEO logo position adjusted, more prominent",
+                "Layout plan: logo placed below 'Athena Agent' text, replacing 'CALEO Portal' subtitle position",
+                "Or logo enlarged to match text, not appearing too small",
+                "Logo clear and natural in both dark/light themes"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T12",
+              "id": "t12",
+              "title": "G1.S2.T12: Athena Owl Logo Application + Brand Spacing",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Sidebar brand area displays Athena owl logo (web/public/athena-logo.svg)",
+                "Athena owl logo placed before 'Athena Agent' text",
+                "CALEO logo no longer placed below Athena text (fixes excessive vertical spacing)",
+                "Brand area layout coordinated"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G1.S2.T13",
+              "id": "t13",
+              "title": "G1.S2.T13: Sidebar Layout Adjustment + Light Theme Refinement",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Sidebar shifted down: leave space at top, content starts aligned with main content area title (Personal Chat)",
+                "Settings button placed at sidebar very bottom, middle empty space acceptable",
+                "Light theme: sidebar light gray background",
+                "Light theme: user chat bubble blue (differentiated)",
+                "Light theme: AI reply bubble distinguished from background",
+                "Sidebar/bubbles coordinated in both dark/light themes"
+              ],
+              "started_at": "2026-08-05"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ref": "G2",
+      "id": "g2",
+      "title": "G2: Knowledge Base (LightRAG + llm_wiki + docling Ingestion)",
+      "owner": "hermes",
+      "status": "done",
+      "created_at": "2026-08-05",
+      "milestone": "M2",
+      "specs": [
+        {
+          "ref": "G2.S1",
+          "id": "g2_s1",
+          "title": "G2.S1: LightRAG Knowledge Service Deployment",
+          "owner": "eng-director",
+          "status": "done",
+          "milestone": "M2",
+          "tickets": [
+            {
+              "ref": "G2.S1.T1",
+              "id": "t1",
+              "title": "G2.S1.T1: Install and configure LightRAG",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "LightRAG installed via pip on 6900XT",
+                "Configured DeepSeek as LLM (embedding + generation)",
+                "Configured Postgres + pgvector as vector storage",
+                "NetworkX as graph storage (POC)",
+                "Config file/dir written and loadable"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S1.T2",
+              "id": "t2",
+              "title": "G2.S1.T2: Start LightRAG server and verify ingestion/retrieval/graph",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "LightRAG API server starts listening, bound 0.0.0.0",
+                "Can ingest a Markdown document",
+                "Semantic query returns results",
+                "Graph data exportable (LightRAG /graphs or graph_visual_with_html)",
+                "Server reachable for Tailscale access"
+              ],
+              "started_at": "2026-08-05"
+            }
+          ]
+        },
+        {
+          "ref": "G2.S2",
+          "id": "g2_s2",
+          "title": "G2.S2: llm_wiki Service Deployment",
+          "owner": "eng-director",
+          "status": "done",
+          "milestone": "M2",
+          "tickets": [
+            {
+              "ref": "G2.S2.T1",
+              "id": "t1",
+              "title": "G2.S2.T1: Install Rust and compile llm_wiki",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_02d5c5035ffeQVP5ZxTRM9c0L7",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Rust/Cargo installed on 6900XT (rustup stable)",
+                "nashsu/llm_wiki cloned",
+                "Rust backend compiles successfully",
+                "llm_wiki binary/artifact produced"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S2.T2",
+              "id": "t2",
+              "title": "G2.S2.T2: Run llm_wiki headless and verify API",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s2_headless",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "llm_wiki runs headless via Xvfb providing :19828 API",
+                "HTTP API health check passes",
+                "Ingest Markdown → generates wiki pages",
+                "Keyword retrieval (wiki_search equivalent) usable",
+                "MCP server retrieval tools confirmed",
+                "Service bound 0.0.0.0 for Tailscale"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            }
+          ]
+        },
+        {
+          "ref": "G2.S3",
+          "id": "g2_s3",
+          "title": "G2.S3: Knowledge Access Layer + Pi Retrieval Routing",
+          "owner": "eng-director",
+          "status": "done",
+          "milestone": "M2",
+          "tickets": [
+            {
+              "ref": "G2.S3.T1",
+              "id": "t1",
+              "title": "G2.S3.T1: Backend knowledge service layer (kb/lightrag + kb/llmwiki clients)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s3_kb",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "server/src/kb/lightrag.ts: LightRAG API client (health, ingest, query, graph)",
+                "server/src/kb/llmwiki.ts: llm_wiki API client (file tree, search, graph, read page)",
+                "TypeScript strict, unit tested with node:test",
+                "Verify against live services: LightRAG :9621, llm_wiki :19828"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S3.T2",
+              "id": "t2",
+              "title": "G2.S3.T2: Dual-pipeline ingestion service (kb/ingest + /api/kb/ingest)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s3_kb",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "server/src/kb/ingest.ts: receives Markdown → feeds LightRAG + llm_wiki",
+                "Backend POST /api/kb/ingest endpoint (Fastify route, inject kb services)",
+                "Verifies document lands in both LightRAG and llm_wiki",
+                "TypeScript strict, unit tested"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S3.T3",
+              "id": "t3",
+              "title": "G2.S3.T3: Pi models → OpenRouter + knowledge tool registration + capability routing",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s3_kb",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "Pi/AgentSession models switched to OpenRouter (deepseek/deepseek-v4-flash main, qwen/qwen3.7-flash vision)",
+                "Pi registers 5 knowledge tools (knowledge_search/query_graph/wiki_search/wiki_read_page/wiki_graph)",
+                "Each tool declares capability requirements (AnyOf/AllOf)",
+                "Capabilities routing (intent → knowledge source) takes effect",
+                "Pi retrieves from both systems via MCP (Agentic RAG)"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S3.T4",
+              "id": "t4",
+              "title": "G2.S3.T4: Retrieval verification (dual-pipeline ingest + Pi end-to-end retrieval)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s3_kb",
+              "blocked_by": [
+                "t2",
+                "t3"
+              ],
+              "acceptance_criteria": [
+                "Ingest a sample document → confirmed in both LightRAG + llm_wiki",
+                "Pi retrieves from both systems (semantic RAG + wiki) via knowledge tools",
+                "Intent routing correct (process→wiki, facts→RAG, relations→graph)",
+                "Multi-graph fusion works for cross-domain queries",
+                "All G2.S3 acceptance criteria verified"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            }
+          ]
+        },
+        {
+          "ref": "G2.S4",
+          "id": "g2_s4",
+          "title": "G2.S4: Frontend Knowledge Panels",
+          "owner": "eng-director",
+          "status": "done",
+          "milestone": "M2",
+          "tickets": [
+            {
+              "ref": "G2.S4.T1",
+              "id": "t1",
+              "title": "G2.S4.T1: Frontend kb API layer + graph library integration",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s4_kb",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "web/src/api/kb.ts: API client for graph/wiki/search/ingest endpoints",
+                "Add 2D graph library dependency (v-network-graph) to web/package.json",
+                "Graph library loads and renders a sample graph in a test/dev page",
+                "TypeScript strict, vitest unit tested"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S4.T2",
+              "id": "t2",
+              "title": "G2.S4.T2: Knowledge graph panel (2D force-directed, /knowledge)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s4_kb",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "KnowledgeView.vue renders 2D force-directed entity-relation graph (v-network-graph)",
+                "Data from /api/kb/graph (LightRAG entities/edges)",
+                "Pan/zoom/drag, click node shows entity details",
+                "CALEO styling (orange nodes, sky-blue edges, dark/light theme aware)",
+                "Empty graph state handled"
+              ],
+              "started_at": "2026-08-05",
+              "completed_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S4.T3",
+              "id": "t3",
+              "title": "G2.S4.T3: Wiki tree panel (/wiki)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s4_wiki",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "WikiView.vue renders wiki page tree (TDesign Tree)",
+                "Click to expand each level until files, click file to open content",
+                "Content rendered as markdown (CALEO style)",
+                "Data from /api/kb/wiki + /api/kb/wiki/page (llm_wiki)",
+                "Left: tree navigation; Right: content viewer"
+              ],
+              "started_at": "2026-08-06",
+              "completed_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S4.T4",
+              "id": "t4",
+              "title": "G2.S4.T4: Knowledge search + panel tests",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s4_search",
+              "blocked_by": [
+                "t2",
+                "t3"
+              ],
+              "acceptance_criteria": [
+                "Search box in Knowledge/Wiki panels calls /api/kb/search and displays results",
+                "vitest tests for kb API layer + panel components",
+                "All web tests pass (existing 53 + new)",
+                "CALEO theme consistency"
+              ],
+              "started_at": "2026-08-06",
+              "completed_at": "2026-08-06"
+            }
+          ]
+        },
+        {
+          "ref": "G2.S5",
+          "id": "g2_s5",
+          "title": "G2.S5: Data/Document Input Interface (docling Parsing + Progress Bar)",
+          "owner": "eng-director",
+          "status": "done",
+          "milestone": "M2",
+          "tickets": [
+            {
+              "ref": "G2.S5.T1",
+              "id": "t1",
+              "title": "G2.S5.T1: docling unified parsing layer (6900XT Python)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t1",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "docling installed (pip, Python 3.12) and parse script works",
+                "Unified parsing: PDF/DOCX/XLSX/PPTX/images/HTML/EPUB/CSV/Markdown/URL → Markdown",
+                "Parse script outputs Markdown to shared input-dir",
+                "Verifies on a sample file of each major type"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S5.T2",
+              "id": "t2",
+              "title": "G2.S5.T2: Backend ingestion API + task queue (server/src/routes/kb.ts)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t2",
+              "blocked_by": [
+                "t1"
+              ],
+              "acceptance_criteria": [
+                "POST /api/kb/ingest (multipart file upload) → docling parse → dual pipeline",
+                "POST /api/kb/ingest-url (URL) → docling fetch → dual pipeline",
+                "Task queue tracks per-source status (id, source, status, progress)",
+                "GET /api/kb/task/:id (poll progress)",
+                "TypeScript strict, unit tested"
+              ],
+              "started_at": "2026-08-05"
+            },
+            {
+              "ref": "G2.S5.T3",
+              "id": "t3",
+              "title": "G2.S5.T3: Frontend 'Add Data' area + per-source progress bar",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t3",
+              "blocked_by": [
+                "t2",
+                "g2_s4_t2"
+              ],
+              "acceptance_criteria": [
+                "Knowledge panel has 'Add Data' area: file drag/drop/select + URL input",
+                "Supported format hints shown (docling formats)",
+                "Per-source progress bar (pending/parsing/ingesting/done/failed)",
+                "Polls /api/kb/task/:id for status",
+                "Design consistency (follow existing CALEO design language)"
+              ],
+              "started_at": "2026-08-06",
+              "completed_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T4",
+              "id": "t4",
+              "title": "G2.S5.T4: End-to-end ingestion verification",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t4",
+              "blocked_by": [
+                "t2",
+                "t3"
+              ],
+              "acceptance_criteria": [
+                "Upload a file via frontend → docling parses → appears in LightRAG + llm_wiki",
+                "URL ingest works → content added to both systems",
+                "Progress bar shows correct stage transitions",
+                "Failed source shows error state",
+                "All G2.S5 acceptance criteria verified"
+              ],
+              "started_at": "2026-08-06",
+              "completed_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T5",
+              "id": "t5",
+              "title": "G2.S5.T5: Wiki auto-hierarchy — use llm_wiki agent classification for wiki tree",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Ingested docs are classified into llm_wiki category dirs (entities/concepts/sources/comparisons/synthesis/queries)",
+                "wiki/index.md lists pages grouped by type",
+                "Wiki tree in frontend shows hierarchy (not flat root)",
+                "Uses llm_wiki's LLM agent classification (wiki.write_page / agent runtime), not direct root-write"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T6",
+              "id": "t6",
+              "title": "G2.S5.T6: docling picture descriptions — generate image text for complete ingest",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t6",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "docling picture descriptions enabled (do_picture_description=True)",
+                "Uses qwen/qwen3.7-flash (OpenRouter VLM) to describe images in PDFs/docs",
+                "Parsed markdown includes image descriptions (not just 'image' placeholder)",
+                "Verifies on a PDF with images: descriptions generated and ingested"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T7",
+              "id": "t7",
+              "title": "G2.S5.T7: LightRAG graph empty in frontend — fix label=all to label=*",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t7",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Frontend Knowledge graph panel shows the LightRAG entity graph (non-empty)",
+                "Backend /api/kb/graph returns full graph (all labels, ~272 nodes)",
+                "Default graph query uses a valid label (e.g. '*') not 'all'"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T8",
+              "id": "t8",
+              "title": "G2.S5.T8: Retry button for failed pipeline stages",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t8",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "When a task has a failed stage (LightRAG or llm_wiki), a Retry button appears",
+                "POST /api/kb/ingest/retry re-runs only the failed system(s) for a task",
+                "Successful stages are NOT re-run",
+                "Frontend shows retry progress + updated status after retry",
+                "Unit tests for the retry endpoint"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T9",
+              "id": "t9",
+              "title": "G2.S5.T9: Fix docling picture descriptions (OPENROUTER_API_KEY base64 command string)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t9",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "PDF/doc images produce text descriptions in parsed Markdown (not `<!-- image -->` placeholder)",
+                "parse_doc.py gets a valid (decrypted) OpenRouter API key",
+                "Verify: re-parse a PDF with images → Markdown contains image descriptions",
+                "Both LightRAG + llm_wiki receive the image text"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T10",
+              "id": "t10",
+              "title": "G2.S5.T10: Wiki topic-based grouping (beyond type classification)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t10",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Related documents (e.g. 3 Sommerseminar PDFs) group together in the wiki tree by topic",
+                "Classification considers topic/subject, not just type (concept/entity/source)",
+                "Frontend wiki tree shows topic folders (e.g. wiki/sommerseminar-2026/...)",
+                "Existing type-based classification still works (entities/concepts/...)"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T11",
+              "id": "t11",
+              "title": "G2.S5.T11: Wiki tree view switcher — single storage + segmented control (dark/light themed)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t11",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Each wiki page is stored ONCE (no duplicate files in concepts/ AND sommerseminar/)",
+                "Wiki tree has a view switcher (segmented control) with views: Topic / Type / All",
+                "Views group pages via frontmatter metadata (type + topic), NOT by duplicating files",
+                "Segmented control adapts to BOTH dark and light themes (uses --caleo-* vars + theme store)",
+                "Frontend unit tests for view switching",
+                "Verify: 3 Sommerseminar docs appear under topic view once, no duplicates"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T12",
+              "id": "t12",
+              "title": "G2.S5.T12: Delete a wiki document from the Wiki tree — removes from BOTH llm_wiki and LightRAG",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t12",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "User selects a file in the Wiki tree and can delete it via a Delete button",
+                "Deleting removes the page from llm_wiki (wiki/<...>.md + vector index) AND from LightRAG (doc + chunks + graph)",
+                "After delete, wiki tree refreshes and the file is gone from both systems",
+                "A confirm dialog prevents accidental deletion",
+                "Unit tests for the delete endpoint"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T13",
+              "id": "t13",
+              "title": "G2.S5.T13: Knowledge Graph topic filter — show only nodes for a selected topic",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t13",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Knowledge panel has a topic filter (dropdown/multi-select) listing available topics (e.g. sommerseminar)",
+                "Selecting a topic shows ONLY the graph nodes belonging to that topic (fewer nodes, less cluttered)",
+                "'All' / no filter shows the full graph as today",
+                "Uses LightRAG node file_path → wiki file topic mapping",
+                "Unit tests for the topic-filtered graph endpoint"
+              ],
+              "started_at": "2026-08-06"
+            },
+            {
+              "ref": "G2.S5.T14",
+              "id": "t14",
+              "title": "G2.S5.T14: Content dedup — normalized hash (exact) + LightRAG semantic similarity (approximate)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g2s5_t14",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Uploading a doc whose parsed content is identical to an existing one is skipped with a clear 'duplicate content' message (no re-ingest)",
+                "Content-normalized hash (not raw file hash) is used, so identical pdf + docx are caught",
+                "Long docs (hundreds of pages) are handled by per-page / per-chunk hash comparison",
+                "Semantic similarity (approximate dup) runs inside LightRAG (embedding cosine), not llm_wiki",
+                "Unit tests for the hash normalization + dedup logic"
+              ],
+              "started_at": "2026-08-06"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ref": "G3",
+      "id": "g3",
+      "title": "G3: Multi-Agent Federation & Team Workbench",
+      "owner": "consultant",
+      "status": "done",
+      "created_at": "2026-08-07",
+      "milestone": "M3",
+      "specs": [
+        {
+          "ref": "G3.S1",
+          "id": "g3_s1",
+          "title": "G3.S1: Agent Registry",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S1.T1",
+              "id": "t1",
+              "title": "G3.S1.T1: Agent registry data model + CRUD API",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_a260d6f76f06022e",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "agents table in PG with all fields",
+                "CRUD API endpoints working",
+                "capabilities shape {system,mcp[],tools[],skills[],specialty,description} (Vercel-inspired, §4.3)",
+                "route tests green"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S1.T2",
+              "id": "t2",
+              "title": "G3.S1.T2: Local Athena default declaration (owl logo)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_63e24c068cab46ac",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Athena default agent seeded",
+                "owl logo assigned",
+                "capabilities reflect knowledge assistant",
+                "queryable"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S1.T3",
+              "id": "t3",
+              "title": "G3.S1.T3: Logo system (animal set + self-upload)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_49f21e7a3c8b5d1f",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "animal logo set generated (consistent style)",
+                "agent self-upload works",
+                "logos listable"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S1.T4",
+              "id": "t4",
+              "title": "G3.S1.T4: Agent self-declaration + registration UI",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_8f3b2c5e7d91a406",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "self-declare API works (agent auto-fills)",
+                "registration UI lets employee pick alias+logo+confirm",
+                "agent created with employee-chosen alias/logo",
+                "tests green"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S1.T5",
+              "id": "t5",
+              "title": "G3.S1.T5: Consistent transparent animal logos via krea (per-animal custom prompts)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "each animal logo generated via krea/krea-2-medium-turbo with a per-animal custom prompt (matches owl's cute geometric style)",
+                "transparent background (outer bg transparent, animal face preserved opaque)",
+                "consistent flat geometric style across all animals (owl as reference)",
+                "stored as PNG under web/public/logos/"
+              ],
+              "started_at": ""
+            }
+          ]
+        },
+        {
+          "ref": "G3.S2",
+          "id": "g3_s2",
+          "title": "G3.S2: Employee Identity + RBAC + GitHub Credentials",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S2.T1",
+              "id": "t1",
+              "title": "G3.S2.T1: Employee model + email login + RBAC",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_51f2a8c37d6b9e40",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "employees table in PG",
+                "email login works",
+                "RBAC role checks"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S2.T2",
+              "id": "t2",
+              "title": "G3.S2.T2: GitHub credential (encrypted) + scoped repos",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_42466c77c45a9b86",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "credential encrypted at rest",
+                "scoped repos API",
+                "per-user visibility"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S2.T3",
+              "id": "t3",
+              "title": "G3.S2.T3: Agents archived under employees",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_e200c58388daabb8",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "agents grouped under employee",
+                "query by employee works"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S2.T4",
+              "id": "t4",
+              "title": "G3.S2.T4: Invitation-based employee registration",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0afdee0187362451",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "invitation email sent (Resend)",
+                "registration page links email + fills profile/GitHub key",
+                "GitHub credential encrypted at rest",
+                "magic-link login works"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S2.T5",
+              "id": "t5",
+              "title": "G3.S2.T5: Profile + Agents settings — name/logo/GitHub + agent management in Settings dialog",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_opencode_g3s2t5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Settings dialog has a Profile section (name / logo / GitHub credential)",
+                "PUT /api/employees/:email (or a dedicated /api/me) updates display_name, logo_url, and github_credential",
+                "GitHub credential can be set/updated after registration (currently only settable at registration)",
+                "Agent management (previously the standalone Agents tab) is consolidated into the Settings dialog; Agents removed from sidebar"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S2.T6",
+              "id": "t6",
+              "title": "G3.S2.T6: Settings as standalone sidebar tab + reorder sidebar (Knowledge/Wiki/Workbench/Uploads/Output/Settings) + Output placeholder page",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_opencode_g3s2t6",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Settings becomes a dedicated sidebar nav item (/settings route) opening a full page, not a dialog popup",
+                "Settings page shows Profile (display name / logo / GitHub credential) + Agents management",
+                "Theme settings are NOT duplicated on the Settings page — the sidebar ThemeToggle stays the single place to switch theme",
+                "Sidebar footer no longer renders the SettingsPanel dialog trigger (only ThemeToggle remains)",
+                "New Output placeholder page at /output (simple view; full output feature is M5)",
+                "Sidebar nav order becomes: Knowledge, Wiki, Workbench, Output, Uploads, Settings",
+                "S2.T5 behavior preserved: PUT /api/me updates profile; Agents management consolidated"
+              ],
+              "started_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S2.T7",
+              "id": "t7",
+              "title": "G3.S2.T7: Logo upload UI + hide in-use logos + drop SSH (GitHub token only)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_1786264980_32207",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Settings/Register logo picker has an upload button (POST /api/logos multipart) to add a custom logo",
+                "Logos already used by an agent or employee are hidden from the picker (no duplicates)",
+                "GitHub credential is token-only: SSH option removed from register + settings forms",
+                "Backend keeps accepting token (ghp_... or github_pat_...) — both Classic and Fine-grained work"
+              ],
+              "started_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S2.T8",
+              "id": "t8",
+              "title": "G3.S2.T8: Profile shows current logo (selected/highlighted) + GitHub credential mask (ghp_*****) when present",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_t8_profile_logo_github_mask",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Settings Profile logo picker always shows the signed-in employee's CURRENT logo, highlighted/selected (even if that logo is used by another agent and excluded from available)",
+                "GitHub credential field shows a MASK with first + last few characters (e.g. ghp_abcd****wxyz) when a token exists, so the user can compare it with GitHub — never the full secret",
+                "GET /api/me returns github_has_credential + a partial masked github_credential_masked (e.g. ghp_****abcd or ghp_abcd****wxyz)",
+                "All existing tests stay green"
+              ],
+              "started_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S2.T9",
+              "id": "t9",
+              "title": "G3.S2.T9: Manual agent registration entry in the Agents panel (admin adds an agent without self-declare)",
+              "owner": "eng-director",
+              "status": "canceled",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Settings → Agents panel has a 'Register agent' button that opens a form (alias, owner employee, logo, capabilities, runtime)",
+                "Submitting calls POST /api/agents and shows the new agent in the list",
+                "Backend POST /api/agents already exists and works (verify alias + owner_employee_id + capabilities + logo)",
+                "Frontend api/agents.ts gains a createAgent() helper",
+                "All existing tests stay green"
+              ],
+              "started_at": ""
+            }
+          ]
+        },
+        {
+          "ref": "G3.S3",
+          "id": "g3_s3",
+          "title": "G3.S3: Global Chat Panel (Conversation + Agent Cards)",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S3.T1",
+              "id": "t1",
+              "title": "G3.S3.T1: Convert ChatView → global fixed right panel",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_bb3f9d41c7e2a055",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "chat is global right panel",
+                "present on all pages",
+                "sidebar nav-only (no Chat)"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S3.T2",
+              "id": "t2",
+              "title": "G3.S3.T2: Single shared conversation context",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_8f3c21a74b95d062",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "one shared context",
+                "tab switch keeps context",
+                "page-aware context injection (current page's agent capabilities injected; Uploads→ingest, Workbench→GitHub, Wiki/Knowledge→knowledge tools)"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S3.T3",
+              "id": "t3",
+              "title": "G3.S3.T3: Agent cards + speak-toggle + add agent/employee",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_9d2e45f6c0a87b13",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "agent cards above chat",
+                "speak-toggle works",
+                "add agent/employee works",
+                "speaker logo on messages",
+                "hooks fire on agent joined / speak-toggle changed / agent left (onAgentJoined / onSpeakToggleChanged / onAgentLeft)"
+              ],
+              "started_at": "2026-08-08"
+            }
+          ]
+        },
+        {
+          "ref": "G3.S4",
+          "id": "g3_s4",
+          "title": "G3.S4: Workbench (GitHub-Style Content Area)",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S4.T1",
+              "id": "t1",
+              "title": "G3.S4.T1: Workbench page with 3 tabs (Code/Issues/Kanban)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_89d6c35513a4c0a9",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Workbench nav item",
+                "3 tabs render",
+                "global chat present"
+              ],
+              "started_at": "2026-08-07T23:58:51Z"
+            },
+            {
+              "ref": "G3.S4.T2",
+              "id": "t2",
+              "title": "G3.S4.T2: Code tab: repo tree + code view (GitHub style)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_9a4b7c2d5e1f8a3b",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "repo tree works",
+                "branch selector",
+                "code view w/ line numbers + syntax highlight",
+                "scoped to user"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S4.T3",
+              "id": "t3",
+              "title": "G3.S4.T3: Issues tab (GitHub style)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_7d3b5a1c9e0f8d6a",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "issues list renders",
+                "scoped to user"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S4.T4",
+              "id": "t4",
+              "title": "G3.S4.T4: Kanban tab (board from docs-scan)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_bca5ae735ee2f439",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "board renders",
+                "shows G.S.T + status"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S4.T5",
+              "id": "t5",
+              "title": "G3.S4.T5: Workbench — shared repo selector + code scroll fix + kanban bound to selected repo with refresh",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g3s4_t5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "ONE repo selector at the Workbench level (sibling of tabs); selecting applies to Code + Issues + Kanban",
+                "Code: file view scrolls for files >~50 lines (currently no vertical scroll, bottom lines unreachable)",
+                "Kanban: shows the SELECTED repo's kanban (Goals/Specs/Tickets from that repo's docs/kanban), NOT just the local athena repo\"",
+                "Kanban ticket cards show live status (status, assignee/worker, session_id) and a refresh button re-fetches",
+                "Code: shows recent COMMITS for the selected repo/branch (message, author, date, sha), and refreshes/auto-updates so a new push is visible",
+                "Per-tab repo selectors removed from CodeTab/IssuesTab",
+                "All existing tests stay green"
+              ],
+              "started_at": "2026-08-09",
+              "completed_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S4.T6",
+              "id": "t6",
+              "title": "G3.S4.T6: Fix frontend test env + Workbench UX (collapsible commits, md render toggle, kanban scan-progress feedback)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g3_tfix",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "All currently-failing web tests pass (verified green on 6900XT: 330/330)",
+                "Full web suite green (npx vitest run) + npx vue-tsc --noEmit 0 errors",
+                "Commits panel in CodeTab is collapsible/hideable",
+                "CodeTab has a markdown render toggle for .md files (raw <-> rendered)",
+                "KanbanTab refresh shows scan-progress feedback (spinner/status), not just a dead button"
+              ],
+              "started_at": "2026-08-09",
+              "completed_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S4.T7",
+              "id": "t7",
+              "title": "G3.S4.T7: Workbench polish — full commit-panel collapse, Kanban goal/spec layout harmony, kanban root index file",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_3f7a29b0c4d8e615",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Commit panel in CodeTab collapses the WHOLE column (aside is removed / width collapses), not just hides the commit list",
+                "Kanban Goal/Spec tree renders harmoniously: left title column and right spec badges align; no dead whitespace between rows; long spec titles truncate (ellipsis) instead of stretching",
+                "Kanban refresh is fast: reads a root index file (kanban-index.json) instead of recursively scanning + opening every ticket file on each refresh",
+                "The root index is updated whenever kanban md files change (design the trigger: git hook / build step / on-write)",
+                "All tests stay green (web npx vitest run + vue-tsc --noEmit)"
+              ],
+              "started_at": "2026-08-09",
+              "completed_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S4.T8",
+              "id": "t8",
+              "title": "G3.S4.T8: Local issue detail/edit/comments in Workbench (no GitHub redirect)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_8f4c1d2e6b7a5c39",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Clicking an issue in the Issues tab opens a LOCAL detail panel in the platform (does NOT navigate to GitHub)",
+                "Detail panel shows: issue body (rendered markdown), labels, assignees, state, and the comment thread",
+                "User can EDIT title, body, state (open/close), and labels from the local panel",
+                "User can ADD a comment from the local panel",
+                "Changes sync back to GitHub (via the employee's credential)",
+                "All tests stay green (web npx vitest run + vue-tsc --noEmit; server tests)"
+              ],
+              "started_at": "2026-08-09",
+              "completed_at": "2026-08-09"
+            }
+          ]
+        },
+        {
+          "ref": "G3.S5",
+          "id": "g3_s5",
+          "title": "G3.S5: Uploads Page (Per-System Ingest Detail)",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S5.T1",
+              "id": "t1",
+              "title": "G3.S5.T1: Uploads page as independent tab",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_a3f9c1e7d5b2a4f6",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Uploads nav item",
+                "upload area works",
+                "task list"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S5.T2",
+              "id": "t2",
+              "title": "G3.S5.T2: Per-system processing stages model",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_d04b42333b897b68",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "per-system sub-steps in task model",
+                "each has status"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S5.T3",
+              "id": "t3",
+              "title": "G3.S5.T3: LightRAG real status + chunk progress",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_f73c80a0b291c0c9",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "task reflects real LightRAG status",
+                "chunk progress shown",
+                "no false done"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G3.S5.T4",
+              "id": "t4",
+              "title": "G3.S5.T4: Full per-stage ingest progress — LightRAG + llm_wiki every step shown",
+              "owner": "eng-director",
+              "status": "canceled",
+              "assignee": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Uploads task UI shows every sub-step of BOTH LightRAG and llm_wiki ingestion with live status",
+                "LightRAG stage updates chunking / entity_extraction / graph_build / embedding as processing advances",
+                "llm_wiki stage updates classify / write_page / rebuild_index live (already wired)",
+                "backend tracks + streams these stage updates to the frontend (task status endpoint)"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G3.S5.T5",
+              "id": "t5",
+              "title": "G3.S5.T5: Show source images in llm_wiki pages (pure-text for LightRAG) — export images + copy beside page + serve to frontend",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g3s5t5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "docling exports extracted images to disk (--images-dir) during ingest, referenced in the markdown",
+                "llm_wiki page file (wiki/<topic>/<name>.md) keeps the image references, and the image files are copied beside it so the page renders WITH images in the llm_wiki reader",
+                "LightRAG still ingests the SAME markdown but sees only text (image alt-text / VLM description) — image bytes never affect LightRAG chunking",
+                "a wiki-image route serves the image bytes so WikiView renders <img> with a working URL",
+                "VLM picture descriptions (alt text) are preserved so image content stays RAG-searchable"
+              ],
+              "started_at": "2026-08-09"
+            },
+            {
+              "ref": "G3.S5.T6",
+              "id": "t6",
+              "title": "G3.S5.T6: Collapsible table of contents in wiki page (long docs — TOC sub-levels fold/unfold, not flat)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g3s5t6",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The wiki page TOC (wiki-toc) sub-levels can be expanded/collapsed interactively (not a flat list)",
+                "Clicking a TOC item that has children toggles its children open/closed; clicking a leaf jumps to the heading",
+                "Default: top levels expanded, deep levels collapsed (so a doc with hundreds of headings isn't a wall of text)",
+                "Works for the existing markdown-it-table-of-contents nested <ul> output; no change to LightRAG/llm_wiki",
+                "All existing tests stay green"
+              ],
+              "started_at": "2026-08-09"
+            }
+          ]
+        },
+        {
+          "ref": "G3.S6",
+          "id": "g3_s6",
+          "title": "G3.S6: Git-Driven Development (Platform Protocol + GitHub Integration)",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S6.T1",
+              "id": "t1",
+              "title": "G3.S6.T1: G.S.T board structure + md helpers",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_44ab85fcdceaf106",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "schema defined",
+                "md read/write helpers work"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S6.T2",
+              "id": "t2",
+              "title": "G3.S6.T2: Planning-agent onboarding (grill→to-spec→to-ticket)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_6c03b6229d8b3d4c",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "flow produces G.S.T",
+                "writers work",
+                "validation"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S6.T3",
+              "id": "t3",
+              "title": "G3.S6.T3: Worker claim/report protocol (git claim-lock)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_01f971060ffe9qApNiLbk4IRK9",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "claim lock works",
+                "report works",
+                "dispatch works"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S6.T4",
+              "id": "t4",
+              "title": "G3.S6.T4: Full 6-role lifecycle + state machine",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_8c4d1f2a90b7e3d5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "6 roles defined",
+                "state machine transitions",
+                "reject→re-decompose works"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S6.T5",
+              "id": "t5",
+              "title": "G3.S6.T5: GitHub integration (browse + ops)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_cf2a9e1b4d80c3f5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "browse works",
+                "open PR/edit/merge works",
+                "confirm flow",
+                "scoped to user"
+              ],
+              "started_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S6.T6",
+              "id": "t6",
+              "title": "G3.S6.T6: Kanban docs-scan backend API",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_6b8e4f2a1c9d7035",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "board constructed from md",
+                "GET /api/kanban works"
+              ],
+              "started_at": "2026-08-08"
+            }
+          ]
+        },
+        {
+          "ref": "G3.S7",
+          "id": "g3_s7",
+          "title": "G3.S7: Frontend Polish (Theme Toggle Animation + Design Audit)",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S7.T1",
+              "id": "t1",
+              "title": "G3.S7.T1: Animated theme toggle (stars+moon deep / sun+cloud light)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_20260808_g3s7t1",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "theme toggle slider placed under the Settings button in the sidebar",
+                "deep(dark) state shows stars + moon icon; light state shows sun + cloud icon",
+                "icon animates on switch (crossfade/morph) — ease-out, 150-250ms",
+                "prefers-reduced-motion respected",
+                "wired to existing theme store; all pages reflect the theme"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            },
+            {
+              "ref": "G3.S7.T2",
+              "id": "t2",
+              "title": "G3.S7.T2: Taste-skill frontend design audit + improvements",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_20260808_g3s7t2",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "whole frontend audited with taste-skill (redesign-existing-projects / design-taste-frontend)",
+                "findings documented (layout/typography/spacing/hierarchy/anti-slop)",
+                "prioritized improvements implemented",
+                "theme toggle (S7.T1) + existing CALEO brand respected"
+              ],
+              "started_at": "2026-08-08",
+              "completed_at": "2026-08-08"
+            }
+          ]
+        },
+        {
+          "ref": "G3.S8",
+          "id": "g3_s8",
+          "title": "G3.S8: Knowledge Graph UX (remove Add Data from Knowledge, topic/localized graph views)",
+          "owner": "pm",
+          "status": "done",
+          "milestone": "M3",
+          "tickets": [
+            {
+              "ref": "G3.S8.T1",
+              "id": "t1",
+              "title": "G3.S8.T1: Remove Add Data from Knowledge + topic/localized graph views",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_7ecea0eebde0fee1",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Add Data panel removed from Knowledge page (ingestion lives on Uploads)",
+                "graph 'all' view replaced: topic view or search-node local neighborhood",
+                "never auto-loads 1000+ nodes"
+              ],
+              "started_at": ""
+            },
+            {
+              "ref": "G3.S8.T2",
+              "id": "t2",
+              "title": "G3.S8.T2: Ingest order fix — llm_wiki classify first → LightRAG gets topic via frontmatter",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_31348bdb07d5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "ingest classifies via llm_wiki FIRST, then feeds LightRAG the content WITH frontmatter (type + topic)",
+                "LightRAG documents carry topic (visible in doc content_summary / metadata)",
+                "graph topic filtering works via file_path → LightRAG doc topic",
+                "GroupReporting classified as source (not comparison); Sommerseminar docs as source",
+                "paragraph_semantic chunking used for new ingests"
+              ],
+              "started_at": "2026-08-08"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ref": "G4",
+      "id": "g4",
+      "title": "G4: RAG Self-Build, KB Intelligence & Agent Collaboration",
+      "owner": "consultant",
+      "status": "active",
+      "created_at": "2026-08-09",
+      "milestone": "M4",
+      "specs": [
+        {
+          "ref": "G4.S1",
+          "id": "s1",
+          "title": "G4.S1: Post-docling Athena document refinement step",
+          "owner": "consultant",
+          "status": "done",
+          "milestone": "M4",
+          "tickets": [
+            {
+              "ref": "G4.S1.T1",
+              "id": "t1",
+              "title": "G4.S1.T1: refine_document Pi custom tool (tool def + athena provider + models.json)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_017eee793ffe6GbmuHdTkByUMD",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Register `refine_document` as a Pi custom tool (ToolDefinition) in the athena agent",
+                "Use `constrainedSampling` (JSON schema) so the tool returns structured output, not free-text JSON",
+                "Uses the dedicated `athena` OpenRouter provider (independent key) + deepseek-v4-flash-latest, thinkingLevel high",
+                "Add `athena` provider to `~/.pi/agent/models.json` so getModel('athena', ...) resolves",
+                "Input = docling markdown; output = { markdown, frontmatter, chunks, entities, relations, keywords, quality }"
+              ],
+              "started_at": "2026-08-09",
+              "completed_at": "2026-08-09",
+              "progress_last_row": "refine_document tool + athena provider shipped; committed feature + marked done",
+              "progress_updated_at": "2026-08-09 19:40:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S1.T2",
+              "id": "t2",
+              "title": "G4.S1.T2: refine_document output contract + document-refinement skill + prompt",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s1_t2_opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Output contract schema defined: markdown / frontmatter(type,topic) / chunks / entities / relations / keywords / quality",
+                "Entity fields: name(title-case)/type/description; relation: source/target/keywords/description (binary); keyword: relationship+query",
+                "`document-refinement` SKILL.md created (header re-level rules + taxonomy ref + quality checklist + entity/relation extraction guidance)",
+                "Single prompt (or prompt template) produces all outputs in ONE full-doc LLM pass (constrained sampling)",
+                "Prompt uses docs/taxonomy.md for type/topic + cross-RAG extraction best practices (G4.S1 Spec)"
+              ],
+              "started_at": "2026-08-09",
+              "completed_at": "2026-08-09",
+              "progress_last_row": "T2 done: contract schema + SKILL.md + one-pass prompt shipped; 623/623 server tests green; regenerated kanban index",
+              "progress_updated_at": "2026-08-09 21:05:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S1.T3",
+              "id": "t3",
+              "title": "G4.S1.T3: big-output handling (pi-docparser pattern) + chunking for >1MB docs",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s1_t3_opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Full re-leveled markdown + chunks land on disk/storage; tool returns small metadata (frontmatter/entities/keywords/quality/md_ref)",
+                "Big-output pattern (pi-docparser reference): only short preview + refs in context, NOT full md",
+                "Chunking strategy for >1MB md (measured: 827pg SAP = 2.17MB must chunk): split by ## headers, refine each, merge + global type/topic/entity pass",
+                "Chunked path documented (loses cross-section entity/relation correlation) — single-read preferred sub-1MB"
+              ],
+              "started_at": "2026-08-09T20:52:00Z",
+              "progress_last_row": "T3 done: big-output storage (pi-docparser: full md+chunks to <storageDir>/<stem>/, tool returns small metadata + md_ref/preview), two-stage refinement for >1MB (batched local header re-level → split by refined h1 → per-section pass → global merge), sub-1MB single-read; regenerated kanban index",
+              "progress_updated_at": "2026-08-09 21:03:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S1.T4",
+              "id": "t4",
+              "title": "G4.S1.T4: pipeline integration (refinement stage in tasks.ts + fold llm_wiki classify + downstream)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s1_t4_opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "New `refinement` stage in tasks.ts: parsing → refinement → ingesting_lightrag ‖ ingesting_llmwiki",
+                "llm_wiki `classify` folded into refinement (type/topic decided by Athena once)",
+                "Downstream consume Athena output: llm_wiki writes page+frontmatter+index (pure I/O, no LLM); RAG (S2) receives injected chunks/entities/keywords",
+                "DOCLING_OPENROUTER_KEY used by docling VLM (parse_doc.py) — separate from refinement",
+                "Progress/status surface for the refinement stage (Uploads page)"
+              ],
+              "started_at": "2026-08-10T07:10:00Z",
+              "completed_at": "2026-08-10T08:02:00Z",
+              "progress_last_row": "T4 done: refinement stage in tasks.ts (parsing → refinement → ingesting_lightrag ‖ ingesting_llmwiki); llm_wiki classify folded into refinement (Athena decides type/topic once); downstream consumes Athena output (llm_wiki pure I/O write_page+rebuild_index; RAG gets injected entities/keywords/quality via task.refinement); DOCLING_OPENROUTER_KEY separate (docling VLM only, createAthenaRefiner uses athena provider); Uploads progress surface; server 648/648 + web 346/346 green; regenerated kanban index",
+              "progress_updated_at": "2026-08-10 08:02:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S1.T5",
+              "id": "t5",
+              "title": "G4.S1.T5: fallback + tests (LLM failure → raw docling; quality.review_required)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s1_t5_opencode",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "refine_document failure → fallback to raw docling output (never worse than today)",
+                "quality.action=review_required → surfaced for operator review (log/Uploads flag)",
+                "Tests: tool output contract, header re-level, classification, entity/relation/keyword, chunking, fallback",
+                "All existing server/web tests stay green"
+              ],
+              "started_at": "2026-08-10",
+              "progress_last_row": "GREEN: task.reviewRequired flag + server REVIEW REQUIRED log; Uploads review badge; server 651 + web 348 green, typecheck clean",
+              "progress_updated_at": "2026-08-10T08:30:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S1.T6",
+              "id": "s1.t6",
+              "title": "G4.S1.T6: refine_document structured-output fails on complex/image-heavy docs (falls back)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_014ff988dffeYEnzqZSr6W8s4Y",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "refine_document returns structured output (entities/keywords/type/topic/chunks) for complex/image-heavy docling markdown — not fallback",
+                "Regression: simple docs still extract correctly",
+                "Repro covered by a test with an image-heavy markdown fixture"
+              ],
+              "progress_last_row": "Verified: server 662 + web 348 tests green, typecheck clean; committed implementation (feature commit f48b799)",
+              "progress_updated_at": "2026-08-10T10:04:00Z",
+              "progress_status": "done"
+            }
+          ]
+        },
+        {
+          "ref": "G4.S2",
+          "id": "s2",
+          "title": "G4.S2: RAG self-build — replace LightRAG with Athena-driven Neo4j store",
+          "owner": "consultant",
+          "status": "done",
+          "milestone": "M4",
+          "tickets": [
+            {
+              "ref": "G4.S2.T1",
+              "id": "s2.1",
+              "title": "G4.S2.T1: S1 increment — RefinementEntity bilingual aliases (DE+EN)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_t1bilingual",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "TDD RED→GREEN: contract test asserts aliases (schema + normalize mapping + prompt DE/EN + SKILL.md); refine-document.ts + SKILL.md emit aliases; 50 refine tests pass, typecheck clean",
+              "progress_updated_at": "2026-08-10T16:05:00Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S2.T2",
+              "id": "s2.2",
+              "title": "G4.S2.T2: Neo4j spike — deploy + validate vector/search (decision record)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_t2neo4jspike",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Verified: server 664 tests green + typecheck clean (no source changes — spike is Docker+ADR); kanban index regenerated; T2 done — Neo4j 2026 Community spike validated + ADR-0008 (self-build confirmed)",
+              "progress_updated_at": "2026-08-10T16:38:39Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T3",
+              "id": "s2.3",
+              "title": "G4.S2.T3: Neo4j store schema (Chunk/Entity/Relation/Document + aliases)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_t3schema",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Kanban index regenerated; T3 done — Neo4j store schema module (Chunk/Entity/Relation/Document + aliases, folded name/alias index) live-verified on spike container",
+              "progress_updated_at": "2026-08-10T17:26:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T4",
+              "id": "s2.4",
+              "title": "G4.S2.T4: Ingest — Athena output → Neo4j (embed + index, no LLM)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "15484a19-a0b2-472a-8ea4-8e15fd97f547",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Review: added Document.keywords (spec: keyword search uses Athena injected keywords); final verification server 689/689 + typecheck, web 348/348 + typecheck, codegraph sync; status done",
+              "progress_updated_at": "2026-08-10T22:00:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T5",
+              "id": "s2.5",
+              "title": "G4.S2.T5: Retrieval service (neo4j-graphrag hybrid + BM25 + graph)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_012d1093fffe5v6KrHqc2NaUj6",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "all green; codegraph sync; ticket marked done + kanban index regenerated",
+              "progress_updated_at": "2026-08-10T20:30Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T6",
+              "id": "s2.6",
+              "title": "G4.S2.T6: Case-insensitive + bilingual alias search",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "2b6a65c1-7d53-478d-8422-8cd243862a58",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "server 712/712 green (+5 new) + tsc clean; typecheck clean; ticket marked done",
+              "progress_updated_at": "2026-08-11T06:35Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T7",
+              "id": "s2.7",
+              "title": "G4.S2.T7: Replace LightRAG path + full test suite",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_opencode_g4s2t7",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "server 712/712 green + tsc clean; web 349/349 green + vue-tsc clean; web type + kb-api.spec mock updated; ticket marked done",
+              "progress_updated_at": "2026-08-11T06:39Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T8",
+              "id": "s2.8",
+              "title": "G4.S2.T8: Increase Athena refinement retry — fewer spurious fallbacks",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_20260810-170043",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Refinement retries >= 3 before falling back (default), not 1",
+                "Spurious fallback (output does not match contract) is rare in tests + a real re-upload"
+              ],
+              "progress_last_row": "T8 done: default retries 1→3, tests green, kanban index refreshed, pushed",
+              "progress_updated_at": "2026-08-10T17:12:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T9",
+              "id": "s2.9",
+              "title": "G4.S2.T9: Fix Neo4j vector search stalling (VectorRetriever Cypher hangs)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "73274282-f646-4329-b4b9-39e913e77bfe",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Neo4j vector search returns hits promptly (not hang) for a real query",
+                "Retrieval API surfaces neo4j source results alongside llmwiki"
+              ],
+              "progress_last_row": "committed (1c0ccd1) + codegraph sync; server 707/707 green + typecheck clean; ticket marked done",
+              "progress_updated_at": "2026-08-11T00:15Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T10",
+              "id": "s2.10",
+              "title": "G4.S2.T10: Remove LightRAG — decommission the LightRAG ingest stage, client, and track poller",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_t10_opencode_0821",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "No LightRAG references remain in server code/tests/deps",
+                "ingesting_lightrag stage removed from task pipeline",
+                "Server tests green + typecheck clean"
+              ],
+              "progress_last_row": "No LightRAG references remain in server code/tests/deps or web; pipeline runs on Neo4j + llm_wiki",
+              "progress_updated_at": "2026-08-11T16:30:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T11",
+              "id": "s2.11",
+              "title": "G4.S2.T11: RAG↔Wiki fusion — Section/WikiPage nodes + chunk retrieval with wikiPath/sectionPath + same-section context",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_t11_opencode_0821",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Ingest creates Section + WikiPage nodes, Chunk→Section→Document→WikiPage relationships",
+                "Chunk retrieval results carry wikiPath + sectionPath",
+                "Context enrichment returns same-section chunks",
+                "Server tests green + typecheck clean"
+              ],
+              "progress_last_row": "All green: 668 server tests, 347 web tests, server+web typecheck clean → marked T11 done, index regenerated",
+              "progress_updated_at": "2026-08-11T18:30:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T13",
+              "id": "s2.13",
+              "title": "G4.S2.T13: Athena document summary — one-pass full-text read also emits a doc summary",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "5279",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Refinement output contract gains a document summary field",
+                "Summary stored on Document node (Neo4j) + frontmatter (llm_wiki)",
+                "Server tests green + typecheck clean"
+              ],
+              "progress_last_row": "Full server suite green (681 pass) + typecheck clean; codegraph sync. Marking done + regen kanban index + commit.",
+              "progress_updated_at": "2026-08-11 17:47:00 UTC",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S2.T14",
+              "id": "s2.14",
+              "title": "G4.S2.T14: Entity→Chunk graph link + graph in RRF fusion + cross-encoder rerank",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_t14_06118",
+              "blocked_by": [
+                "G4.S2.T11"
+              ],
+              "acceptance_criteria": [
+                "Entity nodes link to Chunk nodes that mention them (MENTIONED_IN)",
+                "Graph retrieval returns chunks (not just entities) and participates in RRF fusion",
+                "Cross-encoder reranks the fused top-k",
+                "Server tests green + typecheck clean"
+              ],
+              "progress_last_row": "Acceptance met: graph chunks fuse in RRF, cross-encoder reorders fused top-k, tests green + typecheck clean. Marked done + regen kanban index + commit/push.",
+              "progress_updated_at": "2026-08-11 19:05:00 UTC",
+              "progress_status": "done"
+            }
+          ]
+        },
+        {
+          "ref": "G4.S3",
+          "id": "s3",
+          "title": "G4.S3: KB confidence & lifecycle + incremental re-curation + topic-scoped search",
+          "owner": "consultant",
+          "status": "done",
+          "milestone": "M4",
+          "tickets": [
+            {
+              "ref": "G4.S3.T1",
+              "id": "s3.1",
+              "title": "G4.S3.T1: Wiki frontmatter schema — read_count / last_reviewed / confidence / topic_history",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t1",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Implemented + tests green: withFrontmatter emits read_count/confidence/last_reviewed/topic_history; new `WikiFrontmatterSyncer` canonical update (wiki md on disk + write-through to Neo4j Document via IS_DOCUMENT); read_count increments on search/readWikiPage; Document node COALESCE lifecycle defaults at ingest. Typecheck clean, 711/711 server tests pass",
+              "progress_updated_at": "2026-08-11T20:25:23Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S3.T2",
+              "id": "s3.2",
+              "title": "G4.S3.T2: Athena KB review pass — re-topic / re-classify / deprecate / reinforce",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t2",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Implemented + tests green: `KbReviewService` scans wiki frontmatter (read_count/last_reviewed/confidence/topic_history/updated) via `decideReview` — re-topic (topic + topic_history append + last_reviewed bump), re-classify, deprecate/fade (confidence decay; very stale + rarely read flagged for archive), reinforce (fresh source raises confidence); all changes write through the canonical `WikiFrontmatterSyncer` (wiki md + Neo4j Document mirror); `POST /api/kb/review` route (dryRun/retopics/reclassify/reinforce) + `scheduleKbReview` interval (KB_REVIEW_INTERVAL_MS). Typecheck clean, 730/730 server tests pass",
+              "progress_updated_at": "2026-08-11T21:45:35Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T3",
+              "id": "s3.3",
+              "title": "G4.S3.T3: Incremental re-curation tool — re-topic + topic_history + index rebuild",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t3",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Acceptance met: re-curation to deeper sub-topics works (topic_history audit trail; file move + index rebuild + rescan; zero Neo4j re-chunk/re-embed — test asserts no Document/chunk/embed call). Marking done.",
+              "progress_updated_at": "2026-08-11T22:08:04Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T4",
+              "id": "s3.4",
+              "title": "G4.S3.T4: Topic-scoped search — scope retrieval to a topic subtree",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t4",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Committed + pushed (705e3ff), codegraph synced. Server 745 pass (3 pre-existing review.test date/float failures on clean checkout), web 347/347, both typechecks clean. Acceptance met: semantic search scopes to a topic subtree.",
+              "progress_updated_at": "2026-08-12T09:22:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T5",
+              "id": "s3.5",
+              "title": "G4.S3.T5: Feedback loop — thumbs up/down → Q&A pairs + confidence update",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_g4s3t5",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Web done: thumbs up/down on Chat assistant answers (GlobalChatPanel) → `rateMessage` store action → `sendFeedback` API (question/answer/sources/feedback) → POST /api/kb/feedback; active-state highlighting; `listQaPairs` for the Terms & QA tab. Server 780/780 + web 358/358 tests green, server + web typecheck clean. Acceptance met — chat shows thumbs up/down, Q&A pairs stored (deduped by vector similarity), confidence reacts per feedback direction via the canonical syncer. Marking done.",
+              "progress_updated_at": "2026-08-12T08:07:10Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T6",
+              "id": "s3.6",
+              "title": "G4.S3.T6: Terms & QA tab — semantic mappings + Q&A pairs (live query + manual entry)",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "20260812T100711Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Fuzzy term variant matching (G4.S3.T6 point 7): `expandTerms` now normalizes (strip spaces/hyphens, case-fold) so `CDay` matches `CDay`/`C Day`/`C-Day`; `fuzzySpans` maps each normalized-match offset back to the ORIGINAL query span (replacing only the exact span, punctuation survives) with word boundaries preserved. New unit tests in semantic-mappings.test.ts (variant matching, spaced/hyphenated stored terms, offset mapping to original, boundary guard, one-to-many OR + variants) + retrieval.test.ts search-path variant test. Server 824/824 tests + tsc clean; web 372/372 + vue-tsc clean. codegraph sync done.",
+              "progress_updated_at": "2026-08-12T10:10:54Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T7",
+              "id": "s3.7",
+              "title": "G4.S3.T7: Agentic RAG — query transformation / compression / picker / multi-hop",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "a8b2cbf2-d52a-4cf3-94ff-e38a4c0f43fd",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "See 'Acceptance' section"
+              ],
+              "progress_last_row": "Committed + pushed (5c9a874), codegraph synced. Acceptance met: query transform (clarify/decompose→parallel→fuse), compression, retriever picker (vector/bm25/graph/hybrid), topic convergence (T4 topic-scoped search, omit for cross-domain), multi-hop graph reasoning, not-found → explicit \"not found in KB\" + web-search fallback + KB-update suggestion. search_knowledge tool = retrieval-side of KB-as-MCP contract (G4.S7). Server 857/857 tests, typecheck 0.",
+              "progress_updated_at": "2026-08-12T12:05:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T8",
+              "id": "s3.8",
+              "title": "G4.S3.T8: Chunk ingest progress — X/Y + ETA on the Uploads page",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "20260812T150700Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Neo4j ingest reports chunk progress (X/Y) as it embeds, not just on completion",
+                "Frontend Uploads shows X/Y chunks + estimated time for the Neo4j (RAG) stage",
+                "Large docs (1000+ chunks) stream progress instead of a single done",
+                "Server + web tests green, typecheck clean"
+              ],
+              "progress_last_row": "all acceptance met (embedder onBatch, per-batch ingest, task/API progress, Uploads X/Y+ETA); server+web tests + typecheck green; committed + pushed",
+              "progress_updated_at": "2026-08-12T11:16:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T9",
+              "id": "G4.S3.T9",
+              "title": "G4.S3.T9: Uploads — live elapsed timer + RAG chunk progress ETA",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "20260812T120926Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "Uploads task note shows a LIVE elapsed timer (updates every ~1s) from the moment a task starts, so it never shows a frozen 0s.",
+                "During the RAG/Neo4j stage the note also shows an ETA estimate (remaining chunks × avg per-chunk time), refreshed as chunks embed.",
+                "The elapsed timer covers parsing+refinement too (not just RAG); before RAG no ETA is shown (no per-chunk baseline yet), only the elapsed time.",
+                "Server + web tests green, vue-tsc + typecheck clean."
+              ],
+              "progress_last_row": "acceptance met: note ticks live 1s from createdAt (never frozen 0s); RAG note shows decreasing ~ Nm Ns left ETA from rolling avg ms/chunk; parsing/refinement show elapsed only; per-chunk onProgress + stage processed/total/etaMs + embed_store X/Y step; server 860/860 + web 384/384 + typecheck/vue-tsc clean; committed + pushed",
+              "progress_updated_at": "2026-08-12T12:45:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T10",
+              "id": "G4.S3.T10",
+              "title": "Wiki edit → Athena diff-refine → RAG re-ingest (versioned correction)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "20260812T124616Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The front-end wiki page becomes editable (Save button), persisting a markdown edit back to the wiki file.",
+                "Wiki editing is permission-gated: only an admin (or a member granted `kb.edit`) can edit/save; everyone else sees the wiki read-only.",
+                "Saving creates a versioned diff (before vs after). Athena runs an INCREMENTAL refine against the diff, NOT a full re-refine from docling — it sees exactly what changed.",
+                "Athena preserves the user's manual edit (does not rewrite the corrected text), but re-derives entities/relations/chunks and flags any NEW entities/relations the edit introduced.",
+                "The corrected doc overwrites the old version, located via its wikiPath → Document → Chunk nodes (stale chunks removed, new chunks embedded).",
+                "Server + web tests green, vue-tsc + typecheck clean."
+              ],
+              "progress_last_row": "acceptance met: wiki editable + save persists (read-only default, opt-in via kb.edit); save → versioned diff → Athena diff-refine (preserves corrected text verbatim, flags new entities/relations, rechunked decision) → RAG overwrite via wikiPath (stale chunks/sections removed, unchanged chunks keep embeddings, corrected text re-embedded, new entities/relations merged); versions transient (no history kept); server 907/907 + web 394/394 + typecheck/vue-tsc clean; committed + pushed",
+              "progress_updated_at": "2026-08-12T13:13:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T11",
+              "id": "G4.S3.T11",
+              "title": "Admin console — sidebar admin nav + employee/permission/invite management",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "20260812T133534Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "An Admin entry appears in the left sidebar ONLY for employees with role=admin (hidden for members).",
+                "The Admin page has TWO areas: (1) an employee list where an admin can change a role and grant/revoke the `kb.edit` permission per row (a switch in the list — no separate section); (2) generate invitation links for new employees.",
+                "Permission edits are enforced server-side (RBAC): only an admin can reach these actions; the UI reflects the signed-in user's role.",
+                "Server + web tests green, vue-tsc + typecheck clean."
+              ],
+              "progress_last_row": "acceptance met: Admin sidebar entry only for role=admin (reactive navItems); Admin page = employee list (role select + kb.edit switch per row via PUT /api/employees/:email, expandable 2nd level shows owned agents grouped by owner) + invite generation (POST /api/invitations returns inviteUrl, copy button, 7-day TTL note); server RBAC enforces admin-only (existing employees.update/list/invite permissions), UI hides admin controls for members, /admin route guarded (non-admin → /knowledge) + in-page check; server 907/907 + web 410/410 (14 new) + server tsc + web vue-tsc clean; codegraph synced; committed + pushed",
+              "progress_updated_at": "2026-08-12T14:10:00Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T12",
+              "id": "G4.S3.T12",
+              "title": "Wire Agentic RAG (search_knowledge) into the Athena chat agent",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_opencode_g4s3t12",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The `search_knowledge` tool is registered on the Athena chat agent session (createAgent) so Athena can call it for knowledge-base questions.",
+                "A default AgenticRetrievalService is built inside createAgent when no agenticRetrieval option is supplied (LLM judge + KB retrieval + web fallback).",
+                "Asking a stored Q&A question (e.g. 'what is caleo') reuses the QA pair (qa_pairs + Neo4j QaPair) instead of falling back to web.",
+                "Term (semantic_mappings) expansion applies to the agentic search path.",
+                "Server tests pass (incl. createAgent registers search_knowledge + a stored QA pair is reused) + typecheck clean."
+              ],
+              "progress_last_row": "committed + pushed (origin + caleo); status=done, index rebuild pending",
+              "progress_updated_at": "2026-08-12T16:53Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S3.T13",
+              "id": "G4.S3.T13",
+              "title": "Fix agentic clarify — only clarify when the question has no extractable subject; surface real follow-up to the user",
+              "owner": "consultant",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "20260812T174937Z",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "`search_knowledge` no longer returns a clarify for definitional/entity queries like 'what is caleo' or 'what is RAG' — those search the KB directly and answer (using a stored Q&A pair when present).",
+                "The agentic plan (AGENTIC_PLAN_SYSTEM_PROMPT) only chooses `clarify` when the user question has NO extractable subject (e.g. 'help me with something'), not when the subject exists but is ambiguous.",
+                "When a clarify IS raised, it is surfaced to the user as a REAL follow-up (front-end clarification interaction: options + the user's answer is fed back to re-run the query), not swallowed into a plain answer text.",
+                "Server tests (agentic-rag plan/answer + tools) and web tests (chat clarification UI) green + typecheck/vue-tsc clean."
+              ],
+              "progress_last_row": "Verified: server 928/928, web 420/420, typecheck/vue-tsc clean. Acceptance met: \"what is caleo\"/\"what is RAG\" answer from KB (no clarify dead-end, QA pair reused); clarify only for subject-less queries; legitimate clarify relayed via SSE to chat UI, user choice re-runs query with chosen context.",
+              "progress_updated_at": "2026-08-12T18:22:00Z",
+              "progress_status": "done"
+            }
+          ]
+        },
+        {
+          "ref": "G4.S4",
+          "id": "G4.S4",
+          "title": "G4.S4: Worker progress tracking + auto-claim via OpenCode plugin",
+          "owner": "pm",
+          "status": "done",
+          "tickets": [
+            {
+              "ref": "G4.S4.T1",
+              "id": "G4.S4.T1",
+              "title": "OpenCode plugin — auto-claim (git lock + kanban index) + Progress Log appender (real timestamps, rate-limited)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_005d4dc61ffeccjgVt91SgqaMH",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "On the first tool.execute of a session the plugin detects the ticket ref (from the structured dispatch prompt / session metadata) and calls claimTicket: writes status=in_progress + assignee + session_id, then git add/commit/push — the git push is the mutual-exclusion lock, effective before any work",
+                "On a lost claim race the plugin surfaces ClaimConflictError so the worker backs off (no double-claim)",
+                "The claim is ONE commit — the plugin regenerates + commits the kanban index together with the claim",
+                "The plugin appends a Progress Log row to the ticket md file on a real change (a tool ran / status moved), with a REAL wall-clock UTC timestamp (never fabricated — 2026-08-09 lesson)",
+                "Rows are appended only on a real change (not a fixed tick) and rate-limited (~1 row / N sec); a stale last-row timestamp is the stalled signal",
+                "Plugin is global/resident (loaded at opencode serve startup), distinguishes workers by sessionID, parses the ticket ref from the first dispatch message",
+                "Plugin unit tests cover: claim (happy path + lost race), progress append (rate limit, real timestamp), ticket-ref parsing"
+              ],
+              "progress_last_row": "all acceptance criteria met: auto-claim (happy + lost race → ClaimConflictError), claim = ONE commit (ticket + index), Progress Log rows with real wall-clock UTC timestamps + rate-limited + real-change-only; plugin resident in .opencode/plugins/; commits pushed",
+              "progress_updated_at": "2026-08-13T08:42:21Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S4.T2",
+              "id": "G4.S4.T2",
+              "title": "Kanban reads Progress Log — parser + KanbanTab shows last row, updated-Xs-ago, stalled flag",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0058519fcffe1a3gknojv65h4r",
+              "blocked_by": [
+                "G4.S4.T1"
+              ],
+              "acceptance_criteria": [
+                "The kanban parser reads the `## Progress Log` table at the bottom of each ticket md file and exposes the last row (timestamp + status + progress)",
+                "KanbanTab shows the last Progress Log row + 'updated Xs ago' (from the row timestamp vs now)",
+                "KanbanTab flags a ticket as stalled when its status is in_progress and the last Progress Log timestamp is old (> ~3 min)",
+                "Stalled is an OBSERVATION flag (board UI) — it does NOT change the ticket frontmatter status",
+                "Server + web tests green"
+              ],
+              "started_at": "2026-08-13",
+              "completed_at": "2026-08-13",
+              "progress_last_row": "acceptance met: parser exposes last Progress Log row (timestamp+status+progress); KanbanTab shows last row + updated Xs ago + stalled flag (in_progress + old ts, observation-only, frontmatter untouched); committed + pushed",
+              "progress_updated_at": "2026-08-13T09:48:55.000Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S4.T3",
+              "id": "G4.S4.T3",
+              "title": "Deploy plugin to 6900XT opencode serve + end-to-end verification (auto-claim + Progress Log + stalled)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0056c7976ffeXP3Oxm8sAxqpAl",
+              "blocked_by": [
+                "G4.S4.T1",
+                "G4.S4.T2"
+              ],
+              "acceptance_criteria": [
+                "The plugin (from T1) is installed in the GLOBAL opencode plugin dir (`~/.config/opencode/plugins/`) and loads on serve startup regardless of serve cwd (absolute-path imports into the athena-agent repo)",
+                "End-to-end: a dispatched ticket is auto-claimed on first tool call (status=in_progress + assignee + session_id in git, index regenerated); claim happens exactly ONCE per session (no duplicate claim commits / Progress Log rows)",
+                "End-to-end: a dispatched worker's Progress Log rows appear in the ticket file with real wall-clock timestamps",
+                "End-to-end: KanbanTab shows the last row + updated-ago + stalled flag for a stalled in_progress ticket",
+                "AGENTS.md updated: the worker no longer manually claims (status/assignee/session_id + commit) — the plugin auto-claims; the manual-claim step is removed so the worker doesn't conflict with the plugin",
+                "The concurrent double-claim bug is fixed — the plugin claims exactly once even when several tool calls fire in the same tick (no duplicate claim rows / claim commits / ClaimConflictError)",
+                "Verified on the 6900XT environment (authoritative)"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T10:23:12.389Z",
+              "progress_status": "in_progress"
+            }
+          ]
+        },
+        {
+          "ref": "G4.S5",
+          "id": "s5",
+          "title": "G4.S5: Kanban ↔ GitHub Issues bidirectional sync + planning feedback loop",
+          "owner": "consultant",
+          "status": "done",
+          "milestone": "M4",
+          "tickets": [
+            {
+              "ref": "G4.S5.T1",
+              "id": "G4.S5.T1",
+              "title": "GitHub GraphQL client + Project v2 API layer (createIssue, sub-issues, milestone, label, status field)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_004c572f9ffeaeG5LYk1uyRKBe",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "A GraphQL client (alongside the existing REST GithubRestClient) talks to https://api.github.com/graphql with the employee token",
+                "GitHubApi grows the operations needed for S5: createIssue, createSubIssue, getIssueByTitle, addLabel, setMilestone, getMilestoneByTitle, and Project v2 ops (createProject, addIssueToProject, getProjectItems, setItemStatusField)",
+                "Status column mapping: kanban status → Project Status single-select option (backlog/in_progress/done/in_review/approved/rejected)",
+                "The GraphQL layer reuses the existing GithubCredential token + error handling conventions",
+                "Server tests green (mock GitHub GraphQL), typecheck clean"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T13:13:00.073Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T2",
+              "id": "G4.S5.T2",
+              "title": "md→GitHub Project projection: Spec→main Issue (body=design), Ticket→sub-issue, status/blocked_by/label/milestone sync + sync CLI",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_004ab29dfffesK4LWA3R42ygH1",
+              "blocked_by": [
+                "G4.S5.T1"
+              ],
+              "acceptance_criteria": [
+                "Each Spec → a main Issue (title `Gx.Sx <spec title>`, body = the spec description + link to docs/kanban/<ref>.md, `## Sub-tasks` mirroring its tickets as a checklist)",
+                "Each Ticket → a sub-issue of its Spec's main Issue (title `Gx.Sy.Tz`, body = ticket description + link to the md)",
+                "Ticket status syncs to the Project Status column (backlog/in_progress/done/in_review/approved/rejected)",
+                "blocked_by → GitHub issue dependency; Goal → Milestone + Label (G4) on the issues",
+                "A sync CLI/tool (board.js-style) creates + syncs md → GitHub on demand or on key transitions; idempotent (re-run doesn't duplicate)",
+                "Progress Log is NOT pushed to GitHub (only description/status/assignee/blocked_by/milestone/label sync)",
+                "Server tests green (mock GitHub), typecheck clean"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T13:55:23.774Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T3",
+              "id": "G4.S5.T3",
+              "title": "GitHub→md feedback loop: plan agent reads issue comments → proposes md updates (new/edited ticket/spec); md-authoritative conflict handling",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_00492126cffevgtZd2lm4lN16a",
+              "blocked_by": [
+                "G4.S5.T1",
+                "G4.S5.T2"
+              ],
+              "acceptance_criteria": [
+                "GitHub Project status changes (user-confirmed) sync BACK to the md ticket, each recorded with its origin (audit trail: which field, from GitHub, timestamp)",
+                "A plan-agent path reads an Issue's comments/new info and turns them into md updates (new/edited ticket or a new spec via grill → to-spec → to-ticket), flowing back into docs/kanban",
+                "New issue comments are surfaced deduped (seen-marker) so the plan agent only processes new info",
+                "Conflict handling: md is authoritative on ambiguity — GitHub changes are never silently overwritten; differences are surfaced as a report for the plan agent to reconcile",
+                "Human keeps final authority on spec/ticket changes",
+                "Server tests green (mock GitHub), typecheck clean"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T14:13:50.723Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T4",
+              "id": "G4.S5.T4",
+              "title": "Workbench Kanban tab view toggle — Local kanban vs GitHub Project (synced board)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_00480d7dcffeD2IXlm3VZwaQ3Z",
+              "blocked_by": [
+                "G4.S5.T2"
+              ],
+              "acceptance_criteria": [
+                "KanbanTab has a view toggle: Local kanban | GitHub Project",
+                "Local view = the existing board (Progress Log, updated-ago, stalled flag, goal tree, column expand)",
+                "GitHub Project view = the synced board from GitHub: cards per status column, ticket refs, status",
+                "Clicking a card in the GitHub Project view opens a LOCAL detail panel (does NOT leave the Workbench): shows the ticket details pulled from local md (description, Progress Log, frontmatter) + the GitHub issue comments fetched via API",
+                "The GitHub view reads the Project items via a backend endpoint (GraphQL-backed, using the employee token)",
+                "Switching views does not break the existing local board behavior",
+                "Web tests green + vue-tsc clean"
+              ],
+              "started_at": "2026-08-13",
+              "completed_at": "2026-08-13",
+              "progress_last_row": "acceptance met: GET /api/kanban/github-project (GraphQL via employee token, project resolved by `owner/repo` then repo-name title, status-column grouping via buildGithubProjectBoard, ref parse, issue URLs; 404 when no linked Project) + GET /api/kanban/github-issue-comments (issue thread for the detail panel) + KanbanTab view toggle Local",
+              "progress_updated_at": "2026-08-13T14:41:21.000Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S5.T5",
+              "id": "G4.S5.T5",
+              "title": "Fix plugin done double-commit races: (3a) index commit not pushed on push-failure, (3b) duplicate index commit when worker also regens",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0045c5a0dffeT18SNX8N7DhpCs",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "3a FIXED: when the plugin's `index done <ref>` commit push fails and rebase makes the index already reflect done, the local un-pushed commit is still pushed (no more `[ahead 1]` orphan index commits on 6900XT)",
+                "3b FIXED: when a worker has already manually regenerated + committed the index for the done ticket, the plugin's session.idle handler does NOT create a second `index done` commit (exactly one index commit per done)",
+                "Both verified with plugin unit tests (mock git push failure + mock worker-already-regenerated index)",
+                "Plugin tests green (npx tsx --test), server tests green, typecheck clean"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T15:07:01.914Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T6",
+              "id": "G4.S5.T6",
+              "title": "Project board shows only Spec cards — tickets stay as sub-issues (GitHub-native progress bar); spec status column = md Spec status",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0042bf9c8ffe6xxBkxwS1gql2G",
+              "blocked_by": [
+                "G4.S5.T4"
+              ],
+              "acceptance_criteria": [
+                "The GitHub Project board shows ONE card per Spec (not per-ticket) — aligned with ABAPlorer's board",
+                "Ticket sub-issues remain nested under the Spec issue (click Spec to see them)",
+                "Each Spec card shows a SEGMENTED progress bar at the bottom (N blocks = N sub-issues; each done sub-issue fills one block, like ABAPlorer's `4 / 5 · 80%`)",
+                "The progress bar uses OUR brand palette (filled = --caleo-primary #ff6633, empty = theme-muted) and adapts to dark AND light themes (NOT ABAPlorer's purple)",
+                "The Spec card's Status column = the Spec's kanban status (md Spec status: backlog/active/done mapped to board column), NOT a per-ticket aggregate",
+                "The card header shows the repo + Spec ref (like ABAPlorer's `owner/repo #id`)",
+                "T2's createSpecIssue adds ONLY the Spec to the Project (ticket sub-issues are not individual cards)",
+                "The Workbench GitHub Project view (T4) also renders only Spec cards with the segmented progress bar",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran read",
+              "progress_updated_at": "2026-08-13T16:04:40.186Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T7",
+              "id": "G4.S5.T7",
+              "title": "Spec state machine: full lifecycle (backlog → decomposed/已分ticket → in_progress → done → in_review → approved/rejected)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_003f888d4ffe1s8yBqPkxDc3Zv",
+              "blocked_by": [
+                "G4.S5.T6"
+              ],
+              "acceptance_criteria": [
+                "Spec status is a typed enum with the full lifecycle: backlog, decomposed (已分ticket / tickets created), in_progress, done, in_review, approved, rejected, canceled",
+                "A Spec state machine is enforced: backlog → decomposed → in_progress → done → in_review → approved/rejected (plus rejected → re-decompose/new tickets; canceled terminal)",
+                "Transitions triggered by a plan agent / human reviewer (not auto)",
+                "Existing Spec `active` status is mapped/absorbed (e.g. `active` ≡ `in_progress` for backward compatibility) so current Specs still parse",
+                "status-map: kanbanSpecStatusToProjectStatus covers the new states (backlog/decomposed/in_progress → Backlog/In Progress, done → Done, in_review → In Review, approved → Approved, rejected/canceled → a sensible column)",
+                "The Project board Status field gains the new Spec columns (ensureStatusFieldOptions) so Spec cards can move to them",
+                "Schema validation rejects an unknown Spec status; state-machine canTransition applies to Specs",
+                "Server tests green, typecheck clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-13",
+              "completed_at": "2026-08-13",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-13T16:59:17.418Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T8",
+              "id": "G4.S5.T8",
+              "title": "Spec detail panel: show sub-issues list, embed panel inside Kanban (not overlay Chat), add GitHub issue jump link",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_003e695a6ffeqfPou6pOR2dT23",
+              "blocked_by": [
+                "G4.S5.T7"
+              ],
+              "acceptance_criteria": [
+                "Clicking a Spec card in the GitHub Project view opens the detail panel showing the Spec md content AND a Sub-issues list (T1-T4: ref + title + status + progress)",
+                "Each sub-issue in the list is clickable to open its own detail (md + comments), like GitHub's Sub-issues block",
+                "The detail panel is an EMBEDDED side panel inside the Kanban area (covers only the Kanban tab, NOT a full-screen fixed overlay) so the right-side Chat panel stays visible",
+                "The detail panel has a 'view in Issues' action that switches the Workbench to the Issues tab and locates that issue (local, NOT a GitHub redirect); each sub-issue row also does this",
+                "The detail panel has a COMMENT INPUT: the user can type and POST a new comment to the GitHub issue (backend creates it via createIssueComment); the panel then shows it",
+                "Backend /api/kanban/github-project returns each Spec card's subIssues array (ref/title/status/number)",
+                "Backend has an endpoint to POST a new GitHub issue comment",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T17:33:01.330Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T9",
+              "id": "G4.S5.T9",
+              "title": "Revert T6 (sub-issues spread across board, GitHub-native) + brand-orange accent on Spec cards in the Workbench GitHub view",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_003cef6aaffeoCnhNjKtlG17CC",
+              "blocked_by": [
+                "G4.S5.T8"
+              ],
+              "acceptance_criteria": [
+                "The GitHub Project board shows BOTH the Spec card AND its ticket sub-issue cards, each in its own Status column (backlog/in_progress/done/etc.) — GitHub-native board behavior (confirmed on the live board, 2026-08-13)",
+                "The Spec card keeps its aggregated segmented progress bar (done/total from its closed sub-issues)",
+                "T6's 'only the Spec is a Project card' change is reverted: createSpecIssue adds each ticket sub-issue back to the Project (addIssueToProject), each synced to its status column",
+                "syncSpecStatus still moves the Spec card by its md Spec status (unchanged)",
+                "In the Workbench GitHub Project view, Spec cards are visually DISTINGUISHED from sub-issue cards by a brand-orange accent (border/background tint using --caleo-primary), while sub-issue cards stay plain — so you can tell an issue from a sub-issue at a glance",
+                "The Spec-card orange accent ADAPTS to dark AND light themes (use the theme CSS-variable system; a subtle tint in light mode, a readable bright accent in dark mode — e.g. a colored left border + a very light --caleo-primary background tint that stays legible in both themes)",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T17:44:55.067Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T10",
+              "id": "G4.S5.T10",
+              "title": "Ticket sub-issue title includes the description (`G4.S5.T1 <title>` like Spec) + OpenCode plugin auto-syncs md→GitHub on worker done",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_003a15ac4ffenU9THEmWWz0k4j",
+              "blocked_by": [
+                "G4.S5.T9"
+              ],
+              "acceptance_criteria": [
+                "Ticket sub-issue titles are `G4.S5.T1 <ticket title>` (ref + stripped title), matching how Spec main-issue titles are built — so the GitHub board card shows a readable description, not just the ref",
+                "Existing ticket sub-issues (created by earlier syncs with title = bare ref) have their titles updated on the next sync (idempotent, by-title resolution + update)",
+                "When a worker sets a ticket `status: done` (session.idle event), the plugin ALSO runs the md→GitHub sync for the ticket's parent Spec so the GitHub board Status column updates automatically (no manual `sync-github sync` needed)",
+                "The plugin derives the parent specRef from the ticket ref (G4.S5.T9 → G4.S5), resolves a GitHub credential, and runs the sync best-effort (a sync failure is logged but does NOT block or roll back the index done commit)",
+                "Spec main-issue title behavior unchanged (already `G4.S5 <title>`)",
+                "Plugin tests green (mock sync invocation), server tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T18:43:21.740Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T11",
+              "id": "G4.S5.T11",
+              "title": "Fix /api/kanban/github-project to resolve the Project via repository.projectsV2 (repo-linked), not title-guessing (owner/repo or repo name)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_00388b955ffeZ7nTnOtPufSJdM",
+              "blocked_by": [
+                "G4.S5.T10"
+              ],
+              "acceptance_criteria": [
+                "GET /api/kanban/github-project?repo=OWNER/REPO resolves the linked Project via `repository(owner,name){ projectsV2 }` (GraphQL), so any repo whose project title differs from the repo name (e.g. caleo.int.abaplorer → 'Abaplorer Project') is found",
+                "It returns the FIRST project from the repo's projectsV2 (or the one whose items belong to the repo), instead of the current title-guessing fallback (getProjectByTitle(owner, 'OWNER/REPO') then (owner, 'repo')) which returns null when the project title != repo name",
+                "zouhanhai/athena-agent still works (its project title 'athena-agent' matches, and it's repo-linked)",
+                "CALEO-Consulting/caleo.int.abaplorer now returns its 'Abaplorer Project' board",
+                "If the repo has NO linked project, return 404 'no linked GitHub Project' (unchanged)",
+                "Server tests green, typecheck clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "LIVE-VERIFIED on 6900XT: GET /api/kanban/github-project?repo=CALEO-Consulting/caleo.int.abaplorer → 200 \"Abaplorer Project\" board (was 404). zouhanhai/athena-agent → 404 no linked GitHub Project — authoritative GraphQL confirms repository(zouhanhai/athena-agent).projectsV2 is EMPTY (its boards \"zouhanhai/athena-agent\" #6 + \"athena-agent\" #1 live in the user's list but are NOT repo-linked); the old 200 was title-guessing against an unlinked board, so the 404 is now truthful",
+              "progress_updated_at": "2026-08-13T19:00:00.000Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S5.T12",
+              "id": "G4.S5.T12",
+              "title": "GitHub Project view: add a project selector (choose which linked project to show); getRepoProjects returns open projects (filter closed)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0034f878dffeMFGtgonDfDgFDf",
+              "blocked_by": [
+                "G4.S5.T11"
+              ],
+              "acceptance_criteria": [
+                "GET /api/kanban/github-project?repo=OWNER/REPO returns all OPEN linked projects (getRepoProjects filters out closed), each with id/title/url; the endpoint serves a specific project when ?project=<id> is passed, else the first open project",
+                "GET /api/kanban/github-projects?repo=OWNER/REPO returns the list of open linked projects (for the selector)",
+                "The Workbench GitHub Project view has a PROJECT SELECTOR (dropdown) listing the open linked projects; selecting one loads that project's board",
+                "A closed linked project (e.g. a user's accidental 'untitled project') is not shown / not auto-selected",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-13T20:04:47.769Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T13",
+              "id": "G4.S5.T13",
+              "title": "Remove the stalled indicator from the web Local kanban (GitHub has no Progress Log → misjudges); preserve the logic for G7 (app version)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0031bfeb8ffePPktiSkeWYKzbK",
+              "blocked_by": [
+                "G4.S5.T12"
+              ],
+              "acceptance_criteria": [
+                "The Local kanban view in the web Workbench no longer shows the STALLED badge on cards (isStalled is no longer rendered)",
+                "The 'updated Xs ago' / 'updated ...' text stays (still useful), but no stalled flag is derived from it in the web tier",
+                "The stalled logic (isStalled + DEFAULT_STALL_MS) is either (a) removed from the web bundle, or (b) kept in a shared module clearly marked as app-only for G7 reuse",
+                "The CSS for .kanban-card-stalled / .kanban-card-updated-stalled and the related test assertions are updated/removed",
+                "Web tests green + vue-tsc clean"
+              ],
+              "started_at": "2026-08-13",
+              "progress_last_row": "removed STALLED from web Local kanban (KanbanTab.vue: dropped isStalled call + badge markup + .kanban-card-stalled/.kanban-card-updated-stalled CSS; kept updatedAgoText). isStalled+DEFAULT_STALL_MS kept in kanban/progress.ts marked app-tier-only for G7. kanban-tab.spec.ts now asserts no stalled badge; isStalled unit tests kept. Web tests 477/477, vue-tsc 0.",
+              "progress_updated_at": "2026-08-13T20:52:04.000Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S5.T14",
+              "id": "G4.S5.T14",
+              "title": "Fix plugin auto-sync: opencode serve must load .env.local (DATABASE_URL / GITHUB_TOKEN) so the worker plugin can resolve the GitHub credential and auto-create issue syncs",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "eng-director",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T13"
+              ],
+              "acceptance_criteria": [
+                "opencode serve is started with the athena .env.local loaded (DATABASE_URL / GITHUB_TOKEN etc.) so the worker plugin's auto-sync (resolveGithubCredential → Postgres employee store or GITHUB_TOKEN) can resolve a GitHub credential",
+                "After a worker marks a ticket done, the plugin auto-sync creates/updates that ticket's GitHub issue + parent Spec issue on the linked Project (auto-sync actually works end-to-end)",
+                "start-all.sh loads .env.local before launching opencode serve (set -a && . .env.local && set +a), like the backend block does",
+                "Existing missing GitHub issues (G4.S5.T11/T12/T13) are created by running sync-github create G4.S5 once after the fix",
+                "Server + plugin tests green, typecheck clean; live-verified on 6900XT"
+              ]
+            },
+            {
+              "ref": "G4.S5.T15",
+              "id": "G4.S5.T15",
+              "title": "git hook auto-sync: on commit of new docs/kanban Goal/Spec/Ticket files, auto-run sync-github to create the GitHub Issues (submit-and-sync)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "eng-director",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T14"
+              ],
+              "acceptance_criteria": [
+                "Committing new docs/kanban Goal / Spec / Ticket files auto-triggers sync-github (create) so those new board items get their GitHub Issues immediately — the GitHub Project board reflects the full kanban (incl. backlog) from the start",
+                "Trigger: a git hook (post-commit or pre-push) detects the commit contains new docs/kanban/**/Goal.md / Spec.md / T*.md files and runs `sync-github create|sync <specRef>` for each affected spec (or a full sync)",
+                "Distribution: repo ships an install script (or git core.hooksPath → repo's hooks/) so every clone gets the hook; new machine setup installs it",
+                "Idempotent + safe: sync-github create is idempotent (already exists); a sync failure logs but never blocks the commit/push",
+                "Works alongside worker-done auto-sync (T10) and manual sync — no conflict",
+                "Server + plugin tests green, typecheck clean; live-verified on 6900XT"
+              ],
+              "progress_last_row": "opencode claimed G4.S5.T15 (session ses_000b8c096ffeNER10N1t4UvuJu)",
+              "progress_updated_at": "2026-08-14T07:58:26.786Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T16",
+              "id": "G4.S5.T16",
+              "title": "Kanban detail panel reads the GitHub ISSUE BODY (not local md) — Progress Log stays in md only, not shown in any frontend issue detail",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_0009b1c1dffei63E8amqVbQyAx",
+              "blocked_by": [
+                "G4.S5.T15"
+              ],
+              "acceptance_criteria": [
+                "The Kanban Project detail panel (opening a card / sub-issue) renders the GITHUB ISSUE BODY (from the GitHub issue), NOT the local md — so it shows the same content as the Issues panel",
+                "Progress Log is NOT rendered in ANY frontend issue detail (Issues panel already reads GitHub body with no Progress Log; Kanban detail now matches)",
+                "Progress Log stays in the md files (backend/dev-only), never read or shown by the frontend",
+                "Sub-issues list + comments still render in the Kanban detail panel (they come from the GitHub board / issue-comments endpoints, unchanged)",
+                "Web tests green + vue-tsc clean"
+              ],
+              "started_at": "2026-08-14",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-14T08:53:04.842Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S5.T17",
+              "id": "G4.S5.T17",
+              "title": "Issues panel: add a Refresh button to reload the GitHub issues list (it can be stale after sync)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S5.T16"
+              ],
+              "acceptance_criteria": [
+                "The Issues panel (IssuesTab) has a Refresh button that re-fetches the GitHub issues list from the server, so new/updated issues (e.g. T11-T16) appear without a full page reload",
+                "Clicking Refresh updates the list in place (loading state, no full page reload)",
+                "The Kanban GitHub Project view also has a Refresh (it may already); if it lacks one, add it too so synced changes show up",
+                "Web tests green + vue-tsc clean"
+              ],
+              "progress_last_row": "IssuesTab Refresh button implemented (re-fetch in place with loading state, open detail preserved); Kanban GitHub-view Refresh confirmed present. Web 478/478 tests green, vue-tsc 0.",
+              "progress_updated_at": "2026-08-14T10:03:25.000Z",
+              "progress_status": "done"
+            },
+            {
+              "ref": "G4.S5.T18",
+              "id": "G4.S5.T18",
+              "title": "GitHub board view: show sub-task progress + Spec accent for ANY issue that has sub-issues, not just Gx.Sy-named Specs (abaplorer issues currently show neither)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_fffdbd2baffeTWD5OqklH4QvC8",
+              "blocked_by": [
+                "G4.S5.T17"
+              ],
+              "acceptance_criteria": [
+                "In the Workbench GitHub Project view, ANY card whose issue has sub-issues shows a sub-task progress indicator (done/total), not just cards with a Gx.Sy ref",
+                "A non-Gx.Sy issue that is a parent of sub-issues (e.g. abaplorer #201 'ABAP Object Import' with 9 sub-issues) shows progress + the Spec-card orange accent; its sub-issue cards stay plain white",
+                "Gx.Sy-named Specs (athena) keep working exactly as today",
+                "Status badges on GitHub Project view cards have COLOR (matching the Local kanban / GitHub status colors: In Progress yellow, Done green, Backlog gray, etc.), not the current gray pill",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT (abaplorer #201 shows 9/9)"
+              ],
+              "started_at": "2026-08-14",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-14T12:27:26.071Z",
+              "progress_status": "in_progress"
+            }
+          ]
+        },
+        {
+          "ref": "G4.S6",
+          "id": "s6",
+          "title": "G4.S6: GDD (Git-Driven Development) decoupling — boundary vs athena, docs/gdd handbook, Workbench Kanban/Project sub-tab split",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": [
+            {
+              "ref": "G4.S6.T1",
+              "id": "G4.S6.T1",
+              "title": "Workbench: split Kanban tab into two sibling tabs — 'Kanban' (local GST board = GDD) and 'Project' (GitHub Project view = athena generic GitHub viewer) — reflecting the GDD/athena boundary (ADR 0009); both remain sub-tabs under the Workbench",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_fff7a003cffehrryVJr1YCWflY",
+              "blocked_by": [
+                "G4.S5.T18"
+              ],
+              "acceptance_criteria": [
+                "Workbench (top-level view) gains a 4th sub-tab 'Project' next to Code/Issues/Kanban; 'Kanban' sub-tab now shows ONLY the local GST board. All four remain sub-tabs under the Workbench (not separate top-level pages)",
+                "The GitHub Project view (board + issue detail panel + comment thread + project selector) moves out of KanbanTab into the new 'Project' sub-tab; behavior identical to today (click card → local detail panel, no GitHub redirect)",
+                "The split reflects the GDD/athena boundary (ADR 0009): Kanban (local GST) = GDD dev-flow; Project (GitHub viewing) = athena generic capability usable by non-GDD users (e.g. abaplorer uses GitHub + KB only). The Project tab must work for any repo's GitHub Project regardless of whether it uses the GDD Gx.Sx.Tx flow",
+                "'view in Issues' from a Kanban/Project card still switches to the Issues sub-tab and locates the issue (G4.S5.T8 preserved)",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-14",
+              "progress_last_row": "ran edit",
+              "progress_updated_at": "2026-08-14T13:56:12.273Z",
+              "progress_status": "in_progress"
+            },
+            {
+              "ref": "G4.S6.T2",
+              "id": "G4.S6.T2",
+              "title": "Spec state machine: remove 'decomposed'; ticket-driven in_progress; spec main-issue closed on done",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [],
+              "acceptance_criteria": [
+                "The 'decomposed' spec status is removed from the typed enum (schema) and the spec state machine; 'active' legacy maps to in_progress",
+                "Spec auto-advances backlog → in_progress when its FIRST ticket becomes in_progress (claimed); no manual decomposed step",
+                "Spec does NOT auto-advance to done when all tickets are done — it stays in_progress awaiting review (new tickets may be added); done only via review (manual/Reviewer)",
+                "The spec MAIN ISSUE's open/closed state is synced to the spec status: done/approved → closed; backlog/in_progress/in_review/rejected → open (so the Project Status column and the issue-list open/closed agree)",
+                "status-map, state-machine, github-sync (Project Status columns + spec issue state), GDD §7 doc, and T7 test/docs updated consistently; server + web tests green, typecheck/vue-tsc clean"
+              ]
+            },
+            {
+              "ref": "G4.S6.T3",
+              "id": "G4.S6.T3",
+              "title": "docs/gdd/ handbook — package GDD as a generic, agent-agnostic protocol: README/design/protocol-review/setup/backend/plugins/reference + GST templates + kanban-index docs; move existing design docs, copy templates",
+              "owner": "eng-director",
+              "status": "backlog",
+              "assignee": "",
+              "session_id": "",
+              "blocked_by": [
+                "G4.S6.T1",
+                "G4.S6.T2"
+              ],
+              "acceptance_criteria": [
+                "docs/gdd/ exists with README.md, design.md, protocol-review.md, setup.md, backend.md, plugins.md, reference.md, and templates/ (Goal/Spec/Ticket .md.template)",
+                "design.md = full GDD protocol (moved from docs/git-kanban-design.md, refs updated); protocol-review.md = decision record (moved from docs/git-driven-protocol-review.md, refs updated)",
+                "setup.md gives step-by-step: enable GDD on any new project (copy templates, install kanban backend/hook, configure credential via gh token/GITHUB_TOKEN, run sync-github, deploy opencode plugins) with real commands + verification",
+                "backend.md documents all kanban backend modules (scan/state-machine/git-lock/schema/github-sync/github-feedback/roles/planning/lifecycle/protocol/frontmatter/index-file/progress/status-map/board/index + write-index.ts kanban-index generator) — what each does, how to run",
+                "plugins.md documents the opencode plugins (auto-claim/progress-log/done-commit/auto-sync) + deployment (global vs project)",
+                "reference.md = concept index (Gx.Sx.Tx, ticket + spec state machines incl. T2's no-decomposed/ticket-driven rule, roles, Progress Log, kanban-index, glossary)",
+                "templates/ = copies of the GST templates; docs/kanban/templates/ left intact",
+                "Boundary (vs athena KB) explained; ADR 0009 referenced"
+              ]
+            },
+            {
+              "ref": "G4.S6.T4",
+              "id": "G4.S6.T4",
+              "title": "Remove the local Kanban tab + local board stack (kanban-index/scan/write-index/index-file) — GitHub Project panel is the only board view; GDD keeps md + sync + Progress Log/stalled (md-level)",
+              "owner": "eng-director",
+              "status": "done",
+              "assignee": "opencode",
+              "session_id": "ses_fff61c703ffeoUX1YzIAHpQO6e",
+              "blocked_by": [
+                "G4.S6.T1"
+              ],
+              "acceptance_criteria": [
+                "Workbench has Code / Issues / Project sub-tabs (Kanban sub-tab removed); Project (GitHub Project view) is the only board view",
+                "KanbanTab.vue + its local-GST-board code are removed; the GitHub Project view (ProjectTab.vue) is kept and works identically",
+                "The local board stack is removed: kanban-index.json + write-index.ts + scan.ts + index-file.ts + the local-board part of routes/kanban.ts (GET /api/kanban, scanRemoteBoard); GDD md files + md↔GitHub sync (sync-github/github-sync/hook/opencode plugins) + Progress Log/stalled mechanism are KEPT",
+                "GDD separation is cleaner: GDD = md (source) + sync + Progress Log/stalled (md-level, worker writes log, plan agent reads locally to detect stalled); no athena local-board display layer",
+                "Server + web tests green, typecheck/vue-tsc clean; live-verified on 6900XT"
+              ],
+              "started_at": "2026-08-14",
+              "progress_last_row": "Removed the local Kanban tab + local board stack: KanbanTab.vue + Kanban sub-tab gone (Workbench = Code/Issues/Project); scan.ts trimmed (scanRemoteBoard/FileBoardScanner/RemoteBoardSource gone), index-file.ts + write-index.ts + kanban-index.json + /api/kanban removed; plugin index-regen (done-commit/commitIndexOnClaim) dropped, claim + Progress Log + md→GitHub auto-sync kept. Server kanban 259/259, web 440/440, vue-tsc/tsc clean, plugin 18/18",
+              "progress_updated_at": "2026-08-14T16:50:00Z",
+              "progress_status": "done"
+            }
+          ]
+        },
+        {
+          "ref": "G4.S7",
+          "id": "s7",
+          "title": "G4.S7: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP",
+          "owner": "consultant",
+          "status": "backlog",
+          "milestone": "M4",
+          "tickets": []
+        }
+      ]
+    },
+    {
+      "ref": "G7",
+      "id": "G7",
+      "title": "G7: Local Desktop App (Athena App) — local agent/worker monitoring, Progress Log + accurate stalled, kanban & issue views",
+      "owner": "consultant",
+      "status": "active",
+      "created_at": "2026-08-13",
+      "specs": []
+    }
+  ],
+  "errors": []
+}
