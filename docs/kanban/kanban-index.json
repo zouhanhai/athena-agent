@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-14T08:41:17.631Z",
+  "generated_at": "2026-08-14T08:54:50.656Z",
   "goals": [
     {
       "ref": "G1",
@@ -2758,7 +2758,7 @@
               "id": "G4.S5.T16",
               "title": "Kanban detail panel reads the GitHub ISSUE BODY (not local md) — Progress Log stays in md only, not shown in any frontend issue detail",
               "owner": "eng-director",
-              "status": "in_progress",
+              "status": "done",
               "assignee": "opencode",
               "session_id": "ses_0009b1c1dffei63E8amqVbQyAx",
               "blocked_by": [
@@ -2772,8 +2772,8 @@
                 "Web tests green + vue-tsc clean"
               ],
               "started_at": "2026-08-14",
-              "progress_last_row": "opencode claimed G4.S5.T16 (session ses_0009b1c1dffei63E8amqVbQyAx)",
-              "progress_updated_at": "2026-08-14T08:30:48.200Z",
+              "progress_last_row": "ran bash",
+              "progress_updated_at": "2026-08-14T08:54:38.226Z",
               "progress_status": "in_progress"
             },
             {
