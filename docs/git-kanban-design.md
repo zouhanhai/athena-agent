@@ -164,7 +164,7 @@ title: "G1.S1: <spec title>"
 layer: S
 parent: G1
 owner: pm                  # PM builds the Spec (role-model)
-status: backlog            # backlog → active → done
+status: backlog            # backlog → decomposed(已分ticket) → in_progress → done → in_review → approved / rejected
 acceptance_criteria:
   - "<criterion 1>"
   - "<criterion 2>"
@@ -267,11 +267,12 @@ Ticket approved → Spec complete → Goal complete. Bottom-up judgment.
 
 ## 7. State Machine (branches by workflow mode)
 
+### Ticket state machine
+
 ```
 single mode (solo / small team):
 backlog ──claim(push)──▶ in_progress ──done──▶ (reviewer reviews) ──▶ approved
                                                        └──reject──▶ rejected
-
 collab mode (multi-person):
 backlog ──claim(push)──▶ in_progress ──done──▶ in_review (PR open) ──▶ approved
                                                  └──reject──▶ rejected
@@ -285,9 +286,36 @@ backlog ──claim(push)──▶ in_progress ──done──▶ in_review (PR
 | in_review | PR pending review (**collab only**) | Worker (after opening PR) |
 | approved | Review passed (+ merged, collab) | Reviewer |
 | rejected | Review found issues | Reviewer |
+| canceled | Abandoned / no longer pursued | Eng Director |
 
 - **single mode**: done → reviewer reviews directly → approved/rejected (no `in_review` mid-state).
 - **collab mode**: keep `in_review` (PR pending).
+- `rejected` may be re-decomposed by Eng Director into new tickets (reject flow, §17).
+
+### Spec state machine
+
+Specs have their own lifecycle (distinct from tickets — a Spec is a planning container, not an
+implementation unit):
+
+```
+backlog → decomposed(已分ticket) → in_progress → done → in_review → approved / rejected
+   └────── rejected → backlog | decomposed (re-decompose)   └── canceled (terminal)
+```
+
+| State | Meaning | Set by |
+|-------|---------|--------|
+| backlog | Spec defined, tickets not yet decomposed | Eng Director |
+| decomposed (已分ticket) | Tickets split out; ready to execute | Eng Director |
+| in_progress | Tickets in development | Eng Director |
+| done | Tickets complete | Eng Director |
+| in_review | Submitted for acceptance | Eng Director |
+| approved | Accepted | Reviewer |
+| rejected | Not accepted → re-decompose | Reviewer |
+| canceled | Terminal / abandoned | Eng Director |
+
+**Workers never change a Spec status** — they only change their own ticket. The Eng Director (plan
+agent) drives decompose/start/report-done/report-in_review/re-decompose; the Reviewer approves or
+rejects. Backward-compat: legacy `active` → `in_progress`.
 
 ## 8. PR/Merge Integration (collab mode only)
 
@@ -309,7 +337,9 @@ The protocol supports **two modes, selected per project** (a project config / fl
 
 Mode-dependent behavior:
 - State machine: `in_review` only in collab.
-- Issues sync: S5 only enabled in collab (solo work needs no Issues).
+- Issues sync (§19): **optional** — primarily for collab (shared discussion surface), but a solo user
+  may also enable it (e.g. to get the GitHub Project board as a visual/remote view). It is a per-project
+  flag, not strictly collab-only.
 - Review granularity: small team reviews each ticket (user + Hermes, tests green); large team
   reviews at Goal/Spec granularity (another user, batch).
 
@@ -407,6 +437,9 @@ stages / output + state-machine bindings. Source of truth: `server/src/kanban/ro
 | Reviewer | review done/in_review tickets; approve or reject with qa_feedback | review | review verdict (approved / rejected) | — |
 | Writer | write the docs, PR description and wrap-up deliverables | wrap-up | docs + PR description | — |
 
+**Workers only change their own TICKET status** — they never touch a Spec or Goal status (those are the
+Eng Director's / Reviewer's, see §7 Spec state machine).
+
 **Layer → planner owner** (who builds each layer's planning output):
 
 | Layer | Owner |
@@ -469,6 +502,12 @@ with parent_id / qa_feedback / reopen_reason remains available for larger issues
   works for any repo whose project title differs from the repo name.
 - Spec cards on the board get an aggregated segmented progress bar + a Spec-card accent; ticket
   sub-issue cards are plain and spread across their Status columns (GitHub-native).
+- **Universal progress**: ANY issue that is a parent of sub-issues shows the sub-task progress + the
+  Spec-card accent — not only Gx.Sy-named Specs. A repo like abaplorer whose parent issue is titled
+  "ABAP Object Import" (9 sub-issues) gets the progress bar too. A plain issue (no sub-issues) stays
+  white. Gx.Sy Specs keep working identically.
+- Status badges on board cards are colored (In Progress yellow, Done green, Backlog gray, etc.),
+  matching the Local kanban / GitHub status colors.
 - A repo can have multiple linked Projects; the Workbench GitHub view has a Project selector and shows
   only open Projects.
 
