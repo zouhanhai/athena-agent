@@ -1,10 +1,9 @@
 ---
 id: s7
 title: "G4.S7: Remote agent federation (reverse WebSocket + Cloudflare Tunnel) + KB-as-MCP"
+owner: consultant
 layer: S
 parent: G4
-owner: consultant
-status: backlog
 milestone: M4
 acceptance_criteria:
   - "Local agents (remote wts, LAN 6900XT, and the local Hermes) register to the platform via an invitation flow {agent_id, api_url, token}"
@@ -13,6 +12,7 @@ acceptance_criteria:
   - "Platform Chat panel routes to a selected remote agent's API Server, streaming tool progress (tool.started / tool.completed) into the panel"
   - "Knowledge base exposed as an MCP server (search_knowledge / get_wiki_page / get_graph) so any agent can retrieve company KB"
   - "Agent identity traceable: each agent connects with a unique id + token (invitation-issued); the platform knows which agent is where and how to reach it"
+status: in_progress
 ---
 
 # G4.S7: Remote agent federation (reverse WebSocket + Cloudflare Tunnel) + KB-as-MCP
