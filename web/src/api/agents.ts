@@ -13,13 +13,26 @@ export interface AgentCapabilities {
   description?: string;
 }
 
+/**
+ * Reachability / onboarding status of an agent (G4.S7.T2):
+ * - unknown / invited / registered / reachable — see server AgentStatus.
+ */
+export type AgentStatus = "unknown" | "invited" | "registered" | "reachable";
+
 export interface AgentRecord {
   id: string;
   alias: string;
+  /** The agent's unique platform identity (invitation-issued / inherited). */
+  agent_id: string;
   owner_employee_id: string;
   logo_url: string;
   capabilities: AgentCapabilities;
   runtime: string;
+  /** Where the platform reaches the agent's own API server (reachability). */
+  api_url: string;
+  status: AgentStatus;
+  /** Whether an invitation auth token is active for this agent (never the raw token). */
+  has_token: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -47,6 +60,45 @@ export interface RegisterDeclarationInput {
   alias: string;
   owner_employee_id: string;
   logo_url?: string;
+  /** Optional remote reachability + identity recorded at registration (G4.S7.T2). */
+  api_url?: string;
+  agent_id?: string;
+  token?: string;
+}
+
+/** Manual registration input mirroring AgentCreateInput (POST /api/agents). */
+export interface CreateAgentInput {
+  alias: string;
+  owner_employee_id: string;
+  logo_url?: string;
+  capabilities: AgentCapabilities;
+  runtime?: string;
+  agent_id?: string;
+  api_url?: string;
+  token?: string;
+}
+
+/** Admin generates { agent_id, api_url, token } and hands it to the remote agent. */
+export interface AgentInviteInput {
+  alias: string;
+  owner_employee_id: string;
+  logo_url?: string;
+  capabilities?: AgentCapabilities;
+  runtime?: string;
+  api_url?: string;
+  agent_id?: string;
+}
+
+export interface AgentInvite {
+  agent_id: string;
+  api_url: string;
+  /** Raw auth token — shown exactly once, then only its hash is stored. */
+  token: string;
+}
+
+export interface AgentInviteResult {
+  agent: AgentRecord;
+  invite: AgentInvite;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -83,6 +135,46 @@ export async function registerDeclaration(
   input: RegisterDeclarationInput,
 ): Promise<AgentRecord> {
   return request<AgentRecord>(`/api/agents/register-declaration/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * POST /api/agents/invite (admin) → generate `{agent_id, api_url, token}` and hand it
+ * to the remote agent, which registers via POST /api/agents/register (G4.S7.T2).
+ */
+export async function inviteAgent(
+  sessionToken: string,
+  input: AgentInviteInput,
+): Promise<AgentInviteResult> {
+  return request<AgentInviteResult>("/api/agents/invite", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+/** POST /api/agents/register → the invited agent registers auth'd with its token + reachability. */
+export async function registerAgent(input: {
+  agent_id: string;
+  api_url: string;
+  token: string;
+}): Promise<AgentRecord> {
+  return request<AgentRecord>("/api/agents/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/** POST /api/agents → manually register an agent with its capabilities + remote fields. */
+export async function createAgent(input: CreateAgentInput): Promise<AgentRecord> {
+  return request<AgentRecord>("/api/agents", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),

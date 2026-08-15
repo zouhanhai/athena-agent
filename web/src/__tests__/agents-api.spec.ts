@@ -5,6 +5,9 @@ import {
   listDeclarations,
   registerDeclaration,
   listAgents,
+  createAgent,
+  inviteAgent,
+  registerAgent,
   listLogos,
   uploadLogo,
 } from "@/api/agents";
@@ -84,12 +87,130 @@ describe("registerDeclaration", () => {
 });
 
 describe("listAgents", () => {
-  it("GETs the registered agents", async () => {
-    const agents = [{ alias: "Athena" }];
+  it("GETs the registered agents with their status", async () => {
+    const agents = [
+      {
+        id: "a1",
+        alias: "Hermes",
+        agent_id: "agent-hermes",
+        owner_employee_id: "zhang.wei",
+        logo_url: "/logos/fox-clean.png",
+        capabilities: caps,
+        runtime: "local",
+        api_url: "http://hermes.local:3001",
+        status: "reachable",
+        has_token: true,
+        created_at: "x",
+        updated_at: "x",
+      },
+    ];
     stubFetch(jsonResponse({ agents }));
     const result = await listAgents();
     expect(fetchMock()).toHaveBeenCalledWith("/api/agents", undefined);
     expect(result).toEqual(agents);
+  });
+});
+
+describe("createAgent", () => {
+  it("POSTs a manual registration with capabilities + remote fields", async () => {
+    const agent = {
+      id: "a1",
+      alias: "Hermes",
+      agent_id: "agent-hermes",
+      owner_employee_id: "zhang.wei",
+      logo_url: "",
+      capabilities: caps,
+      runtime: "local",
+      api_url: "http://hermes.local:3001",
+      status: "registered" as const,
+      has_token: false,
+      created_at: "x",
+      updated_at: "x",
+    };
+    stubFetch(jsonResponse(agent, 201));
+    const result = await createAgent({
+      alias: "Hermes",
+      owner_employee_id: "zhang.wei",
+      capabilities: caps,
+      runtime: "local",
+      api_url: "http://hermes.local:3001",
+      agent_id: "agent-hermes",
+    });
+
+    expect(fetchMock()).toHaveBeenCalledWith(
+      "/api/agents",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alias: "Hermes",
+          owner_employee_id: "zhang.wei",
+          capabilities: caps,
+          runtime: "local",
+          api_url: "http://hermes.local:3001",
+          agent_id: "agent-hermes",
+        }),
+      }),
+    );
+    expect(result).toEqual(agent);
+  });
+});
+
+describe("inviteAgent", () => {
+  it("POSTs the admin invitation with a Bearer session token", async () => {
+    const result = {
+      agent: { id: "a1", alias: "wts", status: "invited" },
+      invite: { agent_id: "agent-wts", api_url: "http://wts.local:3001", token: "tok_abc" },
+    };
+    stubFetch(jsonResponse(result, 201));
+    const value = await inviteAgent("ses123", {
+      alias: "wts",
+      owner_employee_id: "zhang.wei",
+      api_url: "http://wts.local:3001",
+    });
+
+    expect(fetchMock()).toHaveBeenCalledWith(
+      "/api/agents/invite",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer ses123",
+        },
+        body: JSON.stringify({
+          alias: "wts",
+          owner_employee_id: "zhang.wei",
+          api_url: "http://wts.local:3001",
+        }),
+      }),
+    );
+    expect(value).toEqual(result);
+  });
+});
+
+describe("registerAgent", () => {
+  it("POSTs the agent's token + reachability to accept an invitation", async () => {
+    const agent = { id: "a1", alias: "Hermes", status: "reachable" as const };
+    stubFetch(jsonResponse(agent));
+    const result = await registerAgent({
+      agent_id: "agent-hermes",
+      api_url: "http://hermes.local:3002",
+      token: "tok_abc",
+    });
+
+    expect(fetchMock()).toHaveBeenCalledWith(
+      "/api/agents/register",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: "agent-hermes",
+          api_url: "http://hermes.local:3002",
+          token: "tok_abc",
+        }),
+      }),
+    );
+    expect(result).toEqual(agent);
   });
 });
 

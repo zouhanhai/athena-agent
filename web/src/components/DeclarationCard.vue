@@ -18,6 +18,7 @@ const DEFAULT_LOGO = "/athena-logo-ai.png";
 const alias = ref("");
 const owner = ref("employee");
 const logoUrl = ref(DEFAULT_LOGO);
+const apiUrl = ref("");
 const submitting = ref(false);
 const error = ref("");
 
@@ -51,6 +52,7 @@ async function confirm() {
       alias: alias.value.trim(),
       owner_employee_id: owner.value.trim(),
       logo_url: logoUrl.value,
+      api_url: apiUrl.value.trim() || undefined,
     });
     emit("registered", props.declaration.id);
   } catch (err) {
@@ -99,6 +101,15 @@ async function confirm() {
       <div class="decl-field">
         <label for="decl-owner">Owner</label>
         <input id="decl-owner" class="decl-owner" v-model="owner" />
+      </div>
+      <div class="decl-field">
+        <label for="decl-api-url">API URL (reachability)</label>
+        <input
+          id="decl-api-url"
+          class="decl-api-url"
+          v-model="apiUrl"
+          placeholder="http://hermes.local:3001"
+        />
       </div>
       <div class="decl-field">
         <span class="decl-field-label">Logo</span>
@@ -216,7 +227,8 @@ async function confirm() {
 }
 
 .decl-alias,
-.decl-owner {
+.decl-owner,
+.decl-api-url {
   padding: 8px;
   border: 1px solid var(--caleo-border, #ddd);
   border-radius: 6px;

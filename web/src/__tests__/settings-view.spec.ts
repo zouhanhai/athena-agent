@@ -6,7 +6,15 @@ import "tdesign-vue-next/es/style/index.css";
 
 import SettingsView from "@/views/SettingsView.vue";
 import { updateMe } from "@/api/invitations";
-import { listLogos, listDeclarations, registerDeclaration, uploadLogo } from "@/api/agents";
+import {
+  listLogos,
+  listDeclarations,
+  listAgents,
+  registerDeclaration,
+  createAgent,
+  inviteAgent,
+  uploadLogo,
+} from "@/api/agents";
 import { useAuthStore } from "@/stores/auth";
 
 vi.mock("@/api/invitations", () => ({
@@ -15,14 +23,20 @@ vi.mock("@/api/invitations", () => ({
 vi.mock("@/api/agents", () => ({
   listLogos: vi.fn(),
   listDeclarations: vi.fn(),
+  listAgents: vi.fn(),
   registerDeclaration: vi.fn(),
+  createAgent: vi.fn(),
+  inviteAgent: vi.fn(),
   uploadLogo: vi.fn(),
 }));
 
 const updateMeMock = updateMe as unknown as ReturnType<typeof vi.fn>;
 const listLogosMock = listLogos as unknown as ReturnType<typeof vi.fn>;
 const listDeclarationsMock = listDeclarations as unknown as ReturnType<typeof vi.fn>;
+const listAgentsMock = listAgents as unknown as ReturnType<typeof vi.fn>;
 const registerDeclarationMock = registerDeclaration as unknown as ReturnType<typeof vi.fn>;
+const createAgentMock = createAgent as unknown as ReturnType<typeof vi.fn>;
+const inviteAgentMock = inviteAgent as unknown as ReturnType<typeof vi.fn>;
 const uploadLogoMock = uploadLogo as unknown as ReturnType<typeof vi.fn>;
 
 const employee = {
@@ -33,6 +47,12 @@ const employee = {
   role: "member" as const,
   created_at: "2026-08-08T00:00:00.000Z",
   updated_at: "2026-08-08T00:00:00.000Z",
+};
+
+const adminEmployee = {
+  ...employee,
+  id: "a1",
+  role: "admin" as const,
 };
 
 const logos = [
@@ -69,8 +89,11 @@ async function mountView() {
 beforeEach(() => {
   listLogosMock.mockReset().mockResolvedValue(logos);
   listDeclarationsMock.mockReset().mockResolvedValue([]);
+  listAgentsMock.mockReset().mockResolvedValue([]);
   updateMeMock.mockReset();
   registerDeclarationMock.mockReset();
+  createAgentMock.mockReset();
+  inviteAgentMock.mockReset();
   uploadLogoMock.mockReset();
 });
 
@@ -334,7 +357,9 @@ describe("SettingsView agents", () => {
   });
 
   it("confirms a declaration registration from settings, removing the card", async () => {
-    listDeclarationsMock.mockResolvedValue([declaration]);
+    listDeclarationsMock
+      .mockResolvedValueOnce([declaration])
+      .mockResolvedValue([]);
     registerDeclarationMock.mockResolvedValue({ id: "a1" });
     const { wrapper } = await mountView();
 
@@ -350,8 +375,150 @@ describe("SettingsView agents", () => {
       alias: "Hermes",
       owner_employee_id: "employee",
       logo_url: "/logos/fox-clean.png",
+      api_url: undefined,
     });
     expect(wrapper.findAll(".declaration-card")).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("carries the api_url entered on the declaration card to the registration", async () => {
+    listDeclarationsMock.mockResolvedValue([declaration]);
+    registerDeclarationMock.mockResolvedValue({ id: "a1" });
+    const { wrapper } = await mountView();
+
+    await wrapper.find(".decl-alias").setValue("Hermes");
+    await wrapper.find(".decl-api-url").setValue("http://hermes.local:3001");
+    await wrapper.find(".decl-confirm").trigger("click");
+    await flushPromises();
+
+    expect(registerDeclarationMock).toHaveBeenCalledWith("d1", {
+      alias: "Hermes",
+      owner_employee_id: "employee",
+      logo_url: "/athena-logo-ai.png",
+      api_url: "http://hermes.local:3001",
+    });
+    wrapper.unmount();
+  });
+
+  it("lists registered agents with their status badge", async () => {
+    listAgentsMock.mockResolvedValue([
+      {
+        id: "a1",
+        alias: "Hermes",
+        agent_id: "agent-hermes",
+        owner_employee_id: "e1",
+        logo_url: "/logos/fox-clean.png",
+        capabilities: { system: "opencode", mcp: [], tools: [], skills: [], specialty: "software-engineering" },
+        runtime: "local",
+        api_url: "http://hermes.local:3001",
+        status: "reachable",
+        has_token: true,
+        created_at: "2026-08-08T00:00:00.000Z",
+        updated_at: "2026-08-08T00:00:00.000Z",
+      },
+    ]);
+    const { wrapper } = await mountView();
+
+    expect(listAgentsMock).toHaveBeenCalled();
+    const row = wrapper.find(".agent-status-row");
+    expect(row.exists()).toBe(true);
+    expect(row.text()).toContain("Hermes");
+    expect(wrapper.find(".status-badge.status-reachable").text()).toBe("reachable");
+    expect(row.text()).toContain("http://hermes.local:3001");
+    wrapper.unmount();
+  });
+
+  it("shows admin-only invite + register entries for admins only", async () => {
+    const memberWrapper = await mountView();
+    expect(memberWrapper.wrapper.find(".am-action").exists()).toBe(false);
+    memberWrapper.wrapper.unmount();
+
+    listAgentsMock.mockReset().mockResolvedValue([]);
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const auth = useAuthStore();
+    auth.setSession({ session_token: "ses123", employee: adminEmployee });
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, TDesign] } });
+    await flushPromises();
+
+    const actions = wrapper.findAll(".am-action");
+    expect(actions.some((el) => el.text().includes("Invite agent"))).toBe(true);
+    expect(actions.some((el) => el.text().includes("Register agent"))).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("manual register form registers an agent with its api_url via createAgent", async () => {
+    listAgentsMock.mockReset().mockResolvedValue([]);
+    createAgentMock.mockResolvedValue({ id: "a1" });
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const auth = useAuthStore();
+    auth.setSession({ session_token: "ses123", employee: adminEmployee });
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, TDesign] } });
+    await flushPromises();
+
+    const registerButton = wrapper
+      .findAll(".am-action")
+      .find((el) => el.text().includes("Register agent"));
+    await registerButton!.trigger("click");
+    await wrapper.find("#manual-alias").setValue("Hermes");
+    await wrapper.find("#manual-owner").setValue("zhang.wei");
+    await wrapper.find("#manual-api-url").setValue("http://hermes.local:3001");
+    await wrapper.find("form.am-form").trigger("submit");
+    await flushPromises();
+
+    expect(createAgentMock).toHaveBeenCalledWith({
+      alias: "Hermes",
+      owner_employee_id: "zhang.wei",
+      api_url: "http://hermes.local:3001",
+      runtime: undefined,
+      capabilities: {
+        system: "remote",
+        mcp: [],
+        tools: [],
+        skills: [],
+        specialty: "general",
+      },
+    });
+    wrapper.unmount();
+  });
+
+  it("invite form shows the generated {agent_id, api_url, token} exactly once", async () => {
+    listAgentsMock.mockReset().mockResolvedValue([]);
+    inviteAgentMock.mockResolvedValue({
+      agent: { id: "a1", alias: "wts", status: "invited" },
+      invite: {
+        agent_id: "agent-wts",
+        api_url: "http://wts.local:3001",
+        token: "tok_abc123",
+      },
+    });
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const auth = useAuthStore();
+    auth.setSession({ session_token: "ses123", employee: adminEmployee });
+    const wrapper = mount(SettingsView, { global: { plugins: [pinia, TDesign] } });
+    await flushPromises();
+
+    const inviteButton = wrapper
+      .findAll(".am-action")
+      .find((el) => el.text().includes("Invite agent"));
+    await inviteButton!.trigger("click");
+    await wrapper.find("#invite-alias").setValue("wts");
+    await wrapper.find("#invite-owner").setValue("zhang.wei");
+    await wrapper.find("#invite-api-url").setValue("http://wts.local:3001");
+    await wrapper.find("form.am-form").trigger("submit");
+    await flushPromises();
+
+    expect(inviteAgentMock).toHaveBeenCalledWith("ses123", {
+      alias: "wts",
+      owner_employee_id: "zhang.wei",
+      api_url: "http://wts.local:3001",
+    });
+    const result = wrapper.find(".invite-result");
+    expect(result.exists()).toBe(true);
+    expect(result.text()).toContain("agent-wts");
+    expect(result.text()).toContain("tok_abc123");
     wrapper.unmount();
   });
 });
