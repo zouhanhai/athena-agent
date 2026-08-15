@@ -771,7 +771,7 @@ export async function judgeHeaderLevelsLLM(
             },
           ],
         },
-        { reasoning: options.thinkingLevel ?? "high" },
+        { reasoning: options.thinkingLevel ?? "max" },
       );
       levels = extractHeaderLevels(assistant);
     } catch {
@@ -851,7 +851,7 @@ async function runRefinePass(
           messages: [{ role: "user", content: userContent, timestamp: Date.now() }],
           tools: [emitRefinedDocumentTool()],
         },
-        { reasoning: options.thinkingLevel ?? "high" },
+        { reasoning: options.thinkingLevel ?? "max" },
       );
       return { document: extractRefinedDocument(assistant), assistant, retries: attempt - 1 };
     } catch (err) {
@@ -896,7 +896,7 @@ async function runGlobalMerge(
           },
         ],
       },
-      { reasoning: options.thinkingLevel ?? "high" },
+      { reasoning: options.thinkingLevel ?? "max" },
     );
     const global = extractGlobalMerge(assistant);
     if (!global) return merged;
@@ -930,7 +930,7 @@ export function createRefineDocumentTool(
 ): RefineDocumentTool {
   const providerId = options.providerId ?? ATHENA_PROVIDER;
   const modelId = options.modelId ?? ATHENA_MODEL;
-  const thinkingLevel = options.thinkingLevel ?? "high";
+  const thinkingLevel = options.thinkingLevel ?? "max";
   const storageDir = options.storageDir ?? defaultRefinementOutputDir();
   const store = options.storeImpl ?? storeRefinementOutput;
 
@@ -1328,7 +1328,7 @@ export async function runWikiEditRefine(
           ],
           tools: [emitWikiEditRefinementTool()],
         },
-        { reasoning: options.thinkingLevel ?? "high" },
+        { reasoning: options.thinkingLevel ?? "max" },
       );
       return { document: extractWikiEditRefinement(assistant), retries: attempt - 1 };
     } catch (err) {
