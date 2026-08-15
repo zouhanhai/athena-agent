@@ -37,9 +37,9 @@ See `docs/knowledge-rag-design.md` §8 (RAG system selection & self-build direct
 
 See `docs/knowledge-rag-design.md` + M4 federation items in `TODO.md`. Key points:
 
-- **Tailscale is part of this Spec** — it provides the encrypted tunnel so the server can reach every
-  local agent across regions. This Spec includes: Tailscale the 6900XT + the remote WSL host, set
-  `APP_BASE_URL` to a reachable address, and make invite/magic-link URLs open remotely (currently LAN-only).
+- **Reachability**: agents connect INTO the platform's WebSocket endpoint, exposed publicly via **Cloudflare
+  Tunnel** (named for stability / quick for testing). **Tailscale is NOT used** (remote wts has no admin).
+  Set `APP_BASE_URL` to a reachable address so invite/magic-link URLs open remotely.
 - **Architecture**: agents stay local; platform is the control plane. **Agent actively connects INTO the
   platform (outbound, reverse-tunnel style) — WebSocket for bidirectional real-time** (agent initiates the
   WS connection, platform drives it back through the tunnel), HTTP for command/registration. Rationale
