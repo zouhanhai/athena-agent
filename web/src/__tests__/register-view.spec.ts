@@ -81,13 +81,14 @@ describe("RegisterView", () => {
     wrapper.unmount();
   });
 
-  it("registers with display name, chosen logo and github credential, then signs in", async () => {
+  it("registers with display name, password, chosen logo and github credential, then signs in", async () => {
     resolveInvitationMock.mockResolvedValue("carol@caleo.com");
     listLogosMock.mockResolvedValue(logos);
     registerInvitedEmployeeMock.mockResolvedValue(verification);
     const { wrapper, router } = await mountView();
 
     await wrapper.find(".reg-name").setValue("Carol");
+    await wrapper.find(".reg-password").setValue("s3cret!pw");
     const fox = wrapper
       .findAll(".logo-option")
       .find((el) => el.attributes("data-url") === "/logos/fox-clean.png");
@@ -98,12 +99,36 @@ describe("RegisterView", () => {
 
     expect(registerInvitedEmployeeMock).toHaveBeenCalledWith("invite-token", {
       display_name: "Carol",
+      password: "s3cret!pw",
       logo_url: "/logos/fox-clean.png",
       github_credential: { type: "token", value: "ghp_supersecret" },
     });
     const auth = useAuthStore();
     expect(auth.isAuthenticated).toBe(true);
     expect(router.currentRoute.value.path).toBe("/knowledge");
+    wrapper.unmount();
+  });
+
+  it("renders the password field for setting a sign-in password", async () => {
+    resolveInvitationMock.mockResolvedValue("carol@caleo.com");
+    listLogosMock.mockResolvedValue(logos);
+    const { wrapper } = await mountView();
+    const input = wrapper.find(".reg-password");
+    expect(input.exists()).toBe(true);
+    expect(input.attributes("type")).toBe("password");
+    wrapper.unmount();
+  });
+
+  it("rejects a password shorter than the minimum length", async () => {
+    resolveInvitationMock.mockResolvedValue("carol@caleo.com");
+    listLogosMock.mockResolvedValue(logos);
+    const { wrapper } = await mountView();
+    await wrapper.find(".reg-name").setValue("Carol");
+    await wrapper.find(".reg-password").setValue("short");
+    await wrapper.find(".reg-submit").trigger("click");
+    await flushPromises();
+    expect(registerInvitedEmployeeMock).not.toHaveBeenCalled();
+    expect(wrapper.find(".reg-error").text()).toContain("8 characters");
     wrapper.unmount();
   });
 

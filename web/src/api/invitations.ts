@@ -34,6 +34,8 @@ export interface InvitedEmployeeRegistrationInput {
   display_name?: string;
   logo_url?: string;
   github_credential?: GithubCredential;
+  /** Optional sign-in password (G4.S7.T6); the server stores only a bcrypt hash. */
+  password?: string;
 }
 
 /** Self-service profile update for the signed-in employee (PUT /api/me). */
@@ -100,6 +102,25 @@ export async function requestMagicLink(email: string): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
+  });
+}
+
+/**
+ * Email+password sign-in (G4.S7.T6). The server either returns a session
+ * (password matched), or falls back to a magic link for accounts without a
+ * password set ({ ok: true }). Wrong passwords are rejected with a 401.
+ */
+export type PasswordLoginResponse = LoginVerification | { ok: boolean };
+
+/** POST /api/auth/login { email, password } → session or magic-link fallback. */
+export async function loginWithPassword(
+  email: string,
+  password: string,
+): Promise<PasswordLoginResponse> {
+  return request<PasswordLoginResponse>("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
   });
 }
 

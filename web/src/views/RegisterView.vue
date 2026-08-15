@@ -10,6 +10,7 @@ const router = useRouter();
 const auth = useAuthStore();
 
 const DEFAULT_LOGO = "/athena-logo-ai.png";
+const MIN_PASSWORD_LENGTH = 8;
 
 const invitedEmail = ref("");
 const loading = ref(true);
@@ -20,6 +21,7 @@ const logoError = ref("");
 
 const logos = ref<LogoRecord[]>([]);
 const displayName = ref("");
+const password = ref("");
 const logoUrl = ref(DEFAULT_LOGO);
 const githubValue = ref("");
 
@@ -86,6 +88,10 @@ async function submit() {
     error.value = "Display name is required";
     return;
   }
+  if (password.value && password.value.length < MIN_PASSWORD_LENGTH) {
+    error.value = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+    return;
+  }
   submitting.value = true;
   error.value = "";
   try {
@@ -95,6 +101,7 @@ async function submit() {
         : undefined;
     const verification = await registerInvitedEmployee(token.value, {
       display_name: displayName.value.trim(),
+      password: password.value || undefined,
       logo_url: logoUrl.value,
       github_credential: githubCredential,
     });
@@ -129,6 +136,22 @@ async function submit() {
         <div class="reg-field">
           <label for="reg-name">Display name</label>
           <input id="reg-name" class="reg-name" v-model="displayName" placeholder="e.g. Carol Zhang" />
+        </div>
+
+        <div class="reg-field">
+          <label for="reg-password">Password</label>
+          <input
+            id="reg-password"
+            class="reg-password"
+            v-model="password"
+            type="password"
+            placeholder="At least 8 characters"
+            autocomplete="new-password"
+          />
+          <p class="reg-hint">
+            Set a password to sign in with email + password. Leave blank to keep
+            magic-link sign-in only.
+          </p>
         </div>
 
         <div class="reg-field">
@@ -265,6 +288,7 @@ async function submit() {
 }
 
 .reg-name,
+.reg-password,
 .reg-github-value {
   padding: 8px;
   border: 1px solid var(--caleo-border, #ddd);
