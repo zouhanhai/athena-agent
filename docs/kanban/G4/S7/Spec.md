@@ -40,8 +40,12 @@ See `docs/knowledge-rag-design.md` + M4 federation items in `TODO.md`. Key point
 - **Tailscale is part of this Spec** — it provides the encrypted tunnel so the server can reach every
   local agent across regions. This Spec includes: Tailscale the 6900XT + the remote WSL host, set
   `APP_BASE_URL` to a reachable address, and make invite/magic-link URLs open remotely (currently LAN-only).
-- **Architecture**: agents stay local; platform is the control plane. **HTTP + SSE, NOT WebSocket**
-  (SSE covers real-time push; HTTP covers command send).
+- **Architecture**: agents stay local; platform is the control plane. **Agent actively connects INTO the
+  platform (outbound, reverse-tunnel style) — WebSocket for bidirectional real-time** (agent initiates the
+  WS connection, platform drives it back through the tunnel), HTTP for command/registration. Rationale
+  (2026-08-15): agent-outbound connect works behind NAT/CGNAT with no public IP, and matches the AgentIDE
+  model where agents register into the platform. See `docs/remote-agent-connectivity.md` for the
+  Tailscale vs Cloudflare-Tunnel vs reverse-WebSocket analysis + Helix/Avernet/K3s/OpenClaw references.
 - **Invitation onboarding** (like employee invites): admin generates `{agent_id, api_url, token}` →
   hand to the agent → agent registers (auth'd, so the platform knows which agent is where/how to reach it).
 - **Chat routing**: platform Chat panel → selected remote agent's API Server (Hermes `/api/sessions/{id}/chat/stream`
