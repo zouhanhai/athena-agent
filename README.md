@@ -42,7 +42,7 @@ SERVER (6900XT) — athena federation hub
         Server knowledge steward = Athena (fixed federation name)
 
 LOCAL (each employee) — any agent (Hermes / Claude Code / Codex / OpenCode / Pi)
-  └─ Agent_i → HTTP + SSE (not WS) → server (control plane; agents stay local, tools run on the employee's machine)
+  └─ Agent_i → connects INTO the platform (reverse WebSocket over Cloudflare Tunnel at athenakb.com) → server (control plane; agents stay local, tools run on the employee's machine)
 
 REMOTE (SAP) — per-employee
   └─ PiB_i + ABAP MCP + OpenCode_i → HTTP → server
@@ -126,8 +126,9 @@ reports false failures).
 
 - **Resend auth**: caleo.com domain must be verified before sending invites to employees (403 until
   then; ConsoleMailer logs links to `~/.athena-tmp/athena-server.log`).
-- **Tailscale**: portal is LAN-only (192.168.178.30) until the 6900XT is Tailscale'd + `APP_BASE_URL`
-  points at the Tailscale IP, so remote colleagues can reach it.
+- **Public access**: the portal + API are public at **athenakb.com** via a Cloudflare Tunnel (named tunnel
+  `athena-platform`, running as a systemd service on 6900XT); `APP_BASE_URL=https://athenakb.com`. Remote
+  colleagues reach it without Tailscale.
 - **Neo4j** Community Edition (2026): SEARCH clause LIMIT must be inside the vector-index parens
   (`FOR $embedding LIMIT 1`), not after — otherwise Cypher syntax error.
 
@@ -147,7 +148,7 @@ reports false failures).
   [`reference.md`](gdd/docs/reference.md) (concept index), [`adr/`](gdd/docs/adr/0009-gdd-vs-athena-boundary.md)
   (GDD boundary decision), [`templates/`](gdd/docs/templates/) (GST template copies)
 - `docs/knowledge-rag-design.md` — KB + RAG routing (Athena single-pass, Neo4j, fusion, rerank)
-- `docs/distributed-pi-collaboration.md` — Multi-Agent Federation (control plane, HTTP+SSE)
+- `docs/distributed-pi-collaboration.md` — Multi-Agent Federation (control plane, agents connect INTO the platform)
 - `docs/spec-m4-*.md` — G4 specs (refinement, RAG self-build, KB confidence, worker progress, kanban-issues sync)
 - `CONTEXT.md` — global glossary (ubiquitous language)
 - `TODO.md` — high-level roadmap

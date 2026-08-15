@@ -13,7 +13,7 @@ acceptance_criteria:
   - "G4.S4 Worker progress tracking: OpenCode plugin appends a Progress Log row to the ticket md file on real change; Kanban shows last row + stalled flag"
   - "G4.S5 Kanban ↔ GitHub Issues bidirectional sync + planning feedback loop: Spec → Issue (title Gx.Sx), ticket status syncs, plan agent reads issue discussion back into md"
   - "G4.S6 GDD decoupling: GDD dev-flow documented as a generic agent-agnostic protocol (docs/gdd handbook) separated from athena KB; Workbench splits Kanban (GST) and Project (GitHub) into sibling sub-tabs"
-  - "G4.S7 Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP: local agents register via invite, platform Chat routes to a remote agent with streamed progress; KB exposed as MCP server"
+  - "G4.S7 Remote agent federation (reverse WebSocket + Cloudflare Tunnel) + KB-as-MCP: local agents register via invite and connect INTO the platform, platform Chat routes to a remote agent with streamed progress; KB exposed as MCP server; public site at athenakb.com"
 ---
 
 # G4: RAG Self-Build, KB Intelligence & Agent Collaboration
