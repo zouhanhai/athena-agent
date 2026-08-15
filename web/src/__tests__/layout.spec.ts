@@ -236,6 +236,41 @@ describe("global chat panel", () => {
   });
 });
 
+describe("chat panel auth gating (G4.S7.T8)", () => {
+  async function mountAppSignedOut() {
+    const pinia = createPinia();
+    const wrapper = mount(App, {
+      global: {
+        plugins: [pinia, TDesign, router],
+      },
+      attachTo: document.body,
+    });
+    await router.isReady();
+    await flushPromises();
+    return wrapper;
+  }
+
+  it("hides the chat panel and splitter when signed out, keeping sidebar + content", async () => {
+    const wrapper = await mountAppSignedOut();
+    await router.push("/login");
+    await waitForRoute("/login");
+    await flushPromises();
+
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(false);
+    expect(wrapper.find(".chat-splitter").exists()).toBe(false);
+    expect(wrapper.find(".app-aside").exists()).toBe(true);
+    expect(wrapper.find(".app-content").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the chat panel and splitter when signed in", async () => {
+    const wrapper = await mountApp();
+    expect(wrapper.find(".global-chat-panel").exists()).toBe(true);
+    expect(wrapper.find(".chat-splitter").exists()).toBe(true);
+    wrapper.unmount();
+  });
+});
+
 describe("CALEO theme", () => {
   it("applies CALEO brand colors as CSS custom properties on the document root", async () => {
     await mountApp();

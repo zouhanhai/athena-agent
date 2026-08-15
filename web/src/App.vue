@@ -76,6 +76,7 @@ onMounted(() => {
       <router-view />
     </t-content>
     <div
+      v-if="auth.isAuthenticated"
       class="chat-splitter"
       title="Drag to resize chat panel"
       @pointerdown="onSplitterDown"
@@ -83,7 +84,7 @@ onMounted(() => {
       @pointerup="onSplitterUp"
       @pointercancel="onSplitterUp"
     />
-    <GlobalChatPanel />
+    <GlobalChatPanel v-if="auth.isAuthenticated" />
   </t-layout>
 </template>
 
