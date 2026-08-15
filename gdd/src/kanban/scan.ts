@@ -120,6 +120,20 @@ export function defaultBoardRoot(): string {
 export interface ScanOptions {
   /** Include each ticket's markdown body (e.g. for Progress Log parsing). */
   includeBody?: boolean;
+  /**
+   * Restrict the scan to a single spec (e.g. "G4.S7") — only that spec's
+   * directory and its parent Goal.md are read, skipping every other
+   * goal/spec/ticket. Speeds up per-spec syncs (hook-triggered) from a full
+   * board walk to ~10 files. Goal context is still read so milestone/label
+   * resolve correctly (a Goal maps to a Milestone + Label, never its own issue).
+   */
+  specRef?: string;
+}
+
+/** Split "G4.S7" → { goal: "G4", spec: "S7" }; null if not a valid spec ref. */
+function parseSpecRef(ref: string): { goal: string; spec: string } | null {
+  const m = /^G(\d+)\.S(\d+)$/.exec(ref.trim());
+  return m ? { goal: `G${m[1]}`, spec: `S${m[2]}` } : null;
 }
 
 /**
@@ -132,7 +146,13 @@ export async function scanBoard(root: string, options: ScanOptions = {}): Promis
 
   const goalDirs = await listEntries(root, isGoalDir);
 
+  // specRef targeting: "G4.S7" → goal dir "G4", spec dir "S7". Parse the ref
+  // once so the goal/spec loops can skip everything else.
+  const target = options.specRef ? parseSpecRef(options.specRef) : null;
+
   for (const goalDir of goalDirs) {
+    if (target && target.goal !== goalDir) continue; // not the targeted goal
+
     const goalPath = path.join(root, goalDir, "Goal.md");
     let goal: GoalFrontmatter;
     try {
@@ -153,6 +173,8 @@ export async function scanBoard(root: string, options: ScanOptions = {}): Promis
     const specNames = await listEntries(specDirPath, isSpecDir);
 
     for (const specDir of specNames) {
+      if (target && target.spec !== specDir) continue; // not the targeted spec
+
       const specPath = path.join(root, goalDir, specDir, "Spec.md");
       let spec: SpecFrontmatter;
       let specBody: string | undefined;

@@ -119,6 +119,9 @@ switch (command) {
     if (!specRef) {
       fail("create requires <specRef>");
     }
+    // Target scan to this spec (read only its dir + parent Goal.md) — the
+    // full-board walk at the top is unused here and much slower for a hook sync.
+    const board = await scanBoard(boardRoot, { includeBody: true, specRef });
     const project = await resolveProject(github, credential);
     const result = await createSpecIssue(github, credential, owner!, repo!, board, specRef, project);
     console.log(
@@ -135,6 +138,9 @@ switch (command) {
     if (!specRef) {
       fail("sync requires <specRef>");
     }
+    // Target scan to this spec (read only its dir + parent Goal.md) — the
+    // full-board walk at the top is unused here and much slower for a hook sync.
+    const board = await scanBoard(boardRoot, { includeBody: true, specRef });
     const project = await resolveProject(github, credential);
     const { spec, tickets } = findSpecInBoard(board, specRef);
     const { payload, issue } = await requireSpecIssue(github, credential, specRef);
