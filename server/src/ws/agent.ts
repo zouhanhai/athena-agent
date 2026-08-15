@@ -60,7 +60,7 @@ export class AgentWsGateway {
   private readonly wss: WebSocketServer;
   private readonly sockets = new Set<WebSocket>();
 
-  constructor(server: Server, options: AgentWsGatewayOptions = {}) {
+  constructor(server: Server) {
     this.wss = new WebSocketServer({ noServer: true });
     this.wss.on("connection", (socket, request) => {
       this.sockets.add(socket);
@@ -83,10 +83,6 @@ export class AgentWsGateway {
       });
       socket.on("close", () => this.sockets.delete(socket));
       socket.on("error", () => this.sockets.delete(socket));
-      options.onConnection?.({
-        remoteAddress: request.socket.remoteAddress,
-        socketCount: this.sockets.size,
-      });
     });
 
     server.on("upgrade", (request, socket, head) => {
