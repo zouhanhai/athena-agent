@@ -85,3 +85,5 @@ MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
 - HTTP+SSE routing from platform Chat to remote agents with streamed progress. (T4)
 - KB MCP server (search_knowledge / get_wiki_page / get_graph). (T3)
 - Integration demo: register real WSL + 6900XT agents, chat to each, KB via MCP, identity tracked. (T5)
+- Email + password authentication for public sign-in (plus magic-link fallback). (T6)
+- Global auth guard: public site pages require login (redirect to /login). (T7)
