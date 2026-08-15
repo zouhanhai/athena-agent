@@ -287,7 +287,14 @@ export async function createSpecIssue(
   }
 
   const payload = buildIssueForSpec(board, specRef);
-  const existingSpec = await github.getIssueByTitle(credential, owner, repo, payload.title);
+  // Find the spec's main issue by its stable ref prefix (`G4.S7`) instead of the full
+  // title, so a spec title change updates the existing issue in place instead of
+  // creating a duplicate. (Bug 2026-08-15: full-title lookup re-created the spec when
+  // the title changed, and the spec-status machine pointed at the duplicate.)
+  const existingSpec =
+    (await github.getIssueByTitlePrefix(credential, owner, repo, `${specRef} `)) ??
+    (await github.getIssueByTitlePrefix(credential, owner, repo, specRef)) ??
+    (await github.getIssueByTitle(credential, owner, repo, payload.title));
   let specIssue: GithubIssue;
   let created: boolean;
   if (existingSpec) {
