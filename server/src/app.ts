@@ -425,7 +425,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     }
   });
 
-  registerAgentRoutes(app, { registry });
+  registerAgentRoutes(app, { registry, auth });
   registerLogoRoutes(app, { logoStore: logos, registry, employees });
   registerChatRoutes(app, { manager });
   registerEmployeeRoutes(app, { employees, auth, agents: registry });

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
+  AgentAuthError,
   AgentConflictError,
   AgentNotFoundError,
   type AgentCapabilities,
@@ -7,9 +8,14 @@ import {
   type AgentRegistry,
   type AgentUpdateInput,
 } from "../agents/registry.js";
+import type { AuthService } from "../employees/auth.js";
+import { roleHasPermission } from "../employees/rbac.js";
+import { currentEmployee } from "./helpers.js";
 
 export interface AgentRouteOptions {
   registry: AgentRegistry;
+  /** Needed to gate the admin invitation endpoint (POST /api/agents/invite). */
+  auth?: AuthService;
 }
 
 interface AgentBody {
@@ -18,6 +24,9 @@ interface AgentBody {
   logo_url?: unknown;
   capabilities?: unknown;
   runtime?: unknown;
+  agent_id?: unknown;
+  api_url?: unknown;
+  token?: unknown;
 }
 
 function invalidString(value: unknown): boolean {
@@ -60,20 +69,51 @@ function mapRegistryError(err: unknown): { code: number; message: string } | nul
   if (err instanceof AgentNotFoundError) {
     return { code: 404, message: err.message };
   }
+  if (err instanceof AgentAuthError) {
+    return { code: 401, message: err.message };
+  }
   return null;
+}
+
+/** Optional remote fields shared by invite + create + register-declaration bodies. */
+function remoteFields(
+  body: { agent_id?: unknown; api_url?: unknown; token?: unknown },
+  reply: { code: (code: number) => { send: (payload: unknown) => unknown } },
+): { agent_id?: string; api_url?: string; token?: string } | null {
+  if (body.agent_id !== undefined && invalidString(body.agent_id)) {
+    reply.code(400).send({ error: "agent_id must be a non-empty string" });
+    return null;
+  }
+  if (body.api_url !== undefined && typeof body.api_url !== "string") {
+    reply.code(400).send({ error: "api_url must be a string" });
+    return null;
+  }
+  if (body.token !== undefined && invalidString(body.token)) {
+    reply.code(400).send({ error: "token must be a non-empty string" });
+    return null;
+  }
+  return {
+    agent_id: typeof body.agent_id === "string" ? body.agent_id.trim() : undefined,
+    api_url: typeof body.api_url === "string" ? body.api_url.trim() : undefined,
+    token: typeof body.token === "string" ? body.token.trim() : undefined,
+  };
 }
 
 /**
  * Agent registry endpoints:
  * - POST /api/agents/self-declare { agent_id, capabilities, runtime? } → agent auto-fills capabilities (201)
  * - GET /api/agents/declarations → pending self-declarations
- * - POST /api/agents/register-declaration/:id { alias, owner_employee_id, logo_url? } → employee confirms (201)
- * - POST /api/agents { alias, owner_employee_id, logo_url?, capabilities, runtime? } → register (201)
- * - PUT /api/agents/:alias { logo_url?, capabilities? } → update (200)
+ * - POST /api/agents/register-declaration/:id { alias, owner_employee_id, logo_url?, api_url?, token? } → employee confirms (201)
+ * - POST /api/agents/invite (admin) → generate { agent_id, api_url, token } invitation (201)
+ * - POST /api/agents/register { agent_id, api_url, token } → invited agent registers auth'd; records reachability (200)
+ * - POST /api/agents { alias, owner_employee_id, logo_url?, capabilities, runtime?, agent_id?, api_url?, token? } → register (201)
+ * - PUT /api/agents/:alias { logo_url?, capabilities?, api_url?, agent_id?, token? } → update (200)
  * - GET /api/agents?ownerEmployeeId= → list
  * - GET /api/agents/:alias → single agent
  */
 export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOptions): void {
+  const { registry, auth } = options;
+
   app.post("/api/agents/self-declare", async (request, reply) => {
     const body = (request.body ?? {}) as { agent_id?: unknown; capabilities?: unknown; runtime?: unknown };
 
@@ -91,7 +131,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     }
 
     try {
-      const declaration = await options.registry.submitDeclaration({
+      const declaration = await registry.submitDeclaration({
         agent_id: (body.agent_id as string).trim(),
         capabilities,
         runtime: typeof body.runtime === "string" ? body.runtime : "",
@@ -104,7 +144,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
 
   app.get("/api/agents/declarations", async (_request, reply) => {
     try {
-      const declarations = await options.registry.listDeclarations();
+      const declarations = await registry.listDeclarations();
       return { declarations };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
@@ -116,7 +156,14 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     if (typeof id !== "string" || id.trim().length === 0) {
       return reply.code(400).send({ error: "declaration id is required" });
     }
-    const body = (request.body ?? {}) as { alias?: unknown; owner_employee_id?: unknown; logo_url?: unknown };
+    const body = (request.body ?? {}) as {
+      alias?: unknown;
+      owner_employee_id?: unknown;
+      logo_url?: unknown;
+      agent_id?: unknown;
+      api_url?: unknown;
+      token?: unknown;
+    };
 
     if (invalidString(body.alias)) {
       return reply.code(400).send({ error: "alias is required" });
@@ -127,14 +174,115 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     if (body.logo_url !== undefined && typeof body.logo_url !== "string") {
       return reply.code(400).send({ error: "logo_url must be a string" });
     }
+    const remote = remoteFields(body, reply);
+    if (remote === null) {
+      return;
+    }
 
     try {
-      const record = await options.registry.registerDeclaration(id.trim(), {
+      const record = await registry.registerDeclaration(id.trim(), {
         alias: (body.alias as string).trim(),
         owner_employee_id: (body.owner_employee_id as string).trim(),
         logo_url: typeof body.logo_url === "string" ? body.logo_url : "",
+        agent_id: remote.agent_id,
+        api_url: remote.api_url,
+        token: remote.token,
       });
       return reply.code(201).send(record);
+    } catch (err) {
+      const mapped = mapRegistryError(err);
+      if (mapped) {
+        return reply.code(mapped.code).send({ error: mapped.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * G4.S7.T2 invitation onboarding: an admin generates `{agent_id, api_url, token}`
+   * and hands it to the remote agent, which then registers via
+   * POST /api/agents/register. Mirrors the employee-invitation flow.
+   */
+  app.post("/api/agents/invite", async (request, reply) => {
+    const body = (request.body ?? {}) as AgentBody;
+
+    if (invalidString(body.alias)) {
+      return reply.code(400).send({ error: "alias is required" });
+    }
+    if (invalidString(body.owner_employee_id)) {
+      return reply.code(400).send({ error: "owner_employee_id is required" });
+    }
+    if (body.logo_url !== undefined && typeof body.logo_url !== "string") {
+      return reply.code(400).send({ error: "logo_url must be a string" });
+    }
+    if (body.runtime !== undefined && typeof body.runtime !== "string") {
+      return reply.code(400).send({ error: "runtime must be a string" });
+    }
+    const remote = remoteFields(body, reply);
+    if (remote === null) {
+      return;
+    }
+    if (body.capabilities !== undefined) {
+      const capabilities = parseCapabilities(body.capabilities);
+      if (!capabilities) {
+        return reply
+          .code(400)
+          .send({ error: "capabilities must be { system, mcp: string[], tools: string[], skills: string[], specialty, description? }" });
+      }
+    }
+
+    try {
+      const employee = await currentEmployee(request, auth!);
+      if (!employee) {
+        return reply.code(401).send({ error: "unauthorized" });
+      }
+      if (!roleHasPermission(employee.role, "agent.register")) {
+        return reply.code(403).send({ error: 'forbidden: requires permission "agent.register"' });
+      }
+      const capabilities = parseCapabilities(body.capabilities);
+      const result = await registry.createInvitation({
+        alias: (body.alias as string).trim(),
+        owner_employee_id: (body.owner_employee_id as string).trim(),
+        logo_url: typeof body.logo_url === "string" ? body.logo_url : "",
+        runtime: typeof body.runtime === "string" ? body.runtime : "",
+        agent_id: remote.agent_id,
+        api_url: remote.api_url,
+        capabilities: capabilities ?? undefined,
+      });
+      return reply.code(201).send(result);
+    } catch (err) {
+      const mapped = mapRegistryError(err);
+      if (mapped) {
+        return reply.code(mapped.code).send({ error: mapped.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * G4.S7.T2: the invited agent registers auth'd — it proves possession of the
+   * invitation token and records its real reachability (api_url) + status.
+   */
+  app.post("/api/agents/register", async (request, reply) => {
+    const body = (request.body ?? {}) as { agent_id?: unknown; api_url?: unknown; token?: unknown };
+
+    if (invalidString(body.agent_id)) {
+      return reply.code(400).send({ error: "agent_id is required" });
+    }
+    if (invalidString(body.api_url)) {
+      return reply.code(400).send({ error: "api_url is required" });
+    }
+    if (invalidString(body.token)) {
+      return reply.code(400).send({ error: "token is required" });
+    }
+
+    try {
+      const record = await registry.registerWithInvite({
+        agent_id: (body.agent_id as string).trim(),
+        api_url: (body.api_url as string).trim(),
+        token: (body.token as string).trim(),
+      });
+      return record;
     } catch (err) {
       const mapped = mapRegistryError(err);
       if (mapped) {
@@ -165,6 +313,10 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
         .code(400)
         .send({ error: "capabilities must be { system, mcp: string[], tools: string[], skills: string[], specialty, description? }" });
     }
+    const remote = remoteFields(body, reply);
+    if (remote === null) {
+      return;
+    }
 
     const input: AgentCreateInput = {
       alias: (body.alias as string).trim(),
@@ -172,10 +324,13 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       logo_url: typeof body.logo_url === "string" ? body.logo_url : "",
       capabilities,
       runtime: typeof body.runtime === "string" ? body.runtime : "",
+      agent_id: remote.agent_id,
+      api_url: remote.api_url,
+      token: remote.token,
     };
 
     try {
-      const record = await options.registry.create(input);
+      const record = await registry.create(input);
       return reply.code(201).send(record);
     } catch (err) {
       const mapped = mapRegistryError(err);
@@ -191,7 +346,13 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     if (typeof alias !== "string" || alias.trim().length === 0) {
       return reply.code(400).send({ error: "alias is required" });
     }
-    const body = (request.body ?? {}) as { logo_url?: unknown; capabilities?: unknown };
+    const body = (request.body ?? {}) as {
+      logo_url?: unknown;
+      capabilities?: unknown;
+      agent_id?: unknown;
+      api_url?: unknown;
+      token?: unknown;
+    };
     const patch: AgentUpdateInput = {};
     if (body.logo_url !== undefined) {
       if (typeof body.logo_url !== "string") {
@@ -208,12 +369,25 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       }
       patch.capabilities = capabilities;
     }
-    if (patch.logo_url === undefined && patch.capabilities === undefined) {
-      return reply.code(400).send({ error: "at least one of logo_url or capabilities is required" });
+    const remote = remoteFields(body, reply);
+    if (remote === null) {
+      return;
+    }
+    if (remote.agent_id !== undefined) patch.agent_id = remote.agent_id;
+    if (remote.api_url !== undefined) patch.api_url = remote.api_url;
+    if (remote.token !== undefined) patch.token = remote.token;
+    if (
+      patch.logo_url === undefined &&
+      patch.capabilities === undefined &&
+      patch.agent_id === undefined &&
+      patch.api_url === undefined &&
+      patch.token === undefined
+    ) {
+      return reply.code(400).send({ error: "at least one of logo_url, capabilities, agent_id, api_url or token is required" });
     }
 
     try {
-      const record = await options.registry.updateByAlias(alias.trim(), patch);
+      const record = await registry.updateByAlias(alias.trim(), patch);
       return reply.code(200).send(record);
     } catch (err) {
       const mapped = mapRegistryError(err);
@@ -231,7 +405,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
         ? { ownerEmployeeId: ownerEmployeeId.trim() }
         : undefined;
     try {
-      const agents = await options.registry.list(filter);
+      const agents = await registry.list(filter);
       return { agents };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
@@ -244,7 +418,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       return reply.code(400).send({ error: "alias is required" });
     }
     try {
-      const record = await options.registry.getByAlias(alias.trim());
+      const record = await registry.getByAlias(alias.trim());
       if (!record) {
         return reply.code(404).send({ error: `agent "${alias.trim()}" not found` });
       }
