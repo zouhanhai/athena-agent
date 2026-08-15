@@ -16,6 +16,7 @@ import {
   retryTask,
 } from "@/api/kb";
 import { nextTick } from "vue";
+import { installAuthSession } from "./helpers/auth-session";
 
 vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
@@ -44,6 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   getGraphMock.mockReset();
   getGraphTopicsMock.mockReset();
   ingestFileMock.mockReset();
@@ -61,10 +63,12 @@ async function waitForRoute(path: string) {
 }
 
 async function mountApp() {
+  const pinia = createPinia();
+  // Sign in before mounting so the global auth guard lets /uploads load
+  // (survives the per-test localStorage.clear() in beforeEach).
+  installAuthSession(pinia);
   const wrapper = mount(App, {
-    global: {
-      plugins: [createPinia(), TDesign, router],
-    },
+    global: { plugins: [pinia, TDesign, router] },
     attachTo: document.body,
   });
   await router.isReady();

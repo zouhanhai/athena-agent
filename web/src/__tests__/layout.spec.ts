@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
 import TDesign from "tdesign-vue-next";
@@ -8,9 +8,14 @@ import App from "@/App.vue";
 import router from "@/router";
 import { useThemeStore } from "@/stores/theme";
 import { useChatStore } from "@/stores/chat";
+import { installAuthSession } from "./helpers/auth-session";
 
 beforeEach(() => {
   localStorage.clear();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 async function waitForRoute(path: string) {
@@ -22,9 +27,13 @@ async function waitForRoute(path: string) {
 }
 
 async function mountApp() {
+  const pinia = createPinia();
+  // Sign in before mounting so the global auth guard lets these protected
+  // pages load (survives the per-test localStorage.clear() in beforeEach).
+  installAuthSession(pinia);
   const wrapper = mount(App, {
     global: {
-      plugins: [createPinia(), TDesign, router],
+      plugins: [pinia, TDesign, router],
     },
     attachTo: document.body,
   });

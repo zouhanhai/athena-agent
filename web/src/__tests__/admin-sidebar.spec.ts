@@ -6,7 +6,7 @@ import "tdesign-vue-next/es/style/index.css";
 
 import App from "@/App.vue";
 import router from "@/router";
-import { useAuthStore } from "@/stores/auth";
+import { installAuthSession } from "./helpers/auth-session";
 
 beforeEach(() => {
   localStorage.clear();
@@ -14,7 +14,6 @@ beforeEach(() => {
 
 async function mountWithRole(role: "admin" | "member") {
   const pinia = createPinia();
-  const auth = useAuthStore(pinia);
   const employee = {
     id: "e1",
     email: role === "admin" ? "admin@caleo.com" : "member@caleo.com",
@@ -24,19 +23,9 @@ async function mountWithRole(role: "admin" | "member") {
     created_at: "2026-08-08T00:00:00.000Z",
     updated_at: "2026-08-08T00:00:00.000Z",
   };
-  auth.setSession({ session_token: "ses123", employee });
-  // App onMounted calls auth.bootstrap() (GET /api/me) when a session exists;
-  // jsdom fetch cannot resolve the relative URL — stub it to return the same
-  // employee so the session survives (otherwise bootstrap logs out).
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(employee), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ),
-  );
+  // Sign in before mounting so the global auth guard lets the page load; also
+  // stubs fetch so App's bootstrap() (GET /api/me) keeps the session.
+  installAuthSession(pinia, employee);
   const wrapper = mount(App, {
     global: { plugins: [pinia, TDesign, router] },
     attachTo: document.body,
