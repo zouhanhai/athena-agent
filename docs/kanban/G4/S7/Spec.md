@@ -82,7 +82,7 @@ MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
 
 ## Deliverables
 
-- Platform WS endpoint exposed via Cloudflare Tunnel (athenakb.com) + APP_BASE_URL / remote access. (T1)
+- Platform WS endpoint exposed via Cloudflare Tunnel (athenakb.com) + APP_BASE_URL / remote access. (T1) — **DONE (2026-08-15)**: `wss://athenakb.com/ws/agent`, reverse-WebSocket endpoint with handshake + echo; tunnel `athenakb.com/ws/*` → `localhost:3000` (named tunnel `athena-platform`, systemd `cloudflared-athenakb`); verified reachable from outside the LAN.
 - Invitation-based agent onboarding + manual register form (S2.T9). (T2)
 - Reverse-WebSocket bidirectional connection from agents to the platform (push tasks, stream progress). (T4)
 - KB MCP server (search_knowledge / get_wiki_page / get_graph). (T3)

@@ -71,3 +71,12 @@ agent and (b) communicate bidirectionally (send commands, stream results).
 3. Platform exposes the WS endpoint publicly (Cloudflare named tunnel + a domain, or Tailscale once
    feasible).
 4. Agent registers with `{agent_id, capabilities, token}` (already modeled in AgentCapabilities).
+
+## Status (2026-08-15, G4.S7.T1)
+
+- Platform WS endpoint **live**: `wss://athenakb.com/ws/agent` (reverse-WebSocket endpoint on the
+  athena server, welcome handshake + echo/ping frames; registration + bidirectional streaming in T2/T4).
+- Cloudflare exposure **live**: named tunnel `athena-platform` (`/home/hh/.cloudflared/config.yml`,
+  systemd `cloudflared-athenakb`) routes `athenakb.com/ws/*` → `http://localhost:3000`; the frontend
+  (`athenakb.com` → Vite :5173) keeps working. Verified reachable from outside the LAN.
+- See `docs/s7-remote-agent-setup.md` §1.3 for the config + verification commands.

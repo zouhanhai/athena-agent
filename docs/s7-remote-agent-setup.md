@@ -19,20 +19,39 @@
   modeled (`AgentCapabilities` + `POST /api/agents/self-declare`). This is **G4.S7.T2**.
 
 ### 1.3 Cloudflare: expose the platform WS endpoint publicly
-So remote agents (from anywhere) can reach the platform's WS endpoint:
+So remote agents (from anywhere) can reach the platform's WS endpoint.
+
+**LIVE (2026-08-15, G4.S7.T1)** — named tunnel `athena-platform` on the **athenakb.com** domain.
+The endpoint is `wss://athenakb.com/ws/agent` and is reachable from anywhere (verified from outside
+the LAN through the public Cloudflare edge). Config: `/home/hh/.cloudflared/config.yml` on 6900XT,
+run as the systemd service `cloudflared-athenakb`:
+```yaml
+tunnel: b3822b51-f0a9-4cda-8bc3-7b14045ec207
+credentials-file: /home/hh/.cloudflared/b3822b51-f0a9-4cda-8bc3-7b14045ec207.json
+
+ingress:
+  # Reverse-WebSocket endpoint for remote agents (connect INTO the platform).
+  - hostname: athenakb.com
+    path: /ws/*
+    service: http://localhost:3000        # the athena server (WS endpoint + REST API)
+  # Frontend (Vite dev server) — keeps working.
+  - hostname: athenakb.com
+    service: http://localhost:5173
+  - service: http_status:404
+```
+Restart after a config change: `sudo systemctl restart cloudflared-athenakb`.
+Cloudflare Tunnel proxies WebSocket upgrades natively (free, no extra cost).
+
+Alternative options (if a different domain were used):
 - **Named Cloudflare Tunnel** (stable, free + a domain) — recommended for production:
   ```bash
-  # on 6900XT (or a machine that can reach the athena WS endpoint):
   cloudflared tunnel login                     # authorize, pick a domain
   cloudflared tunnel create athena-platform
   cloudflared tunnel route dns athena-platform athena-platform.yourdomain.com
-  # config.yml:
-  #   tunnel: <tunnel-id>
-  #   credentials-file: /root/.cloudflared/<tunnel-id>.json
-  #   ingress:
-  #     - hostname: athena-platform.yourdomain.com
-  #       service: http://localhost:<ws-port>     # the athena WS server
-  #     - service: http_status:404
+  # config.yml ingress:
+  #   - hostname: athena-platform.yourdomain.com
+  #     service: http://localhost:<ws-port>     # the athena WS server
+  #   - service: http_status:404
   cloudflared tunnel run athena-platform
   ```
 - **Quick tunnel** (temporary, no account, for testing):
@@ -43,9 +62,18 @@ So remote agents (from anywhere) can reach the platform's WS endpoint:
 - Cost: **Cloudflare Tunnel is free** (Zero Trust free tier, 50 seats). Only cost = a **domain**
   ($8–15/yr) hosted on Cloudflare. Named tunnel removes quick-tunnel's 200-concurrent + SSE limits.
 
+**Verify the public WS endpoint** (from a machine NOT on the LAN; the URL resolves to the public
+Cloudflare edge, not to 192.168.178.30):
+```bash
+wscat -c wss://athenakb.com/ws/agent
+# → {"type":"welcome","service":"athena-agent-ws","path":"/ws/agent","protocolVersion":1,...}
+#   then send {"type":"echo","data":"hi"} → {"type":"echo","data":"hi",...}
+```
+
 ### 1.4 Platform config
-- `APP_BASE_URL` should point at the reachable address so invite/magic links open remotely.
-- Remote agents register with the platform's public WS URL (from Cloudflare).
+- `APP_BASE_URL` should point at the reachable address so invite/magic links open remotely
+  (currently `https://athenakb.com`).
+- Remote agents connect to the platform's public WS URL: `wss://athenakb.com/ws/agent`.
 
 ---
 
@@ -115,9 +143,9 @@ curl -sN https://<public-url>/v1/chat/completions \
 
 | Piece | Side | Status |
 |---|---|---|
-| Platform WS endpoint (reverse WebSocket) | server | planned (G4.S7.T4) |
+| Platform WS endpoint (reverse WebSocket) | server | ✅ done (G4.S7.T1) — `/ws/agent`, handshake + echo |
 | Invitation onboarding `{agent_id, api_url, token}` | server | planned (G4.S7.T2) |
-| Cloudflare named tunnel config | server/Cloudflare | to do (need a domain) |
+| Cloudflare named tunnel config | server/Cloudflare | ✅ done (G4.S7.T1) — `athenakb.com/ws/*` → `localhost:3000` |
 | Remote agent template (cloudflared + register) | remote | drafted here |
 | Remote Hermes API server | remote | ✅ done (port 8642) |
 | Quick tunnel proof | remote | ✅ done (SSE verified) |
