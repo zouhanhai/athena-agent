@@ -42,9 +42,13 @@ agent and (b) communicate bidirectionally (send commands, stream results).
 
 ## Industry references (all use agent-outbound reverse-tunnel / register-into-plane)
 
+> **Borrowing scope (2026-08-15):** we reference Helix mainly for its **remote-agent ↔ platform connection
+> model** (reverse WebSocket tunnel: agent connects outbound, platform drives it back). Other directions
+> (invitation onboarding, KB-as-MCP, chat routing, capabilities) are already defined in the G4.S7 spec.
+
 - **Helix** (helixml/helix, Go): Runners connect to the control plane via **reverse WebSocket tunneling**
   — runner initiates outbound connection, control plane sends requests back through the tunnel. Works
-  behind NAT/firewalls, no exposed ports. (docs.helix.ml)
+  behind NAT/firewalls, no exposed ports. **(This is the connectivity model we borrow.)**
 - **Avernet** (inclusionAI/Avernet, Rust BCS): agents register/connect to BCS via WebSocket `/ws/bot`,
   then receive messages and report results; capability profiles for discovery. (github.com/inclusionAI/Avernet)
 - **K3s**: agent nodes register with the server via WebSocket initiated by the k3s agent process, keep a
