@@ -86,7 +86,7 @@ else
   ( cd "$HOME/athena-agent/server" && \
     export DATABASE_URL="postgres://hh@/athena?host=/var/run/postgresql" \
     export ADMIN_EMAIL="zouha108@caleo.com" \
-    export APP_BASE_URL="${APP_BASE_URL:-http://192.168.178.30:5173}" \
+    export APP_BASE_URL="${APP_BASE_URL:-https://athenakb.com}" \
     export NEO4J_URI="bolt://localhost:7687" \
     export NEO4J_USER="neo4j" \
     export NEO4J_PASSWORD="athena-spike-2026" \

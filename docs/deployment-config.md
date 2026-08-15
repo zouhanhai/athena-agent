@@ -12,7 +12,7 @@ Where every environment secret lives, so it can be re-provisioned on a new serve
 | `EMBEDDING_OPENROUTER_KEY` | `server/.env.local` (git-ignored) | loaded by `scripts/start-all.sh` | **Dedicated** key for the embedding step — consumed by the G4.S2 self-built RAG interface (not the Pi agent) |
 | `DATABASE_URL` | `scripts/start-all.sh` (server block) | `export` in start-all.sh | `postgres://hh:<pass>@127.0.0.1:5432/athena` |
 | `ADMIN_EMAIL` | `scripts/start-all.sh` | `export` | Seeds first admin: `zouha108@caleo.com` |
-| `APP_BASE_URL` | `scripts/start-all.sh` | `export` | `http://192.168.178.30:5173` |
+| `APP_BASE_URL` | `scripts/start-all.sh` | `export` | `https://athenakb.com` |
 | PG password | LightRAG `.env` + start-all.sh | | `athena_pg_2026` (shared local PG) |
 
 ## Re-provisioning on a new server
