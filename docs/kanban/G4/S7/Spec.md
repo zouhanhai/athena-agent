@@ -76,7 +76,8 @@ MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
 
 ## Deliverables
 
-- Tailscale setup (6900XT + remote WSL) + APP_BASE_URL / remote access.
-- Invitation-based agent onboarding + manual register form (S2.T9).
-- HTTP+SSE routing from platform Chat to remote agents with streamed progress.
-- KB MCP server (search_knowledge / get_wiki_page / get_graph).
+- Tailscale setup (6900XT + remote WSL) + APP_BASE_URL / remote access. (T1)
+- Invitation-based agent onboarding + manual register form (S2.T9). (T2)
+- HTTP+SSE routing from platform Chat to remote agents with streamed progress. (T4)
+- KB MCP server (search_knowledge / get_wiki_page / get_graph). (T3)
+- Integration demo: register real WSL + 6900XT agents, chat to each, KB via MCP, identity tracked. (T5)
