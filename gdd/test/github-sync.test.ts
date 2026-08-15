@@ -417,7 +417,17 @@ test("createSpecIssue finds the spec by ref prefix when its title changed (no du
     id: 900, node_id: "I_kwDO10", number: 10, title: oldTitle,
     state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
   };
-  const github = new RecordingGithub([specIssue], { milestones: { M4: 4 } });
+  // Provide the existing ticket issues too, so the tickets update in place and
+  // only the spec's duplicate-creation behavior is under test.
+  const t1Issue: GithubIssue = {
+    id: 901, node_id: "I_kwDO11", number: 11, title: "G4.S5.T1",
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  const t2Issue: GithubIssue = {
+    id: 902, node_id: "I_kwDO12", number: 12, title: "G4.S5.T2",
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  const github = new RecordingGithub([specIssue, t1Issue, t2Issue], { milestones: { M4: 4 } });
   // Make the payload title the NEW title (spec title changed) so full-title
   // lookup would miss, but the ref-prefix lookup still finds the old issue.
   const newBoard: KanbanBoard = {
