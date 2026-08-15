@@ -80,16 +80,28 @@ const router = createRouter({
 // the Knowledge page; the sidebar hides the entry for them too. Guard is a
 // no-op when Pinia is not installed (e.g. isolated router tests).
 router.beforeEach((to) => {
-  if (!to.meta.requiresAdmin) {
-    return true;
-  }
   if (!getActivePinia()) {
     return true;
   }
   const auth = useAuthStore();
-  if (auth.employee?.role !== "admin") {
+
+  // Public routes (login / register / magic-link verify) never require auth.
+  const publicRoutes = ["login", "register", "verify"];
+  if (publicRoutes.includes(to.name as string)) {
+    return true;
+  }
+
+  // Global auth guard (athenakb.com is public): any other page requires a
+  // logged-in session; otherwise redirect to /login.
+  if (!auth.isAuthenticated) {
+    return { path: "/login", query: { redirect: to.fullPath } };
+  }
+
+  // Admin-only guard.
+  if (to.meta.requiresAdmin && auth.employee?.role !== "admin") {
     return { path: "/knowledge" };
   }
+
   return true;
 });
 
