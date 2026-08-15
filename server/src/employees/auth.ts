@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import type { EmployeeRecord, EmployeeRegistry } from "./employees.js";
+import { hashPassword, verifyPassword } from "./password.js";
 
 /** Delivers magic-link login emails. */
 export interface MagicLinkMailer {
@@ -36,10 +37,25 @@ export interface LoginVerification {
   employee: EmployeeRecord;
 }
 
-/** Email magic-link login + session resolution (G3.S2). */
+/**
+ * Result of an email+password sign-in attempt (G4.S7.T6):
+ * - "authenticated": the password matched — the caller returns the session directly.
+ * - "invalid-credentials": the employee HAS a password but it didn't match (reject).
+ * - "no-password": no password is set (or the email is unknown) — fall back to magic link.
+ */
+export type PasswordLoginResult =
+  | { kind: "authenticated"; session_token: string; employee: EmployeeRecord }
+  | { kind: "invalid-credentials" }
+  | { kind: "no-password" };
+
+/** Email magic-link login + session resolution (G3.S2), plus email+password (G4.S7.T6). */
 export interface AuthService {
   /** Email a magic link to the employee when they exist; always answers { ok: true }. */
   requestLogin(email: string): Promise<{ ok: boolean }>;
+  /** Sign in with email+password (bcrypt). See PasswordLoginResult. */
+  loginWithPassword(email: string, password: string): Promise<PasswordLoginResult>;
+  /** Set/replace the employee's password (stored as a bcrypt hash). */
+  setPassword(email: string, password: string): Promise<void>;
   /** Exchange a one-time login token for a session token + employee. Returns null when invalid. */
   verifyLogin(token: string): Promise<LoginVerification | null>;
   /** Resolve the employee behind a session token, or null. */
@@ -73,6 +89,33 @@ export class MagicLinkAuthService implements AuthService {
     const magicLinkUrl = `${this.appBaseUrl.replace(/\/+$/, "")}/auth/verify?token=${encodeURIComponent(token)}`;
     await this.mailer.sendLoginLink({ to: employee.email, magicLinkUrl });
     return { ok: true };
+  }
+
+  /**
+   * Email+password sign-in (G4.S7.T6). Unknown emails and employees without a
+   * password both report "no-password" (no existence leak); a stored-but-wrong
+   * password reports "invalid-credentials". Never emails a magic link here.
+   */
+  async loginWithPassword(email: string, password: string): Promise<PasswordLoginResult> {
+    const employee = await this.registry.getByEmail(email.trim().toLowerCase());
+    if (!employee) {
+      return { kind: "no-password" };
+    }
+    const hash = await this.registry.getPasswordHash(employee.email);
+    if (!hash) {
+      return { kind: "no-password" };
+    }
+    if (!(await verifyPassword(password, hash))) {
+      return { kind: "invalid-credentials" };
+    }
+    const session_token = await this.tokens.createSessionToken(employee.id);
+    return { kind: "authenticated", session_token, employee };
+  }
+
+  /** Set/replace the employee's password; only the bcrypt hash is ever stored. */
+  async setPassword(email: string, password: string): Promise<void> {
+    const hash = await hashPassword(password);
+    await this.registry.setPassword(email.trim().toLowerCase(), hash);
   }
 
   /** Exchange a one-time login token for a session token + employee. Returns null when invalid. */

@@ -121,12 +121,25 @@ export function registerEmployeeRoutes(app: FastifyInstance, options: EmployeeRo
   const { employees, auth, agents } = options;
 
   app.post("/api/auth/login", async (request, reply) => {
-    const body = (request.body ?? {}) as { email?: unknown };
+    const body = (request.body ?? {}) as { email?: unknown; password?: unknown };
     if (invalidString(body.email) || !EMAIL_RE.test((body.email as string).trim())) {
       return reply.code(400).send({ error: "a valid email is required" });
     }
+    const email = (body.email as string).trim();
     try {
-      return await auth.requestLogin((body.email as string).trim());
+      // G4.S7.T6: with a password, sign in with email+password (bcrypt). When the
+      // employee has no password set, fall back to the magic link so they can still
+      // get in. Without a password, the request is the classic magic-link flow.
+      if (typeof body.password === "string" && body.password.length > 0) {
+        const result = await auth.loginWithPassword(email, body.password);
+        if (result.kind === "authenticated") {
+          return { session_token: result.session_token, employee: result.employee };
+        }
+        if (result.kind === "invalid-credentials") {
+          return reply.code(401).send({ error: "invalid email or password" });
+        }
+      }
+      return await auth.requestLogin(email);
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }

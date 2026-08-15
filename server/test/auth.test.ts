@@ -105,6 +105,56 @@ test("getEmployeeForSession returns null for an unknown session token", async ()
   assert.equal(await auth.getEmployeeForSession("no-such-session"), null);
 });
 
+test("loginWithPassword signs in an employee with a matching password", async () => {
+  const sent: SentMail[] = [];
+  const { auth } = await makeAuth(sent);
+  await auth.setPassword("alice@example.com", "s3cret!pw");
+  const result = await auth.loginWithPassword("alice@example.com", "s3cret!pw");
+  assert.ok(result, "password login should resolve");
+  assert.equal(result!.kind, "authenticated");
+  assert.ok(result!.session_token, "should mint a session token");
+  assert.equal(result!.employee.email, "alice@example.com");
+  const employee = await auth.getEmployeeForSession(result!.session_token);
+  assert.equal(employee?.email, "alice@example.com");
+  assert.equal(sent.length, 0, "a password login must not email a magic link");
+});
+
+test("loginWithPassword rejects a wrong password", async () => {
+  const { auth } = await makeAuth();
+  await auth.setPassword("alice@example.com", "s3cret!pw");
+  const result = await auth.loginWithPassword("alice@example.com", "wrong-password");
+  assert.deepEqual(result, { kind: "invalid-credentials" });
+});
+
+test("loginWithPassword trims and lowercases the email", async () => {
+  const { auth } = await makeAuth();
+  await auth.setPassword("alice@example.com", "s3cret!pw");
+  const result = await auth.loginWithPassword("  ALICE@Example.com  ", "s3cret!pw");
+  assert.equal(result?.kind, "authenticated");
+});
+
+test("loginWithPassword reports no-password when the employee has none set", async () => {
+  const { auth } = await makeAuth();
+  const result = await auth.loginWithPassword("alice@example.com", "whatever");
+  assert.deepEqual(result, { kind: "no-password" });
+});
+
+test("loginWithPassword does not leak existence for unknown emails (no-password)", async () => {
+  const { auth } = await makeAuth();
+  const result = await auth.loginWithPassword("ghost@example.com", "whatever");
+  assert.deepEqual(result, { kind: "no-password" }, "unknown email is indistinguishable from no password");
+});
+
+test("setPassword hashes the password with bcrypt, never storing the plaintext", async () => {
+  const { auth, registry } = await makeAuth();
+  await auth.setPassword("alice@example.com", "plaintext-never");
+  const hash = await registry.getPasswordHash("alice@example.com");
+  assert.ok(hash, "a hash should be stored");
+  assert.match(hash!, /^\$2[aby]\$\d\d\$/, "stored value must be a bcrypt hash");
+  assert.ok(!hash!.includes("plaintext-never"), "plaintext must not be stored");
+  assert.equal(await registry.getPasswordHash("ghost@example.com"), null, "unknown email has no hash");
+});
+
 test("ResendMailer posts to the Resend API with the bearer key and payload", async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -198,6 +248,27 @@ test(
     const employee = await local.getEmployeeForSession(verification!.session_token);
     assert.equal(employee?.email, email);
     assert.equal(await local.verifyLogin(token), null, "token must be single-use");
+  },
+);
+
+test(
+  "Postgres auth: setPassword/loginWithPassword persist a bcrypt hash via the migration column (integration)",
+  async (t) => {
+    const auth = await initPgAuth();
+    if (!auth) {
+      return t.skip("postgres not available");
+    }
+    const email = `pg-pw-${Date.now()}@example.com`;
+    await pgEmployees!.create({ email, role: "member" });
+    await auth.setPassword(email, "s3cret!pw");
+    const hash = await pgEmployees!.getPasswordHash(email);
+    assert.ok(hash, "a password hash should be persisted");
+    assert.match(hash!, /^\$2[aby]\$\d\d\$/, "must be a bcrypt hash");
+    const ok = await auth.loginWithPassword(email, "s3cret!pw");
+    assert.equal(ok?.kind, "authenticated");
+    assert.equal(ok!.employee.email, email);
+    assert.equal((await auth.loginWithPassword(email, "nope")).kind, "invalid-credentials");
+    assert.equal((await auth.loginWithPassword(`nobody-${Date.now()}@example.com`, "x")).kind, "no-password");
   },
 );
 

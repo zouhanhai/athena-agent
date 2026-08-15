@@ -7,6 +7,7 @@ import {
   type EmployeeRegistry,
   type GithubCredential,
 } from "./employees.js";
+import { hashPassword } from "./password.js";
 
 /** Delivers invitation emails (G3.S2.T4). */
 export interface InvitationMailer {
@@ -30,8 +31,9 @@ export interface InvitationStore {
 export interface InvitedEmployeeRegistrationInput {
   display_name?: string;
   logo_url?: string;
-  /** GitHub credential provided at registration; stored encrypted at rest. */
   github_credential?: GithubCredential;
+  /** Optional sign-in password (G4.S7.T6); stored as a bcrypt hash, never plaintext. */
+  password?: string;
 }
 
 export interface InvitationServiceOptions {
@@ -127,6 +129,10 @@ export class InvitationService {
       role: "member",
       github_credential: input.github_credential,
     });
+    // G4.S7.T6: an optional registration password is hashed with bcrypt, never stored plaintext.
+    if (input.password && input.password.length > 0) {
+      await this.registry.setPassword(employee.email, await hashPassword(input.password));
+    }
     const session_token = await this.tokens.createSessionToken(employee.id);
     return { session_token, employee };
   }

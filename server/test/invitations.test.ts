@@ -14,6 +14,7 @@ import {
   ResendInvitationMailer,
   type InvitationMailer,
 } from "../src/employees/invitations.js";
+import { hashPassword, verifyPassword } from "../src/employees/password.js";
 
 interface SentInvite {
   to: string;
@@ -149,6 +150,33 @@ test("registerInvitedEmployee rejects when the invited email became an employee 
     invitations.registerInvitedEmployee(token, { display_name: "Carol" }),
     EmployeeConflictError,
   );
+});
+
+test("registerInvitedEmployee stores the registration password as a bcrypt hash and signs in with it", async () => {
+  await invitations.invite("carol@caleo.com");
+  const token = tokenFromUrl(sent[0].inviteUrl);
+  const { session_token, employee } = await invitations.registerInvitedEmployee(token, {
+    display_name: "Carol",
+    password: "s3cret!pw",
+  });
+  assert.ok(session_token);
+  assert.equal(employee.email, "carol@caleo.com");
+
+  const hash = await registry.getPasswordHash("carol@caleo.com");
+  assert.ok(hash, "a password hash should be stored on registration");
+  assert.match(hash!, /^\$2[aby]\$\d\d\$/, "must be a bcrypt hash");
+  assert.ok(!hash!.includes("s3cret!pw"), "plaintext must never be stored");
+  assert.equal(await verifyPassword("s3cret!pw", hash!), true, "stored hash verifies the password");
+
+  const auth = new MagicLinkAuthService({
+    registry,
+    tokens,
+    mailer: makeFakeMailer(sent),
+    appBaseUrl: "https://portal.caleo.com",
+  });
+  const login = await auth.loginWithPassword("carol@caleo.com", "s3cret!pw");
+  assert.equal(login?.kind, "authenticated");
+  assert.equal(login!.employee.email, "carol@caleo.com");
 });
 
 test("ResendInvitationMailer posts to the Resend API with the invite payload", async () => {

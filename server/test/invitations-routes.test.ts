@@ -214,6 +214,53 @@ test("POST /api/invitations/register completes the invited employee registration
   assert.equal(me.json().email, "carol@caleo.com");
 });
 
+test("POST /api/invitations/register stores a registration password and enables email+password login", async () => {
+  const sessionToken = await login("admin@caleo.com");
+  await app.inject({
+    method: "POST",
+    url: "/api/invitations",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { email: "carol@caleo.com" },
+  });
+  const token = tokenFromUrl(inviteMails[0].inviteUrl);
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/invitations/register",
+    payload: { token, display_name: "Carol", password: "s3cret!pw" },
+  });
+  assert.equal(res.statusCode, 201);
+
+  const hash = await registry.getPasswordHash("carol@caleo.com");
+  assert.ok(hash, "registration should persist a password hash");
+  assert.match(hash!, /^\$2[aby]\$\d\d\$/, "must be a bcrypt hash");
+
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "carol@caleo.com", password: "s3cret!pw" },
+  });
+  assert.equal(loginRes.statusCode, 200);
+  assert.equal(loginRes.json().employee.email, "carol@caleo.com");
+});
+
+test("POST /api/invitations/register rejects a password shorter than the minimum", async () => {
+  const sessionToken = await login("admin@caleo.com");
+  await app.inject({
+    method: "POST",
+    url: "/api/invitations",
+    headers: { authorization: `Bearer ${sessionToken}` },
+    payload: { email: "carol@caleo.com" },
+  });
+  const token = tokenFromUrl(inviteMails[0].inviteUrl);
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/invitations/register",
+    payload: { token, display_name: "Carol", password: "short" },
+  });
+  assert.equal(res.statusCode, 400);
+  assert.match(res.json().error, /at least 8 characters/);
+});
+
 test("POST /api/invitations/register returns 401 for an invalid token", async () => {
   const res = await app.inject({
     method: "POST",

@@ -11,6 +11,7 @@ import {
   type InvitationService,
 } from "../employees/invitations.js";
 import { roleHasPermission } from "../employees/rbac.js";
+import { MIN_PASSWORD_LENGTH } from "../employees/password.js";
 import { currentEmployee } from "./helpers.js";
 
 export interface InvitationRouteOptions {
@@ -103,6 +104,7 @@ export function registerInvitationRoutes(app: FastifyInstance, options: Invitati
       display_name?: unknown;
       logo_url?: unknown;
       github_credential?: unknown;
+      password?: unknown;
     };
     if (invalidString(body.token)) {
       return reply.code(400).send({ error: "token is required" });
@@ -112,6 +114,16 @@ export function registerInvitationRoutes(app: FastifyInstance, options: Invitati
     }
     if (body.logo_url !== undefined && typeof body.logo_url !== "string") {
       return reply.code(400).send({ error: "logo_url must be a string" });
+    }
+    if (body.password !== undefined) {
+      if (typeof body.password !== "string") {
+        return reply.code(400).send({ error: "password must be a string" });
+      }
+      if (body.password.length < MIN_PASSWORD_LENGTH) {
+        return reply.code(400).send({
+          error: `password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+        });
+      }
     }
     const githubCredential = githubCredentialFromBody(body.github_credential, reply);
     if (githubCredential === null) {
@@ -124,6 +136,7 @@ export function registerInvitationRoutes(app: FastifyInstance, options: Invitati
           display_name: typeof body.display_name === "string" ? body.display_name : undefined,
           logo_url: typeof body.logo_url === "string" ? body.logo_url : undefined,
           github_credential: githubCredential,
+          password: typeof body.password === "string" ? body.password : undefined,
         },
       );
       return reply.code(201).send({ session_token, employee });

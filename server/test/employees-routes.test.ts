@@ -9,6 +9,7 @@ import {
 } from "../src/employees/auth.js";
 import { MemoryEmployeeRegistry } from "../src/employees/employees.js";
 import { createSecretCipher } from "../src/employees/crypto.js";
+import { hashPassword } from "../src/employees/password.js";
 
 const TEST_KEY = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
@@ -111,6 +112,66 @@ test("POST /api/auth/verify exchanges a token for a session + employee", async (
 test("POST /api/auth/verify returns 401 for an invalid token", async () => {
   const res = await app.inject({ method: "POST", url: "/api/auth/verify", payload: { token: "bad" } });
   assert.equal(res.statusCode, 401);
+});
+
+test("POST /api/auth/login with email+password signs in when a password is set", async () => {
+  await registry.setPassword("admin@caleo.com", await hashPassword("s3cret!pw"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "admin@caleo.com", password: "s3cret!pw" },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.ok(body.session_token, "should return a session token");
+  assert.equal(body.employee.email, "admin@caleo.com");
+  assert.equal(sent.length, 0, "a successful password login must not email a magic link");
+});
+
+test("POST /api/auth/login with a wrong password is rejected", async () => {
+  await registry.setPassword("admin@caleo.com", await hashPassword("s3cret!pw"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "admin@caleo.com", password: "wrong-password" },
+  });
+  assert.equal(res.statusCode, 401);
+  assert.equal(sent.length, 0, "a wrong password must not fall back to a magic link");
+});
+
+test("POST /api/auth/login with email+password falls back to a magic link when no password is set", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "admin@caleo.com", password: "anything" },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true });
+  assert.equal(sent.length, 1, "fall back to emailing a magic link");
+  assert.equal(sent[0].to, "admin@caleo.com");
+});
+
+test("POST /api/auth/login with email+password on an unknown email returns ok (no leak)", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "ghost@caleo.com", password: "whatever" },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true });
+  assert.equal(sent.length, 0, "no mail for an unknown email");
+});
+
+test("POST /api/auth/login without a password still sends a magic link (backward compatible)", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { email: "member@caleo.com" },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "member@caleo.com");
 });
 
 test("GET /api/me returns the employee behind a session token", async () => {

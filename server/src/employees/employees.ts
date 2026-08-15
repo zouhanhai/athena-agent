@@ -72,6 +72,10 @@ export interface EmployeeRegistry {
   registerGithubCredential(email: string, input: GithubCredential): Promise<GithubCredentialInfo>;
   /** Return the decrypted GitHub credential, or null when none is registered. */
   getGithubCredential(email: string): Promise<GithubCredential | null>;
+  /** Store the employee's password hash (G4.S7.T6). Only bcrypt hashes are ever stored. */
+  setPassword(email: string, passwordHash: string): Promise<void>;
+  /** Return the stored password hash, or null when the employee has none set. */
+  getPasswordHash(email: string): Promise<string | null>;
   /** Ensure the employees table + seed the first admin (idempotent). */
   seed(): Promise<void>;
   close(): Promise<void>;
@@ -108,6 +112,7 @@ export class MemoryEmployeeRegistry implements EmployeeRegistry {
   private readonly byId = new Map<string, EmployeeRecord>();
   private readonly byEmail = new Map<string, EmployeeRecord>();
   private readonly githubCredentials = new Map<string, { type: GithubCredentialType; enc: string }>();
+  private readonly passwordHashes = new Map<string, string>();
   private readonly cipher: SecretCipher | undefined;
 
   constructor(initial: EmployeeCreateInput[] = [], options: { cipher?: SecretCipher } = {}) {
@@ -198,6 +203,18 @@ export class MemoryEmployeeRegistry implements EmployeeRegistry {
     return { type: stored.type, value: this.cipher.decrypt(stored.enc) };
   }
 
+  async setPassword(email: string, passwordHash: string): Promise<void> {
+    const normalized = normalizeEmail(email);
+    if (!this.byEmail.has(normalized)) {
+      throw new EmployeeNotFoundError(`employee "${email}" not found`);
+    }
+    this.passwordHashes.set(normalized, passwordHash);
+  }
+
+  async getPasswordHash(email: string): Promise<string | null> {
+    return this.passwordHashes.get(normalizeEmail(email)) ?? null;
+  }
+
   async seed(): Promise<void> {
     // no-op for the in-memory registry; initial employees are passed to the constructor
   }
@@ -206,6 +223,7 @@ export class MemoryEmployeeRegistry implements EmployeeRegistry {
     this.byId.clear();
     this.byEmail.clear();
     this.githubCredentials.clear();
+    this.passwordHashes.clear();
   }
 }
 
@@ -296,6 +314,8 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
     await this.pool.query(
       `ALTER TABLE employees ADD COLUMN IF NOT EXISTS permissions TEXT[] NOT NULL DEFAULT '{}'`,
     );
+    // G4.S7.T6: optional bcrypt password for email+password sign-in (nullable for legacy/magic-link users).
+    await this.pool.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash TEXT`);
   }
 
   /** Eagerly ensure table + seed the first admin when ADMIN_EMAIL is set. Idempotent. */
@@ -442,6 +462,26 @@ export class PostgresEmployeeRegistry implements EmployeeRegistry {
       return null;
     }
     return { type: row.github_credential_type, value: this.cipher.decrypt(row.github_credential_enc) };
+  }
+
+  async setPassword(email: string, passwordHash: string): Promise<void> {
+    await this.ensureReady();
+    const result = await this.pool.query(
+      `UPDATE employees SET password_hash = $2, updated_at = now() WHERE email = $1 RETURNING id`,
+      [normalizeEmail(email), passwordHash],
+    );
+    if (result.rows.length === 0) {
+      throw new EmployeeNotFoundError(`employee "${email}" not found`);
+    }
+  }
+
+  async getPasswordHash(email: string): Promise<string | null> {
+    await this.ensureReady();
+    const result = await this.pool.query<{ password_hash: string | null }>(
+      `SELECT password_hash FROM employees WHERE email = $1`,
+      [normalizeEmail(email)],
+    );
+    return result.rows[0]?.password_hash ?? null;
   }
 
   async close(): Promise<void> {
