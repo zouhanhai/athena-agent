@@ -45,6 +45,20 @@ prompt injection). K8s runtime scales to 50 sandboxes.
 - For our current scale this is heavy; per-user independent keys (employee table field + per-user
   selection at request time) is the cheap first step for cost attribution/cache control.
 
+## Security trigger: file / code capabilities REQUiRE a sandbox
+
+athena's Pi agent **currently exposes no file-write or shell tools** (only KB retrieval +
+refine_document) — so a user cannot make Athena change backend logic/files today; that's a natural
+security boundary. BUT if athena later gains file/code capabilities (e.g. a coding tool, writing config,
+or operating a repo), then ANY user could make Athena modify arbitrary files (source, other users' data,
+system files) — **sandboxing becomes mandatory**. That is the case where OpenSandbox's isolation
+(gVisor/Kata/Firecracker per-user sandbox + Credential Vault) is the right answer: each user's Athena
+would run in a sandbox with a constrained filesystem + no host write access.
+
+**Design rule (2026-08-15):** athena stays read-only (KB + refine) until a sandbox exists. Adding
+file/code tools is gated behind per-user isolation (OpenSandbox or equivalent). This keeps the cheap
+no-sandbox path safe.
+
 ## Recommendation
 
 - **Now / cheap**: per-user independent OpenRouter key (add a key field to employees, select per user at
