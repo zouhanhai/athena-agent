@@ -24,11 +24,6 @@ export type AgentServerMessage =
   | { type: "echo"; data?: unknown; at: string }
   | { type: "error"; message: string };
 
-export interface AgentWsGatewayOptions {
-  /** Lifecycle sink for diagnostics/tests. */
-  onConnection?: (info: { remoteAddress?: string; socketCount: number }) => void;
-}
-
 function pathname(url?: string): string {
   try {
     return new URL(url ?? "/", "http://localhost").pathname;
