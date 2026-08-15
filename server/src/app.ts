@@ -72,6 +72,7 @@ import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
 import type { Neo4jDriverLike } from "./kb/store/schema.js";
+import { AgentWsGateway } from "./ws/agent.js";
 
 export interface BuildAppOptions {
   manager?: AgentManager;
@@ -400,11 +401,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (Number.isFinite(interval) && interval > 0) {
       scheduledReview = scheduleKbReview(review, interval);
     }
+    // G4.S7.T1: reverse-WebSocket gateway for remote agents (connect INTO the
+    // platform). Attached to the underlying HTTP server once Fastify has one.
+    agentWs = new AgentWsGateway(app.server);
   });
 
   let scheduledReview: ReturnType<typeof scheduleKbReview> | undefined;
+  let agentWs: AgentWsGateway | undefined;
 
   app.addHook("onClose", async () => {
+    agentWs?.close();
     scheduledReview?.stop();
     await registry.close();
     await logos.close();
