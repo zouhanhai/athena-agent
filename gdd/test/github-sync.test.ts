@@ -405,6 +405,40 @@ test("createSpecIssue is idempotent: re-run updates in place, never duplicates",
   assert.equal(github.calls.filter((c) => c === "createMilestone:M4").length, 0);
 });
 
+test("createSpecIssue finds the spec by ref prefix when its title changed (no duplicate) — G4.S7 spec re-title bug", async () => {
+  // Bug (2026-08-15): when a spec's title changes, the old full-title lookup
+  // (`getIssueByTitle`) no longer matched the existing issue, so sync created a
+  // duplicate spec issue and the spec-status machine pointed at it. Now lookup
+  // prefers the stable ref prefix (`G4.S5 `) so the existing issue is updated.
+  // The existing issue has the OLD title (does not match the new payload title).
+  const oldTitle = "G4.S5 Old spec title";
+  const newTitle = "G4.S5 New spec title";
+  const specIssue: GithubIssue = {
+    id: 900, node_id: "I_kwDO10", number: 10, title: oldTitle,
+    state: "open", html_url: "", user_login: "alice", body: "old", labels: [], assignees: [],
+  };
+  const github = new RecordingGithub([specIssue], { milestones: { M4: 4 } });
+  // Make the payload title the NEW title (spec title changed) so full-title
+  // lookup would miss, but the ref-prefix lookup still finds the old issue.
+  const newBoard: KanbanBoard = {
+    ...board,
+    goals: board.goals.map((g) => ({
+      ...g,
+      specs: g.specs.map((s) =>
+        s.ref === "G4.S5" ? { ...s, spec: { ...s.spec, title: newTitle } } : s),
+    })),
+  };
+  const result = await createSpecIssue(github.asApi(), tokenCredential, "caleo", "athena", newBoard, "G4.S5", project);
+
+  assert.equal(result.created, false, "should update the existing spec issue, not create a new one");
+  // No createIssue/createSubIssue call for the spec itself (only updateIssue).
+  const creates = github.calls.filter((c) => c.startsWith("createIssue:") || c.startsWith("createSubIssue:"));
+  assert.equal(creates.length, 0);
+  // It found the existing issue via the ref-prefix lookup and updated it in place.
+  assert.ok(github.calls.some((c) => c.startsWith("getIssueByTitlePrefix:G4.S5 ")));
+  assert.ok(github.calls.some((c) => c.startsWith("updateIssue:10:")));
+});
+
 test("createSpecIssue syncs the Spec main issue open/closed to the md Spec status (G4.S6.T2)", async () => {
   // Update path: an existing spec issue in an in_progress spec stays open; a
   // done spec closes it, so the Project Status column and issue list agree.
