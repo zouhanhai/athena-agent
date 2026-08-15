@@ -1,6 +1,6 @@
 ---
 id: G1.S1.T1
-title: "G1.S1.T1: <title>"
+title: "G1.S1.T1: <title>"  # KEEP ≤ ~180 chars: the GitHub search q is `repo:X in:title "title"` (~66-char prefix); >256 total → sync-github 422 (title must be short)
 layer: T
 parent: G1.S1
 owner: eng-director       # Eng Director builds tickets (role-model)
