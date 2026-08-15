@@ -1,20 +1,21 @@
 ---
 id: s7
-title: "G4.S7: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP"
+title: "G4.S7: Remote agent federation (reverse WebSocket + Cloudflare Tunnel) + KB-as-MCP"
 layer: S
 parent: G4
 owner: consultant
 status: backlog
 milestone: M4
 acceptance_criteria:
-  - "Local agents (remote WSL, LAN 6900XT, and the local Hermes) register to the platform via an invitation flow {agent_id, api_url, token}"
-  - "Communication is HTTP + SSE over a Tailscale tunnel (NOT WebSocket); Tailscale is part of this Spec"
+  - "Local agents (remote wts, LAN 6900XT, and the local Hermes) register to the platform via an invitation flow {agent_id, api_url, token}"
+  - "Communication is bidirectional over a reverse WebSocket: the agent connects INTO the platform (outbound, works behind NAT/CGNAT); the platform drives it back through the tunnel"
+  - "The platform's WebSocket endpoint + public site are exposed via Cloudflare Tunnel on the athenakb.com domain"
   - "Platform Chat panel routes to a selected remote agent's API Server, streaming tool progress (tool.started / tool.completed) into the panel"
   - "Knowledge base exposed as an MCP server (search_knowledge / get_wiki_page / get_graph) so any agent can retrieve company KB"
   - "Agent identity traceable: each agent connects with a unique id + token (invitation-issued); the platform knows which agent is where and how to reach it"
 ---
 
-# G4.S7: Remote agent federation (HTTP/SSE + Tailscale) + KB-as-MCP
+# G4.S7: Remote agent federation (reverse WebSocket + Cloudflare Tunnel) + KB-as-MCP
 
 ## Background
 
@@ -23,7 +24,7 @@ the agent's machine); the platform is the control plane. Users send commands →
 local agent → agent works locally → streams the process + result back.
 
 **Concrete goal (user, 2026-08-09):** register BOTH
-1. the remote **WSL** agent, and
+1. the remote **wts** agent, and
 2. the **LAN 6900XT** agent
 into the platform via the federation, so either can be controlled from the platform.
 
@@ -51,7 +52,7 @@ See `docs/knowledge-rag-design.md` + M4 federation items in `TODO.md`. Key point
 - **Chat routing**: platform Chat panel → selected remote agent's API Server (Hermes `/api/sessions/{id}/chat/stream`
   SSE, OpenCode `/global/event`), streaming tool progress into the panel.
 - **KB as MCP server**: wrap `KnowledgeRetrievalService` (LightRAG + llm_wiki + semantic) into an MCP server;
-  each local agent adds one `mcpServers` entry over Tailscale. Bonus: Workbench GitHub + kanban ops as MCP tools.
+  each local agent adds one `mcpServers` entry over the platform's public URL (Cloudflare Tunnel). Bonus: Workbench GitHub + kanban ops as MCP tools.
 
 ### KB-as-MCP: topic-scoped search contract for external agents
 
@@ -67,7 +68,7 @@ MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
 - **Sibling tools**: `get_wiki_page(path)` (read a wiki page's content + frontmatter), `get_graph()`
   (knowledge-graph nodes/edges). Retrieval results carry `wikiPath`/`sectionPath` so an agent can
   group chunks by source page and fuse analysis.
-- **Auth**: MCP server auth'd (per-employee/agent token); agents reach it over Tailscale.
+- **Auth**: MCP server auth'd (per-employee/agent token); agents reach it over the platform's public URL (Cloudflare Tunnel).
 - Alias mapping (G4.S3.T6) + bilingual aliases (G4.S2.T1) apply at query time, so a
   colloquial/cross-language term in `query` still matches canonical text within the scoped topic.
 - A2A deferred to M6.
@@ -80,10 +81,10 @@ MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
 
 ## Deliverables
 
-- Tailscale setup (6900XT + remote WSL) + APP_BASE_URL / remote access. (T1)
+- Platform WS endpoint exposed via Cloudflare Tunnel (athenakb.com) + APP_BASE_URL / remote access. (T1)
 - Invitation-based agent onboarding + manual register form (S2.T9). (T2)
-- HTTP+SSE routing from platform Chat to remote agents with streamed progress. (T4)
+- Reverse-WebSocket bidirectional connection from agents to the platform (push tasks, stream progress). (T4)
 - KB MCP server (search_knowledge / get_wiki_page / get_graph). (T3)
-- Integration demo: register real WSL + 6900XT agents, chat to each, KB via MCP, identity tracked. (T5)
+- Integration demo: register real remote + 6900XT agents, chat to each, KB via MCP, identity tracked. (T5)
 - Email + password authentication for public sign-in (plus magic-link fallback). (T6)
 - Global auth guard: public site pages require login (redirect to /login). (T7)
