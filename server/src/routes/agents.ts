@@ -12,6 +12,7 @@ import type { AuthService } from "../employees/auth.js";
 import { roleHasPermission } from "../employees/rbac.js";
 import { currentEmployee } from "./helpers.js";
 import type { AgentWsGateway } from "../ws/agent.js";
+import type { EmployeeRegistry } from "../employees/employees.js";
 
 export interface AgentRouteOptions {
   registry: AgentRegistry;
@@ -19,6 +20,9 @@ export interface AgentRouteOptions {
   auth?: AuthService;
   /** G4.S7.T4: reverse-WS gateway — marks agents with a live tunnel as connected. */
   hub?: AgentWsGateway;
+  /** Employee registry — lets the invite endpoint accept an owner EMAIL and
+   *  resolve it to an employee id (more user-friendly than a raw UUID). */
+  employees?: EmployeeRegistry;
 }
 
 interface AgentBody {
@@ -248,10 +252,19 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       if (!roleHasPermission(employee.role, "agent.register")) {
         return reply.code(403).send({ error: 'forbidden: requires permission "agent.register"' });
       }
+      // Resolve an owner EMAIL to an employee id (friendlier than a raw UUID).
+      let ownerEmployeeId = (body.owner_employee_id as string).trim();
+      if (ownerEmployeeId.includes("@") && options.employees) {
+        const owner = await options.employees.getByEmail(ownerEmployeeId);
+        if (!owner) {
+          return reply.code(400).send({ error: `no employee found for email "${ownerEmployeeId}"` });
+        }
+        ownerEmployeeId = owner.id;
+      }
       const capabilities = parseCapabilities(body.capabilities);
       const result = await registry.createInvitation({
         alias: (body.alias as string).trim(),
-        owner_employee_id: (body.owner_employee_id as string).trim(),
+        owner_employee_id: ownerEmployeeId,
         logo_url: typeof body.logo_url === "string" ? body.logo_url : "",
         runtime: typeof body.runtime === "string" ? body.runtime : "",
         agent_id: remote.agent_id,

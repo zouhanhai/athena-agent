@@ -430,7 +430,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     }
   });
 
-  registerAgentRoutes(app, { registry, auth, hub });
+  registerAgentRoutes(app, { registry, auth, hub, employees });
   registerLogoRoutes(app, { logoStore: logos, registry, employees });
   registerChatRoutes(app, { manager, hub, registry });
   // G4.S7.T4: expose the reverse-WS gateway so consumers (and tests) can inspect

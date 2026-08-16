@@ -234,12 +234,12 @@ onMounted(load);
           <input id="invite-alias" class="am-input" v-model="invite.alias" placeholder="e.g. wts" />
         </div>
         <div class="am-field">
-          <label for="invite-owner">Owner</label>
-          <input id="invite-owner" class="am-input" v-model="invite.owner" placeholder="employee id" />
+          <label for="invite-owner">Owner email</label>
+          <input id="invite-owner" class="am-input" v-model="invite.owner" placeholder="owner@caleo.com" />
         </div>
         <div class="am-field">
-          <label for="invite-api-url">API URL (reachability)</label>
-          <input id="invite-api-url" class="am-input" v-model="invite.apiUrl" placeholder="http://wts.local:3001" />
+          <label for="invite-api-url">API URL (optional — leave blank for reverse-WS)</label>
+          <input id="invite-api-url" class="am-input" v-model="invite.apiUrl" placeholder="leave empty; agent connects INTO the platform" />
         </div>
         <p v-if="inviteError" class="am-error">{{ inviteError }}</p>
         <button type="submit" class="am-submit" :disabled="inviteSubmitting">
