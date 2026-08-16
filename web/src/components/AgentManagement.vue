@@ -19,6 +19,14 @@ const auth = useAuthStore();
 const isAdmin = computed(() => auth.employee?.role === "admin");
 const currentUserId = computed(() => auth.employee?.id ?? "");
 
+// Neutral placeholder for an agent with no logo yet — NOT the Athena owl (that
+// is Athena's identity). A grey circle + a generic mark.
+const PLACEHOLDER_LOGO =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="22" fill="#e4e4e7"/><g fill="none" stroke="#9ca3af" stroke-width="3" stroke-linecap="round"><path d="M24 19v0a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5 5 5 0 0 1-5-5v0a5 5 0 0 1 5-5z"/><path d="M24 31v4"/></g></svg>`,
+  );
+
 const declarations = ref<PendingAgentDeclaration[]>([]);
 const agents = ref<AgentRecord[]>([]);
 const logos = ref<LogoRecord[]>([]);
@@ -165,6 +173,12 @@ function copyInviteToken() {
   }
 }
 
+function copyOnboardingUrl() {
+  if (inviteResult.value?.onboarding_url) {
+    navigator.clipboard?.writeText(inviteResult.value.onboarding_url);
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -181,7 +195,7 @@ onMounted(load);
       <h4 class="am-section-title">Registered agents</h4>
       <ul class="agent-status-list">
         <li v-for="agent in agents" :key="agent.id" class="agent-status-row">
-          <img class="agent-status-logo" :src="agent.logo_url || '/athena-logo-ai.png'" :alt="agent.alias" />
+          <img class="agent-status-logo" :src="agent.logo_url || PLACEHOLDER_LOGO" :alt="agent.alias" />
           <div class="agent-status-body">
             <div class="agent-status-head">
               <span class="agent-status-name">{{ agent.alias }}</span>
@@ -282,8 +296,20 @@ onMounted(load);
             <dt>token</dt>
             <dd class="invite-code">{{ inviteResult.token }}</dd>
           </div>
+          <div v-if="inviteResult.onboarding_url" class="invite-row">
+            <dt>Onboarding link (give this to the agent)</dt>
+            <dd class="invite-code invite-link">{{ inviteResult.onboarding_url }}</dd>
+          </div>
         </dl>
         <button type="button" class="am-action" @click="copyInviteToken">Copy token</button>
+        <button
+          v-if="inviteResult.onboarding_url"
+          type="button"
+          class="am-action"
+          @click="copyOnboardingUrl"
+        >
+          Copy onboarding link
+        </button>
       </div>
     </div>
 

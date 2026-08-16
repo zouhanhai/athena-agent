@@ -96,6 +96,9 @@ export interface AgentInvite {
   api_url: string;
   /** Raw auth token — shown exactly once, then only its hash is stored. */
   token: string;
+  /** Self-serve onboarding link the remote agent can open to read the
+   *  registration flow + its credentials + the capability-declaration format. */
+  onboarding_url?: string;
 }
 
 export interface AgentInviteResult {

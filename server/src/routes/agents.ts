@@ -271,7 +271,22 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
         api_url: remote.api_url,
         capabilities: capabilities ?? undefined,
       });
-      return reply.code(201).send(result);
+      // Give the remote agent a self-serve onboarding link it can open to read
+      // the registration flow + its credentials + the capability-declaration
+      // format, then register itself (T5). Base = the request's own origin so it
+      // works over the public Cloudflare URL or a local dev origin.
+      const base =
+        (request.headers["x-forwarded-proto"] === "https" ? "https" : request.protocol) +
+        "://" +
+        (request.headers.host ?? request.hostname);
+      const withUrl = {
+        ...result,
+        invite: {
+          ...result.invite,
+          onboarding_url: `${base}/agent-onboard?token=${encodeURIComponent(result.invite.token)}`,
+        },
+      };
+      return reply.code(201).send(withUrl);
     } catch (err) {
       const mapped = mapRegistryError(err);
       if (mapped) {
