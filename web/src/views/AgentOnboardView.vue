@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { registerAgent } from "@/api/agents";
+import { registerAgent, submitSelfDeclaration } from "@/api/agents";
 
 const route = useRoute();
 const token = computed(() => (route.query.token as string) || "");
@@ -15,8 +15,8 @@ const apiUrl = ref("");
 // The agent's self-declared capabilities (optional; empty = plain generic agent).
 const system = ref("");
 const specialty = ref("");
-const runtime = ref("");
 const toolsText = ref("");
+const runtimeDecl = ref("");
 
 const CAPS_EXAMPLE = `{
   "system": "opencode",        // e.g. hermes / opencode / codex / pi
@@ -35,18 +35,26 @@ async function onSubmit() {
   loading.value = true;
   error.value = "";
   try {
-    const capabilities = {
-      system: system.value.trim() || "remote",
-      mcp: [],
-      tools: toolsText.value.split(",").map((s) => s.trim()).filter(Boolean),
-      skills: [],
-      specialty: specialty.value.trim() || "general",
-    };
+    // 1) Register the invited agent (proves possession of the token).
     const rec = await registerAgent({
       agent_id: agentId.value.trim(),
       api_url: apiUrl.value.trim() || undefined,
       token: token.value,
     });
+    // 2) If the agent declared capabilities, submit them via self-declare.
+    if (system.value.trim() || specialty.value.trim() || toolsText.value.trim()) {
+      await submitSelfDeclaration(
+        rec.agent_id,
+        {
+          system: system.value.trim() || "remote",
+          mcp: [],
+          tools: toolsText.value.split(",").map((s) => s.trim()).filter(Boolean),
+          skills: [],
+          specialty: specialty.value.trim() || "general",
+        },
+        runtimeDecl.value.trim() || undefined,
+      );
+    }
     done.value = true;
     agentId.value = rec.agent_id;
   } catch (err) {
@@ -117,6 +125,10 @@ onMounted(() => {
             <label>
               tools (comma-separated)
               <input v-model="toolsText" placeholder="search_knowledge, get_wiki_page" />
+            </label>
+            <label>
+              runtime (optional)
+              <input v-model="runtimeDecl" placeholder="local / server" />
             </label>
           </div>
           <pre class="caps-example">{{ CAPS_EXAMPLE }}</pre>
