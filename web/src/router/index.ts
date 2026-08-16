@@ -90,8 +90,10 @@ router.beforeEach((to) => {
   }
   const auth = useAuthStore();
 
-  // Public routes (login / register / magic-link verify) never require auth.
-  const publicRoutes = ["login", "register", "verify"];
+  // Public routes (login / register / magic-link verify / agent-onboard) never
+  // require auth. agent-onboard is a token-invited self-serve page — the agent
+  // registers with its invitation token, no login needed.
+  const publicRoutes = ["login", "register", "verify", "agent-onboard"];
   if (publicRoutes.includes(to.name as string)) {
     return true;
   }
