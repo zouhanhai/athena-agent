@@ -59,6 +59,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/OutputView.vue"),
   },
   {
+    path: "/agent-onboard",
+    name: "agent-onboard",
+    component: () => import("../views/AgentOnboardView.vue"),
+  },
+  {
     path: "/settings",
     name: "settings",
     component: () => import("../views/SettingsView.vue"),

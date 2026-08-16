@@ -167,7 +167,7 @@ export async function inviteAgent(
 /** POST /api/agents/register → the invited agent registers auth'd with its token + reachability. */
 export async function registerAgent(input: {
   agent_id: string;
-  api_url: string;
+  api_url?: string;
   token: string;
 }): Promise<AgentRecord> {
   return request<AgentRecord>("/api/agents/register", {
