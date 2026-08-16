@@ -66,6 +66,13 @@ function parseCapabilities(value: unknown): AgentCapabilities | null {
   if (typeof caps.description === "string" && caps.description.trim()) {
     capabilities.description = caps.description.trim();
   }
+  // A2A-aligned: tags[] (discovery) + examples[] (sample prompts), both optional.
+  if (isStringArray(caps.tags)) {
+    capabilities.tags = caps.tags.map((item) => item.trim()).filter(Boolean);
+  }
+  if (isStringArray(caps.examples)) {
+    capabilities.examples = caps.examples.map((item) => item.trim()).filter(Boolean);
+  }
   return capabilities;
 }
 

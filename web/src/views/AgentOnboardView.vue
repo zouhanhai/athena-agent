@@ -17,6 +17,8 @@ const system = ref("");
 const specialty = ref("");
 const toolsText = ref("");
 const runtimeDecl = ref("");
+const tagsText = ref("");
+const examplesText = ref("");
 
 const CAPS_EXAMPLE = `{
   "system": "opencode",        // e.g. hermes / opencode / codex / pi
@@ -24,6 +26,8 @@ const CAPS_EXAMPLE = `{
   "tools": [],                 // tool ids this agent provides
   "skills": [],                // skill ids this agent has
   "specialty": "general",      // e.g. integration / sap / general
+  "tags": ["sap", "reporting"],    // A2A: discovery tags
+  "examples": ["How is Q2 reporting structured?"],  // A2A: sample prompts
   "description": "…"           // optional short blurb
 }`;
 
@@ -42,7 +46,7 @@ async function onSubmit() {
       token: token.value,
     });
     // 2) If the agent declared capabilities, submit them via self-declare.
-    if (system.value.trim() || specialty.value.trim() || toolsText.value.trim()) {
+    if (system.value.trim() || specialty.value.trim() || toolsText.value.trim() || tagsText.value.trim()) {
       await submitSelfDeclaration(
         rec.agent_id,
         {
@@ -51,6 +55,8 @@ async function onSubmit() {
           tools: toolsText.value.split(",").map((s) => s.trim()).filter(Boolean),
           skills: [],
           specialty: specialty.value.trim() || "general",
+          tags: tagsText.value.split(",").map((s) => s.trim()).filter(Boolean),
+          examples: examplesText.value.split("\n").map((s) => s.trim()).filter(Boolean),
         },
         runtimeDecl.value.trim() || undefined,
       );
@@ -129,6 +135,14 @@ onMounted(() => {
             <label>
               runtime (optional)
               <input v-model="runtimeDecl" placeholder="local / server" />
+            </label>
+            <label>
+              tags (comma-separated — for discovery)
+              <input v-model="tagsText" placeholder="sap, reporting" />
+            </label>
+            <label>
+              examples (one per line — sample prompts)
+              <textarea v-model="examplesText" rows="2" placeholder="How is Q2 reporting structured?"></textarea>
             </label>
           </div>
           <pre class="caps-example">{{ CAPS_EXAMPLE }}</pre>
@@ -226,6 +240,14 @@ onMounted(() => {
   border-radius: 6px;
   font-size: 14px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.onboard-fields textarea {
+  padding: 8px;
+  border: 1px solid var(--caleo-border, #ddd);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
 }
 .caps-example {
   margin: 12px 0 0;

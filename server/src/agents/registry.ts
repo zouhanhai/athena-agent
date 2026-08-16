@@ -8,6 +8,10 @@ export interface AgentCapabilities {
   skills: string[];
   specialty: string;
   description?: string;
+  /** A2A-aligned: discovery tags (e.g. ["sap", "reporting"]) for categorization. */
+  tags?: string[];
+  /** A2A-aligned: example prompts/queries showing what the agent can do. */
+  examples?: string[];
 }
 
 /**
