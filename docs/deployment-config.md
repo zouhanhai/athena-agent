@@ -13,6 +13,15 @@ Where every environment secret lives, so it can be re-provisioned on a new serve
 | `DATABASE_URL` | `scripts/start-all.sh` (server block) | `export` in start-all.sh | `postgres://hh:<pass>@127.0.0.1:5432/athena` |
 | `ADMIN_EMAIL` | `scripts/start-all.sh` | `export` | Seeds first admin: `zouha108@caleo.com` |
 | `APP_BASE_URL` | `scripts/start-all.sh` | `export` | `https://athenakb.com` |
+
+## 6900XT system environment (2026-08-16)
+
+| Item | Setting | Notes |
+|------|---------|-------|
+| **Display session** | **Xorg** (not Wayland) | `/etc/gdm3/custom.conf`: `WaylandEnable=false` + `DefaultSession=ubuntu-xorg.desktop`. Wayland was corrupting the screen (right-half magenta bars). |
+| **Auto-login** | **enabled for `hh`** | Same custom.conf: `AutomaticLoginEnable=true` + `AutomaticLogin=hh` (no password at GDM). |
+| **linux-firmware** | **held at 2.26** (`apt-mark hold linux-firmware`) | **2.29 has an amdgpu DMUB bug** breaking RX 6900 XT display (right-half vertical bars + dmesg `DMUB auto-load failed` / `mpc2_assert_idle_mpcc timeout` / `GPU mode1 reset`). GPU compute is fine (llama.cpp ROCm runs Qwythos 9B). Do NOT unhold/upgrade until a fixed firmware lands. |
+| **GPU** | Radeon RX 6900 XT (PowerColor Red Devil), 16 GB, `amdgpu` + ROCm (`/home/hh/llamacpp-rocm/`) | Compute verified OK via `llama-cli --list-devices` + Qwythos 9B inference. |
 | PG password | LightRAG `.env` + start-all.sh | | `athena_pg_2026` (shared local PG) |
 
 ## Re-provisioning on a new server
