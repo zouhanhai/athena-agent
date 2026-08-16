@@ -105,7 +105,7 @@ async function submitManual() {
 
 // Invitation (POST /api/agents/invite → {agent_id, api_url, token})
 const inviteOpen = ref(false);
-const invite = ref({ alias: "", owner: "employee", apiUrl: "" });
+const invite = ref({ alias: "", owner: "" });
 const inviteResult = ref<AgentInvite | null>(null);
 const inviteError = ref("");
 const inviteSubmitting = ref(false);
@@ -116,7 +116,7 @@ async function submitInvite() {
     return;
   }
   if (!invite.value.owner.trim()) {
-    inviteError.value = "Owner is required";
+    inviteError.value = "Owner email is required";
     return;
   }
   if (!auth.sessionToken) {
@@ -130,10 +130,9 @@ async function submitInvite() {
     const result = await inviteAgent(auth.sessionToken, {
       alias: invite.value.alias.trim(),
       owner_employee_id: invite.value.owner.trim(),
-      api_url: invite.value.apiUrl.trim() || undefined,
     });
     inviteResult.value = result.invite;
-    invite.value = { alias: "", owner: "employee", apiUrl: "" };
+    invite.value = { alias: "", owner: "" };
     inviteOpen.value = false;
     await load();
   } catch (err) {
@@ -236,10 +235,6 @@ onMounted(load);
         <div class="am-field">
           <label for="invite-owner">Owner email</label>
           <input id="invite-owner" class="am-input" v-model="invite.owner" placeholder="owner@caleo.com" />
-        </div>
-        <div class="am-field">
-          <label for="invite-api-url">API URL (optional — leave blank for reverse-WS)</label>
-          <input id="invite-api-url" class="am-input" v-model="invite.apiUrl" placeholder="leave empty; agent connects INTO the platform" />
         </div>
         <p v-if="inviteError" class="am-error">{{ inviteError }}</p>
         <button type="submit" class="am-submit" :disabled="inviteSubmitting">

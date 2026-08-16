@@ -291,17 +291,16 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     if (invalidString(body.agent_id)) {
       return reply.code(400).send({ error: "agent_id is required" });
     }
-    if (invalidString(body.api_url)) {
-      return reply.code(400).send({ error: "api_url is required" });
-    }
-    if (invalidString(body.token)) {
+    // api_url is OPTIONAL — under reverse-WS (T4) the agent connects INTO the
+    // platform, so it need not expose its own reachable API endpoint.
+    if (body.token === undefined || typeof body.token !== "string" || body.token.trim() === "") {
       return reply.code(400).send({ error: "token is required" });
     }
 
     try {
       const record = await registry.registerWithInvite({
         agent_id: (body.agent_id as string).trim(),
-        api_url: (body.api_url as string).trim(),
+        api_url: typeof body.api_url === "string" ? body.api_url.trim() : "",
         token: (body.token as string).trim(),
       });
       return record;
