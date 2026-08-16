@@ -2,6 +2,9 @@ import type { FastifyInstance } from "fastify";
 import type { AgentManager } from "../agents/manager.js";
 import { streamAgentChat } from "../agents/stream.js";
 import { buildPageInjection, injectPageContext } from "../agents/page-context.js";
+import type { AgentRegistry } from "../agents/registry.js";
+import type { AgentWsGateway } from "../ws/agent.js";
+import { pushRemoteChatTask } from "../agents/remote-chat.js";
 
 export interface ChatRequestBody {
   message?: unknown;
@@ -14,10 +17,20 @@ export interface ChatRequestBody {
    * composes a re-run prompt so the agent re-searches the KB with that context.
    */
   clarify?: unknown;
+  /**
+   * G4.S7.T4: route the message to a SELECTED registered remote agent over its
+   * reverse WS tunnel. When present, the platform pushes a chat task to the
+   * agent instead of running the local Athena session.
+   */
+  agent_id?: unknown;
 }
 
 export interface ChatRouteOptions {
   manager: AgentManager;
+  /** G4.S7.T4: reverse-WS gateway — used when a chat targets a remote agent. */
+  hub?: AgentWsGateway;
+  /** G4.S7.T4: agent registry — identity/resolution for remote chat routing. */
+  registry?: AgentRegistry;
 }
 
 function invalidField(value: unknown): boolean {
@@ -80,6 +93,9 @@ function buildClarifyReRunPrompt(answer: ClarifyAnswer, page: string | undefined
  * - Streaming: same, Accept: text/event-stream → SSE pushes delta chunks and,
  *   on a legitimate clarify (G4.S3.T13), a `{ clarify: { question, options } }`
  *   frame so the front-end chat renders a real user follow-up.
+ * - G4.S7.T4 remote routing: with `{ agent_id }` the message is pushed to the
+ *   selected registered agent over its reverse WS tunnel; the agent streams
+ *   tool.started / tool.completed (`{ tool: ... }` frames) + result deltas back.
  */
 export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptions): void {
   app.post("/api/chat", async (request, reply) => {
@@ -95,7 +111,23 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     const userId = body.userId as string;
     const message = body.message as string;
     const page = typeof body.page === "string" ? body.page : "";
+    const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
     const clarifyAnswer = parseClarifyAnswer(body.clarify);
+
+    const wantsStream =
+      typeof request.headers.accept === "string" &&
+      request.headers.accept.includes("text/event-stream");
+
+    if (agentId) {
+      return await handleRemoteChat(reply, {
+        agentId,
+        message,
+        page,
+        wantsStream,
+        options,
+      });
+    }
+
     const agent = await options.manager.getAgent(userId);
 
     // G4.S3.T13: a clarification answer re-runs the original query with the
@@ -104,10 +136,6 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
       clarifyAnswer
         ? `${KNOWLEDGE_GUIDANCE}\n\n${buildClarifyReRunPrompt(clarifyAnswer, page)}`
         : `${KNOWLEDGE_GUIDANCE}\n\n${injectPageContext(page, message)}`;
-
-    const wantsStream =
-      typeof request.headers.accept === "string" &&
-      request.headers.accept.includes("text/event-stream");
 
     if (wantsStream) {
       reply.hijack();
@@ -149,4 +177,133 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         .send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
+}
+
+interface RemoteChatContext {
+  agentId: string;
+  message: string;
+  page: string;
+  wantsStream: boolean;
+  options: ChatRouteOptions;
+}
+
+/** Stream (or collect) a chat over a remote agent's reverse WS tunnel (G4.S7.T4). */
+async function handleRemoteChat(
+  reply: { hijack: () => void; raw: unknown; code: (code: number) => { send: (payload: unknown) => unknown } },
+  ctx: RemoteChatContext,
+): Promise<unknown> {
+  const { agentId, message, page, wantsStream, options } = ctx;
+  const { hub, registry } = options;
+  const offlineError = `agent is offline — it must connect INTO the platform via the reverse WS tunnel first`;
+  const notConfigured = "remote chat routing is not configured on this server";
+
+  if (!wantsStream) {
+    if (!hub || !registry) {
+      return reply.code(400).send({ error: notConfigured });
+    }
+    try {
+      const answer = await new Promise<string>((resolve, reject) => {
+        const collected: string[] = [];
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            reject(new Error("agent did not complete the task in time"));
+          }
+        }, 60 * 1000);
+        timer.unref?.();
+        void pushRemoteChatTask(hub, registry, agentId, message, page, {
+          onDelta: (text) => collected.push(text),
+          onDone: () => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              resolve(collected.join(""));
+            }
+          },
+          onError: (err) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              reject(new Error(err));
+            }
+          },
+        })
+          .then((result) => {
+            if (result.taskId === null && !settled) {
+              settled = true;
+              clearTimeout(timer);
+              reject(new Error(offlineError));
+            }
+          })
+          .catch((err) => {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timer);
+              reject(err);
+            }
+          });
+      });
+      return { reply: answer };
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  reply.hijack();
+  const raw = reply.raw as import("node:http").ServerResponse;
+  raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+
+  // Guard against a silently-disconnected agent: bail the stream after the
+  // timeout so the browser does not hang forever waiting for a run to finish.
+  const TIMEOUT_MS = 5 * 60 * 1000;
+  let timer: NodeJS.Timeout | undefined;
+  const done = (): void => {
+    if (timer) clearTimeout(timer);
+    raw.write(sseFrame({ done: true }));
+    raw.end();
+  };
+  const fail = (err: string): void => {
+    if (timer) clearTimeout(timer);
+    raw.write(sseFrame({ error: err }));
+    done();
+  };
+  timer = setTimeout(() => fail("agent did not complete the task in time"), TIMEOUT_MS);
+  timer.unref?.();
+
+  try {
+    if (!hub || !registry) {
+      fail(notConfigured);
+      return undefined;
+    }
+    const result = await pushRemoteChatTask(hub, registry, agentId, message, page, {
+      onDelta: (text) => raw.write(sseFrame({ delta: text })),
+      onThinking: (text) => raw.write(sseFrame({ thinking: text })),
+      onToolStarted: (tool, detail) =>
+        raw.write(sseFrame({ tool: { state: "started", name: tool, detail } })),
+      onToolCompleted: (tool, detail, error) =>
+        raw.write(
+          sseFrame({
+            tool: {
+              state: error ? "failed" : "completed",
+              name: tool,
+              detail,
+              error,
+            },
+          }),
+        ),
+      onDone: () => done(),
+      onError: (err) => fail(err),
+    });
+    if (result.taskId === null) {
+      fail(offlineError);
+    }
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
+  return undefined;
 }

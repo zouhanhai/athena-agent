@@ -98,6 +98,8 @@ export interface BuildAppOptions {
   invitations?: InvitationService;
   /** Max multipart upload size (bytes). Default: 50 MiB. */
   maxFileSize?: number;
+  /** G4.S7.T4: reverse-WS gateway (remote agents connect INTO the platform). */
+  hub?: AgentWsGateway;
 }
 
 export function defaultIngestService(): KnowledgeIngestService {
@@ -402,16 +404,18 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (Number.isFinite(interval) && interval > 0) {
       scheduledReview = scheduleKbReview(review, interval);
     }
-    // G4.S7.T1: reverse-WebSocket gateway for remote agents (connect INTO the
-    // platform). Attached to the underlying HTTP server once Fastify has one.
-    agentWs = new AgentWsGateway(app.server);
   });
 
+  // G4.S7.T1/T4: reverse-WebSocket gateway for remote agents (connect INTO the
+  // platform via /ws/agent; register {agent_id, token}; platform drives them
+  // back through the live tunnel). Built eagerly — app.server exists from
+  // construction — so the chat + agents routes can use it at request time.
+  const hub = options.hub ?? new AgentWsGateway(app.server, { registry });
+
   let scheduledReview: ReturnType<typeof scheduleKbReview> | undefined;
-  let agentWs: AgentWsGateway | undefined;
 
   app.addHook("onClose", async () => {
-    agentWs?.close();
+    hub.close();
     scheduledReview?.stop();
     await registry.close();
     await logos.close();
@@ -426,9 +430,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     }
   });
 
-  registerAgentRoutes(app, { registry, auth });
+  registerAgentRoutes(app, { registry, auth, hub });
   registerLogoRoutes(app, { logoStore: logos, registry, employees });
-  registerChatRoutes(app, { manager });
+  registerChatRoutes(app, { manager, hub, registry });
+  // G4.S7.T4: expose the reverse-WS gateway so consumers (and tests) can inspect
+  // live tunnels / reachability without a second server instance.
+  app.decorate("agentHub", hub);
   registerEmployeeRoutes(app, { employees, auth, agents: registry });
   registerGithubRoutes(app, { employees, auth, github, ops });
   registerKanbanRoutes(app, { auth, employees, github });

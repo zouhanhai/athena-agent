@@ -11,11 +11,14 @@ import {
 import type { AuthService } from "../employees/auth.js";
 import { roleHasPermission } from "../employees/rbac.js";
 import { currentEmployee } from "./helpers.js";
+import type { AgentWsGateway } from "../ws/agent.js";
 
 export interface AgentRouteOptions {
   registry: AgentRegistry;
   /** Needed to gate the admin invitation endpoint (POST /api/agents/invite). */
   auth?: AuthService;
+  /** G4.S7.T4: reverse-WS gateway — marks agents with a live tunnel as connected. */
+  hub?: AgentWsGateway;
 }
 
 interface AgentBody {
@@ -112,7 +115,13 @@ function remoteFields(
  * - GET /api/agents/:alias → single agent
  */
 export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOptions): void {
-  const { registry, auth } = options;
+  const { registry, auth, hub } = options;
+
+  /** G4.S7.T4: attach live reverse-WS reachability to an AgentRecord. */
+  function withConnectivity(record: import("../agents/registry.js").AgentRecord) {
+    const connected = hub?.isConnected(record.agent_id) ?? false;
+    return connected ? { ...record, connected } : record;
+  }
 
   app.post("/api/agents/self-declare", async (request, reply) => {
     const body = (request.body ?? {}) as { agent_id?: unknown; capabilities?: unknown; runtime?: unknown };
@@ -406,7 +415,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
         : undefined;
     try {
       const agents = await registry.list(filter);
-      return { agents };
+      return { agents: agents.map(withConnectivity) };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -422,7 +431,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       if (!record) {
         return reply.code(404).send({ error: `agent "${alias.trim()}" not found` });
       }
-      return record;
+      return withConnectivity(record);
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
