@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import {
   createAgent,
+  deleteAgent,
   inviteAgent,
   listAgents,
   listDeclarations,
@@ -53,6 +54,22 @@ async function load() {
 function onRegistered(id: string) {
   declarations.value = declarations.value.filter((d) => d.id !== id);
   load();
+}
+
+async function onDeleteAgent(agent: AgentRecord) {
+  if (!auth.sessionToken) {
+    error.value = "You must be signed in to delete an agent";
+    return;
+  }
+  if (!window.confirm(`Delete agent "${agent.alias}"? This cancels its invitation / removes it.`)) {
+    return;
+  }
+  try {
+    await deleteAgent(agent.agent_id, auth.sessionToken);
+    agents.value = agents.value.filter((a) => a.agent_id !== agent.agent_id);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  }
 }
 
 const STATUS_LABEL: Record<AgentRecord["status"], string> = {
@@ -180,6 +197,9 @@ onMounted(load);
               {{ agent.capabilities.system }} · {{ agent.capabilities.specialty }}
             </p>
           </div>
+          <button type="button" class="am-delete" title="Delete agent" @click="onDeleteAgent(agent)">
+            Delete
+          </button>
         </li>
       </ul>
     </section>
@@ -394,6 +414,20 @@ onMounted(load);
   margin: 2px 0 0;
   font-size: 12px;
   opacity: 0.75;
+}
+
+.am-delete {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--caleo-error, #b91c1c);
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.am-delete:hover {
+  background: color-mix(in srgb, var(--caleo-error, #b91c1c) 10%, transparent);
 }
 
 .am-admin {

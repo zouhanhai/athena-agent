@@ -189,6 +189,14 @@ export async function listAgents(): Promise<AgentRecord[]> {
   return data.agents;
 }
 
+/** DELETE /api/agents/:agentId → delete an agent record (cancel an invite / remove an agent). */
+export async function deleteAgent(agentId: string, sessionToken: string): Promise<void> {
+  await request<{ ok: boolean }>(`/api/agents/${encodeURIComponent(agentId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+}
+
 export interface ListLogosOptions {
   /** Server-side filter: drop logos already used by an agent or employee. */
   excludeInUse?: boolean;

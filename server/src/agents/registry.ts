@@ -183,6 +183,8 @@ export interface AgentRegistry {
   verifyCredentials(agentId: string, token: string): Promise<AgentRecord | null>;
   /** Touch the agent's last_seen_at so a live reverse-WS tunnel reads as reachable (G4.S7.T4). */
   markReachable(agentId: string): Promise<AgentRecord | null>;
+  /** Delete an agent record (cancel an invitation / remove a registered agent). */
+  deleteByAgentId(agentId: string): Promise<boolean>;
   /** Seed the default Athena agent (idempotent). Called on server start. */
   seed(): Promise<void>;
   close(): Promise<void>;
@@ -459,6 +461,14 @@ export class MemoryAgentRegistry implements AgentRegistry {
     };
     this.agents.set(updated.alias, updated);
     return this.recordFromStored(updated);
+  }
+
+  async deleteByAgentId(agentId: string): Promise<boolean> {
+    const stored = this.findByAgentId(agentId);
+    if (!stored) {
+      return false;
+    }
+    return this.agents.delete(stored.alias);
   }
 
   async seed(): Promise<void> {
@@ -878,6 +888,15 @@ export class PostgresAgentRegistry implements AgentRegistry {
       [agentId],
     );
     return result.rows[0] ? this.recordFromRow(result.rows[0]) : null;
+  }
+
+  async deleteByAgentId(agentId: string): Promise<boolean> {
+    await this.ensureReady();
+    const result = await this.pool.query(
+      `DELETE FROM agents WHERE agent_id = $1`,
+      [agentId],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async close(): Promise<void> {

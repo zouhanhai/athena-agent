@@ -313,6 +313,37 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     }
   });
 
+  /** Delete an agent record (cancel an invitation / remove a registered agent).
+   *  Only the agent's owner or an admin may delete it. */
+  app.delete("/api/agents/:agentId", async (request, reply) => {
+    const { agentId } = request.params as { agentId: string };
+    try {
+      const employee = await currentEmployee(request, auth!);
+      if (!employee) {
+        return reply.code(401).send({ error: "unauthorized" });
+      }
+      const target = await registry.getByAgentId(agentId);
+      if (!target) {
+        return reply.code(404).send({ error: "agent not found" });
+      }
+      // Owner or admin (system default agents like Athena can't be deleted by an owner).
+      const isOwner = target.owner_employee_id === employee.id;
+      const canDelete =
+        isOwner || roleHasPermission(employee.role, "agent.register");
+      if (!canDelete) {
+        return reply.code(403).send({ error: 'forbidden: you can only delete your own agents' });
+      }
+      await registry.deleteByAgentId(agentId);
+      return { ok: true };
+    } catch (err) {
+      const mapped = mapRegistryError(err);
+      if (mapped) {
+        return reply.code(mapped.code).send({ error: mapped.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/api/agents", async (request, reply) => {
     const body = (request.body ?? {}) as AgentBody;
 
