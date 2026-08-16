@@ -80,3 +80,20 @@ agent and (b) communicate bidirectionally (send commands, stream results).
   systemd `cloudflared-athenakb`) routes `athenakb.com/ws/*` → `http://localhost:3000`; the frontend
   (`athenakb.com` → Vite :5173) keeps working. Verified reachable from outside the LAN.
 - See `docs/s7-remote-agent-setup.md` §1.3 for the config + verification commands.
+
+## Status (2026-08-16, G4.S7.T2/T4)
+
+- **Bidirectional reverse-WS (T4) DONE**: agents register auth'd on connect `{agent_id, token}`
+  (registry `verifyCredentials` + `markReachable` → status `reachable` + `connected` flag via
+  `GET /api/agents`). The platform pushes tasks THROUGH the live tunnel (`AgentWsGateway.sendTask`,
+  Hermes `chat.completions` payload); the agent streams back `tool.started`/`tool.completed` +
+  text `delta` + optional `thinking` tokens, relayed as SSE `{tool}`/`{thinking}`/`{delta}` frames
+  into the Chat panel. Reconnects supersede the old tunnel; disconnects fail in-flight tasks.
+- **Chat routing**: `POST /api/chat` with `{agent_id}` routes the message to the selected connected
+  agent over its tunnel (SSE streaming + non-streaming collect; offline agent → SSE offline error).
+- **Agent template**: `server/scripts/agent-client.ts` — the remote agent connects outbound, registers,
+  runs its LOCAL `/v1/chat/completions` and relays reasoning→thinking + content→delta, auto-reconnects.
+  Works behind NAT/CGNAT, no public IP, no admin.
+- **Verified live on 6900XT**: 15/15 checks (register→reachable/connected, task push→thinking/tool/
+  delta/complete relayed in chat SSE, reconnect, invalid-token rejection). A2A (JSON-RPC task/artifact)
+  deferred to M6 — see `server/src/ws/agent.ts` protocol boundary.

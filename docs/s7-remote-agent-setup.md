@@ -144,8 +144,9 @@ curl -sN https://<public-url>/v1/chat/completions \
 | Piece | Side | Status |
 |---|---|---|
 | Platform WS endpoint (reverse WebSocket) | server | ✅ done (G4.S7.T1) — `/ws/agent`, handshake + echo |
-| Invitation onboarding `{agent_id, api_url, token}` | server | planned (G4.S7.T2) |
+| Invitation onboarding `{agent_id, api_url, token}` | server | ✅ done (G4.S7.T2) |
 | Cloudflare named tunnel config | server/Cloudflare | ✅ done (G4.S7.T1) — `athenakb.com/ws/*` → `localhost:3000` |
-| Remote agent template (cloudflared + register) | remote | drafted here |
+| Bidirectional reverse-WS (register auth, task push, tool/delta relay, reconnect) | server | ✅ done (G4.S7.T4) — see `docs/remote-agent-connectivity.md` Status 2026-08-16 |
+| Remote agent template (outbound connect + local /v1/chat/completions relay) | remote | ✅ drafted — `server/scripts/agent-client.ts` (G4.S7.T4) |
 | Remote Hermes API server | remote | ✅ done (port 8642) |
 | Quick tunnel proof | remote | ✅ done (SSE verified) |
