@@ -295,7 +295,11 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
         ...result,
         invite: {
           ...result.invite,
-          onboarding_url: `${base}/agent-onboard?token=${encodeURIComponent(result.invite.token)}`,
+          // Agent-readable onboarding guide: GET this URL to READ what
+          // registration is, how to register, and how to declare capabilities.
+          // The agent then calls the register / self-declare endpoints itself
+          // (no browser form needed).
+          onboarding_url: `${base}/api/agents/onboard?token=${encodeURIComponent((result.invite as { token: string }).token)}`,
         },
       };
       return reply.code(201).send(withUrl);
@@ -306,6 +310,90 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       }
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  /**
+   * Agent self-serve onboarding guide (T5): a remote agent opens the onboarding
+   * URL (GET /api/agents/onboard?token=…) to READ what registration is, how to
+   * register, and how to declare capabilities — then it calls the register /
+   * self-declare endpoints itself (no browser form needed).
+   */
+  app.get("/api/agents/onboard", async (request, reply) => {
+    const { token } = request.query as { token?: unknown };
+    if (typeof token !== "string" || !token.trim()) {
+      return reply.code(400).send({ error: "token is required" });
+    }
+    const agent = await registry.getByInviteToken(token.trim());
+    if (!agent) {
+      return reply.code(404).send({ error: "invalid or expired invitation token" });
+    }
+    const publicBase = (process.env.APP_BASE_URL || "").replace(/\/+$/, "");
+    const base = publicBase || (request.headers["x-forwarded-proto"] === "https" ? "https" : request.protocol) + "://" + (request.headers.host ?? request.hostname);
+    const wsBase = base.replace(/^https/, "wss").replace(/^http/, "ws");
+    return reply.send({
+      platform: "athenakb.com",
+      purpose:
+        "Register this agent into the Athena agent platform and declare what it can do, then connect over reverse WebSocket.",
+      invitation: {
+        agent_id: agent.agent_id,
+        alias: agent.alias,
+        token: token.trim(),
+        status: agent.status,
+      },
+      register: {
+        method: "POST",
+        endpoint: `${base}/api/agents/register`,
+        contentType: "application/json",
+        body: {
+          agent_id: agent.agent_id,
+          api_url: "optional — leave blank; reverse-WS connects INTO the platform",
+          token: token.trim(),
+        },
+        notes: [
+          "agent_id + token are REQUIRED. api_url is optional.",
+          "On success you get the agent record back with status reachable.",
+        ],
+      },
+      capabilities: {
+        purpose:
+          "Declare what the agent can do (A2A-aligned). Optional — but declaring helps routing.",
+        fields: {
+          system: "runtime family, e.g. hermes / opencode / codex / pi",
+          specialty: "e.g. general / integration / sap",
+          mcp: "string[] of MCP server ids this agent exposes",
+          tools: "string[] of tool ids this agent provides",
+          skills: "string[] of skill ids this agent has",
+          tags: "string[] discovery tags, e.g. [\"sap\",\"reporting\"]",
+          examples: "string[] sample prompts, e.g. [\"How is Q2 reporting structured?\"]",
+          description: "optional short blurb",
+        },
+        declareMethod: "POST",
+        declareEndpoint: `${base}/api/agents/self-declare`,
+        declareBody: {
+          agent_id: agent.agent_id,
+          capabilities: {
+            system: "",
+            mcp: [],
+            tools: [],
+            skills: [],
+            specialty: "",
+            tags: [],
+            examples: [],
+          },
+          runtime: "optional",
+        },
+      },
+      connect: {
+        method: "WebSocket",
+        endpoint: `${wsBase}/ws/agent`,
+        registerFrame: {
+          type: "register",
+          agent_id: agent.agent_id,
+          token: token.trim(),
+        },
+        notes: ["Connect to become reachable and receive pushed tasks."],
+      },
+    });
   });
 
   /**

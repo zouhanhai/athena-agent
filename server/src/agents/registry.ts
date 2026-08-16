@@ -199,6 +199,8 @@ export interface AgentRegistry {
   verifyCredentials(agentId: string, token: string): Promise<AgentRecord | null>;
   /** Touch the agent's last_seen_at so a live reverse-WS tunnel reads as reachable (G4.S7.T4). */
   markReachable(agentId: string): Promise<AgentRecord | null>;
+  /** Look up an agent by its invitation token (used by the agent-onboard guide). */
+  getByInviteToken(token: string): Promise<AgentRecord | null>;
   /** Delete an agent record (cancel an invitation / remove a registered agent). */
   deleteByAgentId(agentId: string): Promise<boolean>;
   /** Seed the default Athena agent (idempotent). Called on server start. */
@@ -286,6 +288,19 @@ export class MemoryAgentRegistry implements AgentRegistry {
     for (const stored of this.agents.values()) {
       if (stored.agent_id === agentId) {
         return stored;
+      }
+    }
+    return null;
+  }
+
+  async getByInviteToken(token: string): Promise<AgentRecord | null> {
+    if (!token) {
+      return null;
+    }
+    const hash = hashToken(token);
+    for (const stored of this.agents.values()) {
+      if (stored.token_hash && stored.token_hash === hash) {
+        return this.recordFromStored(stored);
       }
     }
     return null;
@@ -967,6 +982,16 @@ export class PostgresAgentRegistry implements AgentRegistry {
       [agentId],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async getByInviteToken(token: string): Promise<AgentRecord | null> {
+    await this.ensureReady();
+    const hash = hashToken(token);
+    const result = await this.pool.query<AgentRow>(
+      `SELECT * FROM agents WHERE token_hash = $1 AND token_hash <> '' LIMIT 1`,
+      [hash],
+    );
+    return result.rows[0] ? this.recordFromRow(result.rows[0]) : null;
   }
 
   async close(): Promise<void> {
