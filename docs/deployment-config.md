@@ -21,6 +21,7 @@ Where every environment secret lives, so it can be re-provisioned on a new serve
 | **Display session** | **Xorg** (not Wayland) | `/etc/gdm3/custom.conf`: `WaylandEnable=false` + `DefaultSession=ubuntu-xorg.desktop`. Wayland was corrupting the screen (right-half magenta bars). |
 | **Auto-login** | **enabled for `hh`** | Same custom.conf: `AutomaticLoginEnable=true` + `AutomaticLogin=hh` (no password at GDM). |
 | **linux-firmware** | **held at 2.26** (`apt-mark hold linux-firmware`) | **2.29 has an amdgpu DMUB bug** breaking RX 6900 XT display (right-half vertical bars + dmesg `DMUB auto-load failed` / `mpc2_assert_idle_mpcc timeout` / `GPU mode1 reset`). GPU compute is fine (llama.cpp ROCm runs Qwythos 9B). Do NOT unhold/upgrade until a fixed firmware lands. |
+| **Auto-updates** | **disabled** | `unattended-upgrades` service stopped+disabled + `APT::Periodic::Unattended-Upgrade=0` in `/etc/apt/apt.conf.d/20auto-upgrades`. Updates are MANUAL only (`sudo apt upgrade`). Prevents the bad firmware/kernel auto-installing again. |
 | **GPU** | Radeon RX 6900 XT (PowerColor Red Devil), 16 GB, `amdgpu` + ROCm (`/home/hh/llamacpp-rocm/`) | Compute verified OK via `llama-cli --list-devices` + Qwythos 9B inference. |
 | PG password | LightRAG `.env` + start-all.sh | | `athena_pg_2026` (shared local PG) |
 
