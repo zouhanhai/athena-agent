@@ -37,6 +37,11 @@ export interface AgentRecord {
   status: AgentStatus;
   /** Whether an invitation auth token is active for this agent (never the raw token). */
   has_token: boolean;
+  /**
+   * G4.S7.T9: whether the agent's declared capabilities were changed (or are
+   * unconfirmed) and the owner still needs to review + approve them again.
+   */
+  capabilities_pending_review?: boolean;
   /** G4.S7.T4: whether the agent holds a live reverse-WS tunnel right now (platform-driven). */
   connected?: boolean;
   created_at: string;
@@ -81,6 +86,17 @@ export interface CreateAgentInput {
   runtime?: string;
   agent_id?: string;
   api_url?: string;
+  token?: string;
+}
+
+/** Owner-side update of a registered agent (PUT /api/agents/:alias). Sending
+ *  `capabilities` re-opens the pending-review state (G4.S7.T9). */
+export interface AgentUpdateInput {
+  alias?: string;
+  logo_url?: string;
+  capabilities?: AgentCapabilities;
+  api_url?: string;
+  agent_id?: string;
   token?: string;
 }
 
@@ -194,6 +210,28 @@ export async function createAgent(input: CreateAgentInput): Promise<AgentRecord>
 export async function listAgents(): Promise<AgentRecord[]> {
   const data = await request<{ agents: AgentRecord[] }>("/api/agents");
   return data.agents;
+}
+
+/** GET /api/agents/:alias → a single agent's full detail (identity + capabilities + reachability). */
+export async function getAgent(alias: string): Promise<AgentRecord> {
+  return request<AgentRecord>(`/api/agents/${encodeURIComponent(alias)}`);
+}
+
+/** PUT /api/agents/:alias → update alias / logo / capabilities (owner review). */
+export async function updateAgent(alias: string, input: AgentUpdateInput): Promise<AgentRecord> {
+  return request<AgentRecord>(`/api/agents/${encodeURIComponent(alias)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/** POST /api/agents/:agentId/confirm (owner/admin) → approve the declared capabilities. */
+export async function confirmAgent(agentId: string, sessionToken: string): Promise<AgentRecord> {
+  return request<AgentRecord>(`/api/agents/${encodeURIComponent(agentId)}/confirm`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
 }
 
 /** DELETE /api/agents/:agentId → delete an agent record (cancel an invite / remove an agent). */

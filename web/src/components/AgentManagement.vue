@@ -12,7 +12,7 @@ import {
   type LogoRecord,
   type PendingAgentDeclaration,
 } from "@/api/agents";
-import DeclarationCard from "@/components/DeclarationCard.vue";
+import AgentDetail from "@/components/AgentDetail.vue";
 import { useAuthStore } from "@/stores/auth";
 
 const auth = useAuthStore();
@@ -59,9 +59,36 @@ async function load() {
   }
 }
 
-function onRegistered(id: string) {
-  declarations.value = declarations.value.filter((d) => d.id !== id);
-  load();
+// G4.S7.T9: clicking a row (agent or pending declaration) opens the agent
+// detail view — the single surface for reviewing capabilities, confirming,
+// and editing alias / logo / capabilities.
+const selected = ref<
+  | { kind: "agent"; agent: AgentRecord }
+  | { kind: "declaration"; declaration: PendingAgentDeclaration }
+  | null
+>(null);
+
+function openAgent(agent: AgentRecord) {
+  selected.value = { kind: "agent", agent };
+}
+
+function openDeclaration(declaration: PendingAgentDeclaration) {
+  selected.value = { kind: "declaration", declaration };
+}
+
+async function onDetailUpdated() {
+  await load();
+  const current = selected.value;
+  if (!current) {
+    return;
+  }
+  if (current.kind === "agent") {
+    const fresh = agents.value.find((a) => a.agent_id === current.agent.agent_id);
+    selected.value = fresh ? { kind: "agent", agent: fresh } : null;
+  } else {
+    const fresh = declarations.value.find((d) => d.id === current.declaration.id);
+    selected.value = fresh ? { kind: "declaration", declaration: fresh } : null;
+  }
 }
 
 async function onDeleteAgent(agent: AgentRecord) {
@@ -78,7 +105,7 @@ const deleteTarget = ref<AgentRecord | null>(null);
 const deleting = ref(false);
 
 async function confirmDelete() {
-  if (!deleteTarget.value) {
+  if (!deleteTarget.value || !auth.sessionToken) {
     return;
   }
   deleting.value = true;
@@ -200,8 +227,9 @@ onMounted(load);
 <template>
   <div class="agent-management">
     <p class="am-intro">
-      Connected agents auto-declare their capabilities. Review each declaration,
-      then assign an alias and logo to register the agent.
+      Connected agents auto-declare their capabilities. Click an agent to review its
+      declared capabilities, confirm it, or change its alias/logo. Capability changes
+      require re-confirmation.
     </p>
     <p v-if="error" class="am-error">{{ error }}</p>
     <p v-if="loading" class="am-loading">Loading agents…</p>
@@ -209,13 +237,16 @@ onMounted(load);
     <section v-if="agents.length > 0" class="am-section">
       <h4 class="am-section-title">Registered agents</h4>
       <ul class="agent-status-list">
-        <li v-for="agent in agents" :key="agent.id" class="agent-status-row">
+        <li v-for="agent in agents" :key="agent.id" class="agent-status-row" @click="openAgent(agent)">
           <img class="agent-status-logo" :src="agent.logo_url || PLACEHOLDER_LOGO" :alt="agent.alias" />
           <div class="agent-status-body">
             <div class="agent-status-head">
               <span class="agent-status-name">{{ agent.alias }}</span>
               <span class="status-badge" :class="`status-${agent.status}`">
                 {{ STATUS_LABEL[agent.status] }}
+              </span>
+              <span v-if="agent.capabilities_pending_review" class="status-badge status-pending">
+                pending review
               </span>
             </div>
             <div class="agent-status-meta">
@@ -226,9 +257,34 @@ onMounted(load);
               {{ agent.capabilities.system }} · {{ agent.capabilities.specialty }}
             </p>
           </div>
-          <button type="button" class="am-delete" title="Delete agent" @click="onDeleteAgent(agent)">
+          <button type="button" class="am-delete" title="Delete agent" @click.stop="onDeleteAgent(agent)">
             Delete
           </button>
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="declarations.length > 0" class="am-section">
+      <h4 class="am-section-title">Pending declarations</h4>
+      <ul class="agent-status-list">
+        <li
+          v-for="decl in declarations"
+          :key="decl.id"
+          class="agent-status-row agent-decl-row"
+          @click="openDeclaration(decl)"
+        >
+          <div class="agent-status-body">
+            <div class="agent-status-head">
+              <span class="agent-status-name">{{ decl.agent_id }}</span>
+              <span class="status-badge status-invited">pending</span>
+            </div>
+            <div class="agent-status-meta">
+              <span>runtime: {{ decl.runtime || "unknown" }}</span>
+            </div>
+            <p v-if="decl.capabilities.specialty || decl.capabilities.system" class="agent-status-caps">
+              {{ decl.capabilities.system }} · {{ decl.capabilities.specialty }}
+            </p>
+          </div>
         </li>
       </ul>
     </section>
@@ -336,12 +392,13 @@ onMounted(load);
       or an admin invites / registers one.
     </p>
 
-    <DeclarationCard
-      v-for="decl in declarations"
-      :key="decl.id"
-      :declaration="decl"
+    <AgentDetail
+      v-if="selected"
+      :agent="selected.kind === 'agent' ? selected.agent : null"
+      :declaration="selected.kind === 'declaration' ? selected.declaration : null"
       :logos="logos"
-      @registered="onRegistered"
+      @close="selected = null"
+      @updated="onDetailUpdated"
     />
 
     <t-dialog
@@ -459,6 +516,19 @@ onMounted(load);
 .status-unknown {
   color: var(--caleo-text-secondary);
   background: rgba(128, 128, 128, 0.15);
+}
+
+.status-pending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.agent-status-row {
+  cursor: pointer;
+}
+
+.agent-decl-row {
+  cursor: pointer;
 }
 
 .agent-status-meta {
