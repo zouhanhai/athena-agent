@@ -38,6 +38,11 @@ export interface AgentRecord {
   status: AgentStatus;
   /** Whether an invitation auth token is active for this agent (never the raw token). */
   has_token: boolean;
+  /**
+   * G4.S7.T9: whether the agent's declared capabilities were changed (or are
+   * unconfirmed) and the owner still needs to review + approve them again.
+   */
+  capabilities_pending_review: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +62,8 @@ export interface AgentCreateInput {
 }
 
 export interface AgentUpdateInput {
+  /** Rename the agent (its alias). Unique among agents. */
+  alias?: string;
   logo_url?: string;
   capabilities?: AgentCapabilities;
   api_url?: string;
@@ -169,6 +176,11 @@ export interface AgentRegistry {
   getByAgentId(agentId: string): Promise<AgentRecord | null>;
   create(input: AgentCreateInput): Promise<AgentRecord>;
   updateByAlias(alias: string, patch: AgentUpdateInput): Promise<AgentRecord>;
+  /**
+   * G4.S7.T9: mark the agent's current capabilities as reviewed + approved by
+   * the owner. Returns null when the agent id is unknown.
+   */
+  confirmCapabilities(agentId: string): Promise<AgentRecord | null>;
   /** An agent auto-fills its own capabilities; no alias/logo yet. */
   submitDeclaration(input: AgentDeclarationInput): Promise<PendingAgentDeclaration>;
   listDeclarations(): Promise<PendingAgentDeclaration[]>;
@@ -264,6 +276,7 @@ export class MemoryAgentRegistry implements AgentRegistry {
       token_hash: input.token ? hashToken(input.token) : "",
       registered_at: null,
       last_seen_at: null,
+      capabilities_confirmed_at: timestamp,
       created_at: timestamp,
       updated_at: timestamp,
     });
@@ -304,6 +317,7 @@ export class MemoryAgentRegistry implements AgentRegistry {
       token_hash: input.token ? hashToken(input.token) : "",
       registered_at: timestamp,
       last_seen_at: null,
+      capabilities_confirmed_at: timestamp,
       created_at: timestamp,
       updated_at: timestamp,
     };
@@ -341,17 +355,25 @@ export class MemoryAgentRegistry implements AgentRegistry {
         throw new AgentConflictError(`agent identity "${agentId}" already registered`);
       }
     }
+    const newAlias = patch.alias ?? existing.alias;
+    if (newAlias !== existing.alias && this.agents.has(newAlias)) {
+      throw new AgentConflictError(`agent alias "${newAlias}" already registered`);
+    }
     const updated: StoredAgent = {
       ...existing,
+      alias: newAlias,
       logo_url: patch.logo_url ?? existing.logo_url,
       capabilities: patch.capabilities ?? existing.capabilities,
+      // Any capability change marks the stored capabilities pending review
+      // until the owner approves them again (G4.S7.T9).
+      capabilities_confirmed_at: patch.capabilities ? null : existing.capabilities_confirmed_at,
       api_url: patch.api_url ?? existing.api_url,
       agent_id: agentId,
       token_hash: patch.token ? hashToken(patch.token) : existing.token_hash,
       updated_at: now(),
     };
     this.agents.delete(alias);
-    this.agents.set(updated.alias, updated);
+    this.agents.set(newAlias, updated);
     return this.recordFromStored(updated);
   }
 
@@ -414,6 +436,7 @@ export class MemoryAgentRegistry implements AgentRegistry {
       token_hash: hashToken(token),
       registered_at: null,
       last_seen_at: null,
+      capabilities_confirmed_at: timestamp,
       created_at: timestamp,
       updated_at: timestamp,
     };
@@ -467,6 +490,21 @@ export class MemoryAgentRegistry implements AgentRegistry {
     return this.recordFromStored(updated);
   }
 
+  /** G4.S7.T9: approve the agent's current capabilities (owner review). */
+  async confirmCapabilities(agentId: string): Promise<AgentRecord | null> {
+    const stored = this.findByAgentId(agentId);
+    if (!stored) {
+      return null;
+    }
+    const updated: StoredAgent = {
+      ...stored,
+      capabilities_confirmed_at: now(),
+      updated_at: now(),
+    };
+    this.agents.set(updated.alias, updated);
+    return this.recordFromStored(updated);
+  }
+
   async deleteByAgentId(agentId: string): Promise<boolean> {
     const stored = this.findByAgentId(agentId);
     if (!stored) {
@@ -499,6 +537,8 @@ interface StoredAgent {
   token_hash: string;
   registered_at: string | null;
   last_seen_at: string | null;
+  /** When the owner last approved the stored capabilities (null = pending review). */
+  capabilities_confirmed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -522,6 +562,7 @@ interface AgentRow {
   token_hash: string;
   registered_at: Date | string | null;
   last_seen_at: Date | string | null;
+  capabilities_confirmed_at: Date | string | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -551,6 +592,7 @@ function recordFromFields(
     token_hash: string;
     registered_at: string | Date | null;
     last_seen_at: string | Date | null;
+    capabilities_confirmed_at: string | Date | null;
     created_at: string | Date;
     updated_at: string | Date;
   },
@@ -567,6 +609,9 @@ function recordFromFields(
     api_url: fields.api_url,
     status: recordStatus(fields.registered_at, fields.token_hash, fields.api_url, fields.last_seen_at, windowMs),
     has_token: fields.token_hash.length > 0,
+    // Capability changes (or unconfirmed declarations) remain pending review
+    // until the owner approves them again (G4.S7.T9).
+    capabilities_pending_review: !fields.capabilities_confirmed_at,
     created_at: toIso(fields.created_at),
     updated_at: toIso(fields.updated_at),
   };
@@ -614,6 +659,7 @@ export class PostgresAgentRegistry implements AgentRegistry {
         token_hash TEXT NOT NULL DEFAULT '',
         registered_at TIMESTAMPTZ,
         last_seen_at TIMESTAMPTZ,
+        capabilities_confirmed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
@@ -626,6 +672,10 @@ export class PostgresAgentRegistry implements AgentRegistry {
     await this.pool.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS token_hash TEXT NOT NULL DEFAULT ''`);
     await this.pool.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS registered_at TIMESTAMPTZ`);
     await this.pool.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
+    // G4.S7.T9: capability review/approval state. Existing records are treated
+    // as already approved; only FUTURE capability changes re-open the review.
+    await this.pool.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS capabilities_confirmed_at TIMESTAMPTZ`);
+    await this.pool.query(`UPDATE agents SET capabilities_confirmed_at = now() WHERE capabilities_confirmed_at IS NULL`);
     await this.pool.query(`UPDATE agents SET agent_id = id WHERE agent_id = '' OR agent_id IS NULL`);
     await this.pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS agents_agent_id_key ON agents (agent_id)`);
     await this.pool.query(`
@@ -668,8 +718,8 @@ export class PostgresAgentRegistry implements AgentRegistry {
     const agentId = input.agent_id ?? id;
     try {
       const result = await this.pool.query<AgentRow>(
-        `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, registered_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+        `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, registered_at, capabilities_confirmed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
          RETURNING *`,
         [
           id,
@@ -720,16 +770,19 @@ export class PostgresAgentRegistry implements AgentRegistry {
     try {
       const result = await this.pool.query<AgentRow>(
         `UPDATE agents
-         SET logo_url = COALESCE($2, logo_url),
-             capabilities = COALESCE($3, capabilities),
-             api_url = COALESCE($4, api_url),
-             agent_id = COALESCE($5, agent_id),
-             token_hash = CASE WHEN $6 IS NULL THEN token_hash ELSE $6 END,
+         SET alias = COALESCE($2, alias),
+             logo_url = COALESCE($3, logo_url),
+             capabilities = COALESCE($4, capabilities),
+             api_url = COALESCE($5, api_url),
+             agent_id = COALESCE($6, agent_id),
+             token_hash = CASE WHEN $7 IS NULL THEN token_hash ELSE $7 END,
+             capabilities_confirmed_at = CASE WHEN $4 IS NULL THEN capabilities_confirmed_at ELSE NULL END,
              updated_at = now()
          WHERE alias = $1
          RETURNING *`,
         [
           alias,
+          patch.alias ?? null,
           patch.logo_url ?? null,
           patch.capabilities ? JSON.stringify(patch.capabilities) : null,
           patch.api_url ?? null,
@@ -785,8 +838,8 @@ export class PostgresAgentRegistry implements AgentRegistry {
       let result: pg.QueryResult<AgentRow>;
       try {
         result = await client.query<AgentRow>(
-          `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, registered_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+          `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, registered_at, capabilities_confirmed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
            RETURNING *`,
           [
             randomUUID(),
@@ -822,8 +875,8 @@ export class PostgresAgentRegistry implements AgentRegistry {
     const token = randomToken();
     try {
       const result = await this.pool.query<AgentRow>(
-        `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, capabilities_confirmed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
          RETURNING *`,
         [
           id,
@@ -887,6 +940,19 @@ export class PostgresAgentRegistry implements AgentRegistry {
     const result = await this.pool.query<AgentRow>(
       `UPDATE agents
        SET registered_at = COALESCE(registered_at, now()), last_seen_at = now(), updated_at = now()
+       WHERE agent_id = $1
+       RETURNING *`,
+      [agentId],
+    );
+    return result.rows[0] ? this.recordFromRow(result.rows[0]) : null;
+  }
+
+  /** G4.S7.T9: approve the agent's current capabilities (owner review). */
+  async confirmCapabilities(agentId: string): Promise<AgentRecord | null> {
+    await this.ensureReady();
+    const result = await this.pool.query<AgentRow>(
+      `UPDATE agents
+       SET capabilities_confirmed_at = now(), updated_at = now()
        WHERE agent_id = $1
        RETURNING *`,
       [agentId],

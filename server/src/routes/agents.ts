@@ -121,7 +121,8 @@ function remoteFields(
  * - POST /api/agents/invite (admin) → generate { agent_id, api_url, token } invitation (201)
  * - POST /api/agents/register { agent_id, api_url, token } → invited agent registers auth'd; records reachability (200)
  * - POST /api/agents { alias, owner_employee_id, logo_url?, capabilities, runtime?, agent_id?, api_url?, token? } → register (201)
- * - PUT /api/agents/:alias { logo_url?, capabilities?, api_url?, agent_id?, token? } → update (200)
+ * - PUT /api/agents/:alias { alias?, logo_url?, capabilities?, api_url?, agent_id?, token? } → update (200); capabilities changes require re-confirm
+ * - POST /api/agents/:agentId/confirm (owner/admin Bearer) → approve the declared capabilities (200)
  * - GET /api/agents?ownerEmployeeId= → list
  * - GET /api/agents/:alias → single agent
  */
@@ -421,6 +422,7 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       return reply.code(400).send({ error: "alias is required" });
     }
     const body = (request.body ?? {}) as {
+      alias?: unknown;
       logo_url?: unknown;
       capabilities?: unknown;
       agent_id?: unknown;
@@ -428,6 +430,12 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       token?: unknown;
     };
     const patch: AgentUpdateInput = {};
+    if (body.alias !== undefined) {
+      if (invalidString(body.alias)) {
+        return reply.code(400).send({ error: "alias must be a non-empty string" });
+      }
+      patch.alias = (body.alias as string).trim();
+    }
     if (body.logo_url !== undefined) {
       if (typeof body.logo_url !== "string") {
         return reply.code(400).send({ error: "logo_url must be a string" });
@@ -451,13 +459,14 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     if (remote.api_url !== undefined) patch.api_url = remote.api_url;
     if (remote.token !== undefined) patch.token = remote.token;
     if (
+      patch.alias === undefined &&
       patch.logo_url === undefined &&
       patch.capabilities === undefined &&
       patch.agent_id === undefined &&
       patch.api_url === undefined &&
       patch.token === undefined
     ) {
-      return reply.code(400).send({ error: "at least one of logo_url, capabilities, agent_id, api_url or token is required" });
+      return reply.code(400).send({ error: "at least one of alias, logo_url, capabilities, agent_id, api_url or token is required" });
     }
 
     try {
@@ -498,6 +507,42 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       }
       return withConnectivity(record);
     } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * G4.S7.T9: the owner approves the agent's current declared capabilities
+   * (clears the pending-review state). Only the agent's owner or an admin may
+   * confirm it.
+   */
+  app.post("/api/agents/:agentId/confirm", async (request, reply) => {
+    const { agentId } = request.params as { agentId: string };
+    try {
+      const employee = await currentEmployee(request, auth!);
+      if (!employee) {
+        return reply.code(401).send({ error: "unauthorized" });
+      }
+      const target = await registry.getByAgentId(agentId);
+      if (!target) {
+        return reply.code(404).send({ error: "agent not found" });
+      }
+      const isOwner = target.owner_employee_id === employee.id;
+      const canConfirm =
+        isOwner || roleHasPermission(employee.role, "agent.register");
+      if (!canConfirm) {
+        return reply.code(403).send({ error: "forbidden: you can only confirm your own agents" });
+      }
+      const record = await registry.confirmCapabilities(agentId);
+      if (!record) {
+        return reply.code(404).send({ error: "agent not found" });
+      }
+      return withConnectivity(record);
+    } catch (err) {
+      const mapped = mapRegistryError(err);
+      if (mapped) {
+        return reply.code(mapped.code).send({ error: mapped.message });
+      }
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
