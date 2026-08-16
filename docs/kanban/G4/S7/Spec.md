@@ -74,6 +74,38 @@ MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
   colloquial/cross-language term in `query` still matches canonical text within the scoped topic.
 - A2A deferred to M6.
 
+### KB-as-MCP endpoint contract (T3 — DONE 2026-08-16)
+
+The KB MCP server is mounted on the platform's Fastify server (Streamable HTTP, `@modelcontextprotocol/sdk`)
+at a single authenticated endpoint reachable over the public URL:
+
+- **Endpoint**: `https://athenakb.com/api/kb/mcp` (Cloudflare Tunnel → `localhost:3000`; `GET/POST/DELETE`).
+- **Auth**: every request carries `Authorization: Bearer <platform-session-token>` (a per-employee/agent
+  token resolved via the auth service; 401 without a valid token). Any MCP client agent adds ONE entry:
+
+  ```json
+  {
+    "mcpServers": {
+      "athena-kb": {
+        "type": "http",
+        "url": "https://athenakb.com/api/kb/mcp",
+        "headers": { "Authorization": "Bearer <token>" }
+      }
+    }
+  }
+  ```
+
+- **The 5 tools** (all wrapping `KnowledgeRetrievalService`, KB-retrieval only — `answer()`/AgenticRAG Q&A
+  is A2A, deferred to M6):
+  - `search_knowledge(query, topic?)` — fused retrieval (vector + BM25 + graph + topic across the RAG
+    store + llm_wiki keyword). `topic` = wiki frontmatter topic subtree; omit/empty = whole-corpus. Results
+    carry `wikiPath`/`sectionPath`. Aliases (semantic mappings + bilingual entity variants) applied at
+    query time within the scoped topic.
+  - `get_wiki_page(path)` — full markdown (frontmatter + body) of one wiki page by its `wikiPath`.
+  - `get_graph()` — knowledge-graph nodes/edges.
+  - `get_kb_topics()` — every wiki topic subtree (the valid `topic` values for `search_knowledge`).
+  - `get_wiki_tree()` — the wiki page tree (structure/navigation, per-page type + topic metadata).
+
 ## Dependencies
 
 - **G4.S6 (GDD) — prerequisite**: S7 federates/controls remote agents that run the GDD dev-flow, so GDD
@@ -85,7 +117,7 @@ MCP client agent (OpenCode/Claude Code/Codex/Hermes) retrieves the KB correctly:
 - Platform WS endpoint exposed via Cloudflare Tunnel (athenakb.com) + APP_BASE_URL / remote access. (T1) — **DONE (2026-08-15)**: `wss://athenakb.com/ws/agent`, reverse-WebSocket endpoint with handshake + echo; tunnel `athenakb.com/ws/*` → `localhost:3000` (named tunnel `athena-platform`, systemd `cloudflared-athenakb`); verified reachable from outside the LAN.
 - Invitation-based agent onboarding + manual register form (S2.T9). (T2)
 - Reverse-WebSocket bidirectional connection from agents to the platform (push tasks, stream progress). (T4)
-- KB MCP server (search_knowledge / get_wiki_page / get_graph). (T3)
+- KB MCP server (search_knowledge / get_wiki_page / get_graph / get_kb_topics / get_wiki_tree). (T3) — **DONE (2026-08-16)**: streamable-HTTP `/api/kb/mcp`, 5 tools wrapping KnowledgeRetrievalService, topic-scoped contract documented, Bearer-token auth, tests green + typecheck clean.
 - Integration demo: register real remote + 6900XT agents, chat to each, KB via MCP, identity tracked. (T5)
 - Email + password authentication for public sign-in (plus magic-link fallback). (T6)
 - Global auth guard: public site pages require login (redirect to /login). (T7)
