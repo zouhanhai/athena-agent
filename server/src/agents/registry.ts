@@ -174,6 +174,15 @@ export interface AgentRegistry {
   createInvitation(input: AgentInviteInput): Promise<AgentInviteResult>;
   /** The invited agent registers with its token + real api_url (auth'd); records reachability. */
   registerWithInvite(input: AgentInviteRegisterInput): Promise<AgentRecord>;
+  /**
+   * G4.S7.T4 reverse-WS credentials check: validates that `token` matches the
+   * agent's stored invitation hash, WITHOUT requiring an api_url. Used by the
+   * WS gateway when an agent connects INTO the platform. Returns null on a
+   * mismatch (never exposes the raw token).
+   */
+  verifyCredentials(agentId: string, token: string): Promise<AgentRecord | null>;
+  /** Touch the agent's last_seen_at so a live reverse-WS tunnel reads as reachable (G4.S7.T4). */
+  markReachable(agentId: string): Promise<AgentRecord | null>;
   /** Seed the default Athena agent (idempotent). Called on server start. */
   seed(): Promise<void>;
   close(): Promise<void>;
@@ -205,7 +214,10 @@ function recordStatus(
   if (!registeredAt) {
     return tokenHash ? "invited" : "unknown";
   }
-  if (apiUrl && lastSeenAt && Date.now() - toEpochMs(lastSeenAt) <= windowMs) {
+  // Reachability = connectivity confirmed recently. With reverse WS (G4.S7.T4)
+  // the live tunnel is the reachability signal (it touches last_seen_at on
+  // connect) — api_url is the old HTTP-forwarding address and no longer required.
+  if (lastSeenAt && Date.now() - toEpochMs(lastSeenAt) <= windowMs) {
     return "reachable";
   }
   return "registered";
@@ -420,6 +432,33 @@ export class MemoryAgentRegistry implements AgentRegistry {
     };
     this.agents.set(stored.alias, stored);
     return this.recordFromStored(stored);
+  }
+
+  /** G4.S7.T4: reverse-WS credentials check — token must match the stored hash. */
+  async verifyCredentials(agentId: string, token: string): Promise<AgentRecord | null> {
+    const stored = this.findByAgentId(agentId);
+    if (!stored || !stored.token_hash || stored.token_hash !== hashToken(token)) {
+      return null;
+    }
+    return this.recordFromStored(stored);
+  }
+
+  /** G4.S7.T4: a live tunnel marks the agent reachable (fresh last_seen_at). An
+   *  auth'd WS connection is itself proof of registration, so a not-yet-HTTPS-
+   *  registered agent is promoted to registered at the same time. */
+  async markReachable(agentId: string): Promise<AgentRecord | null> {
+    const stored = this.findByAgentId(agentId);
+    if (!stored) {
+      return null;
+    }
+    const updated: StoredAgent = {
+      ...stored,
+      registered_at: stored.registered_at ?? now(),
+      last_seen_at: now(),
+      updated_at: now(),
+    };
+    this.agents.set(updated.alias, updated);
+    return this.recordFromStored(updated);
   }
 
   async seed(): Promise<void> {
@@ -814,6 +853,31 @@ export class PostgresAgentRegistry implements AgentRegistry {
       [input.agent_id, input.api_url],
     );
     return this.recordFromRow(result.rows[0]);
+  }
+
+  /** G4.S7.T4: reverse-WS credentials check — token must match the stored hash. */
+  async verifyCredentials(agentId: string, token: string): Promise<AgentRecord | null> {
+    await this.ensureReady();
+    const result = await this.pool.query<AgentRow>(
+      `SELECT * FROM agents WHERE agent_id = $1 AND token_hash = $2 AND token_hash <> ''`,
+      [agentId, hashToken(token)],
+    );
+    return result.rows[0] ? this.recordFromRow(result.rows[0]) : null;
+  }
+
+  /** G4.S7.T4: a live tunnel marks the agent reachable (fresh last_seen_at). An
+   *  auth'd WS connection is itself proof of registration, so a not-yet-HTTPS-
+   *  registered agent is promoted to registered at the same time. */
+  async markReachable(agentId: string): Promise<AgentRecord | null> {
+    await this.ensureReady();
+    const result = await this.pool.query<AgentRow>(
+      `UPDATE agents
+       SET registered_at = COALESCE(registered_at, now()), last_seen_at = now(), updated_at = now()
+       WHERE agent_id = $1
+       RETURNING *`,
+      [agentId],
+    );
+    return result.rows[0] ? this.recordFromRow(result.rows[0]) : null;
   }
 
   async close(): Promise<void> {
