@@ -70,9 +70,24 @@ async function onSubmit() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   if (!token.value) {
     error.value = "No invitation token in the URL (?token=…)";
+    return;
+  }
+  // Auto-fill the agent_id from the onboarding guide (GET /api/agents/onboard),
+  // so the agent doesn't have to know/copy it manually. The token is already
+  // in the URL. Fetching is best-effort — a failure leaves the field editable.
+  try {
+    const res = await fetch(`/api/agents/onboard?token=${encodeURIComponent(token.value)}`);
+    if (res.ok) {
+      const guide = await res.json();
+      if (guide?.invitation?.agent_id) {
+        agentId.value = guide.invitation.agent_id;
+      }
+    }
+  } catch {
+    // ignore — field stays editable
   }
 });
 </script>
