@@ -505,15 +505,13 @@ describe("SettingsView agents", () => {
       .find((el) => el.text().includes("Invite agent"));
     await inviteButton!.trigger("click");
     await wrapper.find("#invite-alias").setValue("wts");
-    await wrapper.find("#invite-owner").setValue("zhang.wei");
-    await wrapper.find("#invite-api-url").setValue("http://wts.local:3001");
+    await wrapper.find("#invite-owner").setValue("owner@caleo.com");
     await wrapper.find("form.am-form").trigger("submit");
     await flushPromises();
 
     expect(inviteAgentMock).toHaveBeenCalledWith("ses123", {
       alias: "wts",
-      owner_employee_id: "zhang.wei",
-      api_url: "http://wts.local:3001",
+      owner_employee_id: "owner@caleo.com",
     });
     const result = wrapper.find(".invite-result");
     expect(result.exists()).toBe(true);
