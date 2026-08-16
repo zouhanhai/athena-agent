@@ -281,12 +281,16 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
       });
       // Give the remote agent a self-serve onboarding link it can open to read
       // the registration flow + its credentials + the capability-declaration
-      // format, then register itself (T5). Base = the request's own origin so it
-      // works over the public Cloudflare URL or a local dev origin.
+      // format, then register itself (T5). Base = the PUBLIC base URL
+      // (APP_BASE_URL, e.g. https://athenakb.com) so the link works for a remote
+      // agent over the Cloudflare tunnel — NOT the incoming request host, which
+      // could be localhost in dev.
+      const publicBase = (process.env.APP_BASE_URL || "").replace(/\/+$/, "");
       const base =
+        publicBase ||
         (request.headers["x-forwarded-proto"] === "https" ? "https" : request.protocol) +
-        "://" +
-        (request.headers.host ?? request.hostname);
+          "://" +
+          (request.headers.host ?? request.hostname);
       const withUrl = {
         ...result,
         invite: {
