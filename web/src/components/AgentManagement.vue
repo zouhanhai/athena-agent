@@ -69,14 +69,29 @@ async function onDeleteAgent(agent: AgentRecord) {
     error.value = "You must be signed in to delete an agent";
     return;
   }
-  if (!window.confirm(`Delete agent "${agent.alias}"? This cancels its invitation / removes it.`)) {
+  deleteTarget.value = agent;
+  deleteVisible.value = true;
+}
+
+const deleteVisible = ref(false);
+const deleteTarget = ref<AgentRecord | null>(null);
+const deleting = ref(false);
+
+async function confirmDelete() {
+  if (!deleteTarget.value) {
     return;
   }
+  deleting.value = true;
+  error.value = "";
   try {
-    await deleteAgent(agent.agent_id, auth.sessionToken);
-    agents.value = agents.value.filter((a) => a.agent_id !== agent.agent_id);
+    await deleteAgent(deleteTarget.value.agent_id, auth.sessionToken);
+    agents.value = agents.value.filter((a) => a.agent_id !== deleteTarget.value!.agent_id);
+    deleteVisible.value = false;
+    deleteTarget.value = null;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    deleting.value = false;
   }
 }
 
@@ -328,6 +343,24 @@ onMounted(load);
       :logos="logos"
       @registered="onRegistered"
     />
+
+    <t-dialog
+      v-model:visible="deleteVisible"
+      header="Delete agent"
+      :confirm-btn="{ content: 'Delete', theme: 'danger' }"
+      :cancel-btn="{ content: 'Cancel' }"
+      :confirm-loading="deleting"
+      @confirm="confirmDelete"
+      @close="deleteVisible = false"
+    >
+      <template #body>
+        <p>
+          Delete agent <strong>{{ deleteTarget?.alias || "" }}</strong>? This cancels
+          its invitation / removes it from your agents.
+        </p>
+        <p v-if="error" class="am-error">{{ error }}</p>
+      </template>
+    </t-dialog>
   </div>
 </template>
 
