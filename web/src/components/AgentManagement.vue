@@ -16,6 +16,7 @@ import { useAuthStore } from "@/stores/auth";
 
 const auth = useAuthStore();
 const isAdmin = computed(() => auth.employee?.role === "admin");
+const currentUserId = computed(() => auth.employee?.id ?? "");
 
 const declarations = ref<PendingAgentDeclaration[]>([]);
 const agents = ref<AgentRecord[]>([]);
@@ -23,6 +24,11 @@ const logos = ref<LogoRecord[]>([]);
 const loading = ref(false);
 const error = ref("");
 
+// Settings shows only the agents the current user owns/registered (their own
+// agents). The Admin page (AdminView) shows all agents grouped per employee.
+// The platform default agent (owner_employee_id === "system", e.g. Athena) is
+// never shown here. Register + Invite stay available so a user can provision
+// their own agents.
 async function load() {
   loading.value = true;
   error.value = "";
@@ -33,7 +39,9 @@ async function load() {
       listLogos({ excludeInUse: true }),
     ]);
     declarations.value = decls;
-    agents.value = agentList;
+    agents.value = agentList.filter(
+      (a) => a.owner_employee_id !== "system" && a.owner_employee_id === currentUserId.value,
+    );
     logos.value = logoList;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
