@@ -177,6 +177,17 @@
     (an independent bot account would be needed to show an agent ID there). Only commit-author
     separation requested for now; design the OpenCode/agent config approach in G6 (agent federation,
     agents as first-class citizens).
+- [ ] **Microsoft Entra ID (Azure AD) SSO authentication (2026-08-16, deferred to G6)**
+  - Replace local email+password with Microsoft SSO so every CALEO employee logs in with their
+    Microsoft account. Solves the multi-email-alias problem: a person has both `zouha108@caleo.com`
+    and `Hanhai.zou@caleo.com` (same mailbox) — local email login can't tell they're one person, but
+    Entra ID returns a unique `objectId` for the user regardless of which alias is used.
+  - Also gives employees + their agents a real identity (aligns with G6 "agents as first-class
+    citizens" / Agent identity): each employee = one Entra user (objectId), each agent = owned by an
+    employee.
+  - **Requires a CALEO Microsoft admin** to create the enterprise app, configure permissions/API,
+    and grant consent. Not doable without org admin.
+  - Current state: local email+password login (primary email `zouha108@caleo.com`) works (G4.S7.T6).
 
 ### M7 — Local Desktop App (G7) — local agent/worker monitoring + accurate stalled
 - [ ] **G7: Local Desktop App (Athena App)** — a cross-platform installable app that runs on the user's
