@@ -10,6 +10,9 @@ import {
   listLogos,
   listDeclarations,
   listAgents,
+  getAgent,
+  confirmAgent,
+  updateAgent,
   registerDeclaration,
   createAgent,
   inviteAgent,
@@ -24,6 +27,9 @@ vi.mock("@/api/agents", () => ({
   listLogos: vi.fn(),
   listDeclarations: vi.fn(),
   listAgents: vi.fn(),
+  getAgent: vi.fn(),
+  confirmAgent: vi.fn(),
+  updateAgent: vi.fn(),
   registerDeclaration: vi.fn(),
   createAgent: vi.fn(),
   inviteAgent: vi.fn(),
@@ -34,6 +40,9 @@ const updateMeMock = updateMe as unknown as ReturnType<typeof vi.fn>;
 const listLogosMock = listLogos as unknown as ReturnType<typeof vi.fn>;
 const listDeclarationsMock = listDeclarations as unknown as ReturnType<typeof vi.fn>;
 const listAgentsMock = listAgents as unknown as ReturnType<typeof vi.fn>;
+const getAgentMock = getAgent as unknown as ReturnType<typeof vi.fn>;
+const confirmAgentMock = confirmAgent as unknown as ReturnType<typeof vi.fn>;
+const updateAgentMock = updateAgent as unknown as ReturnType<typeof vi.fn>;
 const registerDeclarationMock = registerDeclaration as unknown as ReturnType<typeof vi.fn>;
 const createAgentMock = createAgent as unknown as ReturnType<typeof vi.fn>;
 const inviteAgentMock = inviteAgent as unknown as ReturnType<typeof vi.fn>;
@@ -90,6 +99,9 @@ beforeEach(() => {
   listLogosMock.mockReset().mockResolvedValue(logos);
   listDeclarationsMock.mockReset().mockResolvedValue([]);
   listAgentsMock.mockReset().mockResolvedValue([]);
+  getAgentMock.mockReset();
+  confirmAgentMock.mockReset();
+  updateAgentMock.mockReset();
   updateMeMock.mockReset();
   registerDeclarationMock.mockReset();
   createAgentMock.mockReset();
@@ -118,9 +130,11 @@ describe("SettingsView page", () => {
     wrapper.unmount();
   });
 
-  it("does not render a dialog wrapper", async () => {
+  it("does not render a page dialog wrapper (the delete dialog stays hidden)", async () => {
     const { wrapper } = await mountView();
-    expect(wrapper.find(".t-dialog").exists()).toBe(false);
+    expect(wrapper.find(".settings-trigger").exists()).toBe(false);
+    // The agent-delete confirm dialog exists in the DOM but is NOT visible.
+    expect(wrapper.find(".t-dialog--visible").exists()).toBe(false);
     wrapper.unmount();
   });
 });
@@ -345,30 +359,41 @@ describe("SettingsView profile", () => {
 });
 
 describe("SettingsView agents", () => {
-  it("renders pending agent declarations on the settings page", async () => {
+  it("renders pending agent declarations as rows that open the detail view", async () => {
     listDeclarationsMock.mockResolvedValue([declaration]);
     const { wrapper } = await mountView();
 
     expect(listDeclarationsMock).toHaveBeenCalled();
-    expect(wrapper.find(".declaration-card").exists()).toBe(true);
-    expect(wrapper.text()).toContain("opencode-ses_xyz");
-    expect(wrapper.text()).toContain("software-engineering");
+    const row = wrapper.find(".agent-decl-row");
+    expect(row.exists()).toBe(true);
+    expect(row.text()).toContain("opencode-ses_xyz");
+
+    await row.trigger("click");
+    await flushPromises();
+    const detail = wrapper.find(".agent-detail");
+    expect(detail.exists()).toBe(true);
+    expect(detail.text()).toContain("Review agent declaration");
+    expect(detail.text()).toContain("opencode-ses_xyz");
+    expect(detail.text()).toContain("software-engineering");
+    expect(detail.text()).toContain("code_review");
     wrapper.unmount();
   });
 
-  it("confirms a declaration registration from settings, removing the card", async () => {
+  it("confirms a declaration registration from the detail view, closing it", async () => {
     listDeclarationsMock
       .mockResolvedValueOnce([declaration])
       .mockResolvedValue([]);
     registerDeclarationMock.mockResolvedValue({ id: "a1" });
     const { wrapper } = await mountView();
 
+    await wrapper.find(".agent-decl-row").trigger("click");
+    await flushPromises();
     await wrapper.find(".decl-alias").setValue("Hermes");
     const fox = wrapper
-      .findAll(".declaration-card .logo-option")
+      .findAll(".agent-detail .logo-option")
       .find((el) => el.attributes("data-url") === "/logos/fox-clean.png");
     await fox!.trigger("click");
-    await wrapper.find(".decl-confirm").trigger("click");
+    await wrapper.find(".detail-register").trigger("click");
     await flushPromises();
 
     expect(registerDeclarationMock).toHaveBeenCalledWith("d1", {
@@ -377,18 +402,21 @@ describe("SettingsView agents", () => {
       logo_url: "/logos/fox-clean.png",
       api_url: undefined,
     });
-    expect(wrapper.findAll(".declaration-card")).toHaveLength(0);
+    expect(wrapper.find(".agent-detail").exists()).toBe(false);
+    expect(wrapper.findAll(".agent-decl-row")).toHaveLength(0);
     wrapper.unmount();
   });
 
-  it("carries the api_url entered on the declaration card to the registration", async () => {
+  it("carries the api_url entered on the declaration review to the registration", async () => {
     listDeclarationsMock.mockResolvedValue([declaration]);
     registerDeclarationMock.mockResolvedValue({ id: "a1" });
     const { wrapper } = await mountView();
 
+    await wrapper.find(".agent-decl-row").trigger("click");
+    await flushPromises();
     await wrapper.find(".decl-alias").setValue("Hermes");
     await wrapper.find(".decl-api-url").setValue("http://hermes.local:3001");
-    await wrapper.find(".decl-confirm").trigger("click");
+    await wrapper.find(".detail-register").trigger("click");
     await flushPromises();
 
     expect(registerDeclarationMock).toHaveBeenCalledWith("d1", {
@@ -425,6 +453,185 @@ describe("SettingsView agents", () => {
     expect(row.text()).toContain("Hermes");
     expect(wrapper.find(".status-badge.status-reachable").text()).toBe("reachable");
     expect(row.text()).toContain("http://hermes.local:3001");
+    wrapper.unmount();
+  });
+
+  it("opens an agent detail view showing its declared capabilities", async () => {
+    listAgentsMock.mockResolvedValue([
+      {
+        id: "a1",
+        alias: "Hermes",
+        agent_id: "agent-hermes",
+        owner_employee_id: "e1",
+        logo_url: "/logos/fox-clean.png",
+        capabilities: {
+          system: "hermes",
+          mcp: ["sap", "github"],
+          tools: ["code", "search"],
+          skills: ["code_review"],
+          specialty: "integration",
+          tags: ["sap", "reporting"],
+          examples: ["How is Q2 reporting structured?"],
+        },
+        runtime: "local",
+        api_url: "http://hermes.local:3001",
+        status: "reachable",
+        has_token: true,
+        capabilities_pending_review: false,
+        connected: true,
+        created_at: "2026-08-08T00:00:00.000Z",
+        updated_at: "2026-08-08T00:00:00.000Z",
+      },
+    ]);
+    const { wrapper } = await mountView();
+
+    await wrapper.find(".agent-status-row").trigger("click");
+    await flushPromises();
+    const detail = wrapper.find(".agent-detail");
+    expect(detail.exists()).toBe(true);
+    expect(detail.text()).toContain("agent-hermes");
+    expect(detail.text()).toContain("Hermes");
+    expect(detail.text()).toContain("sap");
+    expect(detail.text()).toContain("github");
+    expect(detail.text()).toContain("code");
+    expect(detail.text()).toContain("code_review");
+    expect(detail.text()).toContain("reporting");
+    expect(detail.text()).toContain("How is Q2 reporting structured?");
+    expect(detail.text()).toContain("connected");
+    expect(detail.text()).toContain("http://hermes.local:3001");
+    expect(detail.text()).toContain("Capabilities approved");
+    wrapper.unmount();
+  });
+
+  it("confirms a pending-review agent from the detail view", async () => {
+    listAgentsMock
+      .mockResolvedValueOnce([
+        {
+          id: "a1",
+          alias: "Hermes",
+          agent_id: "agent-hermes",
+          owner_employee_id: "e1",
+          logo_url: "",
+          capabilities: { system: "hermes", mcp: [], tools: ["deploy"], skills: [], specialty: "integration" },
+          runtime: "local",
+          api_url: "",
+          status: "registered",
+          has_token: false,
+          capabilities_pending_review: true,
+          created_at: "2026-08-08T00:00:00.000Z",
+          updated_at: "2026-08-08T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValue([
+        {
+          id: "a1",
+          alias: "Hermes",
+          agent_id: "agent-hermes",
+          owner_employee_id: "e1",
+          logo_url: "",
+          capabilities: { system: "hermes", mcp: [], tools: ["deploy"], skills: [], specialty: "integration" },
+          runtime: "local",
+          api_url: "",
+          status: "registered",
+          has_token: false,
+          capabilities_pending_review: false,
+          created_at: "2026-08-08T00:00:00.000Z",
+          updated_at: "2026-08-08T00:00:00.000Z",
+        },
+      ]);
+    confirmAgentMock.mockResolvedValue({ id: "a1", capabilities_pending_review: false });
+    const { wrapper } = await mountView();
+
+    await wrapper.find(".agent-status-row").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".detail-review.is-pending").exists()).toBe(true);
+    expect(wrapper.find(".detail-review").text()).toContain("review and confirm");
+
+    await wrapper.find(".detail-confirm").trigger("click");
+    await flushPromises();
+
+    expect(confirmAgentMock).toHaveBeenCalledWith("agent-hermes", "ses123");
+    expect(wrapper.find(".detail-review.is-pending").exists()).toBe(false);
+    expect(wrapper.find(".detail-review").text()).toContain("Capabilities approved");
+    wrapper.unmount();
+  });
+
+  it("edits the agent alias and logo from the detail view", async () => {
+    listAgentsMock.mockResolvedValue([
+      {
+        id: "a1",
+        alias: "Hermes",
+        agent_id: "agent-hermes",
+        owner_employee_id: "e1",
+        logo_url: "/logos/fox-clean.png",
+        capabilities: { system: "hermes", mcp: [], tools: ["deploy"], skills: [], specialty: "integration" },
+        runtime: "local",
+        api_url: "",
+        status: "registered",
+        has_token: false,
+        capabilities_pending_review: false,
+        created_at: "2026-08-08T00:00:00.000Z",
+        updated_at: "2026-08-08T00:00:00.000Z",
+      },
+    ]);
+    updateAgentMock.mockResolvedValue({ id: "a1", alias: "Hermes-2" });
+    const { wrapper } = await mountView();
+
+    await wrapper.find(".agent-status-row").trigger("click");
+    await flushPromises();
+    await wrapper.find(".detail-edit-toggle").trigger("click");
+    await wrapper.find(".detail-alias").setValue("Hermes-2");
+    const wolf = wrapper
+      .findAll(".detail-edit-form .logo-option")
+      .find((el) => el.attributes("data-url") === "/logos/wolf-indigo.png");
+    await wolf!.trigger("click");
+    await wrapper.find(".detail-save").trigger("click");
+    await flushPromises();
+
+    expect(updateAgentMock).toHaveBeenCalledWith("Hermes", {
+      alias: "Hermes-2",
+      logo_url: "/logos/wolf-indigo.png",
+    });
+    wrapper.unmount();
+  });
+
+  it("sends the capabilities to the server when a capability is edited", async () => {
+    listAgentsMock.mockResolvedValue([
+      {
+        id: "a1",
+        alias: "Hermes",
+        agent_id: "agent-hermes",
+        owner_employee_id: "e1",
+        logo_url: "/logos/fox-clean.png",
+        capabilities: { system: "hermes", mcp: [], tools: ["deploy"], skills: [], specialty: "integration" },
+        runtime: "local",
+        api_url: "",
+        status: "registered",
+        has_token: false,
+        capabilities_pending_review: false,
+        created_at: "2026-08-08T00:00:00.000Z",
+        updated_at: "2026-08-08T00:00:00.000Z",
+      },
+    ]);
+    updateAgentMock.mockResolvedValue({ id: "a1", capabilities_pending_review: true });
+    const { wrapper } = await mountView();
+
+    await wrapper.find(".agent-status-row").trigger("click");
+    await flushPromises();
+    await wrapper.find(".detail-edit-toggle").trigger("click");
+    await wrapper.find(".caps-mcp").setValue("sap, github");
+    await wrapper.find(".detail-save").trigger("click");
+    await flushPromises();
+
+    expect(updateAgentMock).toHaveBeenCalledWith("Hermes", {
+      capabilities: {
+        system: "hermes",
+        mcp: ["sap", "github"],
+        tools: ["deploy"],
+        skills: [],
+        specialty: "integration",
+      },
+    });
     wrapper.unmount();
   });
 

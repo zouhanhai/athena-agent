@@ -5,6 +5,9 @@ import {
   listDeclarations,
   registerDeclaration,
   listAgents,
+  getAgent,
+  updateAgent,
+  confirmAgent,
   createAgent,
   inviteAgent,
   registerAgent,
@@ -108,6 +111,79 @@ describe("listAgents", () => {
     const result = await listAgents();
     expect(fetchMock()).toHaveBeenCalledWith("/api/agents", undefined);
     expect(result).toEqual(agents);
+  });
+});
+
+describe("getAgent", () => {
+  it("GETs a single agent's full detail by alias", async () => {
+    const agent = {
+      id: "a1",
+      alias: "Hermes",
+      agent_id: "agent-hermes",
+      owner_employee_id: "zhang.wei",
+      logo_url: "/logos/fox-clean.png",
+      capabilities: caps,
+      runtime: "local",
+      api_url: "http://hermes.local:3001",
+      status: "reachable" as const,
+      has_token: true,
+      capabilities_pending_review: false,
+      connected: true,
+      created_at: "x",
+      updated_at: "x",
+    };
+    stubFetch(jsonResponse(agent));
+    const result = await getAgent("Hermes");
+    expect(fetchMock()).toHaveBeenCalledWith("/api/agents/Hermes", undefined);
+    expect(result).toEqual(agent);
+  });
+});
+
+describe("updateAgent", () => {
+  it("PUTs alias + logo edits to the agent detail", async () => {
+    const agent = { id: "a1", alias: "Hermes-2", logo_url: "/logos/wolf-indigo.png" };
+    stubFetch(jsonResponse(agent));
+    const result = await updateAgent("Hermes", {
+      alias: "Hermes-2",
+      logo_url: "/logos/wolf-indigo.png",
+    });
+    expect(fetchMock()).toHaveBeenCalledWith(
+      "/api/agents/Hermes",
+      expect.objectContaining({
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias: "Hermes-2", logo_url: "/logos/wolf-indigo.png" }),
+      }),
+    );
+    expect(result).toEqual(agent);
+  });
+
+  it("sends capabilities, which re-opens the pending-review state", async () => {
+    const agent = { id: "a1", alias: "Hermes", capabilities: { ...caps, specialty: "deploy" } };
+    stubFetch(jsonResponse(agent));
+    await updateAgent("Hermes", { capabilities: { ...caps, specialty: "deploy" } });
+    expect(fetchMock()).toHaveBeenCalledWith(
+      "/api/agents/Hermes",
+      expect.objectContaining({
+        body: JSON.stringify({ capabilities: { ...caps, specialty: "deploy" } }),
+      }),
+    );
+  });
+});
+
+describe("confirmAgent", () => {
+  it("POSTs the owner review/approval with a Bearer session token", async () => {
+    const agent = { id: "a1", alias: "Hermes", capabilities_pending_review: false };
+    stubFetch(jsonResponse(agent));
+    const result = await confirmAgent("agent-hermes", "ses123");
+    expect(fetchMock()).toHaveBeenCalledWith(
+      "/api/agents/agent-hermes/confirm",
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer ses123" },
+      }),
+    );
+    expect(result).toEqual(agent);
   });
 });
 
