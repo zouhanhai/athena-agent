@@ -6,6 +6,7 @@ import path from "node:path";
 import { AgentManager } from "./agents/manager.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerKbRoutes } from "./routes/kb.js";
+import { registerKbMcpRoutes } from "./routes/kb-mcp.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerLogoRoutes } from "./routes/logos.js";
 import { registerEmployeeRoutes } from "./routes/employees.js";
@@ -444,6 +445,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     // G4.S3.T10: the wiki-edit save endpoint is RBAC-gated behind `kb.edit`.
     auth,
   });
+
+  // G4.S7.T3: KB-as-MCP — wrap KnowledgeRetrievalService into the 5 retrieval
+  // MCP tools over Streamable HTTP (search_knowledge / get_wiki_page /
+  // get_graph / get_kb_topics / get_wiki_tree), auth'd with the platform's
+  // per-employee session token, reachable from any external agent over the
+  // public URL (athenakb.com). A2A (answer()) is deferred to M6.
+  registerKbMcpRoutes(app, { retrieval, auth });
 
   return app;
 }
