@@ -33,6 +33,8 @@ export interface AgentRecord {
   status: AgentStatus;
   /** Whether an invitation auth token is active for this agent (never the raw token). */
   has_token: boolean;
+  /** G4.S7.T4: whether the agent holds a live reverse-WS tunnel right now (platform-driven). */
+  connected?: boolean;
   created_at: string;
   updated_at: string;
 }

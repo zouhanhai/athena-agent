@@ -4,6 +4,18 @@ export interface SSEHandlers {
   onError?: (message: string) => void;
   /** G4.S3.T13: a clarification follow-up (question + options) relayed from the chat stream. */
   onClarify?: (clarify: ChatClarification) => void;
+  /** G4.S7.T4: a remote agent's reasoning/thinking token (kept apart from the final answer). */
+  onThinking?: (text: string) => void;
+  /** G4.S7.T4: tool progress from a remote agent (tool.started / tool.completed). */
+  onTool?: (tool: ToolProgress) => void;
+}
+
+/** G4.S7.T4: a tool-progress row streamed by a remote agent over its reverse tunnel. */
+export interface ToolProgress {
+  state: "started" | "completed" | "failed";
+  name: string;
+  detail?: string;
+  error?: string;
 }
 
 /** G4.S3.T13: a clarification the agent wants the user to answer. `query` is the
@@ -67,9 +79,23 @@ function dispatchEvent(event: string, handlers: SSEHandlers): void {
   const payload = dataLine.slice("data:".length).trim();
   if (!payload) return;
 
-  let parsed: { delta?: unknown; done?: unknown; error?: unknown; clarify?: unknown };
+  let parsed: {
+    delta?: unknown;
+    done?: unknown;
+    error?: unknown;
+    clarify?: unknown;
+    thinking?: unknown;
+    tool?: unknown;
+  };
   try {
-    parsed = JSON.parse(payload) as { delta?: unknown; done?: unknown; error?: unknown; clarify?: unknown };
+    parsed = JSON.parse(payload) as {
+      delta?: unknown;
+      done?: unknown;
+      error?: unknown;
+      clarify?: unknown;
+      thinking?: unknown;
+      tool?: unknown;
+    };
   } catch {
     return;
   }
@@ -80,6 +106,10 @@ function dispatchEvent(event: string, handlers: SSEHandlers): void {
     handlers.onDone?.();
   } else if (isChatClarification(parsed.clarify)) {
     handlers.onClarify?.(parsed.clarify);
+  } else if (typeof parsed.thinking === "string") {
+    handlers.onThinking?.(parsed.thinking);
+  } else if (isToolProgress(parsed.tool)) {
+    handlers.onTool?.(parsed.tool);
   } else if (typeof parsed.delta === "string") {
     handlers.onDelta?.(parsed.delta);
   }
@@ -91,4 +121,14 @@ function isChatClarification(value: unknown): value is ChatClarification {
   if (typeof v.question !== "string") return false;
   if (!Array.isArray(v.options) || !v.options.every((o) => typeof o === "string")) return false;
   return v.query === undefined || typeof v.query === "string";
+}
+
+function isToolProgress(value: unknown): value is ToolProgress {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.state !== "started" && v.state !== "completed" && v.state !== "failed") return false;
+  if (typeof v.name !== "string") return false;
+  if (v.detail !== undefined && typeof v.detail !== "string") return false;
+  if (v.error !== undefined && typeof v.error !== "string") return false;
+  return true;
 }

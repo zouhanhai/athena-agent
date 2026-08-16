@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { streamChat } from "@/api/chat";
 import { sendFeedback, type FeedbackDirection } from "@/api/feedback";
-import type { ChatClarification } from "@/api/sse";
+import type { ChatClarification, ToolProgress } from "@/api/sse";
 
 export type ChatSpeakerKind = "agent" | "employee";
 export type ChatMessageRole = "user" | "assistant" | "system";
@@ -14,13 +14,26 @@ export interface ChatSpeaker {
   logoUrl: string;
 }
 
-/** A participant (agent/employee) in the shared conversation, shown as a card. */
+/**
+ * A participant (agent/employee) in the shared conversation, shown as a card.
+ */
 export interface ChatParticipant extends ChatSpeaker {
   capabilities: string[];
   /** Speak permission: on = responds, off = reads context only. */
   speak: boolean;
   /** Page context injected when this participant joined (onAgentJoined). */
   joinedPage?: string;
+  /** G4.S7.T4: registered identity of a remote agent — when set, messages route
+   *  to that agent over its reverse WS tunnel instead of the local Athena session. */
+  agentId?: string;
+}
+
+/** G4.S7.T4: one tool-progress row streamed by a remote agent (tool.started/completed). */
+export interface ToolProgressRow {
+  name: string;
+  state: "started" | "completed" | "failed";
+  detail?: string;
+  error?: string;
 }
 
 export interface ChatMessage {
@@ -33,6 +46,10 @@ export interface ChatMessage {
   clarification?: ChatClarification | null;
   /** G4.S3.T13: whether the clarification has been answered (options hidden once chosen). */
   clarificationAnswered?: boolean;
+  /** G4.S7.T4: tool progress rows streamed alongside the answer (collapsed to a status pill). */
+  progress?: ToolProgressRow[];
+  /** G4.S7.T4: a remote agent's reasoning/thinking tokens, rendered separately from the answer. */
+  thinking?: string;
 }
 
 interface ChatState {
@@ -93,7 +110,7 @@ export const useChatStore = defineStore("chat", {
       this.userSpeaker = { ...speaker };
     },
     /** The participant that speaks for the assistant bubbles — the last joined agent with speak on, else Athena. */
-    speakingAgent(): ChatSpeaker {
+    speakingAgent(): ChatParticipant {
       const speaking = [...this.participants]
         .reverse()
         .find((p) => p.kind === "agent" && p.speak);
@@ -150,37 +167,77 @@ export const useChatStore = defineStore("chat", {
       this.loading = true;
       this.error = "";
 
+      const agent = this.speakingAgent();
       const assistantIndex =
         this.messages.push({
           role: "assistant",
           content: "",
-          speaker: this.speakingAgent(),
+          speaker: agent,
         }) - 1;
 
+      const onDelta = (delta: string): void => {
+        this.messages[assistantIndex]!.content += delta;
+      };
+      const onTool = (tool: ToolProgress): void => {
+        this.appendToolProgress(assistantIndex, tool);
+      };
+      const onThinking = (thinking: string): void => {
+        const msg = this.messages[assistantIndex];
+        if (msg) {
+          msg.thinking = (msg.thinking ?? "") + thinking;
+        }
+      };
+      const onClarify = (clarify: ChatClarification): void => {
+        const msg = this.messages[assistantIndex];
+        if (msg) {
+          msg.clarification = clarify;
+          msg.content = clarify.question;
+        }
+      };
+      const onError = (errMessage: string): void => {
+        this.error = errMessage;
+        if (this.messages[assistantIndex]!.content === "") {
+          this.messages.splice(assistantIndex, 1);
+        }
+      };
+
       try {
-        await streamChat(this.userId, text, {
-          onDelta: (delta) => {
-            this.messages[assistantIndex]!.content += delta;
-          },
-          onClarify: (clarify) => {
-            const msg = this.messages[assistantIndex];
-            if (msg) {
-              msg.clarification = clarify;
-              msg.content = clarify.question;
-            }
-          },
-          onError: (errMessage) => {
-            this.error = errMessage;
-            if (this.messages[assistantIndex]!.content === "") {
-              this.messages.splice(assistantIndex, 1);
-            }
-          },
-        }, this.page);
+        // G4.S7.T4: a remote agent participant carries its registered identity →
+        // route the message over its reverse WS tunnel; otherwise the local session.
+        if (agent.agentId) {
+          await streamChat(this.userId, text, { onDelta, onTool, onThinking, onClarify, onError }, this.page, undefined, agent.agentId);
+        } else {
+          await streamChat(this.userId, text, { onDelta, onClarify, onThinking, onTool, onError }, this.page);
+        }
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
       } finally {
         this.loading = false;
       }
+    },
+
+    /** G4.S7.T4: apply a remote agent's tool-progress event to an assistant bubble. */
+    appendToolProgress(messageIndex: number, tool: ToolProgress): void {
+      const msg = this.messages[messageIndex];
+      if (!msg) return;
+      const rows = (msg.progress ?? []).slice();
+      if (tool.state === "started") {
+        rows.push({ name: tool.name, state: tool.state, detail: tool.detail, error: tool.error });
+      } else {
+        let idx = -1;
+        for (let i = rows.length - 1; i >= 0; i -= 1) {
+          if (rows[i]!.name === tool.name) {
+            idx = i;
+            break;
+          }
+        }
+        if (idx !== -1) {
+          rows[idx] = { name: tool.name, state: tool.state, detail: tool.detail, error: tool.error };
+        } else {
+          rows.push({ name: tool.name, state: tool.state, detail: tool.detail, error: tool.error });
+        }
+      }
+      msg.progress = rows;
     },
     /**
      * G4.S3.T13: the user picked an option on a clarification. Feeds the choice
@@ -199,25 +256,47 @@ export const useChatStore = defineStore("chat", {
       this.loading = true;
       this.error = "";
 
+      const agent = this.speakingAgent();
       const assistantIndex =
         this.messages.push({
           role: "assistant",
           content: "",
-          speaker: this.speakingAgent(),
+          speaker: agent,
         }) - 1;
 
       try {
-        await streamChat(this.userId, text, {
-          onDelta: (delta) => {
-            this.messages[assistantIndex]!.content += delta;
-          },
-          onError: (errMessage) => {
-            this.error = errMessage;
-            if (this.messages[assistantIndex]!.content === "") {
-              this.messages.splice(assistantIndex, 1);
-            }
-          },
-        }, this.page, { query, answer: text });
+        if (agent.agentId) {
+          await streamChat(
+            this.userId,
+            text,
+            {
+              onDelta: (delta) => {
+                this.messages[assistantIndex]!.content += delta;
+              },
+              onError: (errMessage) => {
+                this.error = errMessage;
+                if (this.messages[assistantIndex]!.content === "") {
+                  this.messages.splice(assistantIndex, 1);
+                }
+              },
+            },
+            this.page,
+            { query, answer: text },
+            agent.agentId,
+          );
+        } else {
+          await streamChat(this.userId, text, {
+            onDelta: (delta) => {
+              this.messages[assistantIndex]!.content += delta;
+            },
+            onError: (errMessage) => {
+              this.error = errMessage;
+              if (this.messages[assistantIndex]!.content === "") {
+                this.messages.splice(assistantIndex, 1);
+              }
+            },
+          }, this.page, { query, answer: text });
+        }
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
       } finally {

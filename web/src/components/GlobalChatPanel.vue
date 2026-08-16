@@ -99,6 +99,8 @@ function addAgent(agent: AgentRecord) {
     kind: "agent",
     name: agent.alias,
     logoUrl: agent.logo_url,
+    // G4.S7.T4: the registered identity drives reverse-tunnel chat routing.
+    agentId: agent.agent_id,
     capabilities: [
       agent.capabilities.specialty,
       ...agent.capabilities.mcp,
@@ -157,6 +159,10 @@ function addEmployee(emp: EmployeeRecord) {
         >
           <img class="picker-logo" :src="agent.logo_url" alt="" />
           <span>{{ agent.alias }}</span>
+          <!-- G4.S7.T4: a live reverse tunnel = the agent is reachable now. -->
+          <span class="picker-connectivity" :class="agent.connected ? 'is-live' : 'is-offline'">
+            {{ agent.connected ? "Live" : "Offline" }}
+          </span>
         </button>
         <p v-if="!pickerError && pickableAgents().length === 0" class="picker-empty">
           No agents available to add.
@@ -206,6 +212,28 @@ function addEmployee(emp: EmployeeRecord) {
           <div class="bubble-block">
             <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
               {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
+            </div>
+            <!-- G4.S7.T4: a remote agent's reasoning channel — collapsed progress row
+                 under the bubble, distinct from the final answer text. -->
+            <details v-if="msg.role === 'assistant' && msg.thinking" class="thinking-block">
+              <summary>Thought for a moment…</summary>
+              <div class="thinking-text">{{ msg.thinking }}</div>
+            </details>
+            <!-- G4.S7.T4: tool progress rows streamed by a remote agent. -->
+            <div v-if="msg.role === 'assistant' && msg.progress && msg.progress.length" class="tool-progress">
+              <div
+                v-for="(tool, toolIdx) in msg.progress"
+                :key="`${tool.name}-${toolIdx}`"
+                class="tool-progress-row"
+              >
+                <span class="tool-state" :class="`tool-${tool.state}`">
+                  {{ tool.state === "started" ? "▶" : tool.state === "completed" ? "✓" : "✕" }}
+                </span>
+                <span class="tool-name">{{ tool.name }}</span>
+                <span v-if="tool.detail" class="tool-detail">{{ tool.detail }}</span>
+                <span v-if="tool.state === 'completed' || tool.state === 'failed'">done</span>
+                <span v-if="tool.error" class="tool-error">{{ tool.error }}</span>
+              </div>
             </div>
             <!-- G4.S3.T13: a legitimate clarification → render question + options
                  as a REAL user follow-up; picking one re-runs the query. -->
@@ -355,6 +383,104 @@ function addEmployee(emp: EmployeeRecord) {
   height: 24px;
   border-radius: 50%;
   object-fit: contain;
+}
+
+/* G4.S7.T4: live-tunnel status in the agent picker. */
+.picker-connectivity {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.picker-connectivity.is-live {
+  color: var(--caleo-success, #2f9e44);
+  background: color-mix(in srgb, var(--caleo-success, #2f9e44) 12%, transparent);
+}
+
+.picker-connectivity.is-offline {
+  color: var(--caleo-text-secondary);
+  background: color-mix(in srgb, var(--caleo-text-secondary) 12%, transparent);
+}
+
+/* G4.S7.T4: remote-agent reasoning + tool progress rows under the bubble. */
+.thinking-block {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  background: color-mix(in srgb, var(--caleo-primary) 5%, transparent);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.thinking-block summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.thinking-text {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.tool-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-width: 100%;
+}
+
+.tool-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.tool-state {
+  font-size: 11px;
+  width: 14px;
+}
+
+.tool-state.tool-started {
+  color: var(--caleo-primary);
+}
+
+.tool-state.tool-completed {
+  color: var(--caleo-success, #2f9e44);
+}
+
+.tool-state.tool-failed {
+  color: var(--caleo-error);
+}
+
+.tool-name {
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.tool-detail,
+.tool-error {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-error {
+  color: var(--caleo-error);
 }
 
 .picker-error {

@@ -1,4 +1,4 @@
-import { consumeSSEStream, type ChatClarification } from "./sse";
+import { consumeSSEStream, type ChatClarification, type ToolProgress } from "./sse";
 
 const CHAT_ENDPOINT = "/api/chat";
 
@@ -19,6 +19,10 @@ export interface ChatStreamHandlers {
   onError?: (message: string) => void;
   /** G4.S3.T13: a clarification follow-up (question + options) from the chat stream. */
   onClarify?: (clarify: ChatClarification) => void;
+  /** G4.S7.T4: reasoning/thinking tokens from a remote agent. */
+  onThinking?: (text: string) => void;
+  /** G4.S7.T4: tool progress rows from a remote agent. */
+  onTool?: (tool: ToolProgress) => void;
 }
 
 /**
@@ -31,8 +35,9 @@ export async function sendChat(
   userId: string,
   message: string,
   page?: string,
+  targetAgentId?: string,
 ): Promise<string> {
-  const res = await postChat(userId, message, {}, page);
+  const res = await postChat(userId, message, {}, page, undefined, targetAgentId);
   const data = (await res.json()) as ChatReply;
   return data.reply;
 }
@@ -42,7 +47,8 @@ export async function sendChat(
  * calls onDelta chunk by chunk via consumeSSEStream, dispatches done/error/clarify
  * to onDone/onError/onClarify. When `clarifyAnswer` is provided, the request body
  * carries `clarify: { query, answer }` so the server re-runs the original query
- * with the user's chosen context (G4.S3.T13).
+ * with the user's chosen context (G4.S3.T13). When `targetAgentId` is provided
+ * (G4.S7.T4), the message is routed to that remote agent over its reverse tunnel.
  */
 export async function streamChat(
   userId: string,
@@ -50,8 +56,16 @@ export async function streamChat(
   handlers: ChatStreamHandlers,
   page?: string,
   clarifyAnswer?: ChatClarifyAnswer,
+  targetAgentId?: string,
 ): Promise<void> {
-  const res = await postChat(userId, message, { Accept: "text/event-stream" }, page, clarifyAnswer);
+  const res = await postChat(
+    userId,
+    message,
+    { Accept: "text/event-stream" },
+    page,
+    clarifyAnswer,
+    targetAgentId,
+  );
   await consumeSSEStream(res, handlers);
 }
 
@@ -61,6 +75,7 @@ async function postChat(
   extraHeaders: Record<string, string> = {},
   page?: string,
   clarifyAnswer?: ChatClarifyAnswer,
+  targetAgentId?: string,
 ): Promise<Response> {
   const body: Record<string, unknown> = { userId, message };
   if (page) {
@@ -68,6 +83,9 @@ async function postChat(
   }
   if (clarifyAnswer) {
     body.clarify = clarifyAnswer;
+  }
+  if (targetAgentId) {
+    body.agent_id = targetAgentId;
   }
   const res = await fetch(CHAT_ENDPOINT, {
     method: "POST",
