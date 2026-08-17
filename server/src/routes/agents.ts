@@ -129,10 +129,19 @@ function remoteFields(
 export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOptions): void {
   const { registry, auth, hub } = options;
 
-  /** G4.S7.T4: attach live reverse-WS reachability to an AgentRecord. */
+  /**
+   * G4.S7.T4: attach live reverse-WS reachability to an AgentRecord. When the
+   * agent holds a live tunnel right now, `connected` is set AND status is
+   * promoted to "reachable" — the instantaneous WS signal beats the
+   * last_seen_at freshness window, so a dead tunnel shows up as
+   * registered/reachable immediately instead of waiting out the 5-min window.
+   */
   function withConnectivity(record: import("../agents/registry.js").AgentRecord) {
     const connected = hub?.isConnected(record.agent_id) ?? false;
-    return connected ? { ...record, connected } : record;
+    if (!connected) {
+      return record;
+    }
+    return { ...record, connected, status: "reachable" };
   }
 
   /**
