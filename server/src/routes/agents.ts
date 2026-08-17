@@ -401,7 +401,13 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
    * invitation token and records its real reachability (api_url) + status.
    */
   app.post("/api/agents/register", async (request, reply) => {
-    const body = (request.body ?? {}) as { agent_id?: unknown; api_url?: unknown; token?: unknown };
+    const body = (request.body ?? {}) as {
+      agent_id?: unknown;
+      api_url?: unknown;
+      token?: unknown;
+      capabilities?: unknown;
+      runtime?: unknown;
+    };
 
     if (invalidString(body.agent_id)) {
       return reply.code(400).send({ error: "agent_id is required" });
@@ -411,12 +417,26 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     if (body.token === undefined || typeof body.token !== "string" || body.token.trim() === "") {
       return reply.code(400).send({ error: "token is required" });
     }
+    // The agent MAY ship its capability profile in the SAME request (G4.S7.T9):
+    // capabilities + runtime get stored on the agent row directly, so no
+    // separate self-declare / confirm round-trip is needed.
+    let capabilities: AgentCapabilities | null | undefined;
+    if (body.capabilities !== undefined) {
+      capabilities = parseCapabilities(body.capabilities);
+      if (!capabilities) {
+        return reply
+          .code(400)
+          .send({ error: "capabilities must be { system, mcp: string[], tools: string[], skills: string[], specialty, description? }" });
+      }
+    }
 
     try {
       const record = await registry.registerWithInvite({
         agent_id: (body.agent_id as string).trim(),
         api_url: typeof body.api_url === "string" ? body.api_url.trim() : "",
         token: (body.token as string).trim(),
+        capabilities: capabilities ?? undefined,
+        runtime: typeof body.runtime === "string" ? body.runtime.trim() : "",
       });
       return record;
     } catch (err) {

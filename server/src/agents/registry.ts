@@ -135,6 +135,15 @@ export interface AgentInviteRegisterInput {
   agent_id: string;
   api_url: string;
   token: string;
+  /**
+   * G4.S7.T2/T9: optional capability profile submitted in the SAME request as
+   * registration — the agent declares its system/specialty/tools/skills once,
+   * and the platform stores it on the agent row directly. This avoids the
+   * split-brain of registering identities in one table and capabilities in
+   * another (declarations).
+   */
+  capabilities?: AgentCapabilities;
+  runtime?: string;
 }
 
 export class AgentConflictError extends Error {}
@@ -493,6 +502,13 @@ export class MemoryAgentRegistry implements AgentRegistry {
     const stored: StoredAgent = {
       ...existing,
       api_url: input.api_url,
+      // The agent can submit its capabilities in the same registration
+      // request; adopt them and mark them confirmed by the platform. If it
+      // didn't ship any, leave the stored profile as-is (may be filled later
+      // via self-declare → owner confirm).
+      capabilities: input.capabilities ?? existing.capabilities,
+      runtime: input.runtime ?? existing.runtime,
+      capabilities_confirmed_at: input.capabilities ? now() : existing.capabilities_confirmed_at,
       registered_at: now(),
       last_seen_at: now(),
       updated_at: now(),
@@ -978,12 +994,20 @@ export class PostgresAgentRegistry implements AgentRegistry {
     if (!row || !row.token_hash || row.token_hash !== hashToken(input.token)) {
       throw new AgentAuthError("invalid agent_id or token");
     }
+    // If the agent shipped capabilities in the registration request, adopt
+    // them + mark confirmed; otherwise keep the stored profile as-is.
+    const capabilities = input.capabilities
+      ? JSON.stringify(input.capabilities)
+      : row.capabilities;
+    const runtime = input.runtime ?? row.runtime;
+    const confirmedAt = input.capabilities ? "now()" : "capabilities_confirmed_at";
     const result = await this.pool.query<AgentRow>(
       `UPDATE agents
-       SET api_url = $2, registered_at = now(), last_seen_at = now(), updated_at = now()
+       SET api_url = $2, capabilities = $3, runtime = $4, capabilities_confirmed_at = ${confirmedAt},
+           registered_at = now(), last_seen_at = now(), updated_at = now()
        WHERE agent_id = $1
        RETURNING *`,
-      [input.agent_id, input.api_url],
+      [input.agent_id, input.api_url, capabilities, runtime],
     );
     // G4.S7.T2: registration consumes any pending self-declaration for the same
     // agent_id so the Settings list doesn't show the agent twice (registered
