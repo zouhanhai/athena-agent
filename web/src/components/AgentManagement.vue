@@ -244,7 +244,13 @@ onMounted(load);
     <section v-if="agents.length > 0" class="am-section">
       <h4 class="am-section-title">Registered agents</h4>
       <ul class="agent-status-list">
-        <li v-for="agent in agents" :key="agent.id" class="agent-status-row" @click="openAgent(agent)">
+        <li
+          v-for="agent in agents"
+          :key="agent.id"
+          class="agent-status-row"
+          :class="{ 'agent-status-row--open': selected?.kind === 'agent' && selected.agent.agent_id === agent.agent_id }"
+          @click="openAgent(agent)"
+        >
           <img class="agent-status-logo" :src="agent.logo_url || PLACEHOLDER_LOGO" :alt="agent.alias" />
           <div class="agent-status-body">
             <div class="agent-status-head">
@@ -267,6 +273,17 @@ onMounted(load);
           <button type="button" class="am-delete" title="Delete agent" @click.stop="onDeleteAgent(agent)">
             Delete
           </button>
+
+          <!-- Inline row expansion: the detail surface lives inside the clicked row -->
+          <div v-if="selected?.kind === 'agent' && selected.agent.agent_id === agent.agent_id" class="agent-status-detail">
+            <AgentDetail
+              :agent="agent"
+              :declaration="null"
+              :logos="logos"
+              @close="selected = null"
+              @updated="onDetailUpdated"
+            />
+          </div>
         </li>
       </ul>
     </section>
@@ -278,6 +295,7 @@ onMounted(load);
           v-for="decl in declarations"
           :key="decl.id"
           class="agent-status-row agent-decl-row"
+          :class="{ 'agent-status-row--open': selected?.kind === 'declaration' && selected.declaration.id === decl.id }"
           @click="openDeclaration(decl)"
         >
           <div class="agent-status-body">
@@ -291,6 +309,17 @@ onMounted(load);
             <p v-if="decl.capabilities.specialty || decl.capabilities.system" class="agent-status-caps">
               {{ decl.capabilities.system }} · {{ decl.capabilities.specialty }}
             </p>
+          </div>
+
+          <!-- Inline row expansion for pending declarations -->
+          <div v-if="selected?.kind === 'declaration' && selected.declaration.id === decl.id" class="agent-status-detail">
+            <AgentDetail
+              :agent="null"
+              :declaration="decl"
+              :logos="logos"
+              @close="selected = null"
+              @updated="onDetailUpdated"
+            />
           </div>
         </li>
       </ul>
@@ -399,15 +428,6 @@ onMounted(load);
       or an admin invites / registers one.
     </p>
 
-    <AgentDetail
-      v-if="selected"
-      :agent="selected.kind === 'agent' ? selected.agent : null"
-      :declaration="selected.kind === 'declaration' ? selected.declaration : null"
-      :logos="logos"
-      @close="selected = null"
-      @updated="onDetailUpdated"
-    />
-
     <t-dialog
       v-model:visible="deleteVisible"
       header="Delete agent"
@@ -472,6 +492,22 @@ onMounted(load);
   border: 1px solid var(--caleo-border, #ddd);
   border-radius: 8px;
   background: var(--caleo-card-bg);
+}
+
+/* Inline row expansion: the clicked row stays in place and the detail surface
+   unfolds directly beneath the summary, instead of a separate panel below. */
+.agent-status-row--open {
+  align-items: flex-start;
+  border-color: var(--caleo-primary, #ff6633);
+  box-shadow: 0 1px 0 0 var(--caleo-primary, #ff6633) inset;
+}
+
+.agent-status-detail {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: 4px;
+  border-top: 1px dashed var(--caleo-border, #ddd);
+  padding-top: 10px;
 }
 
 .agent-status-logo {
