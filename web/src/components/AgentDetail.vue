@@ -304,7 +304,7 @@ async function saveEdit() {
         <h5 class="detail-section-title">Declared capabilities</h5>
         <div class="cap-group">
           <span class="caps-label">system</span>
-          <span class="cap-chip cap-chip-accent">{{ agent.capabilities.system }}</span>
+          <span class="cap-chip">{{ agent.capabilities.system }}</span>
         </div>
         <div class="cap-group">
           <span class="caps-label">specialty</span>
@@ -436,7 +436,7 @@ async function saveEdit() {
           <h5 class="detail-section-title">Declared capabilities</h5>
           <div class="cap-group">
             <span class="caps-label">system</span>
-            <span class="cap-chip cap-chip-accent">{{ declaration.capabilities.system }}</span>
+            <span class="cap-chip">{{ declaration.capabilities.system }}</span>
           </div>
           <div class="cap-group">
             <span class="caps-label">specialty</span>
@@ -690,12 +690,6 @@ async function saveEdit() {
   border-radius: 12px;
   padding: 2px 10px;
   font-size: 12px;
-}
-
-.cap-chip-accent {
-  background: var(--caleo-primary, #ff6633);
-  color: #fff;
-  border-color: transparent;
 }
 
 .cap-empty {
