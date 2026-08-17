@@ -17,6 +17,10 @@ const props = defineProps<{
   /** A pending self-declaration awaiting an owner review (assign alias + logo). */
   declaration?: PendingAgentDeclaration | null;
   logos: LogoRecord[];
+  /** Inline/accordion mode: omit the header + identity + metadata that the
+   *  summary row already shows (alias, id, status, owner, runtime), keeping
+   *  only the incremental content — declared capabilities + edit actions. */
+  inline?: boolean;
 }>();
 
 const emit = defineEmits<{ close: []; updated: [] }>();
@@ -249,8 +253,8 @@ async function saveEdit() {
 </script>
 
 <template>
-  <section class="agent-detail">
-    <header class="detail-header">
+  <section class="agent-detail" :class="{ 'agent-detail--inline': inline }">
+    <header v-if="!inline" class="detail-header">
       <h4 class="detail-title">
         {{ isDeclaration ? "Review agent declaration" : "Agent details" }}
       </h4>
@@ -259,7 +263,7 @@ async function saveEdit() {
 
     <!-- Registered agent: identity + capabilities + reachability + review -->
     <template v-if="agent">
-      <div class="detail-identity">
+      <div v-if="!inline" class="detail-identity">
         <img class="detail-logo" :src="agent.logo_url || DEFAULT_LOGO" :alt="agent.alias" />
         <div class="detail-headline">
           <div class="detail-name-row">
@@ -498,6 +502,15 @@ async function saveEdit() {
   border-radius: 8px;
   padding: 16px;
   background: var(--caleo-card-bg);
+}
+
+/* Inline/accordion use inside AgentManagement: the summary row already
+   provides the card chrome, so drop the nested border/padding. */
+.agent-detail--inline {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .detail-header {

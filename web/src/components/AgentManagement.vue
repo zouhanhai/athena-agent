@@ -274,12 +274,15 @@ onMounted(load);
             Delete
           </button>
 
-          <!-- Inline row expansion: the detail surface lives inside the clicked row -->
+          <!-- Inline row expansion: the detail surface lives inside the clicked row.
+               inline mode omits the identity/metadata the summary row already
+               shows and renders just the incremental capabilities + actions. -->
           <div v-if="selected?.kind === 'agent' && selected.agent.agent_id === agent.agent_id" class="agent-status-detail">
             <AgentDetail
               :agent="agent"
               :declaration="null"
               :logos="logos"
+              inline
               @close="selected = null"
               @updated="onDetailUpdated"
             />
@@ -449,6 +452,11 @@ onMounted(load);
 </template>
 
 <style scoped>
+.agent-management {
+  width: 100%;
+  max-width: 900px;
+}
+
 .am-intro {
   margin: 0 0 12px;
   font-size: 13px;
@@ -486,6 +494,7 @@ onMounted(load);
 
 .agent-status-row {
   display: flex;
+  flex-wrap: wrap; /* lets the inline detail surface wrap to its own full-width row */
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
@@ -580,6 +589,28 @@ onMounted(load);
   gap: 6px 12px;
   font-size: 12px;
   opacity: 0.75;
+  min-width: 0;
+}
+
+.agent-status-id {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--caleo-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--caleo-text-secondary);
+}
+
+.agent-status-url {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--caleo-text-secondary);
 }
 
 .agent-status-caps {
