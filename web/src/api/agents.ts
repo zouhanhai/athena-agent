@@ -184,11 +184,13 @@ export async function inviteAgent(
   });
 }
 
-/** POST /api/agents/register → the invited agent registers auth'd with its token + reachability. */
+/** POST /api/agents/register → the invited agent registers auth'd with its token + reachability, optionally shipping its capability profile in the SAME request (G4.S7.T9). */
 export async function registerAgent(input: {
   agent_id: string;
   api_url?: string;
   token: string;
+  capabilities?: AgentCapabilities;
+  runtime?: string;
 }): Promise<AgentRecord> {
   return request<AgentRecord>("/api/agents/register", {
     method: "POST",

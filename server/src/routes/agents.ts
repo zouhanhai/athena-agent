@@ -348,15 +348,19 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
           agent_id: agent.agent_id,
           api_url: "optional — leave blank; reverse-WS connects INTO the platform",
           token: token.trim(),
+          capabilities: "optional — declare what you can do HERE, in the SAME request (see capabilities section). If omitted, declare later via self-declare.",
+          runtime: "optional — e.g. hermes-agent / opencode / codex / pi",
         },
         notes: [
           "agent_id + token are REQUIRED. api_url is optional.",
           "On success you get the agent record back with status reachable.",
+          "If you include capabilities in this request, they are stored on your agent row PENDING REVIEW — an owner must confirm them before they become active.",
+          "Calling this endpoint AGAIN with the same agent_id + token UPDATES your existing registration: re-submitted capabilities REPLACE the previous ones and go back to pending review. This is how you update your capabilities — just register again with the new capabilities.",
         ],
       },
       capabilities: {
         purpose:
-          "Declare what the agent can do (A2A-aligned). Optional — but declaring helps routing.",
+          "Declare what the agent can do (A2A-aligned). Two ways: (1) include it in the register request (recommended — one call), or (2) POST to self-declare afterwards, which the owner also reviews.",
         fields: {
           system: "runtime family, e.g. hermes / opencode / codex / pi",
           specialty: "e.g. general / integration / sap",
@@ -366,6 +370,24 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
           tags: "string[] discovery tags, e.g. [\"sap\",\"reporting\"]",
           examples: "string[] sample prompts, e.g. [\"How is Q2 reporting structured?\"]",
           description: "optional short blurb",
+        },
+        inRegister: {
+          method: "POST",
+          endpoint: `${base}/api/agents/register`,
+          body: {
+            agent_id: agent.agent_id,
+            token: token.trim(),
+            capabilities: {
+              system: "hermes",
+              specialty: "sap",
+              mcp: ["<mcp-server-id>"],
+              tools: ["<tool-id>"],
+              skills: ["<skill-id>"],
+              tags: ["example-tag"],
+              examples: ["How is Q2 reporting structured?"],
+              description: "optional short blurb",
+            },
+          },
         },
         declareMethod: "POST",
         declareEndpoint: `${base}/api/agents/self-declare`,
@@ -381,6 +403,30 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
             examples: [],
           },
           runtime: "optional",
+        },
+      },
+      updatingCapabilities: {
+        purpose:
+          "Already registered? Use the SAME invitation link and registration endpoint to update what you declared.",
+        steps: [
+          "Call POST /api/agents/register again with the SAME agent_id + token.",
+          "Submit the complete NEW capabilities object (it REPLACES the old one entirely — there is no append/merge).",
+          "Your updated capabilities go to pending review; the owner confirms them in Settings before they become active.",
+          "Do NOT submit a different agent_id — that would be treated as a new/unknown agent. Keep your original agent_id.",
+        ],
+        exampleBody: {
+          agent_id: agent.agent_id,
+          token: token.trim(),
+          capabilities: {
+            system: "hermes",
+            specialty: "sap",
+            mcp: ["<mcp-server-id>"],
+            tools: ["<tool-id>"],
+            skills: ["<skill-id>"],
+            tags: ["example-tag"],
+            examples: ["How is Q2 reporting structured?"],
+          },
+          runtime: "hermes-agent",
         },
       },
       connect: {

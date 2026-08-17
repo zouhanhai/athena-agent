@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { registerAgent, submitSelfDeclaration } from "@/api/agents";
+import { registerAgent, type AgentCapabilities } from "@/api/agents";
 
 const route = useRoute();
 const token = computed(() => (route.query.token as string) || "");
@@ -39,17 +39,11 @@ async function onSubmit() {
   loading.value = true;
   error.value = "";
   try {
-    // 1) Register the invited agent (proves possession of the token).
-    const rec = await registerAgent({
-      agent_id: agentId.value.trim(),
-      api_url: apiUrl.value.trim() || undefined,
-      token: token.value,
-    });
-    // 2) If the agent declared capabilities, submit them via self-declare.
-    if (system.value.trim() || specialty.value.trim() || toolsText.value.trim() || tagsText.value.trim()) {
-      await submitSelfDeclaration(
-        rec.agent_id,
-        {
+    // Build the capability profile if the agent declared anything.
+    const declared =
+      system.value.trim() || specialty.value.trim() || toolsText.value.trim() || tagsText.value.trim();
+    const capabilities: AgentCapabilities | undefined = declared
+      ? {
           system: system.value.trim() || "remote",
           mcp: [],
           tools: toolsText.value.split(",").map((s) => s.trim()).filter(Boolean),
@@ -57,10 +51,17 @@ async function onSubmit() {
           specialty: specialty.value.trim() || "general",
           tags: tagsText.value.split(",").map((s) => s.trim()).filter(Boolean),
           examples: examplesText.value.split("\n").map((s) => s.trim()).filter(Boolean),
-        },
-        runtimeDecl.value.trim() || undefined,
-      );
-    }
+        }
+      : undefined;
+    // Register the invited agent in ONE call: proves token possession AND
+    // ships the capability profile (G4.S7.T9). No separate self-declare.
+    const rec = await registerAgent({
+      agent_id: agentId.value.trim(),
+      api_url: apiUrl.value.trim() || undefined,
+      token: token.value,
+      capabilities,
+      runtime: runtimeDecl.value.trim() || undefined,
+    });
     done.value = true;
     agentId.value = rec.agent_id;
   } catch (err) {
