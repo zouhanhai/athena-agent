@@ -76,10 +76,22 @@ const selected = ref<
 >(null);
 
 function openAgent(agent: AgentRecord) {
+  // Accordion toggle: re-clicking the summary header closes the row.
+  if (selected.value?.kind === "agent" && selected.value.agent.agent_id === agent.agent_id) {
+    selected.value = null;
+    return;
+  }
   selected.value = { kind: "agent", agent };
 }
 
 function openDeclaration(declaration: PendingAgentDeclaration) {
+  if (
+    selected.value?.kind === "declaration" &&
+    selected.value.declaration.id === declaration.id
+  ) {
+    selected.value = null;
+    return;
+  }
   selected.value = { kind: "declaration", declaration };
 }
 
@@ -276,8 +288,14 @@ onMounted(load);
 
           <!-- Inline row expansion: the detail surface lives inside the clicked row.
                inline mode omits the identity/metadata the summary row already
-               shows and renders just the incremental capabilities + actions. -->
-          <div v-if="selected?.kind === 'agent' && selected.agent.agent_id === agent.agent_id" class="agent-status-detail">
+               shows and renders just the incremental capabilities + actions.
+               @click.stop keeps interactions inside the detail (edit buttons,
+               chips) from toggling the row closed. -->
+          <div
+            v-if="selected?.kind === 'agent' && selected.agent.agent_id === agent.agent_id"
+            class="agent-status-detail"
+            @click.stop
+          >
             <AgentDetail
               :agent="agent"
               :declaration="null"
@@ -315,7 +333,11 @@ onMounted(load);
           </div>
 
           <!-- Inline row expansion for pending declarations -->
-          <div v-if="selected?.kind === 'declaration' && selected.declaration.id === decl.id" class="agent-status-detail">
+          <div
+            v-if="selected?.kind === 'declaration' && selected.declaration.id === decl.id"
+            class="agent-status-detail"
+            @click.stop
+          >
             <AgentDetail
               :agent="null"
               :declaration="decl"
@@ -454,7 +476,6 @@ onMounted(load);
 <style scoped>
 .agent-management {
   width: 100%;
-  max-width: 900px;
 }
 
 .am-intro {
