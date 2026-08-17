@@ -413,17 +413,36 @@ export class MemoryAgentRegistry implements AgentRegistry {
     if (!declaration) {
       throw new AgentNotFoundError(`pending declaration "${id}" not found`);
     }
-    const record = await this.create({
-      alias: input.alias,
-      owner_employee_id: input.owner_employee_id,
-      logo_url: input.logo_url,
-      capabilities: declaration.capabilities,
-      runtime: declaration.runtime,
-      // Inherit the agent's self-declared identity so declaration + invitation unify.
-      agent_id: input.agent_id ?? declaration.agent_id,
-      api_url: input.api_url,
-      token: input.token,
-    });
+    const agentId = input.agent_id ?? declaration.agent_id;
+    const existing = this.findByAgentId(agentId);
+    const record = existing
+      ? (() => {
+          // Owner confirms a self-declaration for an already-registered agent:
+          // adopt its capabilities + runtime and mark them CONFIRMED (same
+          // semantics as the Postgres UPDATE path). Do NOT go through
+          // updateByAlias, which would flag the change as pending review again.
+          const updated: StoredAgent = {
+            ...existing,
+            capabilities: declaration.capabilities,
+            runtime: declaration.runtime,
+            capabilities_confirmed_at: now(),
+            updated_at: now(),
+          };
+          this.agents.delete(existing.alias);
+          this.agents.set(existing.alias, updated);
+          return this.recordFromStored(updated);
+        })()
+      : await this.create({
+          alias: input.alias,
+          owner_employee_id: input.owner_employee_id,
+          logo_url: input.logo_url,
+          capabilities: declaration.capabilities,
+          runtime: declaration.runtime,
+          // Inherit the agent's self-declared identity so declaration + invitation unify.
+          agent_id: agentId,
+          api_url: input.api_url,
+          token: input.token,
+        });
     this.declarations.delete(id);
     return record;
   }
@@ -862,30 +881,50 @@ export class PostgresAgentRegistry implements AgentRegistry {
         throw new AgentNotFoundError(`pending declaration "${id}" not found`);
       }
       const declaration = decl.rows[0];
+      const agentId = input.agent_id ?? declaration.agent_id;
+      // G4.S7.T9 fix: the agent may already exist (invite-registered before the
+      // capability self-declaration). In that case confirming the declaration
+      // must UPDATE the existing agent (fill capabilities + confirm), not
+      // INSERT a duplicate — INSERT would hit the unique constraint → 409.
+      const existing = await client.query<AgentRow>(
+        `SELECT * FROM agents WHERE agent_id = $1`,
+        [agentId],
+      );
       let result: pg.QueryResult<AgentRow>;
-      try {
+      if (existing.rows.length > 0) {
         result = await client.query<AgentRow>(
-          `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, registered_at, capabilities_confirmed_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
+          `UPDATE agents
+           SET capabilities = $2, runtime = $3, capabilities_confirmed_at = now(),
+               updated_at = now()
+           WHERE agent_id = $1
            RETURNING *`,
-          [
-            randomUUID(),
-            input.alias,
-            input.agent_id ?? declaration.agent_id,
-            input.owner_employee_id,
-            input.logo_url ?? "",
-            JSON.stringify(declaration.capabilities),
-            declaration.runtime,
-            input.api_url ?? "",
-            input.token ? hashToken(input.token) : "",
-          ],
+          [agentId, JSON.stringify(declaration.capabilities), declaration.runtime],
         );
-      } catch (err) {
-        await client.query("ROLLBACK");
-        if (isUniqueViolation(err)) {
-          throw new AgentConflictError(`agent alias "${input.alias}" or identity already registered`);
+      } else {
+        try {
+          result = await client.query<AgentRow>(
+            `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, registered_at, capabilities_confirmed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
+             RETURNING *`,
+            [
+              randomUUID(),
+              input.alias,
+              agentId,
+              input.owner_employee_id,
+              input.logo_url ?? "",
+              JSON.stringify(declaration.capabilities),
+              declaration.runtime,
+              input.api_url ?? "",
+              input.token ? hashToken(input.token) : "",
+            ],
+          );
+        } catch (err) {
+          await client.query("ROLLBACK");
+          if (isUniqueViolation(err)) {
+            throw new AgentConflictError(`agent alias "${input.alias}" or identity already registered`);
+          }
+          throw err;
         }
-        throw err;
       }
       await client.query(`DELETE FROM agent_declarations WHERE id = $1`, [id]);
       await client.query("COMMIT");
