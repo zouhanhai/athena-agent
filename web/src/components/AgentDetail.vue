@@ -236,6 +236,9 @@ async function saveEdit() {
       return;
     }
     await updateAgent(agent.alias, patch);
+    // Saved — leave the edit surface so the user lands back on the read-only
+    // details instead of having to click "Cancel editing".
+    editing.value = false;
     emit("updated");
   } catch (err) {
     saveError.value = err instanceof Error ? err.message : String(err);
