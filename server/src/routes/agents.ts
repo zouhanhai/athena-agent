@@ -135,6 +135,31 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
     return connected ? { ...record, connected } : record;
   }
 
+  /**
+   * Attach the owner's EMAIL to agents (resolved from the employee registry) so
+   * the UI can display "zouha108@caleo.com" instead of the raw employee UUID.
+   * Non-admin/system owners (no employee row) stay as-is.
+   */
+  async function withOwnerEmails(
+    records: Array<import("../agents/registry.js").AgentRecord>,
+  ): Promise<Array<import("../agents/registry.js").AgentRecord> & Array<{ owner_email?: string }>> {
+    if (!options.employees) {
+      return records as never;
+    }
+    const out: Array<import("../agents/registry.js").AgentRecord & { owner_email?: string }> = [];
+    for (const record of records) {
+      let owner_email: string | undefined;
+      if (record.owner_employee_id && record.owner_employee_id !== "system") {
+        const owner = await options.employees.getById(record.owner_employee_id);
+        if (owner) {
+          owner_email = owner.email;
+        }
+      }
+      out.push(owner_email ? { ...record, owner_email } : record);
+    }
+    return out as never;
+  }
+
   app.post("/api/agents/self-declare", async (request, reply) => {
     const body = (request.body ?? {}) as { agent_id?: unknown; capabilities?: unknown; runtime?: unknown };
 
@@ -666,7 +691,8 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
         : undefined;
     try {
       const agents = await registry.list(filter);
-      return { agents: agents.map(withConnectivity) };
+      const withOwner = await withOwnerEmails(agents);
+      return { agents: withOwner.map(withConnectivity) };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }

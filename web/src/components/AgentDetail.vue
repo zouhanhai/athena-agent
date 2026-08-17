@@ -273,7 +273,7 @@ async function saveEdit() {
       <dl class="detail-meta">
         <div class="detail-meta-row">
           <dt>Owner</dt>
-          <dd>{{ agent.owner_employee_id }}</dd>
+          <dd>{{ agent.owner_email || agent.owner_employee_id }}</dd>
         </div>
         <div class="detail-meta-row">
           <dt>Runtime</dt>

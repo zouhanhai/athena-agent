@@ -44,6 +44,8 @@ export interface AgentRecord {
   capabilities_pending_review?: boolean;
   /** G4.S7.T4: whether the agent holds a live reverse-WS tunnel right now (platform-driven). */
   connected?: boolean;
+  /** Owner EMAIL (resolved server-side from the employee registry) — the UI shows this instead of the raw employee UUID. */
+  owner_email?: string;
   created_at: string;
   updated_at: string;
 }
