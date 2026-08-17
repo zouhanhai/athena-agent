@@ -56,7 +56,7 @@ export interface Agent {
   dispose(): void;
 }
 
-const DEFAULT_PROVIDER = "openrouter";
+const DEFAULT_PROVIDER = "athena";
 const DEFAULT_MODEL = "~deepseek/deepseek-v4-flash-latest";
 
 /**
