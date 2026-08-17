@@ -841,15 +841,15 @@ export class PostgresAgentRegistry implements AgentRegistry {
     try {
       const result = await this.pool.query<AgentRow>(
         `UPDATE agents
-         SET alias = COALESCE($2, alias),
-             logo_url = COALESCE($3, logo_url),
-             capabilities = COALESCE($4, capabilities),
-             api_url = COALESCE($5, api_url),
-             agent_id = COALESCE($6, agent_id),
-             token_hash = CASE WHEN $7 IS NULL THEN token_hash ELSE $7 END,
-             capabilities_confirmed_at = CASE WHEN $4 IS NULL THEN capabilities_confirmed_at ELSE NULL END,
+         SET alias = COALESCE($2::text, alias),
+             logo_url = COALESCE($3::text, logo_url),
+             capabilities = COALESCE($4::jsonb, capabilities),
+             api_url = COALESCE($5::text, api_url),
+             agent_id = COALESCE($6::text, agent_id),
+             token_hash = CASE WHEN $7::text IS NULL THEN token_hash ELSE $7::text END,
+             capabilities_confirmed_at = CASE WHEN $4::jsonb IS NULL THEN capabilities_confirmed_at ELSE NULL END,
              updated_at = now()
-         WHERE alias = $1
+         WHERE alias = $1::text
          RETURNING *`,
         [
           alias,
