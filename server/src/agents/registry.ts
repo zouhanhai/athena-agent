@@ -451,7 +451,11 @@ export class MemoryAgentRegistry implements AgentRegistry {
       token_hash: hashToken(token),
       registered_at: null,
       last_seen_at: null,
-      capabilities_confirmed_at: timestamp,
+      // G4.S7.T9: an invited agent's capabilities are NOT confirmed yet — the
+      // owner must review + approve the agent's actual declaration. Setting
+      // this at invite time would mark empty capabilities as "confirmed" and
+      // hide the pending declaration from the Settings review list.
+      capabilities_confirmed_at: null,
       created_at: timestamp,
       updated_at: timestamp,
     };
@@ -899,7 +903,7 @@ export class PostgresAgentRegistry implements AgentRegistry {
     try {
       const result = await this.pool.query<AgentRow>(
         `INSERT INTO agents (id, alias, agent_id, owner_employee_id, logo_url, capabilities, runtime, api_url, token_hash, capabilities_confirmed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
          RETURNING *`,
         [
           id,

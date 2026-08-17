@@ -51,11 +51,16 @@ async function load() {
       (a) => a.owner_employee_id !== "system" && a.owner_employee_id === currentUserId.value,
     );
     agents.value = owned;
-    // Only show pending declarations whose agent_id isn't already a registered
-    // agent (a self-declared agent that later registered via invite would
-    // otherwise appear twice: once under Registered agents, once under Pending).
-    const registeredIds = new Set(owned.map((a) => a.agent_id));
-    declarations.value = decls.filter((d) => !registeredIds.has(d.agent_id));
+    // Only hide pending declarations whose agent_id is already a registered
+    // agent AND whose capabilities are already confirmed (no pending review).
+    // A declaration for a registered agent that still needs capability review
+    // must remain visible so the owner can confirm it (G4.S7.T9). Without this,
+    // a registered-but-unconfirmed agent would show twice; with it, the pending
+    // review entry stays actionable.
+    const confirmedIds = new Set(
+      owned.filter((a) => !a.capabilities_pending_review).map((a) => a.agent_id),
+    );
+    declarations.value = decls.filter((d) => !confirmedIds.has(d.agent_id));
     logos.value = logoList;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
