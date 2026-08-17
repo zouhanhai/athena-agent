@@ -65,10 +65,24 @@ function selectLogo(url: string) {
 
 // ----- declaration review (merged DeclarationCard surface) -----
 const declAlias = ref("");
-const declOwner = ref("employee");
-const declApiUrl = ref("");
+const declOwner = ref("");
 const declSubmitting = ref(false);
 const declError = ref("");
+
+// G4.S7.T9: when the declaring agent was invited first, prefill alias + owner
+// email from the invite-time values (suggested_*), falling back to the signed-in
+// user's email when the declaration has no invite info.
+watch(
+  () => props.declaration,
+  (declaration) => {
+    if (declaration) {
+      declAlias.value = declaration.suggested_alias ?? "";
+      declOwner.value = declaration.suggested_owner_email ?? auth.employee?.email ?? "";
+      logoUrl.value = DEFAULT_LOGO;
+    }
+  },
+  { immediate: true },
+);
 
 async function confirmDeclaration() {
   if (!props.declaration) {
@@ -89,7 +103,6 @@ async function confirmDeclaration() {
       alias: declAlias.value.trim(),
       owner_employee_id: declOwner.value.trim(),
       logo_url: logoUrl.value,
-      api_url: declApiUrl.value.trim() || undefined,
     });
     emit("updated");
   } catch (err) {
@@ -444,17 +457,8 @@ async function saveEdit() {
             <input id="decl-alias" class="decl-alias" v-model="declAlias" placeholder="e.g. Hermes" />
           </div>
           <div class="detail-field">
-            <label for="decl-owner">Owner</label>
-            <input id="decl-owner" class="decl-owner" v-model="declOwner" />
-          </div>
-          <div class="detail-field">
-            <label for="decl-api-url">API URL (reachability)</label>
-            <input
-              id="decl-api-url"
-              class="decl-api-url"
-              v-model="declApiUrl"
-              placeholder="http://hermes.local:3001"
-            />
+            <label for="decl-owner">Owner (email)</label>
+            <input id="decl-owner" class="decl-owner" v-model="declOwner" placeholder="zouha108@caleo.com" autocomplete="email" />
           </div>
           <div class="detail-field">
             <span class="detail-field-label">Logo</span>

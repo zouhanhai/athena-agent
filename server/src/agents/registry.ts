@@ -84,6 +84,14 @@ export interface PendingAgentDeclaration {
   capabilities: AgentCapabilities;
   runtime: string;
   declared_at: string;
+  /**
+   * G4.S7.T9: when the declaring agent was invited before self-declaring, the
+   * platform surfaces the invite-time alias + owner email so the confirm page
+   * can prefill them (employee sees the alias they chose at invite time and the
+   * owner as an EMAIL, not an employee UUID).
+   */
+  suggested_alias?: string;
+  suggested_owner_email?: string;
 }
 
 export interface AgentDeclarationInput {

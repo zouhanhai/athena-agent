@@ -54,6 +54,9 @@ export interface PendingAgentDeclaration {
   capabilities: AgentCapabilities;
   runtime: string;
   declared_at: string;
+  /** G4.S7.T9: invite-time alias + owner email of the declaring agent (prefill for the confirm page). */
+  suggested_alias?: string;
+  suggested_owner_email?: string;
 }
 
 export interface LogoRecord {
@@ -71,8 +74,7 @@ export interface RegisterDeclarationInput {
   alias: string;
   owner_employee_id: string;
   logo_url?: string;
-  /** Optional remote reachability + identity recorded at registration (G4.S7.T2). */
-  api_url?: string;
+  /** G4.S7.T9: reachability is via reverse-WS — api_url is no longer collected on the confirm page. */
   agent_id?: string;
   token?: string;
 }

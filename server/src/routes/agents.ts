@@ -166,7 +166,26 @@ export function registerAgentRoutes(app: FastifyInstance, options: AgentRouteOpt
   app.get("/api/agents/declarations", async (_request, reply) => {
     try {
       const declarations = await registry.listDeclarations();
-      return { declarations };
+      // Enrich each pending declaration with the invite alias + owner email of
+      // the agent it belongs to (if that agent was invited/registered before
+      // the self-declaration — G4.S7.T9). This lets the confirm page prefill
+      // the alias and show the owner as an EMAIL (invite-time input), matching
+      // what the user typed when inviting the agent, instead of a raw UUID.
+      const enriched: unknown[] = [];
+      for (const declaration of declarations) {
+        let suggested_alias: string | undefined;
+        let suggested_owner_email: string | undefined;
+        const existing = await registry.getByAgentId(declaration.agent_id);
+        if (existing?.alias && existing.owner_employee_id && options.employees) {
+          suggested_alias = existing.alias;
+          const owner = await options.employees.getById(existing.owner_employee_id);
+          if (owner) {
+            suggested_owner_email = owner.email;
+          }
+        }
+        enriched.push(declaration.suggested_alias && declaration.suggested_owner_email ? declaration : { ...declaration, suggested_alias, suggested_owner_email });
+      }
+      return { declarations: enriched };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
