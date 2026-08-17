@@ -503,12 +503,13 @@ export class MemoryAgentRegistry implements AgentRegistry {
       ...existing,
       api_url: input.api_url,
       // The agent can submit its capabilities in the same registration
-      // request; adopt them and mark them confirmed by the platform. If it
-      // didn't ship any, leave the stored profile as-is (may be filled later
-      // via self-declare → owner confirm).
+      // request; adopt them but leave them PENDING REVIEW — the owner must
+      // verify what the agent declared and confirm via POST /api/agents/:id/confirm
+      // (G4.S7.T9). Auto-confirming would skip the human review step. If the
+      // agent didn't ship capabilities, keep the stored state as-is.
       capabilities: input.capabilities ?? existing.capabilities,
       runtime: input.runtime ?? existing.runtime,
-      capabilities_confirmed_at: input.capabilities ? now() : existing.capabilities_confirmed_at,
+      capabilities_confirmed_at: input.capabilities ? null : existing.capabilities_confirmed_at,
       registered_at: now(),
       last_seen_at: now(),
       updated_at: now(),
@@ -995,12 +996,13 @@ export class PostgresAgentRegistry implements AgentRegistry {
       throw new AgentAuthError("invalid agent_id or token");
     }
     // If the agent shipped capabilities in the registration request, adopt
-    // them + mark confirmed; otherwise keep the stored profile as-is.
+    // them but leave them PENDING REVIEW — the owner verifies + confirms via
+    // POST /api/agents/:id/confirm (G4.S7.T9); otherwise keep the stored state.
     const capabilities = input.capabilities
       ? JSON.stringify(input.capabilities)
       : row.capabilities;
     const runtime = input.runtime ?? row.runtime;
-    const confirmedAt = input.capabilities ? "now()" : "capabilities_confirmed_at";
+    const confirmedAt = input.capabilities ? "NULL" : "capabilities_confirmed_at";
     const result = await this.pool.query<AgentRow>(
       `UPDATE agents
        SET api_url = $2, capabilities = $3, runtime = $4, capabilities_confirmed_at = ${confirmedAt},
