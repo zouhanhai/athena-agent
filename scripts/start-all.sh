@@ -83,16 +83,21 @@ else
   log "Starting athena backend :3000"
   # Run tsx watch from a detached subshell so SSH disconnect (SIGHUP) can't kill
   # it; export the athena env + load .env.local so the process has everything.
-  ( cd "$HOME/athena-agent/server" && \
-    export DATABASE_URL="postgres://hh@/athena?host=/var/run/postgresql" \
-    export ADMIN_EMAIL="zouha108@caleo.com" \
-    export APP_BASE_URL="${APP_BASE_URL:-https://athenakb.com}" \
-    export NEO4J_URI="bolt://localhost:7687" \
-    export NEO4J_USER="neo4j" \
-    export NEO4J_PASSWORD="athena-spike-2026" \
-    set -a; [ -f .env.local ] && . .env.local; set +a; \
+  (
+    cd "$HOME/athena-agent/server" || exit 1
+    export DATABASE_URL="postgres://hh@/athena?host=/var/run/postgresql"
+    export ADMIN_EMAIL="zouha108@caleo.com"
+    export APP_BASE_URL="${APP_BASE_URL:-https://athenakb.com}"
+    export NEO4J_URI="bolt://localhost:7687"
+    export NEO4J_USER="neo4j"
+    export NEO4J_PASSWORD="athena-spike-2026"
+    # Local secrets (RESEND_API_KEY etc.) load from a git-ignored .env.local
+    set -a
+    [ -f .env.local ] && . .env.local
+    set +a
     setsid nohup npx tsx watch src/index.ts \
-    < /dev/null > "$LOG_DIR/athena-server.log" 2>&1 & disown ) || true
+      < /dev/null > "$LOG_DIR/athena-server.log" 2>&1 & disown
+  ) || true
   # give tsx a moment to bind :3000
   for _ in $(seq 1 15); do port_in_use 3000 && break; sleep 1; done
   if port_in_use 3000; then
