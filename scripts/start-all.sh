@@ -77,9 +77,23 @@ else
 fi
 
 # --- 4. athena backend -----------------------------------------------------
-if port_in_use 3000; then
-  log "athena-back :3000 already running"
-else
+# Prints the pid of the process bound to :3000 (empty if none).
+server_3000_pid() {
+  ss -tlnp 2>/dev/null | grep ":3000 " | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2
+}
+
+# True when the process bound to :3000 carries DATABASE_URL (Postgres mode).
+# A server started without the env (e.g. memory registry) still binds :3000,
+# so port-in-use alone is NOT a healthy signal — check the process env.
+server_3000_healthy() {
+  local pid
+  pid=$(server_3000_pid)
+  [ -z "$pid" ] && return 1
+  [ ! -r "/proc/$pid/environ" ] && return 1
+  tr '\0' '\n' < "/proc/$pid/environ" | grep -q '^DATABASE_URL='
+}
+
+start_athena_backend() {
   log "Starting athena backend :3000"
   # Run tsx watch from a detached subshell so SSH disconnect (SIGHUP) can't kill
   # it; export the athena env + load .env.local so the process has everything.
@@ -105,6 +119,28 @@ else
   else
     log "WARN athena-back :3000 not up yet — check $LOG_DIR/athena-server.log"
   fi
+}
+
+if port_in_use 3000; then
+  if server_3000_healthy; then
+    log "athena-back :3000 already running (healthy)"
+  else
+    # Exact-pid kill: pattern-matching pkill can miss a process that doesn't
+    # share the tsx command line (env-less node, python placeholder, etc.).
+    local_badpid=$(server_3000_pid)
+    log "athena-back :3000 running but UNHEALTHY (missing DATABASE_URL) — killing pid ${local_badpid:-?} and restarting"
+    [ -n "$local_badpid" ] && kill "$local_badpid" 2>/dev/null || true
+    # tsx watch spawns a parent npm/sh wrapper; pkill the whole chain as well.
+    pkill -f 'tsx watch src/index.ts' 2>/dev/null || true
+    for _ in $(seq 1 10); do port_in_use 3000 || break; sleep 1; done
+    if port_in_use 3000; then
+      log "WARN :3000 still in use after kill — refusing to start a second instance"
+    else
+      start_athena_backend
+    fi
+  fi
+else
+  start_athena_backend
 fi
 
 # --- 5. Vite frontend ------------------------------------------------------
