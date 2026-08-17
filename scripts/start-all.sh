@@ -90,8 +90,7 @@ else
     export NEO4J_URI="bolt://localhost:7687" \
     export NEO4J_USER="neo4j" \
     export NEO4J_PASSWORD="athena-spike-2026" \
-    # Local secrets (RESEND_API_KEY etc.) load from a git-ignored .env.local
-    [ -f "$HOME/athena-agent/server/.env.local" ] && set -a && . "$HOME/athena-agent/server/.env.local" && set +a \
+    set -a; [ -f .env.local ] && . .env.local; set +a; \
     setsid nohup npx tsx watch src/index.ts \
     < /dev/null > "$LOG_DIR/athena-server.log" 2>&1 & disown ) || true
   # give tsx a moment to bind :3000
@@ -129,7 +128,8 @@ else
     export NEO4J_URI="bolt://localhost:7687" \
     export NEO4J_USER="neo4j" \
     export NEO4J_PASSWORD="athena-spike-2026" \
-    [ -f "$HOME/athena-agent/server/.env.local" ] && set -a && . "$HOME/athena-agent/server/.env.local" && set +a \
+    export GITHUB_EMPLOYEE="$(grep -oE '^GITHUB_EMPLOYEE=.*' "$HOME/athena-agent/server/.env.local" 2>/dev/null | cut -d= -f2-)" \
+    export GITHUB_TOKEN="$(grep -oE '^GITHUB_TOKEN=.*' "$HOME/athena-agent/server/.env.local" 2>/dev/null | cut -d= -f2-)" \
     # NOTE: do NOT redirect stdin to /dev/null — opencode serve 1.18 exits
     # immediately after binding when stdin is EOF. Keep stdin inherited (or a
     # fifo/tty) so it stays up. Verified 2026-08-14.
