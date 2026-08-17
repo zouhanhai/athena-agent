@@ -47,10 +47,15 @@ async function load() {
       listAgents(),
       listLogos({ excludeInUse: true }),
     ]);
-    declarations.value = decls;
-    agents.value = agentList.filter(
+    const owned = agentList.filter(
       (a) => a.owner_employee_id !== "system" && a.owner_employee_id === currentUserId.value,
     );
+    agents.value = owned;
+    // Only show pending declarations whose agent_id isn't already a registered
+    // agent (a self-declared agent that later registered via invite would
+    // otherwise appear twice: once under Registered agents, once under Pending).
+    const registeredIds = new Set(owned.map((a) => a.agent_id));
+    declarations.value = decls.filter((d) => !registeredIds.has(d.agent_id));
     logos.value = logoList;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);

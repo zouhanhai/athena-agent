@@ -475,6 +475,14 @@ export class MemoryAgentRegistry implements AgentRegistry {
       updated_at: now(),
     };
     this.agents.set(stored.alias, stored);
+    // G4.S7.T2: registration consumes any pending self-declaration for the same
+    // agent_id so the Settings list doesn't show the agent twice (registered
+    // agent + pending declaration for the same identity).
+    for (const [id, decl] of this.declarations.entries()) {
+      if (decl.agent_id === input.agent_id) {
+        this.declarations.delete(id);
+      }
+    }
     return this.recordFromStored(stored);
   }
 
@@ -934,6 +942,10 @@ export class PostgresAgentRegistry implements AgentRegistry {
        RETURNING *`,
       [input.agent_id, input.api_url],
     );
+    // G4.S7.T2: registration consumes any pending self-declaration for the same
+    // agent_id so the Settings list doesn't show the agent twice (registered
+    // agent + pending declaration for the same identity).
+    await this.pool.query(`DELETE FROM agent_declarations WHERE agent_id = $1`, [input.agent_id]);
     return this.recordFromRow(result.rows[0]);
   }
 
