@@ -160,17 +160,49 @@ test("registerDeclaration returns 404 for an unknown declaration id", async () =
   assert.equal(res.statusCode, 404);
 });
 
-test("registerDeclaration returns 409 when the chosen alias conflicts with an existing agent", async () => {
+test("registerDeclaration updates an existing agent for the same agent_id (no 409)", async () => {
+  const id = await submitDeclaration();
+  const first = await app.inject({
+    method: "POST",
+    url: `/api/agents/register-declaration/${id}`,
+    payload: { alias: "Hermes", owner_employee_id: "zhang.wei" },
+  });
+  assert.equal(first.statusCode, 201);
+  // A second declaration for the SAME agent_id confirms onto the existing
+  // agent (UPDATE) instead of INSERTing a duplicate — the registered agent's
+  // capabilities get (re)adopted without tripping the unique constraint.
+  const second = await submitDeclaration();
+  const res = await app.inject({
+    method: "POST",
+    url: `/api/agents/register-declaration/${second}`,
+    payload: { alias: "Hermes", owner_employee_id: "zhang.wei" },
+  });
+  assert.equal(res.statusCode, 201, "same-agent confirmation should UPDATE, not 409");
+  const listRes = await app.inject({ method: "GET", url: "/api/agents/declarations" });
+  const { declarations } = listRes.json();
+  assert.equal(
+    declarations.length,
+    0,
+    "confirming consumes both declarations",
+  );
+});
+
+test("registerDeclaration returns 409 when a DIFFERENT agent_id conflicts on alias", async () => {
   const id = await submitDeclaration();
   await app.inject({
     method: "POST",
     url: `/api/agents/register-declaration/${id}`,
     payload: { alias: "Hermes", owner_employee_id: "zhang.wei" },
   });
-  const second = await submitDeclaration();
+  const other = await app.inject({
+    method: "POST",
+    url: "/api/agents/self-declare",
+    payload: { ...selfDeclareBody, agent_id: "opencode-ses_other" },
+  });
+  const otherId = other.json().declaration.id;
   const res = await app.inject({
     method: "POST",
-    url: `/api/agents/register-declaration/${second}`,
+    url: `/api/agents/register-declaration/${otherId}`,
     payload: { alias: "Hermes", owner_employee_id: "zhang.wei" },
   });
   assert.equal(res.statusCode, 409);
