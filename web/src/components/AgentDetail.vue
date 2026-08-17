@@ -23,7 +23,9 @@ const emit = defineEmits<{ close: []; updated: [] }>();
 
 const auth = useAuthStore();
 
-const DEFAULT_LOGO = "/athena-logo-ai.png";
+// Neutral placeholder for agents without a logo — NOT the Athena owl (that is
+// Athena's identity). Grey circle + "?" served from the shared logo folder.
+const DEFAULT_LOGO = "/logos/placeholder.svg";
 
 const isDeclaration = computed(() => !!props.declaration);
 
@@ -45,7 +47,7 @@ const logoOptions = computed(() => {
   for (const logo of props.logos) {
     urls.add(logo.url);
   }
-  const options = [{ url: DEFAULT_LOGO, label: "Owl", animal: "owl", color: "athena" }];
+  const options = [{ url: DEFAULT_LOGO, label: "Default (no logo)", animal: "none", color: "neutral" }];
   for (const logo of props.logos) {
     if (urls.has(logo.url)) {
       options.push({

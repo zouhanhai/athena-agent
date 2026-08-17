@@ -20,12 +20,9 @@ const isAdmin = computed(() => auth.employee?.role === "admin");
 const currentUserId = computed(() => auth.employee?.id ?? "");
 
 // Neutral placeholder for an agent with no logo yet — NOT the Athena owl (that
-// is Athena's identity). A grey circle + a generic mark.
-const PLACEHOLDER_LOGO =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="22" fill="#e4e4e7"/><g fill="none" stroke="#9ca3af" stroke-width="3" stroke-linecap="round"><path d="M24 19v0a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5 5 5 0 0 1-5-5v0a5 5 0 0 1 5-5z"/><path d="M24 31v4"/></g></svg>`,
-  );
+// is Athena's identity). A grey circle + a "?" mark, served from the shared
+// logo folder (web/public/logos/placeholder.svg) so all surfaces use one file.
+const PLACEHOLDER_LOGO = "/logos/placeholder.svg";
 
 const declarations = ref<PendingAgentDeclaration[]>([]);
 const agents = ref<AgentRecord[]>([]);
