@@ -13,6 +13,13 @@ export interface ChatClarifyAnswer {
   answer: string;
 }
 
+/** G4.S7.T10: one accumulated conversation turn sent as `history` so the remote
+ *  agent keeps multi-turn context (same `{ role, content }` shape as the task). */
+export interface ChatHistoryTurn {
+  role: string;
+  content: string;
+}
+
 export interface ChatStreamHandlers {
   onDelta: (delta: string) => void;
   onDone?: () => void;
@@ -28,16 +35,18 @@ export interface ChatStreamHandlers {
 /**
  * Non-streaming chat: POST /api/chat { userId, message, page? } → { reply }.
  * The optional `page` is the current route path; the server injects that page's
- * relevant agent capabilities into the conversation context. Throws an Error on
- * failure (includes HTTP status code or network error).
+ * relevant agent capabilities into the conversation context. `history` (G4.S7.T10)
+ * carries the accumulated turns when provided. Throws an Error on failure
+ * (includes HTTP status code or network error).
  */
 export async function sendChat(
   userId: string,
   message: string,
   page?: string,
   targetAgentId?: string,
+  history?: ChatHistoryTurn[],
 ): Promise<string> {
-  const res = await postChat(userId, message, {}, page, undefined, targetAgentId);
+  const res = await postChat(userId, message, {}, page, undefined, targetAgentId, history);
   const data = (await res.json()) as ChatReply;
   return data.reply;
 }
@@ -49,6 +58,8 @@ export async function sendChat(
  * carries `clarify: { query, answer }` so the server re-runs the original query
  * with the user's chosen context (G4.S3.T13). When `targetAgentId` is provided
  * (G4.S7.T4), the message is routed to that remote agent over its reverse tunnel.
+ * `history` (G4.S7.T10) carries the accumulated turns so the remote agent keeps
+ * multi-turn context (the server summarizes/truncates above its token threshold).
  */
 export async function streamChat(
   userId: string,
@@ -57,6 +68,7 @@ export async function streamChat(
   page?: string,
   clarifyAnswer?: ChatClarifyAnswer,
   targetAgentId?: string,
+  history?: ChatHistoryTurn[],
 ): Promise<void> {
   const res = await postChat(
     userId,
@@ -65,6 +77,7 @@ export async function streamChat(
     page,
     clarifyAnswer,
     targetAgentId,
+    history,
   );
   await consumeSSEStream(res, handlers);
 }
@@ -76,6 +89,7 @@ async function postChat(
   page?: string,
   clarifyAnswer?: ChatClarifyAnswer,
   targetAgentId?: string,
+  history?: ChatHistoryTurn[],
 ): Promise<Response> {
   const body: Record<string, unknown> = { userId, message };
   if (page) {
@@ -86,6 +100,9 @@ async function postChat(
   }
   if (targetAgentId) {
     body.agent_id = targetAgentId;
+  }
+  if (history && history.length > 0) {
+    body.history = history;
   }
   const res = await fetch(CHAT_ENDPOINT, {
     method: "POST",

@@ -153,6 +153,9 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       "Hello there",
       expect.objectContaining({ onDelta: expect.any(Function) }),
       "",
+      undefined,
+      undefined,
+      [],
     );
 
     const rows = wrapper.findAll(".message-row");
@@ -195,6 +198,9 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       "hi",
       expect.any(Object),
       "",
+      undefined,
+      undefined,
+      [],
     );
     wrapper.unmount();
   });
@@ -252,6 +258,9 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       "Hello there",
       expect.any(Object),
       "",
+      undefined,
+      undefined,
+      [],
     );
     expect((composerTextarea(wrapper).element as HTMLTextAreaElement).value).toBe("");
     wrapper.unmount();
@@ -511,6 +520,98 @@ describe("GlobalChatPanel feedback loop (G4.S3.T5)", () => {
 
     expect(wrapper.find(".message-row.assistant .feedback-down.active").exists()).toBe(true);
     expect(wrapper.find(".message-row.assistant .feedback-up.active").exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe("GlobalChatPanel context meter + history (G4.S7.T10)", () => {
+  it("renders the context meter with a normal state and estimate label once messages exist", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.messages = [
+      { role: "user", content: "What is C-Day?" },
+      { role: "assistant", content: "The CALEO Day.", speaker: { id: "athena", kind: "agent", name: "Athena", logoUrl: "" } },
+    ];
+    await wrapper.vm.$nextTick();
+
+    const meter = wrapper.find(".context-meter");
+    expect(meter.exists()).toBe(true);
+    expect(meter.classes()).toContain("context-normal");
+    expect(meter.find(".context-meter-text").text()).toMatch(/~0k \/ 40k tokens/);
+    wrapper.unmount();
+  });
+
+  it("does not render the meter for an empty conversation", () => {
+    const wrapper = mountChat();
+    expect(wrapper.find(".context-meter").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("enters the warning state at 80–100% of the threshold", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    // 33k estimated tokens ≈ 132k ASCII chars → ~82.5% of 40k.
+    store.messages = [{ role: "user", content: "x".repeat(132_000) }];
+    await wrapper.vm.$nextTick();
+
+    const meter = wrapper.find(".context-meter");
+    expect(meter.classes()).toContain("context-warning");
+    expect(meter.find(".context-meter-text").text()).toMatch(/~33k \/ 40k tokens/);
+    wrapper.unmount();
+  });
+
+  it("enters the summarizing state at or above the threshold", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    // 41k estimated tokens ≈ 164k ASCII chars → above the 40k threshold.
+    store.messages = [{ role: "user", content: "x".repeat(164_000) }];
+    await wrapper.vm.$nextTick();
+
+    const meter = wrapper.find(".context-meter");
+    expect(meter.classes()).toContain("context-summarizing");
+    wrapper.unmount();
+  });
+
+  it("sends the accumulated user/assistant history with each request (empty placeholders filtered)", async () => {
+    stubStream();
+    const wrapper = mountChat();
+    await send(wrapper, "What is C-Day?");
+    await send(wrapper, "And who is Hermes?");
+
+    const first = streamChatMock.mock.calls[0]! as unknown[];
+    const second = streamChatMock.mock.calls[1]! as unknown[];
+    // 7th arg = history; the first send has no prior turns.
+    expect(first[6]).toEqual([]);
+    expect(second[6]).toEqual([
+      { role: "user", content: "What is C-Day?" },
+      { role: "assistant", content: "Hello, human." },
+    ]);
+    wrapper.unmount();
+  });
+
+  it("filters out system notices from the sent history (user/assistant only)", async () => {
+    stubStream();
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.onAgentJoined({
+      id: "hermes::Hermes",
+      kind: "agent",
+      name: "Hermes",
+      logoUrl: "",
+      capabilities: [],
+    });
+    await send(wrapper, "first question");
+    await send(wrapper, "second question");
+
+    // The second request's history = first exchange; the Hermes-joined system
+    // notice must be filtered out.
+    const call = streamChatMock.mock.calls.at(-1)! as unknown[];
+    const history = call[6] as Array<{ role: string; content: string }>;
+    expect(history.some((h) => h.role === "system")).toBe(false);
+    expect(history).toEqual([
+      { role: "user", content: "first question" },
+      { role: "assistant", content: "Hello, human." },
+    ]);
     wrapper.unmount();
   });
 });

@@ -77,6 +77,37 @@ describe("sendChat (non-streaming)", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
     await expect(sendChat("hermes", "hi")).rejects.toThrow("network down");
   });
+
+  it("includes the accumulated history in the request body when provided (G4.S7.T10)", async () => {
+    stubFetch(jsonResponse({ reply: "ok" }));
+    const history = [
+      { role: "user", content: "first" },
+      { role: "assistant", content: "answer" },
+    ];
+    await sendChat("hermes", "next", "/workbench", undefined, history);
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat",
+      expect.objectContaining({
+        body: JSON.stringify({
+          userId: "hermes",
+          message: "next",
+          page: "/workbench",
+          history,
+        }),
+      }),
+    );
+  });
+
+  it("omits the history field when none is provided", async () => {
+    stubFetch(jsonResponse({ reply: "ok" }));
+    await sendChat("hermes", "hi");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const body = (fetchMock.mock.calls[0]![1] as { body: string }).body;
+    expect(JSON.parse(body)).toEqual({ userId: "hermes", message: "hi" });
+  });
 });
 
 describe("streamChat (streaming)", () => {
@@ -175,5 +206,37 @@ describe("streamChat (streaming)", () => {
         body: JSON.stringify({ userId: "hermes", message: "hi", page: "/knowledge" }),
       }),
     );
+  });
+
+  it("includes the accumulated history in the streaming request body (G4.S7.T10)", async () => {
+    stubFetch(sseResponse(['data: {"done":true}\n\n']));
+    const history = [
+      { role: "user", content: "earlier question" },
+      { role: "assistant", content: "earlier answer" },
+    ];
+    await streamChat("hermes", "deploy", { onDelta: () => {} }, "/workbench", undefined, "agent-1", history);
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat",
+      expect.objectContaining({
+        body: JSON.stringify({
+          userId: "hermes",
+          message: "deploy",
+          page: "/workbench",
+          agent_id: "agent-1",
+          history,
+        }),
+      }),
+    );
+  });
+
+  it("omits the history field when no history is provided", async () => {
+    stubFetch(sseResponse(['data: {"done":true}\n\n']));
+    await streamChat("hermes", "hi", { onDelta: () => {} }, "/knowledge");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const body = (fetchMock.mock.calls[0]![1] as { body: string }).body;
+    expect(JSON.parse(body)).toEqual({ userId: "hermes", message: "hi", page: "/knowledge" });
   });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
 import { useAuthStore } from "@/stores/auth";
@@ -8,6 +8,13 @@ import { listEmployees } from "@/api/invitations";
 import AgentCard from "@/components/AgentCard.vue";
 import type { AgentRecord } from "@/api/agents";
 import type { EmployeeRecord } from "@/api/invitations";
+import {
+  CONTEXT_THRESHOLD_TOKENS,
+  estimateTokens,
+  contextMeterState,
+  contextMeterPercent,
+  formatContextMeter,
+} from "@/utils/context";
 
 const chat = useChatStore();
 const auth = useAuthStore();
@@ -20,6 +27,26 @@ const availableAgents = ref<AgentRecord[]>([]);
 const availableEmployees = ref<EmployeeRecord[]>([]);
 const pickerError = ref("");
 const expandedAgentId = ref<string | null>(null);
+
+/** G4.S7.T10: estimated tokens of the accumulated user/assistant conversation —
+ *  mirrors the server heuristic; drives the context meter in the panel. */
+const contextTokens = computed(() => {
+  const text = messages.value
+    .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim().length > 0)
+    .map((m) => m.content)
+    .join("\n");
+  return estimateTokens(text);
+});
+const contextMeter = computed(() => {
+  const tokens = contextTokens.value;
+  return {
+    tokens,
+    threshold: CONTEXT_THRESHOLD_TOKENS,
+    state: contextMeterState(tokens),
+    percent: contextMeterPercent(tokens),
+    label: formatContextMeter(tokens),
+  };
+});
 
 // The signed-in employee is the human behind the user bubbles (G3.S2 identity).
 // userId (sent with each message so the server attributes who is speaking) is
@@ -186,6 +213,20 @@ function addEmployee(emp: EmployeeRecord) {
         </p>
       </div>
     </section>
+
+    <!-- G4.S7.T10: live context-usage meter — estimated tokens / configured
+         threshold; the server summarizes above the threshold (>= 100%). -->
+    <div
+      v-if="messages.length > 0"
+      class="context-meter"
+      :class="`context-${contextMeter.state}`"
+      :title="`Estimated context: ${contextMeter.label} — the server summarizes once the threshold is reached`"
+    >
+      <div class="context-meter-bar">
+        <div class="context-meter-fill" :style="{ width: `${contextMeter.percent}%` }"></div>
+      </div>
+      <span class="context-meter-text">{{ contextMeter.label }}</span>
+    </div>
 
     <div class="message-list">
       <p v-if="messages.length === 0" class="empty-hint">
@@ -749,5 +790,52 @@ function addEmployee(emp: EmployeeRecord) {
   min-height: 66px;
   max-height: 180px;
   resize: vertical;
+}
+
+/* G4.S7.T10: context meter — estimated tokens / threshold with normal, warning
+   (80–100%) and summarizing (>= 100%) visual states. */
+.context-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+}
+
+.context-meter-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--caleo-text-secondary) 18%, transparent);
+  overflow: hidden;
+}
+
+.context-meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--caleo-success, #2f9e44);
+  transition: width 0.25s var(--caleo-ease-out), background-color 0.25s var(--caleo-ease-out);
+}
+
+.context-meter.context-warning .context-meter-fill {
+  background: var(--caleo-warning, #f5a623);
+}
+
+.context-meter.context-summarizing .context-meter-fill {
+  background: var(--caleo-error);
+}
+
+.context-meter-text {
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
+  white-space: nowrap;
+}
+
+.context-meter.context-summarizing .context-meter-text {
+  color: var(--caleo-error);
+  font-weight: 600;
 }
 </style>

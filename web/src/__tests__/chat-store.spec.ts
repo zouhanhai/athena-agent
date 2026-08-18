@@ -95,6 +95,9 @@ describe("chat store", () => {
       "hello there",
       expect.objectContaining({ onDelta: expect.any(Function) }),
       "",
+      undefined,
+      undefined,
+      [],
     );
 
     stream.push("Hel");
@@ -118,6 +121,9 @@ describe("chat store", () => {
       "list my repos",
       expect.objectContaining({ onDelta: expect.any(Function) }),
       "/workbench",
+      undefined,
+      undefined,
+      [],
     );
   });
 

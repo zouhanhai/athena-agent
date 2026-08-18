@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { streamChat } from "@/api/chat";
+import { streamChat, type ChatHistoryTurn } from "@/api/chat";
 import { sendFeedback, type FeedbackDirection } from "@/api/feedback";
 import type { ChatClarification, ToolProgress } from "@/api/sse";
 
@@ -154,6 +154,21 @@ export const useChatStore = defineStore("chat", {
       });
     },
     /**
+     * G4.S7.T10: the accumulated conversation sent as `history` with each chat
+     * request so a remote agent keeps multi-turn context. Filters out system
+     * notices and empty assistant placeholders; the server is the authority on
+     * truncation/summarization above its token threshold.
+     */
+    historyForRequest(): ChatHistoryTurn[] {
+      return this.messages
+        .filter(
+          (m) =>
+            (m.role === "user" || m.role === "assistant") &&
+            m.content.trim().length > 0,
+        )
+        .map((m) => ({ role: m.role, content: m.content }));
+    },
+    /**
      * Send a message: append a user bubble + empty assistant bubble,
      * stream the reply chunk by chunk into the assistant bubble. When the
      * stream relays a clarification (G4.S3.T13), the assistant bubble becomes
@@ -162,6 +177,10 @@ export const useChatStore = defineStore("chat", {
     async send(message: string) {
       const text = message.trim();
       if (!text || this.loading) return;
+
+      // Capture history BEFORE appending the current message so the request
+      // carries prior turns only (the server appends `message` itself).
+      const history = this.historyForRequest();
 
       this.messages.push({ role: "user", content: text, speaker: this.userSpeaker });
       this.loading = true;
@@ -204,10 +223,13 @@ export const useChatStore = defineStore("chat", {
       try {
         // G4.S7.T4: a remote agent participant carries its registered identity →
         // route the message over its reverse WS tunnel; otherwise the local session.
+        // G4.S7.T10: history rides along on BOTH paths — the server decides what
+        // to do with it (local sessions keep their own history; remote tasks fold
+        // it in / summarize it).
         if (agent.agentId) {
-          await streamChat(this.userId, text, { onDelta, onTool, onThinking, onClarify, onError }, this.page, undefined, agent.agentId);
+          await streamChat(this.userId, text, { onDelta, onTool, onThinking, onClarify, onError }, this.page, undefined, agent.agentId, history);
         } else {
-          await streamChat(this.userId, text, { onDelta, onClarify, onThinking, onTool, onError }, this.page);
+          await streamChat(this.userId, text, { onDelta, onClarify, onThinking, onTool, onError }, this.page, undefined, undefined, history);
         }
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
@@ -251,6 +273,10 @@ export const useChatStore = defineStore("chat", {
       if (!clarification || !text || this.loading) return;
       const query = clarification.query ?? this.messages[messageIndex - 1]?.content ?? "";
 
+      // G4.S7.T10: carry the accumulated history (prior turns only) so the
+      // re-run still has multi-turn context on the remote path.
+      const history = this.historyForRequest();
+
       msg.clarificationAnswered = true;
       this.messages.push({ role: "user", content: text, speaker: this.userSpeaker });
       this.loading = true;
@@ -283,6 +309,7 @@ export const useChatStore = defineStore("chat", {
             this.page,
             { query, answer: text },
             agent.agentId,
+            history,
           );
         } else {
           await streamChat(this.userId, text, {
@@ -295,7 +322,7 @@ export const useChatStore = defineStore("chat", {
                 this.messages.splice(assistantIndex, 1);
               }
             },
-          }, this.page, { query, answer: text });
+          }, this.page, { query, answer: text }, undefined, history);
         }
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
