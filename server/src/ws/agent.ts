@@ -14,6 +14,32 @@ export const AGENT_WS_CLOSE_AUTH = 4001;
 export const AGENT_WS_CLOSE_SUPERSEDED = 4002;
 
 /**
+ * Self-describing reply contract shipped in the `registered` frame (G4.S7.T4).
+ * Lets a remote agent learn HOW to answer pushed tasks purely from the wire
+ * protocol at handshake/auth time — no human copy-paste, no protocol guessing.
+ * Re-sent on EVERY connection (a fresh registered frame per handshake).
+ */
+export interface AgentTaskReplyContract {
+  /** Every reply frame must echo the task_id from the pushed `task` frame. */
+  mustEchoTaskId: true;
+  /** Client→server frame types the platform understands for one task. */
+  frames: AgentClientMessage["type"][];
+  /** One of these two frames is mandatory to finish a task. */
+  terminateWith: ["task.complete", "task.error"];
+  /** If no task.start/delta/thinking within this window, the platform
+   *  auto-derives task.error so a dead/never-receiving agent surfaces
+   *  instead of hanging forever. */
+  idleTimeoutMs: number;
+  /** Reconnect semantics for in-flight tasks (documented, not re-delivered). */
+  reconnect: {
+    inFlightTasks: "server marks task.error; no re-delivery";
+  };
+}
+
+/** Default idle window before a task with no agent activity is auto-errored. */
+export const AGENT_TASK_IDLE_TIMEOUT_MS = 60_000;
+
+/**
  * A task the platform pushes to a connected agent through the reverse tunnel
  * (G4.S7.T4). The agent runs it against its LOCAL API server (Hermes
  * `POST /v1/chat/completions`, SSE) and streams progress/result events back.
@@ -57,7 +83,7 @@ export type AgentServerMessage =
       protocolVersion: number;
       connectedAt: string;
     }
-  | { type: "registered"; agent_id: string; connectedAt: string }
+  | { type: "registered"; agent_id: string; connectedAt: string; taskReply: AgentTaskReplyContract }
   | { type: "pong"; at: string }
   | { type: "echo"; data?: unknown; at: string }
   | { type: "error"; message: string }
@@ -87,7 +113,7 @@ interface RegisteredChannel {
   agentId: string;
   socket: WebSocket;
   connectedAt: string;
-  tasks: Map<string, { relay: TaskRelay; sentAt: string }>;
+  tasks: Map<string, { relay: TaskRelay; sentAt: string; idleTimer?: NodeJS.Timeout }>;
 }
 
 function pathname(url?: string): string {
@@ -145,12 +171,15 @@ export class AgentWsGateway {
   private readonly sockets = new Set<WebSocket>();
   private readonly events = new EventEmitter();
   private readonly registry: AgentRegistry | undefined;
+  /** Window before an unresponsive task is auto-errored (see taskReply.idleTimeoutMs). */
+  readonly idleTimeoutMs: number;
 
   constructor(
     server: Server,
-    options: { registry?: AgentRegistry } = {},
+    options: { registry?: AgentRegistry; idleTimeoutMs?: number } = {},
   ) {
     this.registry = options.registry;
+    this.idleTimeoutMs = options.idleTimeoutMs ?? AGENT_TASK_IDLE_TIMEOUT_MS;
     this.wss = new WebSocketServer({ noServer: true });
 
     this.wss.on("connection", (socket) => this.accept(socket));
@@ -244,7 +273,30 @@ export class AgentWsGateway {
     if (this.registry) {
       await this.registry.markReachable(agentId).catch(() => {});
     }
-    sendFrame(socket, { type: "registered", agent_id: agentId, connectedAt: channel.connectedAt });
+    sendFrame(socket, {
+      type: "registered",
+      agent_id: agentId,
+      connectedAt: channel.connectedAt,
+      // Self-describing reply contract: the agent learns how to answer tasks
+      // from the wire protocol itself (re-sent on every handshake).
+      taskReply: {
+        mustEchoTaskId: true,
+        frames: [
+          "task.start",
+          "delta",
+          "thinking",
+          "tool.started",
+          "tool.completed",
+          "task.complete",
+          "task.error",
+        ],
+        terminateWith: ["task.complete", "task.error"],
+        idleTimeoutMs: this.idleTimeoutMs,
+        reconnect: {
+          inFlightTasks: "server marks task.error; no re-delivery",
+        },
+      },
+    });
     this.events.emit("agent.connected", {
       type: "agent.connected",
       agentId,
@@ -270,29 +322,67 @@ export class AgentWsGateway {
     }
     switch (msg.type) {
       case "task.start":
+        this.armIdleTimer(channel, msg.task_id, entry);
         break;
       case "tool.started":
+        this.armIdleTimer(channel, msg.task_id, entry);
         entry.relay.onToolStarted?.(msg.tool, msg.detail);
         break;
       case "tool.completed":
+        this.armIdleTimer(channel, msg.task_id, entry);
         entry.relay.onToolCompleted?.(msg.tool, msg.detail, msg.status === "error" ? msg.error : undefined);
         break;
       case "delta":
+        this.armIdleTimer(channel, msg.task_id, entry);
         entry.relay.onDelta?.(msg.text);
         break;
       case "thinking":
+        this.armIdleTimer(channel, msg.task_id, entry);
         entry.relay.onThinking?.(msg.text);
         break;
       case "task.complete":
+        this.clearIdleTimer(entry);
         channel.tasks.delete(msg.task_id);
         entry.relay.onComplete?.();
         break;
       case "task.error":
+        this.clearIdleTimer(entry);
         channel.tasks.delete(msg.task_id);
         entry.relay.onError?.(msg.message);
         break;
       default:
         this.replySocketError(socket, msg);
+    }
+  }
+
+  /** Reset the per-task idle timer so any agent activity keeps the task alive. */
+  private armIdleTimer(
+    channel: RegisteredChannel,
+    taskId: string,
+    entry: RegisteredChannel["tasks"] extends Map<string, infer V> ? V : never,
+  ): void {
+    this.clearIdleTimer(entry);
+    entry.idleTimer = setTimeout(() => {
+      // No activity within the window → the agent is dead / never processed
+      // the task. Convert the silent hang into a visible task.error.
+      if (channel.tasks.has(taskId)) {
+        channel.tasks.delete(taskId);
+      }
+      try {
+        entry.relay.onError?.(
+          `task idle timeout: no agent activity for ${this.idleTimeoutMs}ms`,
+        );
+      } finally {
+        clearTimeout(entry.idleTimer);
+        entry.idleTimer = undefined;
+      }
+    }, this.idleTimeoutMs);
+  }
+
+  private clearIdleTimer(entry: RegisteredChannel["tasks"] extends Map<string, infer V> ? V : never): void {
+    if (entry.idleTimer) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = undefined;
     }
   }
 
@@ -315,7 +405,10 @@ export class AgentWsGateway {
       this.channelsByAgent.delete(channel.agentId);
     }
     channel.socket.removeAllListeners("message");
-    for (const { relay } of channel.tasks.values()) {
+    for (const { relay, idleTimer } of channel.tasks.values()) {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
       relay.onError?.(reason);
     }
     channel.tasks.clear();
@@ -337,9 +430,18 @@ export class AgentWsGateway {
     }
     const taskId = randomUUID();
     const payload: AgentTask = { ...task, task_id: taskId };
-    channel.tasks.set(taskId, { relay, sentAt: now() });
+    const entry: RegisteredChannel["tasks"] extends Map<string, infer V> ? V : never = {
+      relay,
+      sentAt: now(),
+    };
+    channel.tasks.set(taskId, entry);
+    // Start the idle window immediately: if the agent never acks (no
+    // task.start/delta/thinking), the task auto-errors instead of hanging.
+    this.armIdleTimer(channel, taskId, entry);
     const sent = sendFrameWithResult(channel.socket, { type: "task", task_id: taskId, payload });
     if (!sent) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = undefined;
       channel.tasks.delete(taskId);
       relay.onError?.("failed to write task frame");
       return null;

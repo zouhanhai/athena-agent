@@ -170,7 +170,7 @@ test("execute stores the full output and returns the small ref (pi-docparser big
   assert.equal(ref.mode, "single");
 });
 
-test("uses the athena provider + deepseek-v4-flash-latest with thinkingLevel high", async () => {
+test("uses the athena provider + deepseek-v4-flash-latest with thinkingLevel max", async () => {
   const { runtime, calls } = makeFakeRuntime();
   const tool = createRefineDocumentTool(runtime, { ...STORE_OPTS });
 
@@ -179,7 +179,7 @@ test("uses the athena provider + deepseek-v4-flash-latest with thinkingLevel hig
   assert.equal(calls.length, 1);
   assert.equal(calls[0].providerId, "athena");
   assert.equal(calls[0].modelId, "~deepseek/deepseek-v4-flash-latest");
-  assert.deepEqual(calls[0].options, { reasoning: "high" });
+  assert.deepEqual(calls[0].options, { reasoning: "max" });
 });
 
 test("sets constrainedSampling JSON schema on the emit tool inside the LLM context", async () => {

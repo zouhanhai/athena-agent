@@ -100,6 +100,8 @@ export interface BuildAppOptions {
   maxFileSize?: number;
   /** G4.S7.T4: reverse-WS gateway (remote agents connect INTO the platform). */
   hub?: AgentWsGateway;
+  /** G4.S7.T4: idle window before an unresponsive pushed task auto-errors (ms). */
+  agentWsIdleTimeoutMs?: number;
 }
 
 export function defaultIngestService(): KnowledgeIngestService {
@@ -410,7 +412,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   // platform via /ws/agent; register {agent_id, token}; platform drives them
   // back through the live tunnel). Built eagerly — app.server exists from
   // construction — so the chat + agents routes can use it at request time.
-  const hub = options.hub ?? new AgentWsGateway(app.server, { registry });
+  const hub =
+    options.hub ??
+    new AgentWsGateway(app.server, { registry, idleTimeoutMs: options.agentWsIdleTimeoutMs });
 
   let scheduledReview: ReturnType<typeof scheduleKbReview> | undefined;
 
