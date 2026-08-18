@@ -5,6 +5,13 @@ import { buildPageInjection, injectPageContext } from "../agents/page-context.js
 import type { AgentRegistry } from "../agents/registry.js";
 import type { AgentWsGateway } from "../ws/agent.js";
 import { pushRemoteChatTask } from "../agents/remote-chat.js";
+import {
+  DEFAULT_CONTEXT_THRESHOLD_TOKENS,
+  DEFAULT_RECENT_MAX_TURNS,
+  MAX_HISTORY_TURNS,
+  type ChatTurn,
+  type Summarizer,
+} from "../agents/chat-context.js";
 
 export interface ChatRequestBody {
   message?: unknown;
@@ -23,6 +30,12 @@ export interface ChatRequestBody {
    * agent instead of running the local Athena session.
    */
   agent_id?: unknown;
+  /**
+   * G4.S7.T10: the accumulated conversation (user/assistant turns) the chat
+   * panel sends so a remote agent keeps multi-turn context. Array of
+   * `{ role, content }`; validated + filtered + capped server-side.
+   */
+  history?: unknown;
 }
 
 export interface ChatRouteOptions {
@@ -31,6 +44,12 @@ export interface ChatRouteOptions {
   hub?: AgentWsGateway;
   /** G4.S7.T4: agent registry — identity/resolution for remote chat routing. */
   registry?: AgentRegistry;
+  /**
+   * G4.S7.T10: LLM seam that distills old turns when remote history exceeds the
+   * token threshold. When absent the server falls back to truncation (with an
+   * omission note) — it is injected so unit tests never hit the network.
+   */
+  summarizer?: Summarizer;
 }
 
 function invalidField(value: unknown): boolean {
@@ -55,6 +74,26 @@ function parseClarifyAnswer(value: unknown): ClarifyAnswer | undefined {
   const answer = v.answer.trim();
   if (!query || !answer) return undefined;
   return { query, answer };
+}
+
+/**
+ * G4.S7.T10: validate the `history` body field. Accepts any role with a
+ * non-empty string content, filters everything else, and defensively caps the
+ * turn count (MAX_HISTORY_TURNS). Never throws — malformed input yields [].
+ */
+function parseHistory(value: unknown): ChatTurn[] {
+  if (!Array.isArray(value)) return [];
+  const turns: ChatTurn[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) continue;
+    const v = item as Record<string, unknown>;
+    if (typeof v.role !== "string" || typeof v.content !== "string") continue;
+    const content = v.content.trim();
+    if (!content) continue;
+    turns.push({ role: v.role, content });
+    if (turns.length >= MAX_HISTORY_TURNS) break;
+  }
+  return turns;
 }
 
 /** G4.S3.T13: knowledge-first guidance (also explains the clarification follow-up). */
@@ -113,6 +152,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     const page = typeof body.page === "string" ? body.page : "";
     const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
     const clarifyAnswer = parseClarifyAnswer(body.clarify);
+    const history = parseHistory(body.history);
 
     const wantsStream =
       typeof request.headers.accept === "string" &&
@@ -123,6 +163,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         agentId,
         message,
         page,
+        history,
         wantsStream,
         options,
       });
@@ -183,6 +224,8 @@ interface RemoteChatContext {
   agentId: string;
   message: string;
   page: string;
+  /** G4.S7.T10: validated accumulated history (empty when the client sent none). */
+  history: ChatTurn[];
   wantsStream: boolean;
   options: ChatRouteOptions;
 }
@@ -192,8 +235,13 @@ async function handleRemoteChat(
   reply: { hijack: () => void; raw: unknown; code: (code: number) => { send: (payload: unknown) => unknown } },
   ctx: RemoteChatContext,
 ): Promise<unknown> {
-  const { agentId, message, page, wantsStream, options } = ctx;
+  const { agentId, message, page, history, wantsStream, options } = ctx;
   const { hub, registry } = options;
+  const context = {
+    thresholdTokens: DEFAULT_CONTEXT_THRESHOLD_TOKENS,
+    recentMaxTurns: DEFAULT_RECENT_MAX_TURNS,
+    summarizer: options.summarizer,
+  };
   const offlineError = `agent is offline — it must connect INTO the platform via the reverse WS tunnel first`;
   const notConfigured = "remote chat routing is not configured on this server";
 
@@ -212,7 +260,7 @@ async function handleRemoteChat(
           }
         }, 60 * 1000);
         timer.unref?.();
-        void pushRemoteChatTask(hub, registry, agentId, message, page, {
+        void pushRemoteChatTask(hub, registry, agentId, message, page, history, context, {
           onDelta: (text) => collected.push(text),
           onDone: () => {
             if (!settled) {
@@ -280,7 +328,7 @@ async function handleRemoteChat(
       fail(notConfigured);
       return undefined;
     }
-    const result = await pushRemoteChatTask(hub, registry, agentId, message, page, {
+    const result = await pushRemoteChatTask(hub, registry, agentId, message, page, history, context, {
       onDelta: (text) => raw.write(sseFrame({ delta: text })),
       onThinking: (text) => raw.write(sseFrame({ thinking: text })),
       onToolStarted: (tool, detail) =>

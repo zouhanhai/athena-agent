@@ -74,6 +74,10 @@ import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
 import type { Neo4jDriverLike } from "./kb/store/schema.js";
 import { AgentWsGateway } from "./ws/agent.js";
+import {
+  createSharedAthenaSummarizer,
+  type Summarizer,
+} from "./agents/chat-context.js";
 
 export interface BuildAppOptions {
   manager?: AgentManager;
@@ -102,6 +106,12 @@ export interface BuildAppOptions {
   hub?: AgentWsGateway;
   /** G4.S7.T4: idle window before an unresponsive pushed task auto-errors (ms). */
   agentWsIdleTimeoutMs?: number;
+  /**
+   * G4.S7.T10: LLM seam that summarizes old remote-chat history above the token
+   * threshold. Default: a lazy shared athena-channel summarizer (ModelRuntime is
+   * only built on first use). Inject a fake to keep tests off the network.
+   */
+  summarizer?: Summarizer;
 }
 
 export function defaultIngestService(): KnowledgeIngestService {
@@ -436,7 +446,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   registerAgentRoutes(app, { registry, auth, hub, employees });
   registerLogoRoutes(app, { logoStore: logos, registry, employees });
-  registerChatRoutes(app, { manager, hub, registry });
+  registerChatRoutes(app, {
+    manager,
+    hub,
+    registry,
+    summarizer: options.summarizer ?? createSharedAthenaSummarizer(),
+  });
   // G4.S7.T4: expose the reverse-WS gateway so consumers (and tests) can inspect
   // live tunnels / reachability without a second server instance.
   app.decorate("agentHub", hub);
