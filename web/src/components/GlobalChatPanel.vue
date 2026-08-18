@@ -211,7 +211,7 @@ function addEmployee(emp: EmployeeRecord) {
           </span>
           <div class="bubble-block">
             <div class="bubble" :class="{ typing: msg.role === 'assistant' && !msg.content }">
-              {{ msg.content || (msg.role === "assistant" ? "Pi is typing..." : "") }}
+              {{ msg.content || (msg.role === "assistant" ? `${msg.speaker?.name ?? "agent"} is typing...` : "") }}
             </div>
             <!-- G4.S7.T4: a remote agent's reasoning channel — collapsed progress row
                  under the bubble, distinct from the final answer text. -->
