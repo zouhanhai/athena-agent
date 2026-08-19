@@ -78,6 +78,13 @@ A ticket's full lifecycle:
 The claim itself is handled by the plugin on your first tool call — do not edit
 the ticket's status/assignee/session_id by hand.
 
+**Server tests MUST use `npm test`** (runs `node --import tsx --test
+--test-force-exit`). Never run bare `node --import tsx --test`: Pi SDK agents
+leave global Socket/FSWatcher handles open, so the runner hangs on the
+"Promise resolution is still pending" timeouts (agents.test.ts,
+e2e-conversation.test.ts). `--test-force-exit` makes the suite exit cleanly.
+Web: `npx vitest run` in `web/`.
+
 ## Tech Stack
 
 - **Language**: All files (docs, comments, tickets, specs, code) are written in **English** — the whole team reads them.
