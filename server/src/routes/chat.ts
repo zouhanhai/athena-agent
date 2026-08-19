@@ -80,6 +80,10 @@ function parseClarifyAnswer(value: unknown): ClarifyAnswer | undefined {
  * G4.S7.T10: validate the `history` body field. Accepts any role with a
  * non-empty string content, filters everything else, and defensively caps the
  * turn count (MAX_HISTORY_TURNS). Never throws — malformed input yields [].
+ *
+ * G4.S7.T11: assistant turns may also carry `thinking` (reasoning) and `toolOutput`
+ * (+ `toolName`/`toolCallId`) — all OPTIONAL and only kept when non-empty strings.
+ * Pre-T11 clients (plain `{role, content}`) are still fully accepted.
  */
 function parseHistory(value: unknown): ChatTurn[] {
   if (!Array.isArray(value)) return [];
@@ -90,7 +94,27 @@ function parseHistory(value: unknown): ChatTurn[] {
     if (typeof v.role !== "string" || typeof v.content !== "string") continue;
     const content = v.content.trim();
     if (!content) continue;
-    turns.push({ role: v.role, content });
+
+    const turn: ChatTurn = { role: v.role, content };
+
+    let thinking = "";
+    if (typeof v.thinking === "string") thinking = v.thinking.trim();
+    let toolOutput = "";
+    if (typeof v.toolOutput === "string") toolOutput = v.toolOutput.trim();
+
+    if (turn.role === "assistant") {
+      if (thinking) turn.thinking = thinking;
+      if (toolOutput) {
+        turn.toolOutput = toolOutput;
+        if (typeof v.toolName === "string" && v.toolName.trim()) turn.toolName = v.toolName.trim();
+        if (typeof v.toolCallId === "string" && v.toolCallId.trim()) turn.toolCallId = v.toolCallId.trim();
+      }
+    } else if (turn.role === "user" && (v.toolOutput !== undefined || v.toolName !== undefined)) {
+      // A user turn carrying tool metadata is unusual; keep output only if present.
+      if (toolOutput) turn.toolOutput = toolOutput;
+    }
+
+    turns.push(turn);
     if (turns.length >= MAX_HISTORY_TURNS) break;
   }
   return turns;
@@ -333,7 +357,7 @@ async function handleRemoteChat(
       onThinking: (text) => raw.write(sseFrame({ thinking: text })),
       onToolStarted: (tool, detail) =>
         raw.write(sseFrame({ tool: { state: "started", name: tool, detail } })),
-      onToolCompleted: (tool, detail, error) =>
+      onToolCompleted: (tool, detail, error, output) =>
         raw.write(
           sseFrame({
             tool: {
@@ -341,6 +365,8 @@ async function handleRemoteChat(
               name: tool,
               detail,
               error,
+              // G4.S7.T11: relay the tool result content when the agent sent it.
+              ...(output !== undefined ? { output } : {}),
             },
           }),
         ),

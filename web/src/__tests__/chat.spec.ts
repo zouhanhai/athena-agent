@@ -60,6 +60,8 @@ interface StreamArgs {
   onDone?: () => void;
   onError?: (message: string) => void;
   onClarify?: (clarify: { question: string; options: string[]; query?: string }) => void;
+  onThinking?: (text: string) => void;
+  onTool?: (tool: { state: string; name: string; detail?: string; output?: string }) => void;
 }
 
 function mountChat(): ChatWrapper {
@@ -614,7 +616,88 @@ describe("GlobalChatPanel context meter + history (G4.S7.T10)", () => {
     ]);
     wrapper.unmount();
   });
+
+  it("historyForRequest includes thinking + tool output on the assistant turn", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.messages = [
+      { role: "user", content: "find the bug" },
+      {
+        role: "assistant",
+        content: "looks like a race",
+        thinking: "let me reason",
+        progress: [
+          { name: "shell", state: "completed", detail: "build", output: "build ok" },
+        ],
+        speaker: { id: "athena", kind: "agent", name: "Athena", logoUrl: "" },
+      },
+    ];
+
+    expect(historyForRequestOf(store)).toContainEqual({
+      role: "assistant",
+      content: "looks like a race",
+      thinking: "let me reason",
+      toolOutput: "build ok",
+      toolName: "shell",
+    });
+    // The user turn stays plain.
+    expect(historyForRequestOf(store)).toContainEqual({
+      role: "user",
+      content: "find the bug",
+    });
+    wrapper.unmount();
+  });
+
+  it("historyForRequest keeps user turns plain and pre-T11 assistant turns (no extras) intact", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.messages = [
+      { role: "user", content: "q1" },
+      { role: "assistant", content: "a1" },
+    ];
+    expect(historyForRequestOf(store)).toEqual([
+      { role: "user", content: "q1" },
+      { role: "assistant", content: "a1" },
+    ]);
+    wrapper.unmount();
+  });
+
+  it("context meter reflects thinking + tool output (extras count toward the budget)", async () => {
+    const wrapper = mountChat();
+    const store = useChatStore();
+    // user: 200k chars ≈ 50k tokens; assistant content 200k ≈ 50k; thinking
+    // 200k ≈ 50k; tool output (in a progress row) 200k ≈ 50k → ~200k total
+    // → summarizing (>= 100% of the 200k threshold).
+    store.messages = [
+      { role: "user", content: "x".repeat(200_000) },
+      {
+        role: "assistant",
+        content: "x".repeat(200_000),
+        thinking: "y".repeat(200_000),
+        progress: [
+          { name: "shell", state: "completed", output: "z".repeat(200_000) },
+        ],
+        speaker: { id: "athena", kind: "agent", name: "Athena", logoUrl: "" },
+      },
+    ];
+    await wrapper.vm.$nextTick();
+
+    const meter = wrapper.find(".context-meter");
+    expect(meter.classes()).toContain("context-summarizing");
+    expect(meter.find(".context-meter-text").text()).toMatch(/~200k \/ 200k tokens/);
+    wrapper.unmount();
+  });
 });
+
+function historyForRequestOf(store: ReturnType<typeof useChatStore>) {
+  return (store.historyForRequest() as unknown as Array<{
+    role: string;
+    content: string;
+    thinking?: string;
+    toolOutput?: string;
+    toolName?: string;
+  }>);
+}
 
 describe("GlobalChatPanel clarification follow-up (G4.S3.T13)", () => {
   it("renders a clarification question + options on the assistant bubble", async () => {

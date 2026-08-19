@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { AgentRegistry } from "../agents/registry.js";
+import type { ChatTurn } from "../agents/chat-context.js";
 
 /** Public inbound WebSocket endpoint remote agents connect INTO (G4.S7.T1). */
 export const AGENT_WS_PATH = "/ws/agent";
@@ -34,6 +35,14 @@ export interface AgentTaskReplyContract {
   reconnect: {
     inFlightTasks: "server marks task.error; no re-delivery";
   };
+  /** G4.S7.T11 additive notes: tool events may carry result `output`, and
+   *  assistant `thinking` is relayed separately from the final answer. */
+  toolEvents: {
+    toolCompletedOutput: "optional, relays the tool result content";
+  };
+  thinking: {
+    relayed: "separate from the final answer text";
+  };
 }
 
 /** Default idle window before a task with no agent activity is auto-errored. */
@@ -50,8 +59,13 @@ export interface AgentTask {
   type: "chat.completions";
   /** Optional model the agent should use (e.g. "hermes-agent"). Default: agent's own default. */
   model?: string;
-  /** The conversation (OpenAI chat.completions request body) the agent should run. */
-  messages: Array<{ role: string; content: string }>;
+  /** The conversation (OpenAI chat.completions request body) the agent should run.
+   *  G4.S7.T11: assistant turns may carry `thinking` (reasoning) and tool-result
+   *  messages may carry `name`/`tool_call_id` — the platform DELIVERS these as
+   *  data; the remote agent runtime applies its own provider policy.
+   *  The messages are `ChatTurn`s (role + content + optional thinking/toolOutput
+   *  compatible fields); a tool-carrying turn expands to a `role: "tool"` row. */
+  messages: Array<ChatTurn>;
 }
 
 export type AgentClientMessage =
@@ -68,6 +82,10 @@ export type AgentClientMessage =
       detail?: string;
       status?: "ok" | "error";
       error?: string;
+      /** G4.S7.T11: the tool's returned content (stdout, file excerpt, API
+       *  response…). OPTIONAL — old connectors that send only detail still work;
+       *  the platform never fails because output is absent. */
+      output?: string;
     }
   | { type: "delta"; task_id: string; text: string }
   /** Reasoning/thinking tokens — distinct from the final answer text (Q1). */
@@ -95,7 +113,8 @@ export type AgentServerMessage =
  */
 export interface TaskRelay {
   onToolStarted?(tool: string, detail?: string): void;
-  onToolCompleted?(tool: string, detail?: string, error?: string): void;
+  /** `output` (G4.S7.T11) is the tool result content, when the agent sent it. */
+  onToolCompleted?(tool: string, detail?: string, error?: string, output?: string): void;
   onDelta?(text: string): void;
   /** Reasoning/thinking tokens (agent's internal chain-of-thought, if emitted). */
   onThinking?(text: string): void;
@@ -295,6 +314,12 @@ export class AgentWsGateway {
         reconnect: {
           inFlightTasks: "server marks task.error; no re-delivery",
         },
+        toolEvents: {
+          toolCompletedOutput: "optional, relays the tool result content",
+        },
+        thinking: {
+          relayed: "separate from the final answer text",
+        },
       },
     });
     this.events.emit("agent.connected", {
@@ -330,7 +355,12 @@ export class AgentWsGateway {
         break;
       case "tool.completed":
         this.armIdleTimer(channel, msg.task_id, entry);
-        entry.relay.onToolCompleted?.(msg.tool, msg.detail, msg.status === "error" ? msg.error : undefined);
+        entry.relay.onToolCompleted?.(
+          msg.tool,
+          msg.detail,
+          msg.status === "error" ? msg.error : undefined,
+          msg.output,
+        );
         break;
       case "delta":
         this.armIdleTimer(channel, msg.task_id, entry);

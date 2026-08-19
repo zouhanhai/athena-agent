@@ -14,10 +14,20 @@ export interface ChatClarifyAnswer {
 }
 
 /** G4.S7.T10: one accumulated conversation turn sent as `history` so the remote
- *  agent keeps multi-turn context (same `{ role, content }` shape as the task). */
+ *  agent keeps multi-turn context (same `{ role, content }` shape as the task).
+ *
+ *  G4.S7.T11 full-transfer history: an assistant turn may additionally carry
+ *  `thinking` (the accumulated reasoning text) and one `toolOutput` (the tool
+ *  result content) + `toolName`/`toolCallId` so the prior reasoning and tool
+ *  results are replayed to the agent, aligning with Hermes' own replay. All are
+ *  optional — pre-T11 clients send plain `{ role, content }`. */
 export interface ChatHistoryTurn {
   role: string;
   content: string;
+  thinking?: string;
+  toolOutput?: string;
+  toolName?: string;
+  toolCallId?: string;
 }
 
 export interface ChatStreamHandlers {
