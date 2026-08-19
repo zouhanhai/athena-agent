@@ -29,11 +29,22 @@ const pickerError = ref("");
 const expandedAgentId = ref<string | null>(null);
 
 /** G4.S7.T10: estimated tokens of the accumulated user/assistant conversation —
- *  mirrors the server heuristic; drives the context meter in the panel. */
+ *  mirrors the server heuristic; drives the context meter in the panel.
+ *  G4.S7.T11: includes the assistant's `thinking` and each tool `output` so the
+ *  meter matches the server's full-history budget (which counts them too). */
 const contextTokens = computed(() => {
   const text = messages.value
     .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim().length > 0)
-    .map((m) => m.content)
+    .map((m) => {
+      const parts = [m.content];
+      if (m.role === "assistant" && m.thinking) parts.push(m.thinking);
+      if (m.role === "assistant" && m.progress) {
+        for (const row of m.progress) {
+          if (row.output) parts.push(row.output);
+        }
+      }
+      return parts.join("\n");
+    })
     .join("\n");
   return estimateTokens(text);
 });

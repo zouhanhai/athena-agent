@@ -16,6 +16,8 @@ export interface ToolProgress {
   name: string;
   detail?: string;
   error?: string;
+  /** G4.S7.T11: the tool result content the agent streamed back (optional). */
+  output?: string;
 }
 
 /** G4.S3.T13: a clarification the agent wants the user to answer. `query` is the
@@ -130,5 +132,6 @@ function isToolProgress(value: unknown): value is ToolProgress {
   if (typeof v.name !== "string") return false;
   if (v.detail !== undefined && typeof v.detail !== "string") return false;
   if (v.error !== undefined && typeof v.error !== "string") return false;
+  if (v.output !== undefined && typeof v.output !== "string") return false;
   return true;
 }

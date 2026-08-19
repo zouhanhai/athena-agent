@@ -34,6 +34,8 @@ export interface ToolProgressRow {
   state: "started" | "completed" | "failed";
   detail?: string;
   error?: string;
+  /** G4.S7.T11: the tool result content streamed back (optional). */
+  output?: string;
 }
 
 export interface ChatMessage {
@@ -158,6 +160,12 @@ export const useChatStore = defineStore("chat", {
      * request so a remote agent keeps multi-turn context. Filters out system
      * notices and empty assistant placeholders; the server is the authority on
      * truncation/summarization above its token threshold.
+     *
+     * G4.S7.T11: each assistant turn carries its accumulated `thinking` and the
+     * tool OUTPUT of its last completed tool (when present) so the prior
+     * reasoning + tool results are replayed to the agent. The `output` is taken
+     * from the completed/failed tool row (the first with an output); the
+     * `toolName`/`toolCallId` identify the tool for the remote runtime.
      */
     historyForRequest(): ChatHistoryTurn[] {
       return this.messages
@@ -166,7 +174,20 @@ export const useChatStore = defineStore("chat", {
             (m.role === "user" || m.role === "assistant") &&
             m.content.trim().length > 0,
         )
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => {
+          const turn: ChatHistoryTurn = { role: m.role, content: m.content };
+          if (m.role === "assistant" && m.thinking && m.thinking.trim().length > 0) {
+            turn.thinking = m.thinking;
+          }
+          if (m.role === "assistant" && m.progress) {
+            const done = m.progress.find((r) => r.state !== "started" && r.output);
+            if (done) {
+              turn.toolOutput = done.output;
+              turn.toolName = done.name;
+            }
+          }
+          return turn;
+        });
     },
     /**
      * Send a message: append a user bubble + empty assistant bubble,
@@ -253,10 +274,11 @@ export const useChatStore = defineStore("chat", {
             break;
           }
         }
+        const row = { name: tool.name, state: tool.state, detail: tool.detail, error: tool.error, output: tool.output };
         if (idx !== -1) {
-          rows[idx] = { name: tool.name, state: tool.state, detail: tool.detail, error: tool.error };
+          rows[idx] = row;
         } else {
-          rows.push({ name: tool.name, state: tool.state, detail: tool.detail, error: tool.error });
+          rows.push(row);
         }
       }
       msg.progress = rows;

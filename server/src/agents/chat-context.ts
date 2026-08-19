@@ -18,10 +18,27 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { AGENTIC_MODEL, AGENTIC_PROVIDER } from "../kb/agentic-llm.js";
 
-/** A single conversation turn pushed to a remote agent (`messages: {role, content}[]`). */
+/** A single conversation turn pushed to a remote agent.
+ *
+ * G4.S7.T11 full-transfer history: an assistant turn may also carry the agent's
+ * `thinking` (reasoning) text and one `toolOutput` (the tool result content the
+ * agent streamed back). All three are optional — pre-T11 clients that send only
+ * `{ role, content }` remain fully compatible. `toolName`/`toolCallId` identify
+ * the tool (used to build the `role: "tool"` message the remote agent needs to
+ * match a tool call to its result).
+ */
 export interface ChatTurn {
   role: string;
   content: string;
+  /** Reasoner/thinking text produced while forming `content` (Delivered as DATA —
+   *  the remote agent runtime applies its own provider policy to it). */
+  thinking?: string;
+  /** The content the tool returned (terminal stdout, file excerpt, API response…). */
+  toolOutput?: string;
+  /** Name of the tool that produced `toolOutput` (Hermes keyed `name`). */
+  toolName?: string;
+  /** Identifier tying this result back to the agent's tool call (Hermes `tool_call_id`). */
+  toolCallId?: string;
 }
 
 /**
@@ -59,8 +76,66 @@ export function estimateTokens(text: string): number {
   return Math.ceil(asciiLength / 4) + cjkCount;
 }
 
+/**
+ * Serialize a turn for token estimation / summarization, INCLUDING its thinking
+ * and tool output (G4.S7.T11 — they are now part of history and consume budget).
+ * A tool-carrying shift is rendered as a tool message so its output is counted.
+ */
 function serializeTurns(turns: ChatTurn[]): string {
-  return turns.map((t) => `${t.role}: ${t.content}`).join("\n\n");
+  return turns
+    .map((t) => {
+      const parts = [`${t.role}: ${t.content}`];
+      if (t.role === "assistant") {
+        if (t.thinking) parts.push(`thinking: ${t.thinking}`);
+        if (t.toolOutput) parts.push(`tool output: ${t.toolOutput}`);
+      }
+      if (t.role === "user" && t.toolOutput) parts.push(`tool output: ${t.toolOutput}`);
+      return parts.join("\n");
+    })
+    .join("\n\n");
+}
+
+/**
+ * Expand a single turn into the raw message objects sent to the remote agent
+ * (G4.S7.T11): an assistant turn with `toolOutput` becomes
+ * `{ role: "assistant", content, thinking? }` followed by
+ * `{ role: "tool", content: <output>, name?, tool_call_id? }` so the remote
+ * agent sees both the reasoning and the tool result — matching Hermes' own
+ * full-history replay shape. Turns without extras expand to `{ role, content }`.
+ */
+function expandTurn(turn: ChatTurn): ChatTurn[] {
+  // Plain pre-T11 turn (no thinking / no tool result / no tool identity) →
+  // pass the SAME object through unchanged.
+  if (
+    turn.role !== "assistant" ||
+    (!turn.thinking && !turn.toolOutput && !turn.toolName && !turn.toolCallId)
+  ) {
+    return [turn];
+  }
+
+  const messages: ChatTurn[] = [{ role: turn.role, content: turn.content }];
+  if (turn.thinking) {
+    // The assistant turn carries thinking as `reasoning_content`-style data.
+    messages[0]!.thinking = turn.thinking;
+  }
+  if (turn.toolOutput) {
+    messages.push({
+      role: "tool",
+      content: turn.toolOutput,
+      ...(turn.toolName ? { name: turn.toolName } : {}),
+      ...(turn.toolCallId ? { tool_call_id: turn.toolCallId } : {}),
+    });
+  } else if (turn.toolName || turn.toolCallId) {
+    // A tool was run but produced no output — still emit an (empty) result row
+    // so the remote agent can match the call.
+    messages.push({
+      role: "tool",
+      content: "",
+      ...(turn.toolName ? { name: turn.toolName } : {}),
+      ...(turn.toolCallId ? { tool_call_id: turn.toolCallId } : {}),
+    });
+  }
+  return messages;
 }
 
 /** Message sent to a remote agent when summarization is unavailable/failed. */
@@ -104,7 +179,11 @@ export async function buildTaskMessages(
   // Below threshold, or nothing outside the recent window to summarize/truncate
   // → pass the history through unchanged (no LLM call).
   if (totalTokens <= opts.thresholdTokens || old.length === 0) {
-    return [...(pageInjection ? [{ role: "system", content: pageInjection }] : []), ...history, current];
+    return [
+      ...(pageInjection ? [{ role: "system", content: pageInjection }] : []),
+      ...history.flatMap(expandTurn),
+      current,
+    ];
   }
 
   let summary = "";
@@ -123,7 +202,7 @@ export async function buildTaskMessages(
   return [
     ...(pageInjection ? [{ role: "system", content: pageInjection }] : []),
     summaryTurn,
-    ...recent,
+    ...recent.flatMap(expandTurn),
     current,
   ];
 }

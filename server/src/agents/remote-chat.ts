@@ -6,7 +6,8 @@ import { buildTaskMessages, type ChatTurn, type Summarizer } from "./chat-contex
 /** Handlers the SSE chat route attaches to a task pushed over the reverse tunnel. */
 export interface RemoteChatStreamHandlers {
   onToolStarted?(tool: string, detail?: string): void;
-  onToolCompleted?(tool: string, detail?: string, error?: string): void;
+  /** `output` (G4.S7.T11) is the tool result content when the agent sent it. */
+  onToolCompleted?(tool: string, detail?: string, error?: string, output?: string): void;
   onDelta?(text: string): void;
   /** Reasoning/thinking tokens, relayed separately from the final answer text. */
   onThinking?(text: string): void;
@@ -76,7 +77,8 @@ export async function pushRemoteChatTask(
     { type: "chat.completions", messages },
     {
       onToolStarted: (tool, detail) => handlers.onToolStarted?.(tool, detail),
-      onToolCompleted: (tool, detail, error) => handlers.onToolCompleted?.(tool, detail, error),
+      onToolCompleted: (tool, detail, error, output) =>
+        handlers.onToolCompleted?.(tool, detail, error, output),
       onDelta: (text) => handlers.onDelta?.(text),
       onThinking: (text) => handlers.onThinking?.(text),
       onComplete: () => handlers.onDone?.(),

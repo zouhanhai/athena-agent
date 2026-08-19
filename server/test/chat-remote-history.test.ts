@@ -209,6 +209,107 @@ test("remote chat: malformed history is filtered (empty content dropped, capped 
   }
 });
 
+test("remote chat: history carrying thinking + tool output is accepted and forwarded into the task payload", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    await registerAgent(client, harness.agentId, harness.token);
+    try {
+      const history: ChatTurn[] = [
+        { role: "user", content: "find the bug" },
+        {
+          role: "assistant",
+          content: "looks like a race",
+          thinking: "checking the timestamps first",
+          toolOutput: "pid 1234 crashed",
+          toolName: "debugger",
+          toolCallId: "call_debug",
+        },
+        { role: "user", content: "file a ticket" },
+      ];
+      const injectPromise = harness.app.inject({
+        method: "POST",
+        url: "/api/chat",
+        headers: { accept: "text/event-stream" },
+        payload: {
+          userId: "hermes",
+          message: "continue",
+          agent_id: harness.agentId,
+          history,
+        },
+      });
+
+      const taskFrame = await client.nextMessage();
+      assert.equal(taskFrame.type, "task");
+      const messages = (taskFrame.payload as { messages?: ChatTurn[] }).messages!;
+      assert.equal(messages[0]!.content, "find the bug");
+      const assistant = messages[1] as { role: string; content: string; thinking?: string };
+      assert.equal(assistant.role, "assistant");
+      assert.equal(assistant.content, "looks like a race");
+      assert.equal(assistant.thinking, "checking the timestamps first", "thinking forwarded verbatim");
+      const tool = messages[2] as { role: string; content: string; name?: string; tool_call_id?: string };
+      assert.equal(tool.role, "tool");
+      assert.equal(tool.content, "pid 1234 crashed", "tool output forwarded as a role:tool message");
+      assert.equal(tool.name, "debugger");
+      assert.equal(tool.tool_call_id, "call_debug");
+      assert.equal(messages[3]!.content, "file a ticket");
+      assert.equal(messages[messages.length - 1]!.content, "continue");
+
+      client.ws.send(JSON.stringify({ type: "task.complete", task_id: taskFrame.task_id }));
+      const res = await injectPromise;
+      assert.equal(res.statusCode, 200);
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
+test("remote chat: thinking/tool output absent or blank is tolerated (pre-T11 clients still work)", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    await registerAgent(client, harness.agentId, harness.token);
+    try {
+      const history = [
+        { role: "assistant", content: "kept", thinking: "   ", toolOutput: "" },
+        { role: "user", content: "kept q", thinking: 42, toolOutput: null },
+      ];
+      const injectPromise = harness.app.inject({
+        method: "POST",
+        url: "/api/chat",
+        headers: { accept: "text/event-stream" },
+        payload: {
+          userId: "hermes",
+          message: "go",
+          agent_id: harness.agentId,
+          history,
+        },
+      });
+
+      const taskFrame = await client.nextMessage();
+      const messages = (taskFrame.payload as { messages?: ChatTurn[] }).messages!;
+      assert.deepEqual(
+        messages.slice(0, 2),
+        [
+          { role: "assistant", content: "kept" },
+          { role: "user", content: "kept q" },
+        ],
+        "blank/non-string thinking+output ignored; plain {role, content} turns forwarded",
+      );
+      assert.equal(messages[messages.length - 1]!.content, "go");
+
+      client.ws.send(JSON.stringify({ type: "task.complete", task_id: taskFrame.task_id }));
+      await injectPromise;
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
 test("remote chat: above threshold → injected summarizer summarizes old turns into the task payload", async () => {
   const calls: ChatTurn[][] = [];
   const summarizer: Summarizer = async (turns) => {

@@ -172,6 +172,109 @@ test("buildTaskMessages: above threshold with an empty recent window (nothing to
   assert.deepEqual(messages, [...history, { role: "user", content: MESSAGE }]);
 });
 
+test("buildTaskMessages: budget INCLUDES thinking + tool output (extras alone push over the threshold)", async () => {
+  // Tiny content — without thinking/tool output this would pass through any
+  // reasonable threshold; the extras are what cross it.
+  const history: ChatTurn[] = [
+    { role: "user", content: "hi" },
+    {
+      role: "assistant",
+      content: "ok",
+      thinking: "x".repeat(2_000),
+      toolOutput: "y".repeat(2_000),
+    },
+  ];
+  const calls: ChatTurn[][] = [];
+  const messages = await buildTaskMessages(history, MESSAGE, undefined, {
+    thresholdTokens: 200, // ≈1000 tokens from thinking + output alone → over
+    recentMaxTurns: 1,
+    summarizer: recordingSummarizer(calls),
+  });
+
+  // The extras counted toward the budget (crossing 200 tokens → summarize path),
+  // and the summarizer saw the OLD (pre-recent-window) user turn verbatim.
+  assert.equal(calls.length, 1, "thinking + tool output are counted in the budget and trigger summarization");
+  assert.deepEqual(calls[0], [{ role: "user", content: "hi" }]);
+  assert.ok(messages[0]!.content.startsWith("Earlier conversation summary:"));
+});
+
+test("buildTaskMessages: passthrough keeps thinking on the assistant turn and emits a role:tool message for the output", async () => {
+  const history: ChatTurn[] = [
+    { role: "user", content: "question" },
+    {
+      role: "assistant",
+      content: "answer",
+      thinking: "my reasoning",
+      toolOutput: "file contents",
+      toolName: "shell",
+      toolCallId: "call_1",
+    },
+  ];
+  const messages = await buildTaskMessages(history, MESSAGE, undefined, {
+    thresholdTokens: DEFAULT_CONTEXT_THRESHOLD_TOKENS,
+    recentMaxTurns: DEFAULT_RECENT_MAX_TURNS,
+    summarizer: recordingSummarizer([]),
+  });
+
+  assert.equal(messages[0]!.role, "user");
+  assert.equal(messages[0]!.content, "question");
+  const assistant = messages[1] as { role: string; content: string; thinking?: string };
+  assert.equal(assistant.role, "assistant");
+  assert.equal(assistant.content, "answer");
+  assert.equal(assistant.thinking, "my reasoning");
+  const tool = messages[2] as { role: string; content: string; name?: string; tool_call_id?: string };
+  assert.equal(tool.role, "tool");
+  assert.equal(tool.content, "file contents");
+  assert.equal(tool.name, "shell");
+  assert.equal(tool.tool_call_id, "call_1");
+  assert.equal(messages[messages.length - 1]!.content, MESSAGE);
+  assert.equal(messages[messages.length - 1]!.role, "user");
+});
+
+test("buildTaskMessages: summarize path preserves thinking + tool output on the verbatim recent window", async () => {
+  const recentMaxTurns = 2;
+  const history: ChatTurn[] = [
+    { role: "user", content: "old q", toolOutput: "old result" },
+    { role: "assistant", content: "old a" },
+    { role: "user", content: "recent q" },
+    {
+      role: "assistant",
+      content: "recent a",
+      thinking: "recent thinking",
+      toolOutput: "recent output",
+      toolName: "debugger",
+    },
+  ];
+  const calls: ChatTurn[][] = [];
+  const messages = await buildTaskMessages(history, MESSAGE, undefined, {
+    thresholdTokens: 5, // tiny → summarize the old part
+    recentMaxTurns,
+    summarizer: recordingSummarizer(calls),
+  });
+
+  assert.equal(calls[0]!.length, 2, "only the pre-window turns are summarized");
+  assert.ok(messages[0]!.content.startsWith("Earlier conversation summary:"));
+  const recent = messages.slice(1, messages.length - 1);
+  assert.equal(recent[0]!.content, "recent q");
+  assert.equal(recent[0]!.role, "user");
+  const assistant = recent[1] as { role: string; content: string; thinking?: string };
+  assert.equal(assistant.role, "assistant");
+  assert.equal(assistant.thinking, "recent thinking");
+  assert.equal(recent[2]!.role, "tool");
+  assert.equal(recent[2]!.content, "recent output");
+  assert.equal(recent[2]!.name, "debugger");
+  assert.equal(messages[messages.length - 1]!.content, MESSAGE);
+});
+
+test("buildTaskMessages: pre-T11 turns (no thinking / no tool output) pass through unchanged", async () => {
+  const plain: ChatTurn[] = [{ role: "user", content: "q" }, { role: "assistant", content: "a" }];
+  const messages = await buildTaskMessages(plain, MESSAGE, undefined, {
+    thresholdTokens: DEFAULT_CONTEXT_THRESHOLD_TOKENS,
+    recentMaxTurns: DEFAULT_RECENT_MAX_TURNS,
+  });
+  assert.deepEqual(messages, [...plain, { role: "user", content: MESSAGE }]);
+});
+
 test("defaults are exported tuning constants", () => {
   assert.equal(DEFAULT_CONTEXT_THRESHOLD_TOKENS, 200_000);
   assert.equal(DEFAULT_RECENT_MAX_TURNS, 40);

@@ -213,6 +213,85 @@ test("WS reverse tunnel: platform pushes a task; agent streams tool.started/tool
   }
 });
 
+test("WS reverse tunnel: tool.completed WITHOUT output (old agent) still relays — output is undefined", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    await registerAgent(client, harness.agentId, harness.token);
+    try {
+      let completedTool = "";
+      let completedError: string | undefined = "sentinel";
+      let completedOutput: string | undefined = "sentinel";
+      const taskId = harness.hub.sendTask(
+        harness.agentId,
+        { type: "chat.completions", messages: [] },
+        {
+          onToolCompleted: (tool, _detail, error, output) => {
+            completedTool = tool;
+            completedError = error;
+            completedOutput = output;
+          },
+        },
+      );
+      assert.ok(taskId);
+      const taskFrame = await client.nextMessage();
+      assert.equal(taskFrame.type, "task");
+
+      // Old-style frame: only detail, no output → must not fail and must not
+      // fabricate output.
+      client.ws.send(JSON.stringify({ type: "tool.completed", task_id: taskFrame.task_id, tool: "shell", detail: "ran" }));
+      await waitFor(() => completedTool === "shell");
+      assert.equal(completedError, undefined);
+      assert.equal(completedOutput, undefined, "absent output relays as undefined (old-agent compat)");
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
+test("WS reverse tunnel: tool.completed WITH output relays the tool result content", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    await registerAgent(client, harness.agentId, harness.token);
+    try {
+      let receivedOutput: string | undefined;
+      let receivedDetail: string | undefined;
+      const taskId = harness.hub.sendTask(
+        harness.agentId,
+        { type: "chat.completions", messages: [] },
+        {
+          onToolCompleted: (tool, detail, _error, output) => {
+            receivedDetail = detail;
+            receivedOutput = output;
+          },
+        },
+      );
+      assert.ok(taskId);
+      const taskFrame = await client.nextMessage();
+      assert.equal(taskFrame.type, "task");
+
+      client.ws.send(
+        JSON.stringify({
+          type: "tool.completed",
+          task_id: taskFrame.task_id,
+          tool: "shell",
+          detail: "npm run build",
+          output: "exit 0\nbuild artifacts written",
+        }),
+      );
+      await waitFor(() => receivedOutput === "exit 0\nbuild artifacts written");
+      assert.equal(receivedDetail, "npm run build");
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
 test("WS reverse tunnel: chat route streams tool progress + result over the tunnel (end-to-end)", async () => {
   const harness = await buildHarness();
   try {
@@ -243,6 +322,49 @@ test("WS reverse tunnel: chat route streams tool progress + result over the tunn
       assert.ok(body.includes(`data: ${JSON.stringify({ delta: "Building..." })}\n\n`), "delta relayed");
       assert.ok(body.includes(`data: ${JSON.stringify({ tool: { state: "completed", name: "shell" } })}\n\n`), "tool.completed relayed");
       assert.ok(body.includes(`data: ${JSON.stringify({ done: true })}\n\n`), "done frame");
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
+test("WS reverse tunnel: chat route relays tool output (tool.completed output) into the SSE tool frame", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    await registerAgent(client, harness.agentId, harness.token);
+    try {
+      const ssePromise = harness.app.inject({
+        method: "POST",
+        url: "/api/chat",
+        headers: { accept: "text/event-stream" },
+        payload: { userId: "hermes", message: "inspect", agent_id: harness.agentId },
+      });
+
+      const taskFrame = await client.nextMessage();
+      assert.equal(taskFrame.type, "task");
+      client.ws.send(
+        JSON.stringify({
+          type: "tool.completed",
+          task_id: taskFrame.task_id,
+          tool: "shell",
+          detail: "inspect",
+          output: "pid 1234 is healthy",
+        }),
+      );
+      client.ws.send(JSON.stringify({ type: "task.complete", task_id: taskFrame.task_id }));
+
+      const sse = await ssePromise;
+      assert.equal(sse.statusCode, 200);
+      assert.ok(
+        sse.body.includes(
+          `data: ${JSON.stringify({ tool: { state: "completed", name: "shell", detail: "inspect", output: "pid 1234 is healthy" } })}\n\n`,
+        ),
+        "tool output relayed into the SSE tool frame",
+      );
+      assert.ok(sse.body.includes(`data: ${JSON.stringify({ done: true })}\n\n`), "done frame");
     } finally {
       await client.close();
     }
