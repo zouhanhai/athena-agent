@@ -73,6 +73,8 @@ watch(
         logoUrl: employee.logo_url,
       });
       chat.userId = employee.id;
+      // G4.S7.T11-followup: restore this user's persisted conversation (F5).
+      void chat.loadHistory();
     }
   },
   { immediate: true },

@@ -61,6 +61,35 @@ export async function sendChat(
   return data.reply;
 }
 
+/** G4.S7.T11-followup: persisted per-user chat history (F5 restore). */
+export interface PersistedChatMessageDto {
+  message_id: string;
+  employee_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  speaker_id: string;
+  speaker_name: string;
+  page: string;
+  thinking: string;
+  progress: Array<Record<string, unknown>>;
+  created_at: string;
+}
+
+/** G4.S7.T11-followup: fetch the signed-in user's persisted chat history. */
+export async function fetchChatHistory(
+  userId: string,
+  limit = 200,
+): Promise<PersistedChatMessageDto[]> {
+  const res = await fetch(`/api/chat/history?userId=${encodeURIComponent(userId)}&limit=${limit}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`History request failed with status ${res.status}`);
+  }
+  const data = (await res.json()) as { messages: PersistedChatMessageDto[] };
+  return data.messages ?? [];
+}
+
 /**
  * Streaming chat: POST /api/chat (Accept: text/event-stream),
  * calls onDelta chunk by chunk via consumeSSEStream, dispatches done/error/clarify

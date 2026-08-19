@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { streamChat, type ChatHistoryTurn } from "@/api/chat";
+import { streamChat, fetchChatHistory, type ChatHistoryTurn } from "@/api/chat";
 import { sendFeedback, type FeedbackDirection } from "@/api/feedback";
 import type { ChatClarification, ToolProgress } from "@/api/sse";
 
@@ -110,6 +110,49 @@ export const useChatStore = defineStore("chat", {
     /** Set the human behind user bubbles (the signed-in employee, G3.S2). */
     setUserSpeaker(speaker: ChatSpeaker) {
       this.userSpeaker = { ...speaker };
+    },
+    /**
+     * G4.S7.T11-followup: restore this employee's persisted chat history (F5
+     * persistence). Called once the signed-in employee is known. Server rows
+     * are ordered oldest-first; system join/leave notices are not persisted.
+     */
+    async loadHistory() {
+      if (!this.userId) return;
+      try {
+        const rows = await fetchChatHistory(this.userId, 200);
+        const restored: ChatMessage[] = rows.map((row) => {
+          if (row.role === "assistant") {
+            const speaker =
+              this.participants.find((p) => p.id === row.speaker_id) ??
+              this.participants.find((p) => p.id === "athena");
+            return {
+              role: "assistant",
+              content: row.content,
+              speaker: speaker ?? {
+                id: row.speaker_id || "athena",
+                kind: "agent",
+                name: row.speaker_name || "Athena",
+                logoUrl: "",
+              },
+              thinking: row.thinking || undefined,
+              progress: Array.isArray(row.progress) && row.progress.length > 0
+                ? (row.progress as unknown as ToolProgressRow[])
+                : undefined,
+            };
+          }
+          return {
+            role: "user" as const,
+            content: row.content,
+            speaker: this.userSpeaker,
+          };
+        });
+        if (restored.length > 0) {
+          this.messages = restored;
+        }
+      } catch (err) {
+        // History restore is best-effort; a failed fetch must not block chat.
+        console.warn("[chat] history restore failed:", err);
+      }
     },
     /** The participant that speaks for the assistant bubbles — the last joined agent with speak on, else Athena. */
     speakingAgent(): ChatParticipant {

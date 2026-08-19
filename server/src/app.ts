@@ -62,6 +62,11 @@ import {
   PostgresSemanticMappingStore,
   type SemanticMappingStore,
 } from "./kb/semantic-mappings.js";
+import {
+  MemoryChatHistoryStore,
+  PostgresChatHistoryStore,
+  type ChatHistoryStore,
+} from "./agents/chat-history.js";
 import { DoclingParser } from "./kb/docling.js";
 import { IngestTaskQueue } from "./kb/tasks.js";
 import { createAthenaRefiner, createAthenaWikiEditRefiner } from "./kb/refiner.js";
@@ -91,6 +96,9 @@ export interface BuildAppOptions {
   feedback?: FeedbackService;
   /** Custom semantic mappings (G4.S3.T6). Default: defaultSemanticMappings(). */
   mappings?: SemanticMappingStore;
+  /** G4.S7.T11-followup: per-user chat history persistence. Default:
+   *  defaultChatHistoryStore() (Postgres when DATABASE_URL is set). */
+  historyStore?: ChatHistoryStore;
   taskQueue?: IngestTaskQueue;
   registry?: AgentRegistry;
   logos?: LogoStore;
@@ -157,6 +165,16 @@ export function defaultSemanticMappings(): SemanticMappingStore {
     return new PostgresSemanticMappingStore({ connectionString });
   }
   return new MemorySemanticMappingStore();
+}
+
+/** G4.S7.T11-followup: per-user chat history persistence. Postgres when
+ *  DATABASE_URL is set (F5 keeps the conversation), else in-memory. */
+export function defaultChatHistoryStore(): ChatHistoryStore {
+  const connectionString = process.env.DATABASE_URL;
+  if (connectionString) {
+    return new PostgresChatHistoryStore({ connectionString });
+  }
+  return new MemoryChatHistoryStore();
 }
 
 /** Neo4j driver from env (NEO4J_PASSWORD set), else undefined. */
@@ -370,6 +388,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const review = options.review ?? defaultReviewService();
   const feedback = options.feedback ?? defaultFeedbackService();
   const mappings = options.mappings ?? defaultSemanticMappings();
+  const historyStore = options.historyStore ?? defaultChatHistoryStore();
   // G4.S3.T6: the default retrieval shares the feedback service's QA store/index
   // as the search-path reference provider + the semantic mappings store for term
   // query expansion. An injected retrieval keeps its own wiring.
@@ -450,6 +469,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     manager,
     hub,
     registry,
+    historyStore,
     summarizer: options.summarizer ?? createSharedAthenaSummarizer(),
   });
   // G4.S7.T4: expose the reverse-WS gateway so consumers (and tests) can inspect

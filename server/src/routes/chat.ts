@@ -5,6 +5,7 @@ import { buildPageInjection, injectPageContext } from "../agents/page-context.js
 import type { AgentRegistry } from "../agents/registry.js";
 import type { AgentWsGateway } from "../ws/agent.js";
 import { pushRemoteChatTask } from "../agents/remote-chat.js";
+import type { ChatHistoryStore } from "../agents/chat-history.js";
 import {
   DEFAULT_CONTEXT_THRESHOLD_TOKENS,
   DEFAULT_RECENT_MAX_TURNS,
@@ -50,6 +51,12 @@ export interface ChatRouteOptions {
    * omission note) — it is injected so unit tests never hit the network.
    */
   summarizer?: Summarizer;
+  /**
+   * G4.S7.T11-followup: per-user chat history persistence. Absent store → the
+   * chat remains in-memory only (no F5 persistence) and GET /api/chat/history
+   * returns an empty list. Injected so tests/legacy setups don't require one.
+   */
+  historyStore?: ChatHistoryStore;
 }
 
 function invalidField(value: unknown): boolean {
@@ -161,6 +168,32 @@ function buildClarifyReRunPrompt(answer: ClarifyAnswer, page: string | undefined
  *   tool.started / tool.completed (`{ tool: ... }` frames) + result deltas back.
  */
 export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptions): void {
+  // G4.S7.T11-followup: per-user chat history restore (F5 persistence).
+  // GET /api/chat/history?userId=<id>&limit=N → persisted messages newest-first
+  // window (the store returns oldest-first for rendering order).
+  app.get("/api/chat/history", async (request, reply) => {
+    const query = (request.query ?? {}) as { userId?: unknown; limit?: unknown };
+    if (invalidField(query.userId)) {
+      return reply.code(400).send({ error: "userId is required" });
+    }
+    const userId = query.userId as string;
+    const limitRaw =
+      typeof query.limit === "string" && /^\d+$/.test(query.limit)
+        ? Number(query.limit)
+        : 200;
+    if (!options.historyStore) {
+      return { messages: [] };
+    }
+    try {
+      const messages = await options.historyStore.listMessages(userId, limitRaw);
+      return { messages };
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/api/chat", async (request, reply) => {
     const body = (request.body ?? {}) as ChatRequestBody;
 
@@ -184,6 +217,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
 
     if (agentId) {
       return await handleRemoteChat(reply, {
+        employeeId: userId,
         agentId,
         message,
         page,
@@ -210,9 +244,12 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
       });
+      // G4.S7.T11-followup: accumulate the streamed answer for persistence.
+      const chunks: string[] = [];
       try {
         for await (const event of streamAgentChat(agent, finalPrompt)) {
           if (event.type === "clarify") {
+            chunks.push(event.clarification.question);
             raw.write(sseFrame({
               clarify: {
                 question: event.clarification.question,
@@ -221,10 +258,20 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
               },
             }));
           } else {
+            chunks.push(event.text);
             raw.write(sseFrame({ delta: event.text }));
           }
         }
         raw.write(sseFrame({ done: true }));
+        await persistTurn(options.historyStore, {
+          employeeId: userId,
+          page,
+          userText: message,
+          assistantText: chunks.join(""),
+          speakerId: "athena",
+          speakerName: "Athena",
+          clarifyAnswer: Boolean(clarifyAnswer),
+        });
       } catch (err) {
         raw.write(sseFrame({ error: err instanceof Error ? err.message : String(err) }));
       } finally {
@@ -235,6 +282,15 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
 
     try {
       const replyText = await agent.prompt(finalPrompt);
+      await persistTurn(options.historyStore, {
+        employeeId: userId,
+        page,
+        userText: message,
+        assistantText: replyText,
+        speakerId: "athena",
+        speakerName: "Athena",
+        clarifyAnswer: Boolean(clarifyAnswer),
+      });
       return { reply: replyText };
     } catch (err) {
       return reply
@@ -244,7 +300,49 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
   });
 }
 
+/** G4.S7.T11-followup: persist one user→assistant turn (best-effort; never fails the request). */
+async function persistTurn(
+  store: ChatHistoryStore | undefined,
+  turn: {
+    employeeId: string;
+    page: string;
+    userText: string;
+    assistantText: string;
+    speakerId?: string;
+    speakerName?: string;
+    clarifyAnswer?: boolean;
+  },
+): Promise<void> {
+  if (!store) return;
+  try {
+    // The clarify follow-up re-runs the query with the user's chosen option as
+    // the final prompt; the user bubble was already shown before the follow-up,
+    // so only the assistant's answer (the option-confirmed reply) is persisted.
+    await store.saveMessage({
+      employeeId: turn.employeeId,
+      role: "user",
+      content: turn.userText,
+      page: turn.page,
+      speakerId: turn.employeeId,
+      speakerName: "",
+    });
+    await store.saveMessage({
+      employeeId: turn.employeeId,
+      role: "assistant",
+      content: turn.assistantText,
+      page: turn.page,
+      speakerId: turn.speakerId ?? "",
+      speakerName: turn.speakerName ?? "",
+    });
+  } catch (err) {
+    // Persistence is best-effort: a DB hiccup must never break the chat.
+    console.warn("[chat-history] persist failed (ignored):", err);
+  }
+}
+
 interface RemoteChatContext {
+  /** G4.S7.T11-followup: the employee owning the conversation (for persistence). */
+  employeeId: string;
   agentId: string;
   message: string;
   page: string;
@@ -268,6 +366,14 @@ async function handleRemoteChat(
   };
   const offlineError = `agent is offline — it must connect INTO the platform via the reverse WS tunnel first`;
   const notConfigured = "remote chat routing is not configured on this server";
+  // G4.S7.T11-followup: remember the target agent's alias for the persisted turn.
+  let remoteAlias = agentId;
+  if (registry) {
+    try {
+      const rec = await registry.getByAgentId(agentId);
+      if (rec?.alias) remoteAlias = rec.alias;
+    } catch {}
+  }
 
   if (!wantsStream) {
     if (!hub || !registry) {
@@ -316,6 +422,15 @@ async function handleRemoteChat(
             }
           });
       });
+      // G4.S7.T11-followup: persist the remote turn (best-effort).
+      await persistTurn(options.historyStore, {
+        employeeId: ctx.employeeId,
+        page,
+        userText: message,
+        assistantText: answer,
+        speakerId: agentId,
+        speakerName: remoteAlias,
+      });
       return { reply: answer };
     } catch (err) {
       return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
@@ -334,10 +449,23 @@ async function handleRemoteChat(
   // timeout so the browser does not hang forever waiting for a run to finish.
   const TIMEOUT_MS = 5 * 60 * 1000;
   let timer: NodeJS.Timeout | undefined;
+  // G4.S7.T11-followup: accumulate streamed deltas for persistence on success.
+  const deltaChunks: string[] = [];
   const done = (): void => {
     if (timer) clearTimeout(timer);
     raw.write(sseFrame({ done: true }));
     raw.end();
+  };
+  const succeed = (): void => {
+    done();
+    void persistTurn(options.historyStore, {
+      employeeId: ctx.employeeId,
+      page,
+      userText: message,
+      assistantText: deltaChunks.join(""),
+      speakerId: agentId,
+      speakerName: remoteAlias,
+    });
   };
   const fail = (err: string): void => {
     if (timer) clearTimeout(timer);
@@ -353,7 +481,10 @@ async function handleRemoteChat(
       return undefined;
     }
     const result = await pushRemoteChatTask(hub, registry, agentId, message, page, history, context, {
-      onDelta: (text) => raw.write(sseFrame({ delta: text })),
+      onDelta: (text) => {
+        deltaChunks.push(text);
+        raw.write(sseFrame({ delta: text }));
+      },
       onThinking: (text) => raw.write(sseFrame({ thinking: text })),
       onToolStarted: (tool, detail) =>
         raw.write(sseFrame({ tool: { state: "started", name: tool, detail } })),
@@ -370,7 +501,7 @@ async function handleRemoteChat(
             },
           }),
         ),
-      onDone: () => done(),
+      onDone: () => succeed(),
       onError: (err) => fail(err),
     });
     if (result.taskId === null) {
