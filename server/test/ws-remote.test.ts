@@ -100,13 +100,14 @@ function openClient(url: string): WsClient {
   };
 }
 
-async function registerAgent(client: WsClient, agentId: string, token: string) {
+async function registerAgent(client: WsClient, agentId: string, token: string): Promise<Record<string, unknown>> {
   await client.waitOpen();
   await client.nextMessage(); // drain welcome
   client.ws.send(JSON.stringify({ type: "register", agent_id: agentId, token }));
   const frame = await client.nextMessage();
   assert.equal(frame.type, "registered");
   assert.equal(frame.agent_id, agentId);
+  return frame;
 }
 
 async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void> {
@@ -458,6 +459,69 @@ test("WS reverse tunnel: reconnect supersedes the old tunnel and disconnects rep
       assert.deepEqual(events, ["resumed"]);
     } finally {
       await second.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
+test("WS registered frame carries frameSchema (per-frame field contract) — connectors read payload field names from the handshake", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    const registered = await registerAgent(client, harness.agentId, harness.token);
+    try {
+      const taskReply = registered.taskReply as Record<string, unknown>;
+      assert.ok(taskReply, "registered frame must carry taskReply");
+      const schema = taskReply.frameSchema as Record<string, unknown>;
+      assert.ok(schema, "taskReply must carry frameSchema");
+      const delta = schema.delta as { payloadField?: string };
+      const thinking = schema.thinking as { payloadField?: string };
+      assert.equal(delta.payloadField, "delta");
+      assert.equal(thinking.payloadField, "thinking");
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
+test("WS delta/thinking frames from the reference connector (`delta`/`thinking` field names) are relayed — compat with `text`", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    await registerAgent(client, harness.agentId, harness.token);
+    try {
+      const events: string[] = [];
+      let completed = false;
+      const taskId = harness.hub.sendTask(
+        harness.agentId,
+        { type: "chat.completions", messages: [{ role: "user", content: "hi" }] },
+        {
+          onDelta: (text) => events.push(`delta:${text}`),
+          onThinking: (text) => events.push(`thinking:${text}`),
+          onComplete: () => {
+            completed = true;
+          },
+        },
+      );
+      assert.ok(taskId, "task should be pushed to a connected agent");
+
+      const taskFrame = await client.nextMessage();
+      assert.equal(taskFrame.type, "task");
+
+      // Reference connector (connectors/reference-node/index.js) sends the
+      // payload under the frame name itself: `delta` and `thinking`.
+      client.ws.send(JSON.stringify({ type: "delta", task_id: taskFrame.task_id, delta: "Hello! " }));
+      client.ws.send(JSON.stringify({ type: "thinking", task_id: taskFrame.task_id, thinking: "reasoning" }));
+      client.ws.send(JSON.stringify({ type: "delta", task_id: taskFrame.task_id, delta: "What can I help?" }));
+      client.ws.send(JSON.stringify({ type: "task.complete", task_id: taskFrame.task_id }));
+
+      await waitFor(() => completed);
+      assert.deepEqual(events, ["delta:Hello! ", "thinking:reasoning", "delta:What can I help?"]);
+    } finally {
+      await client.close();
     }
   } finally {
     await harness.app.close();

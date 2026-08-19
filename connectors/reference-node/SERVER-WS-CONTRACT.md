@@ -1,11 +1,51 @@
-# WS Protocol Changes — Full-Transfer Remote Chat History (G4.S7.T11)
+# WS Protocol — Server-Side Contract for Remote Agent Connectors
 
-> Status: **shipped on platform side** (commit `2e9598c`, on both remotes).
-> This document is for the **remote agent connector** (wts-side) so it can
-> emit the new optional fields. All changes are **additive**:
-> `protocolVersion` stays `1`, old frames keep working.
+> Status: **authoritative** (matches `server/src/ws/agent.ts` at commit
+> `15939bb`+; re-read the wire contract from the `registered` frame's
+> `taskReply` — it is the source of truth and is re-sent on EVERY handshake).
+>
+> This document is **from the Athena platform (server) to remote agent
+> connector authors** (wts-side / remote Hermes instances). It defines the
+> reverse-WebSocket frames the connector sends and what the platform does with
+> them. All changes are **additive**: `protocolVersion` stays `1`, old frames
+> keep working.
 
-## 1. Why
+---
+
+## 0. IMPORTANT — read frame field names from `taskReply.frameSchema`
+
+Every `registered` frame now carries `taskReply.frameSchema`, which declares
+the **canonical payload field per frame**:
+
+```jsonc
+{
+  "type": "registered",
+  "agent_id": "<id>",
+  "taskReply": {
+    "mustEchoTaskId": true,
+    "frames": ["task.start","delta","thinking","tool.started","tool.completed","task.complete","task.error"],
+    "terminateWith": ["task.complete","task.error"],
+    "idleTimeoutMs": 60000,
+    "reconnect": { "inFlightTasks": "server marks task.error; no re-delivery" },
+    "frameSchema": {
+      "delta":          { "payloadField": "delta",    "compat": "text also accepted" },
+      "thinking":       { "payloadField": "thinking", "compat": "text also accepted" },
+      "tool.completed": { "output": "optional tool result content" }
+    }
+  }
+}
+```
+
+**Why this matters** (2026-08-20 bugfix): replies were silently dropped because
+the reference connector sent the streamed text under `delta`/`thinking` while
+older server code only read `text`, producing `{}` SSE events and a stuck
+"typing..." UI. The server now **accepts both** (`payloadField` first, `text`
+as compat) — but new connectors should emit the `payloadField` name declared
+in `frameSchema`. Never guess field names from prose; trust the handshake.
+
+---
+
+## 1. Why full-transfer history
 
 Athena's remote chat previously replayed only the final assistant answer text
 (`{role, content}`) back to the remote agent on the next turn. Thinking and
@@ -20,6 +60,8 @@ with Hermes' own full-history replay: assistant turns now also carry their
   `message_sanitization.apply_reasoning_content_policy`).
 - **Remote agent runtime** = when it forwards the received messages to its LLM
   (e.g. DeepSeek thinking mode), it applies its own reasoning echo-back rules.
+
+---
 
 ## 2. Frame changes (server/src/ws/agent.ts)
 
@@ -55,20 +97,33 @@ with Hermes' own full-history replay: assistant turns now also carry their
   the chat request never fails.
 - `detail` remains a short human description (e.g. "ran command, 42 lines").
 
-### 2.2 `thinking` frames are relayed (no change, already existed)
+### 2.2 `delta` and `thinking` frames — payload field compatibility
+
+Canonical field names (see `frameSchema`): `delta` for `delta` frames,
+`thinking` for `thinking` frames. For backward compatibility the server
+ALSO accepts `text` from older clients:
 
 ```ts
-{ type: "thinking", task_id: string, text: string }
+// NEW connector (canonical):
+{ type: "delta",    task_id: string, delta:    "Hello! " }
+{ type: "thinking", task_id: string, thinking: "reasoning text" }
+
+// OLD client (still works):
+{ type: "delta",    task_id: string, text: "Hello! " }
+{ type: "thinking", task_id: string, text: "reasoning text" }
 ```
 
-Remote agents that already emit `thinking` are done. Athena accumulates it
-per assistant turn and replays it in history on the next task.
+Athena accumulates thinking per assistant turn and replays it in history on
+the next task.
 
 ### 2.3 taskReply contract (registered frame)
 
-The self-describing `taskReply` contract (sent on every handshake) now
-documents: tool events **may** carry `output`, and thinking is relayed.
-`protocolVersion` remains **1** — all additions are optional fields.
+The self-describing `taskReply` contract (sent on every handshake) documents:
+tool events **may** carry `output`, thinking is relayed, and `frameSchema`
+declares the per-frame payload field names. `protocolVersion` remains **1** —
+all additions are optional fields.
+
+---
 
 ## 3. How the platform replays it (what the remote agent should expect)
 
@@ -96,6 +151,8 @@ Rules:
 - `thinking` and `tool` rows count toward the context budget
   (threshold 200K tokens) — the same heuristic Athena's UI meter uses.
 
+---
+
 ## 4. What the remote agent connector should do (action items)
 
 1. **Emit `output` in `tool.completed`** whenever the tool result content is
@@ -103,7 +160,9 @@ Rules:
    - If the tool failed, include the error text in `error` (existing) and, if
      useful, a short excerpt in `output`.
    - Keep `detail` as the short label; don't stuff megabytes into it.
-2. **Emit `thinking` frames** if not already doing so (Hermes already does).
+2. **Emit `delta` and `thinking` frames using the `frameSchema` payload
+   fields** (`delta`→`delta`, `thinking`→`thinking`). Sending `text` still
+   works but is deprecated for new connectors.
 3. **When forwarding the task messages to the LLM**, the agent runtime applies
    its own provider policy:
    - DeepSeek/Kimi/MiMo thinking mode: `reasoning_content` echo-back is
@@ -114,14 +173,19 @@ Rules:
 4. **Backward compatibility**: sending frames without `output` is fine today.
    Sending `output` only improves the next-turn context.
 
+---
+
 ## 5. Test evidence (platform side, all green)
 
-- Server: `npm test` → **970/970 pass** (incl. new ws-agent tests:
+- Server: `npm test` → **972/972 pass** (incl. new ws-agent tests:
   `tool.completed` with/without `output`, SSE relay of output, chat route
-  streaming tool output end-to-end, pre-T11 compat).
+  streaming tool output end-to-end, pre-T11 compat, **frameSchema presence**,
+  **connector `delta`/`thinking` field-name relay**).
 - Web: vitest chat.spec → **36/36** (historyForRequest includes thinking +
   first tool output; meter budget reflects them).
 - `tsc` / `vue-tsc` clean.
+
+---
 
 ## 6. Example
 
@@ -144,7 +208,11 @@ Rules:
 ]
 ```
 
-## 7. Contact
+---
 
-Questions / feedback → reply in this thread. The platform-side changes are
-done and verified; the connector-side items (section 4) are the remaining work.
+## 7. Contact / feedback
+
+Questions or feedback → reply in the originating thread. The platform-side
+changes are done and verified; the connector-side items (section 4) are the
+remaining work. When in doubt about any frame, re-read the `registered` frame
+from a live connection — `taskReply.frameSchema` is authoritative.

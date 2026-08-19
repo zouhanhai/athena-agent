@@ -43,6 +43,15 @@ export interface AgentTaskReplyContract {
   thinking: {
     relayed: "separate from the final answer text";
   };
+  /** G4.S7.T11 bugfix (2026-08-20): per-frame field contract so connectors
+   *  never need to guess field names. The canonical payload field for a
+   *  `delta` frame is `delta`; for `thinking` it is `thinking`. `text` from
+   *  older clients is still accepted by the server (compat). */
+  frameSchema: {
+    delta: { payloadField: "delta"; compat: "text also accepted" };
+    thinking: { payloadField: "thinking"; compat: "text also accepted" };
+    "tool.completed": { output: "optional tool result content" };
+  };
 }
 
 /** Default idle window before a task with no agent activity is auto-errored. */
@@ -87,9 +96,11 @@ export type AgentClientMessage =
        *  the platform never fails because output is absent. */
       output?: string;
     }
-  | { type: "delta"; task_id: string; text: string }
-  /** Reasoning/thinking tokens — distinct from the final answer text (Q1). */
-  | { type: "thinking"; task_id: string; text: string }
+  | { type: "delta"; task_id: string; text?: string; delta?: string }
+  /** Reasoning/thinking tokens — distinct from the final answer text (Q1).
+   *  Accepts both `text` and `thinking` field names (reference connector
+   *  sends `thinking`; older clients send `text`). */
+  | { type: "thinking"; task_id: string; text?: string; thinking?: string }
   | { type: "task.complete"; task_id: string }
   | { type: "task.error"; task_id: string; message: string };
 
@@ -229,13 +240,6 @@ export class AgentWsGateway {
         sendFrame(socket, { type: "error", message: "invalid json" });
         return;
       }
-      // TEMP DEBUG (T11 chat display bug): log every inbound agent frame verbatim.
-      try {
-        const dbg = JSON.parse(frameToString(raw));
-        if (dbg && typeof dbg === "object" && (dbg.type === "delta" || dbg.type === "thinking" || dbg.type === "task.complete" || dbg.type === "tool.started" || dbg.type === "tool.completed")) {
-          console.warn("[ws-debug] inbound frame:", JSON.stringify(dbg).slice(0, 300));
-        }
-      } catch {}
       void this.handleMessage(socket, parsed.message);
     });
     socket.on("close", () => this.handleClose(socket));
@@ -327,6 +331,15 @@ export class AgentWsGateway {
         thinking: {
           relayed: "separate from the final answer text",
         },
+        // Per-frame field contract (G4.S7.T11 bugfix): canonical payload
+        // field for `delta` is `delta`, for `thinking` is `thinking`; `text`
+        // from older clients is still accepted. Connectors read this on
+        // handshake instead of guessing field names from docs.
+        frameSchema: {
+          delta: { payloadField: "delta", compat: "text also accepted" },
+          thinking: { payloadField: "thinking", compat: "text also accepted" },
+          "tool.completed": { output: "optional tool result content" },
+        },
       },
     });
     this.events.emit("agent.connected", {
@@ -371,11 +384,13 @@ export class AgentWsGateway {
         break;
       case "delta":
         this.armIdleTimer(channel, msg.task_id, entry);
-        entry.relay.onDelta?.(msg.text);
+        // G4.S7.T11 bug: the reference connector sends the streamed text under
+        // `delta`, the type says `text`. Accept both so no reply is dropped.
+        entry.relay.onDelta?.((msg.text ?? msg.delta ?? "").toString());
         break;
       case "thinking":
         this.armIdleTimer(channel, msg.task_id, entry);
-        entry.relay.onThinking?.(msg.text);
+        entry.relay.onThinking?.((msg.text ?? msg.thinking ?? "").toString());
         break;
       case "task.complete":
         this.clearIdleTimer(entry);

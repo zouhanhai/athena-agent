@@ -89,7 +89,12 @@ any language/runtime.
       "frames": ["task.start","delta","thinking","tool.started","tool.completed","task.complete","task.error"],
       "terminateWith": ["task.complete","task.error"],
       "idleTimeoutMs": 60000,
-      "reconnect": { "inFlightTasks": "server marks task.error; no re-delivery" }
+      "reconnect": { "inFlightTasks": "server marks task.error; no re-delivery" },
+      "frameSchema": {
+        "delta": { "payloadField": "delta", "compat": "text also accepted" },
+        "thinking": { "payloadField": "thinking", "compat": "text also accepted" },
+        "tool.completed": { "output": "optional tool result content" }
+      }
     } }
   ```
   → Trust `taskReply` from the wire; it is the authoritative contract.
