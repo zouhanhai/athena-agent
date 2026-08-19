@@ -220,13 +220,13 @@ test("remote chat: above threshold → injected summarizer summarizes old turns 
     const client = openClient(harness.wsUrl);
     await registerAgent(client, harness.agentId, harness.token);
     try {
-      // 60 turns × ~2.8k chars each ≈ 168k chars ≈ 42k estimated tokens — above
-      // the route's 40_000 threshold, with 20 turns outside the 40-turn window.
+      // 60 turns × ~13.7k chars each ≈ 820k chars ≈ 205k estimated tokens — above
+      // the route's 200_000 threshold, with 20 turns outside the 40-turn window.
       const history: ChatTurn[] = [];
       for (let i = 0; i < 60; i += 1) {
         history.push({
           role: i % 2 === 0 ? "user" : "assistant",
-          content: `message number ${i} ${"y".repeat(2800)}`,
+          content: `message number ${i} ${"y".repeat(13_600)}`,
         });
       }
       const injectPromise = harness.app.inject({
