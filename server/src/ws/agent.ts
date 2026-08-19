@@ -229,6 +229,13 @@ export class AgentWsGateway {
         sendFrame(socket, { type: "error", message: "invalid json" });
         return;
       }
+      // TEMP DEBUG (T11 chat display bug): log every inbound agent frame verbatim.
+      try {
+        const dbg = JSON.parse(frameToString(raw));
+        if (dbg && typeof dbg === "object" && (dbg.type === "delta" || dbg.type === "thinking" || dbg.type === "task.complete" || dbg.type === "tool.started" || dbg.type === "tool.completed")) {
+          console.warn("[ws-debug] inbound frame:", JSON.stringify(dbg).slice(0, 300));
+        }
+      } catch {}
       void this.handleMessage(socket, parsed.message);
     });
     socket.on("close", () => this.handleClose(socket));
