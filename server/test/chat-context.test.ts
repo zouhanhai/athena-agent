@@ -173,6 +173,6 @@ test("buildTaskMessages: above threshold with an empty recent window (nothing to
 });
 
 test("defaults are exported tuning constants", () => {
-  assert.equal(DEFAULT_CONTEXT_THRESHOLD_TOKENS, 40_000);
+  assert.equal(DEFAULT_CONTEXT_THRESHOLD_TOKENS, 200_000);
   assert.equal(DEFAULT_RECENT_MAX_TURNS, 40);
 });

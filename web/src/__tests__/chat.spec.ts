@@ -537,7 +537,7 @@ describe("GlobalChatPanel context meter + history (G4.S7.T10)", () => {
     const meter = wrapper.find(".context-meter");
     expect(meter.exists()).toBe(true);
     expect(meter.classes()).toContain("context-normal");
-    expect(meter.find(".context-meter-text").text()).toMatch(/~0k \/ 40k tokens/);
+    expect(meter.find(".context-meter-text").text()).toMatch(/~0k \/ 200k tokens/);
     wrapper.unmount();
   });
 
@@ -550,21 +550,21 @@ describe("GlobalChatPanel context meter + history (G4.S7.T10)", () => {
   it("enters the warning state at 80–100% of the threshold", async () => {
     const wrapper = mountChat();
     const store = useChatStore();
-    // 33k estimated tokens ≈ 132k ASCII chars → ~82.5% of 40k.
-    store.messages = [{ role: "user", content: "x".repeat(132_000) }];
+    // 165k estimated tokens ≈ 660k ASCII chars → ~82.5% of 200k.
+    store.messages = [{ role: "user", content: "x".repeat(660_000) }];
     await wrapper.vm.$nextTick();
 
     const meter = wrapper.find(".context-meter");
     expect(meter.classes()).toContain("context-warning");
-    expect(meter.find(".context-meter-text").text()).toMatch(/~33k \/ 40k tokens/);
+    expect(meter.find(".context-meter-text").text()).toMatch(/~165k \/ 200k tokens/);
     wrapper.unmount();
   });
 
   it("enters the summarizing state at or above the threshold", async () => {
     const wrapper = mountChat();
     const store = useChatStore();
-    // 41k estimated tokens ≈ 164k ASCII chars → above the 40k threshold.
-    store.messages = [{ role: "user", content: "x".repeat(164_000) }];
+    // 206k estimated tokens ≈ 824k ASCII chars → above the 200k threshold.
+    store.messages = [{ role: "user", content: "x".repeat(824_000) }];
     await wrapper.vm.$nextTick();
 
     const meter = wrapper.find(".context-meter");

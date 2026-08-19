@@ -7,8 +7,8 @@
  * ~1 token per CJK char. It only drives the meter display + trigger-state badge.
  */
 
-/** Same default as the server's DEFAULT_CONTEXT_THRESHOLD_TOKENS. */
-export const CONTEXT_THRESHOLD_TOKENS = 40_000;
+/** Same default as the server's DEFAULT_CONTEXT_THRESHOLD_TOKENS (200K). */
+export const CONTEXT_THRESHOLD_TOKENS = 200_000;
 
 /** CJK ideographic/Halfwidth ranges charged ~1 token per character. */
 const CJK_RE = /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/g;
@@ -41,7 +41,7 @@ export function contextMeterPercent(
   return Math.min(100, Math.round((tokens / threshold) * 100));
 }
 
-/** Human label like `~12k / 40k tokens`. */
+/** Human label like `~12k / 200k tokens`. */
 export function formatContextMeter(
   tokens: number,
   threshold: number = CONTEXT_THRESHOLD_TOKENS,

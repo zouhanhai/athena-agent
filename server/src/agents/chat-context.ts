@@ -31,8 +31,15 @@ export interface ChatTurn {
  */
 export type Summarizer = (turns: ChatTurn[]) => Promise<string>;
 
-/** Below this estimated token count, history passes through unchanged. */
-export const DEFAULT_CONTEXT_THRESHOLD_TOKENS = 40_000;
+/**
+ * Below this estimated token count, history passes through unchanged. Aligned
+ * with Hermes' own context-compression trigger (~50% of the model window):
+ * the remote agent runs DeepSeek v4 Flash (1M+ window), so we summarize at
+ * ~200K — far past 40K's overly-eager point, but before the model's hard
+ * limit, balancing prompt-cache hit rates (append-only history) against the
+ * lost-in-the-middle effect of extremely long contexts.
+ */
+export const DEFAULT_CONTEXT_THRESHOLD_TOKENS = 200_000;
 /** The newest N turns that are always kept verbatim when summarizing/truncating. */
 export const DEFAULT_RECENT_MAX_TURNS = 40;
 /** Defensive cap on the number of history turns a client may send per request. */
