@@ -84,12 +84,23 @@ export interface ChatHistoryStore {
   /** G4.S7.T12: the employee's recent sessions (most-recent first, capped).
    *  Includes the virtual legacy "Previous chat" session when flat rows exist. */
   listSessions(employeeId: string, limit?: number): Promise<ChatSessionSummary[]>;
+  /**
+   * G4.S7.T14: prune a user's sessions down to `keep` (default 10) — the oldest
+   * (by updated_at, then created_at) are deleted when the count exceeds it.
+   * Messages in pruned sessions are cascaded-removed so no orphan rows remain.
+   * Returns the number of sessions deleted.
+   */
+  pruneSessions(employeeId: string, keep?: number): Promise<number>;
   /** G4.S7.T12: does a session exist AND belong to this employee? ('' = legacy rows). */
   ensureSession(employeeId: string, sessionId: string): Promise<boolean>;
   /** G4.S7.T12: refresh a session's updated_at after a message lands ('' = no-op). */
   touchSession(employeeId: string, sessionId: string): Promise<void>;
   /** G4.S7.T13: rename a session (user's own label so history is easier to find). */
   renameSession(employeeId: string, sessionId: string, title: string): Promise<boolean>;
+  /** G4.S7.T13-fix: the user's display name override for the virtual legacy
+   *  "Previous chat" session ('' session). "" = no override (use the default). */
+  legacyTitle(employeeId: string): Promise<string>;
+  setLegacyTitle(employeeId: string, title: string): Promise<void>;
 }
 
 export class PostgresChatHistoryStore implements ChatHistoryStore {
@@ -148,6 +159,15 @@ export class PostgresChatHistoryStore implements ChatHistoryStore {
     await this.pool.query(
       `CREATE INDEX IF NOT EXISTS chat_sessions_employee_updated_idx ON chat_sessions (employee_id, updated_at DESC)`,
     );
+    // G4.S7.T13-fix: per-employee display title override for the virtual legacy
+    // "Previous chat" session (the flat pre-session conversation).
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_legacy_titles (
+        employee_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
   }
 
   async saveMessage(msg: {
@@ -233,6 +253,33 @@ export class PostgresChatHistoryStore implements ChatHistoryStore {
     return sessionId;
   }
 
+  async pruneSessions(employeeId: string, keep = 10): Promise<number> {
+    await this.ensureReady();
+    const safeKeep = Math.min(Math.max(keep, 1), 100);
+    // Sessions to delete: those beyond the `keep` most-recent by (updated_at, created_at).
+    const victims = await this.pool.query(
+      `SELECT session_id FROM (
+          SELECT session_id, updated_at, created_at,
+                 ROW_NUMBER() OVER (ORDER BY updated_at DESC, created_at DESC) AS rn
+            FROM chat_sessions
+           WHERE employee_id = $1
+       ) ranked WHERE rn > $2`,
+      [employeeId, safeKeep],
+    );
+    const ids = victims.rows.map((r: { session_id?: unknown }) => r.session_id as string);
+    if (ids.length === 0) return 0;
+    // Cascade-remove their messages, then the sessions themselves.
+    await this.pool.query(
+      `DELETE FROM chat_messages WHERE session_id = ANY($1)`,
+      [ids],
+    );
+    await this.pool.query(
+      `DELETE FROM chat_sessions WHERE session_id = ANY($1)`,
+      [ids],
+    );
+    return ids.length;
+  }
+
   async listSessions(employeeId: string, limit = 10): Promise<ChatSessionSummary[]> {
     await this.ensureReady();
     const safeLimit = Math.min(Math.max(limit, 1), 100);
@@ -241,6 +288,7 @@ export class PostgresChatHistoryStore implements ChatHistoryStore {
       v instanceof Date ? v.toISOString() : typeof v === "string" ? v : "";
 
     // Virtual legacy session: the pre-T12 flat conversation (session_id = '').
+    const legacyTitle = await this.legacyTitle(employeeId);
     const legacy = await this.pool.query(
       `SELECT COUNT(*)::int AS count, MIN(created_at) AS first_at, MAX(created_at) AS last_at
          FROM chat_messages WHERE employee_id = $1 AND session_id = ''`,
@@ -250,7 +298,7 @@ export class PostgresChatHistoryStore implements ChatHistoryStore {
     if (legacyRow.count > 0) {
       sessions.push({
         session_id: "",
-        title: LEGACY_SESSION_TITLE,
+        title: legacyTitle || LEGACY_SESSION_TITLE,
         created_at: toIso(legacyRow.first_at),
         updated_at: toIso(legacyRow.last_at),
         message_count: legacyRow.count,
@@ -321,12 +369,34 @@ export class PostgresChatHistoryStore implements ChatHistoryStore {
     );
     return (res.rowCount ?? 0) > 0;
   }
+
+  async legacyTitle(employeeId: string): Promise<string> {
+    await this.ensureReady();
+    const res = await this.pool.query(
+      `SELECT title FROM chat_legacy_titles WHERE employee_id = $1`,
+      [employeeId],
+    );
+    return typeof res.rows[0]?.title === "string" ? (res.rows[0].title as string) : "";
+  }
+
+  async setLegacyTitle(employeeId: string, title: string): Promise<void> {
+    await this.ensureReady();
+    const clean = title.trim().slice(0, 120);
+    await this.pool.query(
+      `INSERT INTO chat_legacy_titles (employee_id, title, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (employee_id) DO UPDATE SET title = EXCLUDED.title, updated_at = now()`,
+      [employeeId, clean],
+    );
+  }
 }
 
 /** In-memory store — used by tests and as a dev fallback without DATABASE_URL. */
 export class MemoryChatHistoryStore implements ChatHistoryStore {
   private messages: PersistedChatMessage[] = [];
   private sessions: Map<string, { session_id: string; employee_id: string; title: string; created_at: string; updated_at: string }> = new Map();
+  /** G4.S7.T13-fix: per-employee display title override for the '' legacy session. */
+  private legacyTitles = new Map<string, string>();
   /** Monotonically increasing clock so rapid creates/touches order deterministically. */
   private lastTickMs = 0;
   private tick(): string {
@@ -397,6 +467,19 @@ export class MemoryChatHistoryStore implements ChatHistoryStore {
     return sessionId;
   }
 
+  async pruneSessions(employeeId: string, keep = 10): Promise<number> {
+    const safeKeep = Math.min(Math.max(keep, 1), 100);
+    const mine = [...this.sessions.values()]
+      .filter((s) => s.employee_id === employeeId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.created_at.localeCompare(a.created_at));
+    const victims = mine.slice(safeKeep);
+    for (const v of victims) {
+      this.sessions.delete(v.session_id);
+      this.messages = this.messages.filter((m) => m.session_id !== v.session_id);
+    }
+    return victims.length;
+  }
+
   async listSessions(employeeId: string, limit = 10): Promise<ChatSessionSummary[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
     const rows = new Map<string, ChatSessionSummary>();
@@ -419,7 +502,7 @@ export class MemoryChatHistoryStore implements ChatHistoryStore {
       if (!row) {
         row = {
           session_id: key,
-          title: key === "" ? LEGACY_SESSION_TITLE : "",
+          title: key === "" ? (this.legacyTitles.get(employeeId) ?? LEGACY_SESSION_TITLE) : "",
           created_at: m.created_at,
           updated_at: m.created_at,
           message_count: 0,
@@ -461,6 +544,14 @@ export class MemoryChatHistoryStore implements ChatHistoryStore {
     s.title = clean;
     s.updated_at = this.tick();
     return true;
+  }
+
+  async legacyTitle(employeeId: string): Promise<string> {
+    return this.legacyTitles.get(employeeId) ?? "";
+  }
+
+  async setLegacyTitle(employeeId: string, title: string): Promise<void> {
+    this.legacyTitles.set(employeeId, title.trim().slice(0, 120));
   }
 
   private bumpSession(employeeId: string, sessionId: string, at: string): void {

@@ -259,7 +259,8 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     if (invalidField(body.userId)) {
       return reply.code(400).send({ error: "userId is required" });
     }
-    const sessionId = (params.sessionId as string).trim();
+    const sessionId =
+      params.sessionId === "legacy" ? "" : (params.sessionId as string).trim();
     const titleRaw = typeof body.title === "string" ? body.title : "";
     const title = titleRaw.trim();
     if (!title) {
@@ -269,6 +270,19 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
       return reply.code(404).send({ error: "history store is not configured" });
     }
     try {
+      // G4.S7.T13-fix: '' (the virtual legacy "Previous chat" session) is
+      // renamed via the per-employee legacy-title override, not a session row.
+      if (sessionId === "") {
+        const hasLegacy = await options.historyStore.ensureSession(
+          body.userId as string,
+          "",
+        );
+        if (!hasLegacy) {
+          return reply.code(404).send({ error: "session not found or not yours" });
+        }
+        await options.historyStore.setLegacyTitle(body.userId as string, title);
+        return { ok: true, session_id: "", title: title.slice(0, 120) };
+      }
       const renamed = await options.historyStore.renameSession(
         body.userId as string,
         sessionId,
@@ -432,6 +446,16 @@ async function resolveChatSession(
 ): Promise<string | null> {
   if (!sessionId) {
     const created = await store.createSession(userId, deriveSessionTitle(firstMessage));
+    // G4.S7.T14: keep at most 10 sessions per user — the oldest are pruned
+    // (with their messages) when a new session pushes the count past 10.
+    if (typeof store.pruneSessions === "function") {
+      try {
+        await store.pruneSessions(userId, 10);
+      } catch (err) {
+        // Pruning is best-effort; a prune failure must never break the chat.
+        console.warn("[chat] session prune failed (ignored):", err);
+      }
+    }
     return created;
   }
   const owns = await store.ensureSession(userId, sessionId);

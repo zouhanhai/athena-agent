@@ -112,13 +112,16 @@ export async function fetchChatSessions(
   return data.sessions ?? [];
 }
 
-/** G4.S7.T13: rename one of the user's chat sessions. */
+/** G4.S7.T13: rename one of the user's chat sessions.
+ *  The virtual legacy "Previous chat" (empty session_id) is addressed as
+ *  "legacy" on the wire so the URL path keeps a non-empty segment. */
 export async function renameChatSession(
   userId: string,
   sessionId: string,
   title: string,
 ): Promise<void> {
-  const res = await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, {
+  const wireId = sessionId === "" ? "legacy" : encodeURIComponent(sessionId);
+  const res = await fetch(`/api/chat/sessions/${wireId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userId, title }),

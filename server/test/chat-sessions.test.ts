@@ -184,6 +184,52 @@ describe("chat-history store sessions (G4.S7.T12)", () => {
     assert.equal(sessions[0]!.title.startsWith("x"), true);
     assert.equal(sessions[0]!.title.endsWith(" "), false, "no trailing whitespace");
   });
+
+  test("G4.S7.T14 pruneSessions keeps the 10 most recent and deletes older sessions + their messages", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const id = await store.createSession("e1", `s${i}`);
+      ids.push(id);
+      await store.saveMessage({ employeeId: "e1", role: "user", content: `q${i}`, sessionId: id });
+    }
+    const deleted = await store.pruneSessions("e1", 10);
+    assert.equal(deleted, 2, "2 oldest pruned");
+    const sessions = await store.listSessions("e1");
+    assert.equal(sessions.length, 10);
+    // The 10 most recent remain (s2..s11 — earliest created s0/s1 pruned).
+    assert.equal(sessions[0]!.title, "s11");
+    assert.equal(sessions[9]!.title, "s2");
+    // Pruned sessions' messages are cascaded-removed.
+    const all = await store.listMessages("e1");
+    assert.ok(!all.some((m) => m.session_id === ids[0] || m.session_id === ids[1]));
+    assert.equal(all.length, 10, "2 messages removed with their sessions");
+  });
+
+  test("G4.S7.T14 pruneSessions is per-user and no-ops under the cap", async () => {
+    for (let i = 0; i < 5; i += 1) {
+      await store.createSession("e1", `a${i}`);
+    }
+    for (let i = 0; i < 12; i += 1) {
+      await store.createSession("e2", `b${i}`);
+    }
+    assert.equal(await store.pruneSessions("e1", 10), 0, "under cap → nothing pruned");
+    const e2Deleted = await store.pruneSessions("e2", 10);
+    assert.equal(e2Deleted, 2);
+    assert.equal((await store.listSessions("e2")).length, 10);
+    assert.equal((await store.listSessions("e1")).length, 5, "e1 untouched by e2 pruning");
+  });
+
+  test("G4.S7.T13-fix legacyTitle/setLegacyTitle store the '' override used as the picker title", async () => {
+    assert.equal(await store.legacyTitle("e1"), "");
+    await store.saveMessage({ employeeId: "e1", role: "user", content: "flat" });
+    const before = await store.listSessions("e1");
+    assert.equal(before[0]!.title, "Previous chat");
+
+    await store.setLegacyTitle("e1", "My old flat chats");
+    const after = await store.listSessions("e1");
+    assert.equal(after[0]!.title, "My old flat chats");
+    assert.equal(await store.legacyTitle("e1"), "My old flat chats");
+  });
 });
 
 describe("chat-session routes (G4.S7.T12)", () => {
@@ -386,5 +432,46 @@ describe("chat-session routes (G4.S7.T12)", () => {
       payload: { userId: "u1", title: "renamed" },
     });
     assert.ok([400, 404].includes(legacy.statusCode), "legacy '' not renamable");
+  });
+
+  test("G4.S7.T13-fix PATCH /api/chat/sessions/legacy renames the virtual 'Previous chat' via the override", async () => {
+    await store.saveMessage({ employeeId: "u1", role: "user", content: "old flat q" });
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/chat/sessions/legacy",
+      payload: { userId: "u1", title: "My archived discussions" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      ok: true,
+      session_id: "",
+      title: "My archived discussions",
+    });
+
+    const list = await app.inject({ method: "GET", url: "/api/chat/sessions?userId=u1" });
+    const { sessions } = list.json() as { sessions: Array<{ session_id: string; title: string }> };
+    const legacy = sessions.find((s) => s.session_id === "");
+    assert.ok(legacy, "legacy session listed");
+    assert.equal(legacy!.title, "My archived discussions");
+  });
+
+  test("G4.S7.T14 POST /api/chat auto-prunes to 10 sessions after creating an 11th", async () => {
+    // Create 10 existing sessions directly in the store.
+    for (let i = 0; i < 10; i += 1) {
+      await store.createSession("u1", `old${i}`);
+    }
+    // The 11th arrives via the route → prune should drop the oldest.
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/chat",
+      payload: { userId: "u1", message: "welcome to my 11th chat" },
+    });
+    assert.equal(res.statusCode, 200);
+    const sessions = await store.listSessions("u1");
+    assert.equal(sessions.length, 10, "stays capped at 10 after the 11th");
+    // The newest (just-created) session is first.
+    assert.equal(sessions[0]!.title, "welcome to my 11th chat");
+    // The oldest (old0) got pruned.
+    assert.ok(!sessions.some((s) => s.title === "old0"));
   });
 });
