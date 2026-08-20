@@ -12,9 +12,10 @@
  * had no timeout and could silently hang a stalled provider forever. The dedicated `athena` OpenRouter
  * key (independent from chat) keeps key separation.
  *
- * Structured output is enforced with provider-side constrained sampling: the LLM pass is asked to call an
- * `emit_refined_document` tool whose parameters ARE the refinement output contract, so the model cannot
- * drift into free-text JSON.
+ * Structured output is enforced with provider-side constrained sampling: the direct HTTP path requests a
+ * JSON object whose shape IS the refinement output contract (json_schema wrapped response_format), so the
+ * model cannot drift into free-text JSON. There are NO tools on the direct path — the model returns plain
+ * JSON matching the contract.
  *
  * Big-output handling (G4.S1.T3): the FULL re-leveled markdown + chunks land on disk/storage
  * (`storeRefinementOutput`); `refine_document` returns only the SMALL metadata + refs
@@ -31,7 +32,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT } from "../kb/taxonomy.js";
-import { callOpenRouter, type OpenRouterCallParams } from "./llm-direct.js";
+import { callOpenRouter, resolveRefineModel, type OpenRouterCallParams } from "./llm-direct.js";
 import {
   HEADER_RELEVEL_BATCH_SIZE,
   applyPatches,
@@ -73,7 +74,14 @@ export const ATHENA_MODEL = "~deepseek/deepseek-v4-flash-latest";
  * extractors (`extractHeaderLevels` / `extractRefinementDelta` / `extractGlobalMerge`) work unchanged.
  */
 export type RefineLlmCaller = (
-  params: { systemPrompt: string; userContent: string; schema?: unknown; maxTokens?: number },
+  params: {
+    systemPrompt: string;
+    userContent: string;
+    schema?: unknown;
+    maxTokens?: number;
+    /** Model id sent to OpenRouter (default: env ATHENA_REFINE_MODEL / deepseek default). */
+    model?: string;
+  },
 ) => Promise<{ message: AssistantMessageLike; usage?: unknown }>;
 
 /** Default caller: wraps `callOpenRouter` (direct HTTP) and frames the returned text as a message. */
@@ -93,6 +101,7 @@ function toCallParams(params: Parameters<RefineLlmCaller>[0]): OpenRouterCallPar
     userContent: params.userContent,
     schema: params.schema,
     maxTokens: params.maxTokens,
+    model: params.model,
   };
 }
 
@@ -453,10 +462,11 @@ You already read the whole document, so summarize it in the same pass at two lev
 - action: auto_accept (clean) or review_required (any doubt).
 
 ## Output
-Call the emit_refined_document tool with the DELTA contract — extraction fields + optional patches
-(see the tool's JSON schema). Do NOT emit markdown, do NOT emit chunks. A section that needs only
-header re-leveling returns patches with refactor_heading ops and no paragraph text. Do not truncate —
-but also do not pad your output with text Athena already has.`;
+Return a single JSON object matching the DELTA contract — extraction fields + optional patches
+(see the contract shape above). This pass has NO tools: your entire response must be the JSON object
+itself (no prose, no tool calls, no markdown fence). Do NOT emit markdown, do NOT emit chunks. A section
+that needs only header re-leveling returns patches with refactor_heading ops and no paragraph text. Do
+not truncate — but also do not pad your output with text Athena already has.`;
 
 /** Default refinement system prompt — the single full-doc-pass prompt template (G4.S1.T2). */
 export const REFINE_DOCUMENT_SYSTEM_PROMPT = `You are Athena, the document-refinement pass of the athena ingest pipeline.
@@ -787,8 +797,9 @@ body excerpt, assign every heading its correct semantic level:
   1 = document title (the single top heading)
   2 = major section
   3 = subsection
-Judge from the heading text + the excerpt only — you do NOT see the full document. Emit EVERY index via the
-emit_header_levels tool. If uncertain, keep level 2.`;
+Judge from the heading text + the excerpt only — you do NOT see the full document. There are NO tools:
+return a JSON object of the form {"levels": [{"index": N, "level": L}, ...]} with a level for EVERY index
+you were given. If uncertain, keep level 2.`;
 
 /** Build the stage-1 prompt for one batch of headers (tens of KB/call, ~30-50 headers). */
 export function buildHeaderJudgePrompt(batch: HeaderBlock[]): string {
@@ -816,8 +827,8 @@ locally by Athena). Produce the FINAL single-document view:
   - relations: deduplicated binary edges whose source/target match an emitted entity.
   - keywords: unified relationship + query keywords.
   - quality: the overall completeness/confidence and a single action (auto_accept | review_required).
-Never invent entities or relations that are not present in the merged list. Emit via the
-emit_global_refinement tool.`;
+Never invent entities or relations that are not present in the merged list. There are NO tools: your
+entire response must be the JSON object matching this contract (no prose, no tool calls).`;
 
 /**
  * Build the global-merge prompt from the mechanically merged per-section extractions. Merges ONLY the
@@ -832,7 +843,7 @@ export function buildGlobalMergePrompt(
   const sectionTitles = (merged.sections ?? []).slice(0, 200).map((s) => s.title).filter(Boolean).join("\n");
   return `The document was refined in ${sectionCount} section(s). Here is the merged extraction.\n\n${
     topicHint ? `Topic hint from the operator: ${topicHint}\n\n` : ""
-  }Section titles:\n${sectionTitles || "(none)"}\n\nMerged section summaries:\n${JSON.stringify(merged.sections)}\n\nMerged entities:\n${JSON.stringify(merged.entities, null, 2)}\n\nMerged relations:\n${JSON.stringify(merged.relations, null, 2)}\n\nMerged keywords:\n${JSON.stringify(merged.keywords)}\n\nMerged quality:\n${JSON.stringify(merged.quality)}\n\nEmit the final global view via emit_global_refinement.`;
+  }Section titles:\n${sectionTitles || "(none)"}\n\nMerged section summaries:\n${JSON.stringify(merged.sections)}\n\nMerged entities:\n${JSON.stringify(merged.entities, null, 2)}\n\nMerged relations:\n${JSON.stringify(merged.relations, null, 2)}\n\nMerged keywords:\n${JSON.stringify(merged.keywords)}\n\nMerged quality:\n${JSON.stringify(merged.quality)}\n\nReturn the final global view as a JSON object matching the contract above.`;
 }
 
 /** Extract the per-header corrected levels from a stage-1 assistant response (emit tool or text JSON). */
@@ -952,7 +963,7 @@ export function extractGlobalMerge(message: AssistantMessageLike): GlobalRefinem
 export async function judgeHeaderLevelsLLM(
   caller: RefineLlmCaller,
   blocks: HeaderBlock[],
-  options: Pick<RefineDocumentOptions, "headerBatchSize" | "systemPrompt"> = {},
+  options: Pick<RefineDocumentOptions, "headerBatchSize" | "systemPrompt" | "modelId"> = {},
 ): Promise<HeaderBlock[]> {
   const batchSize = options.headerBatchSize ?? HEADER_RELEVEL_BATCH_SIZE;
   const batches = batchHeaderBlocks(blocks, batchSize);
@@ -964,6 +975,7 @@ export async function judgeHeaderLevelsLLM(
         systemPrompt: options.systemPrompt ?? HEADER_RELEVEL_SYSTEM_PROMPT,
         userContent: buildHeaderJudgePrompt(batch),
         schema: HEADER_LEVELS_SCHEMA,
+        model: options.modelId,
       });
       levels = extractHeaderLevels(message);
     } catch {
@@ -1024,29 +1036,33 @@ export interface LargeRefineResult {
  *
  * G4.S2.T8: re-prompts up to 3 times (default) before giving up — a transient "no structured
  * output" on a long/image-heavy doc usually succeeds on an early retry, avoiding the fallback.
- * The retry nudge re-asserts the emit tool call.
+ * The retry nudge re-asserts the raw-JSON output contract (no tool calls on the direct path).
  */
 async function runRefinePass(
   caller: RefineLlmCaller,
   markdown: string,
   topicHint: string | undefined,
-  options: Pick<RefineDocumentOptions, "systemPrompt" | "retries">,
-): Promise<{ document: RefinedDocument; assistant: AssistantMessageLike; retries: number }> {
+  options: Pick<RefineDocumentOptions, "systemPrompt" | "retries" | "modelId">,
+): Promise<{ document: RefinedDocument; assistant: AssistantMessageLike; usage?: unknown; retries: number }> {
   const retries = options.retries ?? 3;
   let lastError: unknown;
+  let usage: unknown;
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
     try {
       const userContent =
         attempt === 1
           ? markdown
-          : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_refined_document tool call carrying the extraction fields + optional patches. Do NOT re-emit the markdown.`;
-      const { message } = await caller({
+          : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Return ONLY a JSON object carrying the extraction fields + optional patches (no tool calls, no prose). Do NOT re-emit the markdown.`;
+      const resp = await caller({
         systemPrompt: options.systemPrompt ?? buildRefineSystemPrompt(topicHint),
         userContent,
         schema: REFINED_DOCUMENT_SCHEMA,
+        model: options.modelId,
       });
+      const message = resp.message;
+      usage = resp.usage;
       const delta = extractRefinementDelta(message);
-      return { document: buildRefinedDocument(markdown, delta), assistant: message, retries: attempt - 1 };
+      return { document: buildRefinedDocument(markdown, delta), assistant: message, usage, retries: attempt - 1 };
     } catch (err) {
       lastError = err;
     }
@@ -1054,21 +1070,12 @@ async function runRefinePass(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function emitRefinedDocumentTool() {
-  return {
-    name: EMIT_REFINED_DOCUMENT_TOOL,
-    description:
-      "Emit the DELTA refinement contract: extraction fields (summary/sections/frontmatter/entities/relations/keywords/quality) + an optional `patches` array. NEVER emit the markdown or chunk texts — Athena rebuilds them locally.",
-    parameters: REFINED_DOCUMENT_SCHEMA,
-    constrainedSampling: { type: "json_schema" as const, strict: "require" as const },
-  };
-}
-
 /** Global-merge production implementation: final type/topic + dedup over the merged sections. */
 async function runGlobalMerge(
   caller: RefineLlmCaller,
   refinements: RefinedDocument[],
   topicHint: string | undefined,
+  model?: string,
 ): Promise<RefinedDocument> {
   const merged = mergeRefinements(refinements);
   try {
@@ -1076,6 +1083,7 @@ async function runGlobalMerge(
       systemPrompt: GLOBAL_MERGE_SYSTEM_PROMPT,
       userContent: buildGlobalMergePrompt(merged, topicHint, refinements.length),
       schema: GLOBAL_MERGE_SCHEMA,
+      model,
     });
     const global = extractGlobalMerge(message);
     if (!global) return merged;
@@ -1146,7 +1154,9 @@ export function createRefineDocumentTool(
       const originalMarkdown = params.markdown;
       const textMarkdown = stripImageRefs(originalMarkdown);
       const imageRefsStripped = textMarkdown !== originalMarkdown;
-      const emitDetails = { model: options.modelId ?? ATHENA_MODEL, mode, imageRefsStripped };
+      // G4.S8.T6: details.model reflects the model ACTUALLY used — explicit modelId, else the env
+      // ATHENA_REFINE_MODEL override (resolveRefineModel), else the package deepseek default.
+      const emitDetails = { model: options.modelId ?? resolveRefineModel(), mode, imageRefsStripped };
       let usage: unknown;
       let retries = 0;
 
@@ -1165,7 +1175,7 @@ export function createRefineDocumentTool(
                 (async (section, hint) => (await runRefinePass(httpCaller, section.markdown, hint, options)).document),
               globalMerge:
                 options.globalMergeImpl ??
-                ((refinements, hint) => runGlobalMerge(httpCaller, refinements, hint)),
+                ((refinements, hint) => runGlobalMerge(httpCaller, refinements, hint, options.modelId)),
             },
             params.topic_hint,
           );
@@ -1174,7 +1184,7 @@ export function createRefineDocumentTool(
         } else {
           const single = await runRefinePass(httpCaller, textMarkdown, params.topic_hint, options);
           document = single.document;
-          usage = single.assistant.usage;
+          usage = single.usage;
           retries = single.retries;
         }
         // File B = refined text-only markdown (RAG working copy). Sync the header re-level back

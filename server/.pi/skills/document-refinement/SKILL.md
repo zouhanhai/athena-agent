@@ -11,8 +11,9 @@ chunks, entities, relations, keywords, quality, and file-level + per-section sum
 full-doc read**. No other LLM re-reads the
 document (only the final embedding, which is vector encoding, not reasoning).
 
-Output is constrained by the refinement JSON contract (see §8) via provider-side constrained sampling
-(`emit_refined_document` tool), so it is always schema-conformant.
+Output is constrained by the refinement JSON contract (see §8) via OpenRouter `response_format.json_schema`
+wrapped around the TypeBox contract, so it is always schema-conformant. The direct-HTTP path has no
+tools — you return the JSON object itself.
 
 ## 1. Header re-level (semantic hierarchy) → patches
 

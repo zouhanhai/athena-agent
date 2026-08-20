@@ -11,18 +11,15 @@
  * Key separation is preserved: the refinement pipeline reads the DEDICATED `athena` OpenRouter key
  * (independent from chat), from `~/.pi/agent/auth.json` → `athena.key` (or env `ATHENA_OPENROUTER_KEY`
  * / `ATHENA_OPENAI_API_KEY`). The model defaults to `~deepseek/deepseek-v4-flash-latest` (maxTokens
- * 65536, output $0.28/M) with `qwen/qwen3.7-flash` available as a config fallback (maxTokens 8192).
+ * 65536, output $0.28/M), overridable via env `ATHENA_REFINE_MODEL`.
  *
- * qwen's `enable_thinking: false` extra_body is silently IGNORED by OpenRouter — reasoning MUST be
- * disabled via `reasoning: { effort: "none" }`, which works on BOTH deepseek and qwen.
+ * reasoning MUST be disabled via `reasoning: { effort: "none" }`, which suppresses thinking tokens.
  */
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /** Default refinement model (G4.S8.T2): deepseek-v4-flash-latest, 65536 maxTokens, 1.31M context. */
 export const ATHENA_REFINE_MODEL = "~deepseek/deepseek-v4-flash-latest";
-/** Fallback model when configured: qwen/qwen3.7-flash — 8192 maxTokens (8x lower ceiling). */
-export const ATHENA_REFINE_MODEL_FALLBACK = "qwen/qwen3.7-flash";
 
 export const ATHENA_REFINE_MAX_TOKENS = 65536;
 export const OPENROUTER_TIMEOUT_MS = 120_000;
@@ -120,7 +117,19 @@ export async function callOpenRouter(
         // so reasoning.effort=none is the ONLY reliable way to suppress thinking tokens.
         reasoning: { effort: "none" },
       };
-      if (params.schema !== undefined) body.response_format = { type: "json_object", ...(params.schema as object) };
+      if (params.schema !== undefined) {
+        // G4.S8.T6 (P0): a TypeBox schema carries `type: "object"` — spreading it onto response_format
+        // produced `{ type: "object", required, properties }` which OpenRouter rejected with HTTP 400
+        // on EVERY call. Wrap it correctly so OpenRouter's json_schema constrained sampling applies.
+        body.response_format = {
+          type: "json_schema",
+          json_schema: {
+            name: "refinement_result",
+            strict: true,
+            schema: params.schema,
+          },
+        };
+      }
 
       const res = await fetchImpl(OPENROUTER_URL, {
         method: "POST",
@@ -154,7 +163,9 @@ export async function callOpenRouter(
 
       // Empty content + reasoning present → the provider spent the budget on thinking and never
       // emitted the answer. Treat as a failure and retry with a higher max_tokens headroom.
-      if (!text.trim() && isPresent(payload.reasoning)) {
+      // G4.S8.T6: OpenRouter puts reasoning on `choices[0].message.reasoning`, not a top-level field.
+      const messageReasoning = choice?.message && (choice.message as { reasoning?: unknown }).reasoning;
+      if (!text.trim() && isPresent(messageReasoning)) {
         lastError = new OpenRouterError("openrouter returned empty content with reasoning present", res.status);
         if (attempt < retries) {
           bumpCount += 1;
@@ -181,6 +192,13 @@ export async function callOpenRouter(
         lastError = new OpenRouterError(`openrouter response was not valid JSON: ${String(err)}`);
       } else {
         lastError = err;
+      }
+      // G4.S8.T6 (P1): 4xx client errors (400/401/403/404) are NEVER retryable — a bad key or an
+      // invalid request will not succeed on a subsequent attempt (it only burns 3 backoffs). Only
+      // network/timeout/5xx/429/empty-content are retried. Check here in the outer catch because
+      // non-5xx/non-429 non-ok branches throw an OpenRouterError that would otherwise be retried.
+      if (lastError instanceof OpenRouterError && lastError.status !== undefined && lastError.status >= 400 && lastError.status < 500) {
+        throw lastError;
       }
       if (attempt < retries) {
         await sleep(300 * 2 ** attempt);

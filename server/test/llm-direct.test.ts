@@ -124,6 +124,95 @@ test("callOpenRouter returns the fallback on a large near-empty body without rea
   );
 });
 
+// --- G4.S8.T6 regression tests ---
+
+test("G4.S8.T6: response_format with a TypeBox schema is wrapped as json_schema (NOT the bare spread that 400s)", async () => {
+  const { calls, fetchImpl } = makeFetch(() =>
+    jsonResponse({}, JSON.stringify({ levels: [{ index: 0, level: 1 }] })),
+  );
+  // TypeBox schema always carries `type: "object"` — the old spread produced
+  // `response_format: { type: "object", ... }` which OpenRouter rejects with 400.
+  const schema = { type: "object", properties: { levels: { type: "array" } }, required: ["levels"] };
+  await callOpenRouter(
+    { systemPrompt: "sys", userContent: "user", schema },
+    { apiKey: "sk-test", fetchImpl, retries: 0 },
+  );
+
+  const body = JSON.parse(calls[0]!.init.body as string) as { response_format: Record<string, unknown> };
+  const rf = body.response_format;
+  assert.equal(rf.type, "json_schema", "schema'd calls must use json_schema, never bare 'object'");
+  assert.notEqual(rf.type, "object", "the TypeBox 'object' type must NOT leak into response_format");
+  const inner = rf.json_schema as { name?: string; strict?: boolean; schema?: unknown };
+  assert.ok(inner, "json_schema payload carries name/strict/schema");
+  assert.equal(inner.strict, true);
+  assert.deepEqual(inner.schema, schema, "the raw TypeBox schema is placed under json_schema.schema");
+  assert.ok(typeof inner.name === "string" && inner.name.length > 0, "json_schema needs a name");
+});
+
+test("G4.S8.T6: WITHOUT a schema the response_format stays json_object", async () => {
+  const { calls, fetchImpl } = makeFetch(() => jsonResponse({}, "{}"));
+  await callOpenRouter({ systemPrompt: "s", userContent: "u" }, { apiKey: "k", fetchImpl, retries: 0 });
+  const body = JSON.parse(calls[0]!.init.body as string) as { response_format: Record<string, unknown> };
+  assert.deepEqual(body.response_format, { type: "json_object" });
+});
+
+test("G4.S8.T6: a 401 (bad key) is NOT retried — exactly one attempt, then throws", async () => {
+  const { calls, fetchImpl } = makeFetch(() => jsonFromString('{"error":{"message":"bad key"}}', 401));
+  await assert.rejects(
+    () => callOpenRouter({ systemPrompt: "s", userContent: "u" }, { apiKey: "k", fetchImpl, retries: 3 }),
+    OpenRouterError,
+  );
+  assert.equal(calls.length, 1, "4xx errors must not be retried");
+});
+
+test("G4.S8.T6: a 400 (invalid request) is NOT retried — exactly one attempt, then throws", async () => {
+  const { calls, fetchImpl } = makeFetch(() => jsonFromString('{"error":{}}', 400));
+  await assert.rejects(
+    () => callOpenRouter({ systemPrompt: "s", userContent: "u" }, { apiKey: "k", fetchImpl, retries: 3 }),
+    OpenRouterError,
+  );
+  assert.equal(calls.length, 1, "4xx errors must not be retried");
+});
+
+test("G4.S8.T6: a 429 (rate-limited) IS retried", async () => {
+  let n = 0;
+  const { calls, fetchImpl } = makeFetch(() => {
+    n += 1;
+    if (n <= 2) return jsonFromString("rate limited", 429);
+    return jsonResponse({}, "{\"ok\":1}");
+  });
+  const result = await callOpenRouter({ systemPrompt: "s", userContent: "u" }, { apiKey: "k", fetchImpl, retries: 3 });
+  assert.equal(calls.length, 3, "429 retries until success (initial + 2 retries)");
+  assert.equal(JSON.parse(result.text).ok, 1);
+});
+
+test("G4.S8.T6: empty-content + reasoning is detected at choices[0].message.reasoning (OpenRouter shape), not top-level", async () => {
+  let n = 0;
+  const { calls, fetchImpl } = makeFetch(() => {
+    n += 1;
+    if (n === 1) {
+      // OpenRouter puts reasoning on the choice message, NOT a top-level field.
+      return jsonResponse(
+        {
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "", reasoning: { summary: ["thinking..."] } },
+              finish_reason: "length",
+            },
+          ],
+          usage: { total_tokens: 100 },
+        },
+        "",
+      );
+    }
+    return jsonResponse({}, "{\"ok\":1}");
+  });
+  const result = await callOpenRouter({ systemPrompt: "s", userContent: "u" }, { apiKey: "k", fetchImpl, retries: 1 });
+  assert.equal(calls.length, 2, "empty content + reasoning present → retried with larger budget");
+  assert.equal(JSON.parse(result.text).ok, 1);
+});
+
 test("callOpenRouter retries when content is empty but reasoning is present, bumping max_tokens", async () => {
   let n = 0;
   const { calls, fetchImpl } = makeFetch(() => {

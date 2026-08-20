@@ -4,10 +4,29 @@ import { readFileSync } from "node:fs";
 import {
   DOCUMENT_REFINEMENT_SKILL_PATH,
   DOCUMENT_REFINEMENT_SKILL_NAME,
+  GLOBAL_MERGE_SYSTEM_PROMPT,
+  HEADER_RELEVEL_SYSTEM_PROMPT,
   REFINED_DOCUMENT_SCHEMA,
   REFINE_DOCUMENT_SYSTEM_PROMPT,
+  buildGlobalMergePrompt,
+  buildHeaderJudgePrompt,
   normalizeRefinedDocument,
 } from "../src/agents/refine-document.js";
+
+/** Minimal RefinedDocument-shaped object for prompt-building helpers. */
+function makeMerged() {
+  return {
+    markdown: "# Doc",
+    summary: "s",
+    sections: [{ title: "Intro", summary: "about" }],
+    frontmatter: { type: "document", topic: "unclassified" },
+    chunks: [],
+    entities: [],
+    relations: [],
+    keywords: [],
+    quality: { complete: true, confidence: 0.5, issues: [], action: "auto_accept" as const },
+  };
+}
 
 /** JSON-serialized shape of the TypeBox schema (matches constrainedSampling). */
 function schemaJson(schema: unknown): {
@@ -145,7 +164,7 @@ test("refinement prompt embeds docs/taxonomy.md (type criteria + hierarchical to
   assert.match(REFINE_DOCUMENT_SYSTEM_PROMPT, /sap\/consolidation\/group-reporting/);
 });
 
-test("refinement prompt encodes cross-RAG best practices + single full-doc pass + constrained emit", () => {
+test("refinement prompt encodes cross-RAG best practices + single full-doc pass + raw-JSON emit", () => {
   const p = REFINE_DOCUMENT_SYSTEM_PROMPT;
   assert.match(p, /heading_path/);
   assert.match(p, /source.*target|binary/i);
@@ -153,7 +172,7 @@ test("refinement prompt encodes cross-RAG best practices + single full-doc pass 
   assert.match(p, /direct.*meaningful|meaningful/i);
   assert.match(p, /1200/);
   assert.match(p, /relationship keywords|query keywords/i);
-  assert.match(p, /emit_refined_document/);
+  assert.match(p, /JSON object/i);
   assert.match(p, /ONE|single/);
 });
 
@@ -191,4 +210,14 @@ test("document-refinement SKILL.md exists with required guidance sections", () =
   assert.match(content, /[Rr]elation/);
   assert.match(content, /single|one pass|full-doc/i);
   assert.match(content, /aliases/i);
+});
+
+test("G4.S8.T6: refinement prompts no longer instruct calling a tool — they ask for raw JSON", () => {
+  assert.doesNotMatch(REFINE_DOCUMENT_SYSTEM_PROMPT, /emit_refined_document tool/, "main prompt must not ask for a tool call");
+  assert.doesNotMatch(REFINE_DOCUMENT_SYSTEM_PROMPT, /call the emit/i);
+  assert.doesNotMatch(HEADER_RELEVEL_SYSTEM_PROMPT, /emit_header_levels tool/);
+  assert.doesNotMatch(GLOBAL_MERGE_SYSTEM_PROMPT, /emit_global_refinement tool/);
+  assert.doesNotMatch(buildGlobalMergePrompt(makeMerged(), undefined, 2), /emit_global_refinement/, "global-merge prompt must not reference the emit tool");
+  assert.doesNotMatch(buildHeaderJudgePrompt([]), /emit_header_levels/, "header-judge prompt must not reference the emit tool");
+  assert.match(buildGlobalMergePrompt(makeMerged(), undefined, 2), /JSON object|matching the contract/i);
 });

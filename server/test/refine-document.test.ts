@@ -42,6 +42,7 @@ interface CallerCalls {
   systemPrompt?: string;
   userContent: string;
   schema?: unknown;
+  model?: string;
 }
 
 interface FakeStoreRecorder {
@@ -92,8 +93,8 @@ function makeCaller(opts: {
   echoInputMarkdown?: boolean;
 } = {}): { runtime: ModelRuntime; caller: RefineLlmCaller; calls: CallerCalls[] } {
   const calls: CallerCalls[] = [];
-  const caller: RefineLlmCaller = async ({ systemPrompt, userContent, schema }) => {
-    calls.push({ systemPrompt, userContent, schema });
+  const caller: RefineLlmCaller = async ({ systemPrompt, userContent, schema, model }) => {
+    calls.push({ systemPrompt, userContent, schema, model });
     if (opts.completeThrows) throw opts.completeThrows;
     if (opts.completeResult) {
       return { usage: zeroUsage, message: { role: "assistant", content: [{ type: "text", text: String(opts.completeResult) }] } };
@@ -248,4 +249,19 @@ test("reports the resolved model in the ref details", async () => {
   const result = await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
   const details = result.details as { model?: string };
   assert.equal(details.model, ATHENA_MODEL);
+});
+
+test("G4.S8.T6: options.modelId is threaded to the caller and reflected in details.model", async () => {
+  const { caller, calls } = makeCaller();
+  const tool = createRefineDocumentTool({} as ModelRuntime, {
+    httpCaller: caller,
+    storageDir: "storage",
+    storeImpl: makeFakeStore(),
+    modelId: "qwen/qwen3.7-flash",
+  } as never);
+
+  const result = await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
+  const details = result.details as { model?: string };
+  assert.equal(details.model, "qwen/qwen3.7-flash", "details.model reflects the configured modelId");
+  assert.equal(calls[0].model, "qwen/qwen3.7-flash", "the model is passed to the OpenRouter caller");
 });
