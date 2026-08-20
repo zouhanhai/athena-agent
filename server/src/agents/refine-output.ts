@@ -16,8 +16,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
+  RefinementChunk,
   RefinementEntity,
   RefinementFrontmatter,
+  RefinementPatch,
   RefinementQuality,
   RefinementRelation,
   RefinementSectionSummary,
@@ -35,6 +37,12 @@ export const SECTION_MAX_BYTES = 1024 * 1024;
 
 /** Default preview size (chars) returned by the big-output ref. */
 export const REFINE_PREVIEW_MAX_CHARS = 2000;
+
+/**
+ * Target size of one local paragraph-semantic chunk. (G4.S8.T1) The local chunker keeps each semantic
+ * block (paragraph) integral; this is the intended chunk scale.
+ */
+export const REFINE_CHUNK_TARGET_TOKENS = 1200;
 
 export type RefinementMode = "single" | "two-stage";
 
@@ -426,6 +434,109 @@ function dedupeBy<T>(items: T[], keyOf: (item: T) => string): T[] {
 function countHeaders(markdown: string): number {
   return markdown.split(/\r?\n/).filter((line) => /^#{1,6}\s+/.test(line)).length;
 }
+
+// --- G4.S8.T1: local markdown rebuild + local paragraph-semantic chunking (delta contract) ---
+
+/** A structural block of a markdown section — either a heading or a paragraph. */
+type PatchBlock = { kind: "heading"; level: number; text: string } | { kind: "paragraph"; text: string };
+
+/**
+ * Parse markdown into an ordered block grid (headings + paragraphs, 0-based, in document order).
+ * Patches reference this grid by `index`; the same grid drives the local heading-path chunker.
+ */
+export function parseMarkdownBlocks(markdown: string): PatchBlock[] {
+  const lines = markdown.split(/\r?\n/);
+  const blocks: PatchBlock[] = [];
+  let para: string[] = [];
+  const flushPara = (): void => {
+    const text = para.join("\n").trim();
+    if (text) blocks.push({ kind: "paragraph", text });
+    para = [];
+  };
+  for (const line of lines) {
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (h) {
+      flushPara();
+      blocks.push({ kind: "heading", level: h[1].length, text: h[2].trim() });
+    } else if (line.trim() === "") {
+      flushPara();
+    } else {
+      para.push(line);
+    }
+  }
+  flushPara();
+  return blocks;
+}
+
+/** Rebuild markdown text from a block grid (normalized: headings + paragraphs joined by blank lines). */
+function blocksToMarkdown(blocks: PatchBlock[]): string {
+  const out: string[] = [];
+  for (const b of blocks) {
+    if (b.kind === "heading") out.push(`${"#".repeat(b.level)} ${b.text}`);
+    else if (b.text) out.push(b.text);
+  }
+  return out.join("\n\n");
+}
+
+/**
+ * Apply a list of optional patches to the ORIGINAL section markdown, returning the locally-rebuilt
+ * markdown. Patch indices refer to the 0-based block grid of `markdown` (headings + paragraphs in
+ * document order). Heading ops only affect heading blocks; paragraph ops only affect paragraph blocks;
+ * out-of-range or wrong-kind patches are ignored (fidelity-first: no information re-generation).
+ */
+export function applyPatches(markdown: string, patches: readonly RefinementPatch[]): string {
+  const original = parseMarkdownBlocks(markdown);
+  const result: PatchBlock[] = [...original];
+  for (const patch of patches ?? []) {
+    const target = original[patch.index];
+    if (!target) continue;
+    const pos = result.findIndex((b) => b === target);
+    if (pos === -1) continue; // already removed
+    const block = result[pos];
+    if (patch.op === "retitle_heading" && block.kind === "heading") {
+      block.text = patch.text;
+    } else if (patch.op === "refactor_heading" && block.kind === "heading") {
+      block.level = clampHeaderLevel(patch.level);
+    } else if (patch.op === "replace_paragraph" && block.kind === "paragraph") {
+      block.text = patch.text;
+    } else if (patch.op === "insert_paragraph" && block.kind === "paragraph") {
+      result.splice(pos + 1, 0, { kind: "paragraph", text: patch.text });
+    } else if (patch.op === "delete_paragraph" && block.kind === "paragraph") {
+      result.splice(pos, 1);
+    }
+  }
+  return blocksToMarkdown(result);
+}
+
+/**
+ * Locally segment a (rebuilt) markdown into paragraph-semantic chunks. Each chunk is ONE semantic
+ * block (a paragraph plus its heading path), carrying a stable id c1..cN (G4.S8.T1). Paragraphs are
+ * targeted at ~1200 tokens (REFINE_CHUNK_TARGET_TOKENS); a block larger than the target stays intact
+ * (paragraph-semantic fidelity over fixed token windows). The LLM never emits chunk text — this runs
+ * on the LOCAL rebuild, so chunk count == paragraph-semantic block count.
+ */
+export function splitParagraphSemantic(markdown: string): RefinementChunk[] {
+  const blocks = parseMarkdownBlocks(markdown);
+  const chunks: RefinementChunk[] = [];
+  let id = 1;
+  const headingStack: Array<{ level: number; text: string }> = [];
+  for (const block of blocks) {
+    if (block.kind === "heading") {
+      while (headingStack.length && headingStack[headingStack.length - 1].level >= block.level) {
+        headingStack.pop();
+      }
+      headingStack.push({ level: block.level, text: block.text });
+    } else if (block.text) {
+      chunks.push({
+        id: `c${id++}`,
+        text: block.text,
+        heading_path: headingStack.map((h) => h.text).join(" / "),
+      });
+    }
+  }
+  return chunks;
+}
+
 
 /**
  * Big-output storage (pi-docparser pattern): write the full re-leveled markdown + chunks JSON to

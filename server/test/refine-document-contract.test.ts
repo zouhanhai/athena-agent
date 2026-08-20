@@ -16,23 +16,25 @@ function schemaJson(schema: unknown): {
   return JSON.parse(JSON.stringify(schema));
 }
 
-test("output contract schema defines markdown/frontmatter/chunks/entities/relations/keywords/quality/summary/sections", () => {
+test("delta output contract schema defines extraction fields + patches (NO markdown/chunks)", () => {
   const s = schemaJson(REFINED_DOCUMENT_SCHEMA);
   assert.equal(s.type, "object");
   const top = Object.keys(s.properties).sort();
-  assert.deepEqual(top, ["chunks", "entities", "frontmatter", "keywords", "markdown", "quality", "relations", "sections", "summary"]);
+  assert.deepEqual(top, ["entities", "frontmatter", "keywords", "patches", "quality", "relations", "sections", "summary"]);
+  // markdown/chunks deliberately absent — Athena rebuilds them locally (G4.S8.T1)
+  assert.equal(s.properties.markdown, undefined, "markdown is ABSENT from the LLM contract");
+  assert.equal(s.properties.chunks, undefined, "chunks are ABSENT from the LLM contract");
 
-  assert.ok(s.properties.markdown.type === "string");
   assert.ok(s.properties.frontmatter.properties?.type);
   assert.ok(s.properties.frontmatter.properties?.topic);
 });
 
-test("output contract summary is a string (~2-3 sentences)", () => {
+test("delta output contract summary is a string (~2-3 sentences)", () => {
   const s = schemaJson(REFINED_DOCUMENT_SCHEMA);
   assert.equal(s.properties.summary.type, "string");
 });
 
-test("output contract sections is {title, summary}[] (one per top-level H1)", () => {
+test("delta output contract sections is {title, summary}[] (one per top-level H1)", () => {
   const s = schemaJson(REFINED_DOCUMENT_SCHEMA);
   assert.equal(s.properties.sections.type, "array");
   const props = s.properties.sections.items?.properties ?? {};
@@ -41,9 +43,11 @@ test("output contract sections is {title, summary}[] (one per top-level H1)", ()
   assert.equal(props.summary.type, "string");
 });
 
-test("chunk contract: id/text/heading_path (paragraph-semantic ~1200tok)", () => {
-  const chunkProps = schemaJson(REFINED_DOCUMENT_SCHEMA).properties.chunks.items?.properties ?? {};
-  assert.deepEqual(Object.keys(chunkProps).sort(), ["heading_path", "id", "text"]);
+test("patches contract is an optional array with oneOf header/paragraph ops", () => {
+  const s = schemaJson(REFINED_DOCUMENT_SCHEMA);
+  assert.equal(s.properties.patches.type, "array");
+  const ops = s.properties.patches.items?.anyOf?.map((o: { properties?: { op?: { const?: string } } }) => o.properties?.op?.const) ?? [];
+  assert.deepEqual(ops, ["retitle_heading", "refactor_heading", "replace_paragraph", "insert_paragraph", "delete_paragraph"]);
 });
 
 test("entity contract: name(title-case)/type/description/aliases (bilingual DE+EN)", () => {

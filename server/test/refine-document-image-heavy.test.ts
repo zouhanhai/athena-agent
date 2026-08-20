@@ -243,7 +243,8 @@ test("refine_document returns structured output (not fallback) on image-heavy md
   assert.equal(ref.frontmatter.topic, "internal/events");
   assert.equal(ref.entities.length, 3);
   assert.equal(ref.keywords.length, 3);
-  assert.equal(ref.chunk_count, 2);
+  // G4.S8.T1: chunks are built LOCALLY from the (rebuilt) markdown — one per paragraph (6 paragraphs).
+  assert.equal(ref.chunk_count, 6);
   assert.equal(ref.quality.action, "auto_accept");
   assert.equal(details.imageRefsStripped, true, "reports image refs were stripped");
 

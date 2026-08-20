@@ -148,12 +148,13 @@ test("execute stores the full output and returns the small ref (pi-docparser big
   const { runtime } = makeFakeRuntime({ echoInputMarkdown: true });
   const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: makeFakeStore(recorder) });
 
-  const result = await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
+  const result = await tool.execute("c", { markdown: "# Doc\n\nbody" }, undefined, undefined, {} as never);
   const ref = parseResult<RefineOutputRef>(result);
 
-  // full re-leveled markdown + chunks land on disk/storage (recorded by the store)
-  assert.equal(recorder.stored!.markdown, "# Doc");
+  // full re-leveled markdown (rebuilt locally, delta contract) + locally-built chunks in storage
+  assert.equal(recorder.stored!.markdown, "# Doc\n\nbody");
   assert.equal(recorder.stored!.chunks.length, 1);
+  assert.equal(recorder.stored!.chunks[0].text, "body");
   // the tool returns the SMALL metadata + refs, not the full document
   assert.equal(ref.md_ref, "storage/doc.md");
   assert.deepEqual(ref.frontmatter, { type: "event", topic: "internal/events" });

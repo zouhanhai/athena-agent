@@ -14,7 +14,7 @@ document (only the final embedding, which is vector encoding, not reasoning).
 Output is constrained by the refinement JSON contract (see §8) via provider-side constrained sampling
 (`emit_refined_document` tool), so it is always schema-conformant.
 
-## 1. Header re-level (semantic hierarchy)
+## 1. Header re-level (semantic hierarchy) → patches
 
 Restore a semantic `#` / `##` / `###` hierarchy from the document **structure**, not the raw docling
 levels. docling is a fixed ML layout model — it often emits **flat** headers (e.g. everything is `h2`).
@@ -29,6 +29,9 @@ Rules:
 - Do **not** invent heading levels the document does not imply; do not collapse real structure.
 - Keep heading text verbatim (trim whitespace / stray markdown artifacts only).
 
+Your corrections are expressed as **patches** (`refactor_heading`/`retitle_heading`), not as re-emitted
+markdown. Patch `index` is the 0-based block grid position (headings + paragraphs, in document order).
+
 ## 2. Classification (type + topic) — from docs/taxonomy.md
 
 Pick exactly **one** document type and **one** hierarchical topic. `docs/taxonomy.md` is authoritative.
@@ -41,15 +44,17 @@ The type criteria + counterexamples and the allowed topic tree are embedded in t
   (e.g. `sap/consolidation/group-reporting`, `internal/events`). Reuse an existing topic; only create a
   new one when nothing fits.
 
-## 3. Chunking (paragraph-semantic, ~1200 tokens)
+## 3. Chunking (LOCAL — paragraph-semantic, ~1200 tokens)
 
-Segment the re-leveled markdown into **paragraph-semantic** chunks (LightRAG `paragraph_semantic`
-style), NOT fixed token windows:
+Chunks are built **locally by Athena** from the final rebuilt markdown
+(`splitParagraphSemantic`, paragraph-semantic style, NOT fixed token windows):
 
 - Target ~1200 tokens per chunk, ~100 token overlap.
 - Prefer whole paragraphs / semantically complete sections.
-- Each chunk: stable `id` (`c1`, `c2`, ...), `text`, and `heading_path` — the heading path of its
-  section (e.g. `Sommerseminar / Workshops`) so downstream extraction knows the context.
+- Each chunk carries a stable `id` (`c1`, `c2`, ...) and `heading_path` — the heading path of its
+  section (e.g. `Sommerseminar / Workshops`).
+
+You do **NOT** emit chunk text or ids — never include a `chunks` field.
 
 ## 4. Entity extraction (knowledge-graph nodes)
 
@@ -103,26 +108,31 @@ You already read the whole document, so summarize it in the same pass at two lev
 - **issues**: concrete list (e.g. "table on p3 split", "image caption missing").
 - **action**: `auto_accept` (clean) or `review_required` (any doubt).
 
-## 9. Output contract (JSON, constrained sampling)
+## 9. Output contract (JSON — DELTA/extraction, constrained sampling)
+
+You never re-emit the markdown or the chunk texts — Athena rebuilds them locally from the original
+text plus your optional patches. Emit:
 
 ```jsonc
 {
-  "markdown": "...",                       // re-leveled markdown (header hierarchy fixed)
   "summary": "...",                        // file-level, ~2-3 sentences
   "sections": [{ "title": "...", "summary": "..." }],  // one per top-level H1 section
   "frontmatter": { "type": "...", "topic": "..." },   // from docs/taxonomy.md
-  "chunks": [{ "id": "c1", "text": "...", "heading_path": "..." }],  // paragraph-semantic, ~1200 tok
   "entities": [{ "name": "...", "type": "org|person|...", "description": "...", "aliases": ["..."] }],
   "relations": [{ "source": "...", "target": "...", "keywords": ["..."], "description": "..." }],
   "keywords": ["..."],                     // relationship + query keywords
-  "quality": {
-    "complete": true, "confidence": 0.85,
-    "issues": ["..."], "action": "auto_accept|review_required"
-  }
+  "quality": { "complete": true, "confidence": 0.85, "issues": ["..."], "action": "auto_accept|review_required" },
+  "patches": [                             // OPTIONAL — the only text-level edits you propose
+    { "op": "retitle_heading",   "index": 4, "text": "..." },
+    { "op": "refactor_heading",  "index": 2, "level": 3 },
+    { "op": "replace_paragraph", "index": 12, "text": "..." },
+    { "op": "insert_paragraph",  "index": 15, "text": "..." },
+    { "op": "delete_paragraph",  "index": 18 }
+  ]
 }
 ```
 
-Emit the **entire** re-leveled markdown and every chunk; do not truncate.
+Do not truncate; but do not pad with text Athena already has.
 
 ## 10. Size budget (single read)
 

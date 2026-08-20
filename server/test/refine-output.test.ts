@@ -8,6 +8,7 @@ import type { RefinedDocument } from "../src/agents/refine-document.js";
 import {
   HEADER_RELEVEL_BATCH_SIZE,
   REFINE_SINGLE_READ_MAX_BYTES,
+  applyPatches,
   batchHeaderBlocks,
   deriveStem,
   isLargeMarkdown,
@@ -16,6 +17,7 @@ import {
   rebuildMarkdown,
   splitByHeaders,
   splitByRefinedH1,
+  splitParagraphSemantic,
   storeRefinementOutput,
   type RefineOutputRef,
   type HeaderBlock,
@@ -252,6 +254,85 @@ test("mergeRefinements concats markdown/chunks, dedupes entities/relations/keywo
     { title: "A", summary: "A summary." },
     { title: "B", summary: "B summary." },
   ]);
+});
+
+// --- G4.S8.T1: local markdown rebuild (applyPatches) + local paragraph-semantic chunking ---
+
+const PATCH_GRID_MD = `# Title
+
+Intro paragraph.
+
+## Section A
+
+Body A paragraph.
+
+## Section B
+
+Body B paragraph.`;
+
+test("applyPatches refactor_heading retitles/re-levels a heading block by index", () => {
+  const md = applyPatches(PATCH_GRID_MD, [{ op: "refactor_heading", index: 2, level: 3 }]);
+  assert.match(md, /^### Section A$/m, "block index 2 (heading 'Section A') re-leveled to h3");
+  assert.match(md, /^# Title$/m, "title heading unchanged");
+  assert.match(md, /^## Section B$/m, "other headings unchanged");
+  assert.match(md, /Body A paragraph\./, "body preserved verbatim");
+
+  const retitle = applyPatches(PATCH_GRID_MD, [{ op: "retitle_heading", index: 4, text: "Section C" }]);
+  assert.match(retitle, /^## Section C$/m, "heading text replaced by index");
+});
+
+test("applyPatches replaces/inserts/deletes paragraph blocks by index", () => {
+  // index 1 = "Intro paragraph."
+  const replaced = applyPatches(PATCH_GRID_MD, [{ op: "replace_paragraph", index: 1, text: "Updated intro." }]);
+  assert.match(replaced, /\n\nUpdated intro\.\n\n/);
+  assert.ok(!replaced.includes("Intro paragraph."), "old paragraph gone");
+
+  const inserted = applyPatches(PATCH_GRID_MD, [{ op: "insert_paragraph", index: 3, text: "Inserted para." }]);
+  assert.match(inserted, /Body A paragraph\.\n\nInserted para\.\n\n## Section B/);
+
+  const deleted = applyPatches(PATCH_GRID_MD, [{ op: "delete_paragraph", index: 3 }]);
+  assert.ok(!deleted.includes("Body A paragraph."), "deleted paragraph gone");
+  assert.match(deleted, /## Section A\n\n## Section B/);
+});
+
+test("applyPatches ignores a patch whose index is out of range or targets the wrong block kind", () => {
+  const noop = applyPatches(PATCH_GRID_MD, [
+    { op: "refactor_heading", index: 999, level: 3 },
+    { op: "replace_paragraph", index: 0, text: "nope" }, // index 0 is a heading, not a paragraph
+  ]);
+  assert.equal(noop, applyPatches(PATCH_GRID_MD, []), "no-op patches leave the markdown unchanged");
+});
+
+test("splitParagraphSemantic emits c1..cN with heading_path and preserves content fidelity", () => {
+  const md = `# Title
+
+## A
+
+Alpha paragraph one.
+
+Alpha paragraph two.
+
+## B
+
+Beta paragraph.`;
+  const chunks = splitParagraphSemantic(md);
+  assert.deepEqual(chunks.map((c) => c.id), ["c1", "c2", "c3"], "stable sequential ids");
+  assert.deepEqual(chunks.map((c) => c.heading_path), ["Title / A", "Title / A", "Title / B"]);
+  const joined = chunks.map((c) => c.text).join("\n\n");
+  assert.ok(joined.includes("Alpha paragraph one."));
+  assert.ok(joined.includes("Alpha paragraph two."));
+  assert.ok(joined.includes("Beta paragraph."));
+});
+
+test("splitParagraphSemantic keeps one chunk per oversized paragraph (paragraph-semantic block count)", () => {
+  // Each paragraph exceeds the ~1200-token target, so each paragraph is its own semantic chunk.
+  const big = "x".repeat(6000); // ~1500 tokens
+  const md = `# Report\n\n## Part A\n\n${big}\n\n## Part B\n\n${big}\n\n## Part C\n\n${big}`;
+  const chunks = splitParagraphSemantic(md);
+  assert.equal(chunks.length, 3, "chunk count == paragraph-semantic block count");
+  assert.deepEqual(chunks.map((c) => c.id), ["c1", "c2", "c3"]);
+  assert.deepEqual(chunks.map((c) => c.heading_path), ["Report / Part A", "Report / Part B", "Report / Part C"]);
+  for (const c of chunks) assert.equal(c.text, big, "paragraph text preserved verbatim in its chunk");
 });
 
 test("storeRefinementOutput ref carries small metadata only (no full markdown/chunks)", async () => {

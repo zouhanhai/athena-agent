@@ -28,6 +28,7 @@ import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-age
 import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT } from "../kb/taxonomy.js";
 import {
   HEADER_RELEVEL_BATCH_SIZE,
+  applyPatches,
   batchHeaderBlocks,
   clampHeaderLevel,
   deriveStem,
@@ -38,6 +39,7 @@ import {
   rebuildMarkdown,
   splitByHeaders,
   splitByRefinedH1,
+  splitParagraphSemantic,
   storeRefinementOutput,
   stripImageRefs,
   syncRefinedHeadersToSource,
@@ -142,9 +144,34 @@ export interface RefinedDocument {
   quality: RefinementQuality;
 }
 
-/** JSON schema (TypeBox) of the refinement output contract, used as the constrained emit tool params. */
-export const REFINED_DOCUMENT_SCHEMA = Type.Object({
-  markdown: Type.String(),
+/**
+ * A minimal, location-addressed text-level edit the refinement LLM may OPTIONALLY propose (G4.S8.T1).
+ * `index` refers to the 0-based block grid of the ORIGINAL markdown (headings + paragraphs in document
+ * order). Heading ops target heading blocks; paragraph ops target paragraph blocks. Patches are the
+ * ONLY text the model emits — Athena applies them LOCALLY to rebuild the final markdown, so the model
+ * never re-emits the document text it already read.
+ */
+export type RefinementPatch =
+  | { op: "retitle_heading"; index: number; text: string }
+  | { op: "refactor_heading"; index: number; level: number }
+  | { op: "replace_paragraph"; index: number; text: string }
+  | { op: "insert_paragraph"; index: number; text: string }
+  | { op: "delete_paragraph"; index: number };
+
+const PATCH_ONE_OF = Type.Union([
+  Type.Object({ op: Type.Literal("retitle_heading"), index: Type.Number(), text: Type.String() }),
+  Type.Object({ op: Type.Literal("refactor_heading"), index: Type.Number(), level: Type.Number() }),
+  Type.Object({ op: Type.Literal("replace_paragraph"), index: Type.Number(), text: Type.String() }),
+  Type.Object({ op: Type.Literal("insert_paragraph"), index: Type.Number(), text: Type.String() }),
+  Type.Object({ op: Type.Literal("delete_paragraph"), index: Type.Number() }),
+]);
+
+/**
+ * The DELTA/extraction refinement contract (G4.S8.T1): the LLM output for the per-section (stage-2)
+ * and single-pass paths is EXTRACTION FIELDS ONLY + an optional `patches` array. `markdown` and
+ * `chunks` are deliberately ABSENT — Athena rebuilds them locally (applyPatches + splitParagraphSemantic).
+ */
+export const REFINED_DOCUMENT_DELTA_SCHEMA = Type.Object({
   summary: Type.String(),
   sections: Type.Array(
     Type.Object({
@@ -156,13 +183,6 @@ export const REFINED_DOCUMENT_SCHEMA = Type.Object({
     type: Type.String(),
     topic: Type.String(),
   }),
-  chunks: Type.Array(
-    Type.Object({
-      id: Type.String(),
-      text: Type.String(),
-      heading_path: Type.String(),
-    }),
-  ),
   entities: Type.Array(
     Type.Object({
       name: Type.String(),
@@ -186,7 +206,28 @@ export const REFINED_DOCUMENT_SCHEMA = Type.Object({
     issues: Type.Array(Type.String()),
     action: Type.Union([Type.Literal("auto_accept"), Type.Literal("review_required")]),
   }),
+  patches: Type.Optional(Type.Array(PATCH_ONE_OF)),
 });
+
+/**
+ * JSON schema (TypeBox) of the refinement output contract, used as the constrained emit tool params.
+ * NOW the delta/extraction contract — `markdown`/`chunks` are absent (built locally by Athena).
+ * Kept under the original name for compatibility; the shape is the delta contract.
+ */
+export const REFINED_DOCUMENT_SCHEMA = REFINED_DOCUMENT_DELTA_SCHEMA;
+
+/** The structured (delta) output the refinement LLM actually returns. `markdown`/`chunks` are absent. */
+export interface RefinedDocumentDelta {
+  summary: string;
+  sections: RefinementSectionSummary[];
+  frontmatter: RefinementFrontmatter;
+  entities: RefinementEntity[];
+  relations: RefinementRelation[];
+  keywords: string[];
+  quality: RefinementQuality;
+  /** Optional location-addressed text edits; Athena applies them locally to rebuild markdown. */
+  patches?: RefinementPatch[];
+}
 
 /** Stage-1 emit schema: corrected heading level per header index (T3 two-stage). */
 export const HEADER_LEVELS_SCHEMA = Type.Object({
@@ -299,15 +340,22 @@ export function defaultRefinementOutputDir(): string {
 export const DOCUMENT_REFINEMENT_SKILL_GUIDANCE = `# document-refinement — Athena refinement pass (G4.S1)
 
 You are the SINGLE full-document LLM pass of the athena ingest pipeline. You read the whole docling
-markdown once and emit everything downstream needs — re-leveled markdown, frontmatter(type+topic),
-chunks, entities, relations, keywords, quality, and file-level + per-section summaries — in ONE read.
-No other LLM re-reads the document.
+markdown once and EMIT ONLY EXTRACTION — frontmatter(type+topic), entities, relations, keywords,
+quality, and file-level + per-section summaries — plus an OPTIONAL, location-addressed list of edits
+(patches). You NEVER re-emit the re-leveled markdown or the chunk texts: Athena rebuilds those LOCALLY
+from the original text (which stage-1 has already header-re-leveled). This keeps your output small
+(~1-5K tokens) even on the biggest documents — no truncation. No other LLM re-reads the document.
 
-## 1. Header re-level (semantic hierarchy)
+## 1. Header re-level → patches (semantic hierarchy)
 Restore a semantic # / ## / ### hierarchy from document structure, not the raw docling levels.
 docling often emits FLAT headers (e.g. everything is h2 — a Sommerseminar doc came out with 16x h2).
 Decide levels by section meaning: exactly one # title, ## major sections, ### subsections. Promote or
-demote so the tree is coherent. Do NOT invent heading levels that the document does not imply.
+demote so the tree is coherent. Your corrections are expressed as patches:
+- refactor_heading { index, level } — change the block's heading level.
+- retitle_heading { index, text } — change the heading text (only to fix a typo/OCR artifact).
+Patch index (0-based) is the grid position of the block (headings AND paragraphs counted in document
+order). Do NOT invent heading levels the document does not imply. Do NOT re-emit text to fix content —
+the original text is preserved; you only PROPOSE edits by location.
 
 ## 2. Classification (type + topic) — from docs/taxonomy.md
 Pick EXACTLY ONE type and ONE hierarchical topic per the CALEO taxonomy (docs/taxonomy.md is
@@ -317,11 +365,10 @@ ${TYPE_CRITERIA_PROMPT}
 
 ${TOPIC_TREE_PROMPT}
 
-## 3. Chunking (paragraph-semantic)
-Segment the re-leveled markdown into paragraph-semantic chunks (~1200 tokens, ~100 token overlap —
-paragraph-semantic style). Prefer whole paragraphs / semantically complete sections over fixed
-token windows. Each chunk: stable id ("c1", "c2", ...), its text, and heading_path = the heading path
-of the section it belongs to (e.g. "Sommerseminar / Workshops") so downstream knows the context.
+## 3. Chunking → LOCAL (paragraph-semantic)
+Chunks are built LOCALLY by Athena from the final markdown (splitParagraphSemantic): paragraph-semantic
+chunks (~1200 tokens, ~100 token overlap, heading_path = the heading path of the section). You do NOT
+emit chunk text or ids — never include a chunks field.
 
 ## 4. Entity extraction (knowledge-graph nodes)
 Extract the entities that are actually named in the document. For each:
@@ -366,8 +413,10 @@ You already read the whole document, so summarize it in the same pass at two lev
 - action: auto_accept (clean) or review_required (any doubt).
 
 ## Output
-Call the emit_refined_document tool with the COMPLETE refined document — its JSON schema constrains
-your output. Emit the ENTIRE re-leveled markdown and every chunk; do not truncate.`;
+Call the emit_refined_document tool with the DELTA contract — extraction fields + optional patches
+(see the tool's JSON schema). Do NOT emit markdown, do NOT emit chunks. A section that needs only
+header re-leveling returns patches with refactor_heading ops and no paragraph text. Do not truncate —
+but also do not pad your output with text Athena already has.`;
 
 /** Default refinement system prompt — the single full-doc-pass prompt template (G4.S1.T2). */
 export const REFINE_DOCUMENT_SYSTEM_PROMPT = `You are Athena, the document-refinement pass of the athena ingest pipeline.
@@ -535,6 +584,114 @@ export function normalizeRelationList(raw: unknown): RefinementRelation[] {
     : [];
 }
 
+/** Coerce a parsed patches array into the refinement contract (unknown ops dropped). */
+export function normalizePatchList(raw: unknown): RefinementPatch[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RefinementPatch[] = [];
+  for (const p of raw) {
+    if (!isRecord(p) || typeof p.index !== "number" || !Number.isFinite(p.index)) continue;
+    const op = p.op;
+    const index = p.index;
+    if (op === "retitle_heading" && typeof p.text === "string") out.push({ op, index, text: p.text });
+    else if (op === "refactor_heading" && typeof p.level === "number") out.push({ op, index, level: p.level });
+    else if (op === "replace_paragraph" && typeof p.text === "string") out.push({ op, index, text: p.text });
+    else if (op === "insert_paragraph" && typeof p.text === "string") out.push({ op, index, text: p.text });
+    else if (op === "delete_paragraph") out.push({ op, index });
+  }
+  return out;
+}
+
+/**
+ * Coerce a parsed delta payload into the delta contract (JSON-string args accepted). Requires
+ * frontmatter + quality (the essential fields); everything else defaults. `markdown`/`chunks` are NOT
+ * read here — they are absent from the contract and rebuilt locally by `buildRefinedDocument`.
+ */
+export function normalizeRefinementDelta(raw: unknown): RefinedDocumentDelta {
+  const args: Record<string, unknown> =
+    typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
+  const summary = typeof args.summary === "string" ? args.summary : "";
+  const sections = Array.isArray(args.sections)
+    ? args.sections.filter(isRecord).map((s) => ({
+        title: String(s.title ?? ""),
+        summary: String(s.summary ?? ""),
+      }))
+    : [];
+  const frontmatter =
+    isRecord(args.frontmatter) && typeof args.frontmatter.type === "string" && typeof args.frontmatter.topic === "string"
+      ? { type: args.frontmatter.type, topic: args.frontmatter.topic }
+      : undefined;
+  const quality =
+    isRecord(args.quality) && typeof args.quality.complete === "boolean" && typeof args.quality.confidence === "number"
+      ? {
+          complete: args.quality.complete,
+          confidence: args.quality.confidence,
+          issues: asStringArray(args.quality.issues) ?? [],
+          action: args.quality.action === "review_required" ? ("review_required" as const) : ("auto_accept" as const),
+        }
+      : undefined;
+
+  if (!frontmatter || !quality) {
+    throw new Error("refine_document: output does not match the delta contract (frontmatter/quality missing)");
+  }
+
+  return {
+    summary,
+    sections,
+    frontmatter,
+    entities: normalizeEntityList(args.entities),
+    relations: normalizeRelationList(args.relations),
+    keywords: asStringArray(args.keywords) ?? [],
+    quality,
+    patches: normalizePatchList(args.patches),
+  };
+}
+
+/**
+ * Assemble the full `RefinedDocument` from the ORIGINAL markdown + the LLM delta (G4.S8.T1). Athena
+ * rebuilds `markdown` LOCALLY by applying the (optional) patches to the original text — zero LLM
+ * information re-generation — and builds the `chunks` LOCALLY via `splitParagraphSemantic`. The
+ * original already carries the stage-1 header re-level (two-stage) or is the untouched full doc whose
+ * header corrections arrive as refactor_heading patches (single-pass).
+ */
+export function buildRefinedDocument(markdown: string, delta: RefinedDocumentDelta): RefinedDocument {
+  const mdFinal = applyPatches(markdown, delta.patches ?? []);
+  return {
+    markdown: mdFinal,
+    summary: delta.summary,
+    sections: delta.sections,
+    frontmatter: delta.frontmatter,
+    chunks: splitParagraphSemantic(mdFinal),
+    entities: delta.entities,
+    relations: delta.relations,
+    keywords: delta.keywords,
+    quality: delta.quality,
+  };
+}
+
+/**
+ * Extract the structured DELTA refinement from the assistant response (emit tool or plain-text JSON)
+ * — no full markdown/chunks required. Throws when neither yields a usable delta.
+ */
+export function extractRefinementDelta(message: AssistantMessageLike): RefinedDocumentDelta {
+  for (const part of message.content ?? []) {
+    if (isEmitToolCall(part)) {
+      return normalizeRefinementDelta(part.arguments);
+    }
+  }
+  const text = (message.content ?? [])
+    .filter((part): part is AssistantTextPart => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+  if (text) {
+    const parsed = tryParseNestedJson(text);
+    if (parsed !== undefined) {
+      return normalizeRefinementDelta(parsed);
+    }
+  }
+  throw new Error("refine_document: assistant returned no structured output");
+}
+
 /** First non-heading paragraph of a markdown, whitespace-collapsed (fallback summary source). */
 function firstParagraph(markdown: string, maxChars: number): string {
   const text =
@@ -606,8 +763,10 @@ export function buildHeaderJudgePrompt(batch: HeaderBlock[]): string {
 
 /** Global-merge system prompt — final type/topic + dedup of the per-section extractions. */
 export const GLOBAL_MERGE_SYSTEM_PROMPT = `You are the global merge pass of the Athena TWO-STAGE document
-refinement. A large document was refined section-by-section; each section produced its own frontmatter,
-entities, relations, keywords, quality and section summary. Produce the FINAL single-document view:
+refinement. A large document was refined section-by-section; each section produced its own extraction
+(frontmatter, entities, relations, keywords, quality and section summary). You merge ONLY these
+extraction fields — you never re-emit the document markdown or its chunks (those are already rebuilt
+locally by Athena). Produce the FINAL single-document view:
   - summary: a FILE-LEVEL summary of ~2-3 sentences for the whole document.
   - sections: ONE entry per top-level H1 section — title = the H1 heading text (verbatim), summary =
     a concise 1-2 sentence summary. Merge/dedupe the per-section summaries.
@@ -620,20 +779,20 @@ entities, relations, keywords, quality and section summary. Produce the FINAL si
 Never invent entities or relations that are not present in the merged list. Emit via the
 emit_global_refinement tool.`;
 
-/** Build the global-merge prompt from the mechanically merged per-section refinements. */
+/**
+ * Build the global-merge prompt from the mechanically merged per-section extractions. Merges ONLY the
+ * extraction fields (section summaries with their titles, entities, relations, keywords, quality) —
+ * never the markdown, which is rebuilt locally (G4.S8.T1).
+ */
 export function buildGlobalMergePrompt(
   merged: RefinedDocument,
   topicHint: string | undefined,
   sectionCount: number,
 ): string {
-  const headings = merged.markdown
-    .split(/\r?\n/)
-    .filter((line) => /^#{1,6}\s+/.test(line))
-    .slice(0, 200)
-    .join("\n");
+  const sectionTitles = (merged.sections ?? []).slice(0, 200).map((s) => s.title).filter(Boolean).join("\n");
   return `The document was refined in ${sectionCount} section(s). Here is the merged extraction.\n\n${
     topicHint ? `Topic hint from the operator: ${topicHint}\n\n` : ""
-  }Section headings:\n${headings || "(none)"}\n\nMerged section summaries:\n${JSON.stringify(merged.sections)}\n\nMerged entities:\n${JSON.stringify(merged.entities, null, 2)}\n\nMerged relations:\n${JSON.stringify(merged.relations, null, 2)}\n\nMerged keywords:\n${JSON.stringify(merged.keywords)}\n\nMerged quality:\n${JSON.stringify(merged.quality)}\n\nEmit the final global view via emit_global_refinement.`;
+  }Section titles:\n${sectionTitles || "(none)"}\n\nMerged section summaries:\n${JSON.stringify(merged.sections)}\n\nMerged entities:\n${JSON.stringify(merged.entities, null, 2)}\n\nMerged relations:\n${JSON.stringify(merged.relations, null, 2)}\n\nMerged keywords:\n${JSON.stringify(merged.keywords)}\n\nMerged quality:\n${JSON.stringify(merged.quality)}\n\nEmit the final global view via emit_global_refinement.`;
 }
 
 /** Extract the per-header corrected levels from a stage-1 assistant response (emit tool or text JSON). */
@@ -830,6 +989,11 @@ export interface LargeRefineResult {
  * Run the single full-doc refinement LLM pass (sub-1MB path and the stage-2 per-section path).
  * Returns the refined document + the raw assistant (for usage reporting).
  *
+ * G4.S8.T1 delta contract: the LLM emits EXTRACTION fields + optional `patches` only (never the full
+ * re-leveled markdown or chunk texts). Athena rebuilds `markdown` and `chunks` LOCALLY via
+ * `buildRefinedDocument` (applyPatches + splitParagraphSemantic), so output budget stays ~1-5K tokens
+ * per call even on the largest docs — no truncation class of failure.
+ *
  * G4.S2.T8: re-prompts up to 3 times (default) before giving up — a transient "no structured
  * output" on a long/image-heavy doc usually succeeds on an early retry, avoiding the fallback.
  * The retry nudge re-asserts the emit tool call.
@@ -848,7 +1012,7 @@ async function runRefinePass(
       const userContent =
         attempt === 1
           ? markdown
-          : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_refined_document tool call carrying the complete refined document.`;
+          : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_refined_document tool call carrying the extraction fields + optional patches. Do NOT re-emit the markdown.`;
       const assistant = await modelRuntime.completeSimple(
         model,
         {
@@ -858,7 +1022,8 @@ async function runRefinePass(
         },
         { reasoning: options.thinkingLevel ?? "max" },
       );
-      return { document: extractRefinedDocument(assistant), assistant, retries: attempt - 1 };
+      const delta = extractRefinementDelta(assistant);
+      return { document: buildRefinedDocument(markdown, delta), assistant, retries: attempt - 1 };
     } catch (err) {
       lastError = err;
     }
@@ -870,7 +1035,7 @@ function emitRefinedDocumentTool() {
   return {
     name: EMIT_REFINED_DOCUMENT_TOOL,
     description:
-      "Emit the refined document as a single structured JSON value matching the refinement output contract.",
+      "Emit the DELTA refinement contract: extraction fields (summary/sections/frontmatter/entities/relations/keywords/quality) + an optional `patches` array. NEVER emit the markdown or chunk texts — Athena rebuilds them locally.",
     parameters: REFINED_DOCUMENT_SCHEMA,
     constrainedSampling: { type: "json_schema" as const, strict: "require" as const },
   };
