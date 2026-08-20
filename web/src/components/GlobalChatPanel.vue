@@ -286,16 +286,19 @@ function addEmployee(emp: EmployeeRecord) {
             </template>
             <span
               v-if="renamingSessionId !== s.session_id"
-              class="session-rename"
-              title="Rename this chat"
-              @click.stop="startRename(s.session_id, s.title)"
-            >✏️</span>
-            <span
-              v-if="renamingSessionId !== s.session_id"
-              class="session-delete"
-              title="Delete this chat"
-              @click.stop="openDelete(s.session_id, s.title)"
-            >🗑️</span>
+              class="session-actions"
+            >
+              <span
+                class="session-rename"
+                title="Rename this chat"
+                @click.stop="startRename(s.session_id, s.title)"
+              >✏️</span>
+              <span
+                class="session-delete"
+                title="Delete this chat"
+                @click.stop="openDelete(s.session_id, s.title)"
+              >🗑️</span>
+            </span>
           </button>
         </div>
       </div>
@@ -643,9 +646,18 @@ function addEmployee(emp: EmployeeRecord) {
   text-align: center;
 }
 
-/* G4.S7.T13: inline rename in a session option (pencil + edit input). */
-.session-rename {
+/* G4.S7.T13/T15: rename + delete buttons side by side, aligned right as a
+   single action group (the session option is a column flex — a shared
+   container keeps ✏️ and 🗑️ on the same row). */
+.session-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
+  align-self: flex-end;
+}
+.session-rename {
   font-size: 12px;
   color: var(--caleo-text-secondary);
   cursor: pointer;
@@ -668,7 +680,6 @@ function addEmployee(emp: EmployeeRecord) {
 
 /* G4.S7.T15: delete button in a session option (next to the rename pencil). */
 .session-delete {
-  margin-left: 2px;
   font-size: 12px;
   color: var(--caleo-danger, #c0392b);
   cursor: pointer;
