@@ -4,8 +4,13 @@
  * `refine_document` is a Pi custom tool (ToolDefinition) registered on the athena agent. It runs the
  * SINGLE full-document LLM pass of the ingest chain (G4.S1 Spec): given the docling markdown it re-levels
  * headers, classifies type/topic, chunks, extracts entities/relations/keywords and quality-checks the
- * document — all in one read, using the dedicated `athena` OpenRouter provider (independent key/cache)
- * with `deepseek-v4-flash-latest` at thinkingLevel `high`.
+ * document — all in one read.
+ *
+ * G4.S8.T2: the three refinement LLM calls (stage-1 header re-level, stage-2 per-section, global merge)
+ * hit OpenRouter DIRECTLY (fetch, via `callOpenRouter` in llm-direct.ts) with `reasoning.effort = none`
+ * (no thinking tokens), a hard timeout and retry/backoff — NOT Pi `ModelRuntime.completeSimple`, which
+ * had no timeout and could silently hang a stalled provider forever. The dedicated `athena` OpenRouter
+ * key (independent from chat) keeps key separation.
  *
  * Structured output is enforced with provider-side constrained sampling: the LLM pass is asked to call an
  * `emit_refined_document` tool whose parameters ARE the refinement output contract, so the model cannot
@@ -26,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT } from "../kb/taxonomy.js";
+import { callOpenRouter, type OpenRouterCallParams } from "./llm-direct.js";
 import {
   HEADER_RELEVEL_BATCH_SIZE,
   applyPatches,
@@ -56,6 +62,39 @@ import {
  *  (G4.S8 T2 — see S8 Spec). */
 export const ATHENA_PROVIDER = "athena";
 export const ATHENA_MODEL = "~deepseek/deepseek-v4-flash-latest";
+
+/**
+ * G4.S8.T2 — the direct-OpenRouter caller seam. The three refinement LLM calls (stage-1 header
+ * re-level, stage-2 per-section, global merge) are single-shot constrained-output calls with NO
+ * agent loop; they call OpenRouter directly (reasoning effort none, timeout + retry) instead of Pi
+ * `ModelRuntime.completeSimple`, which had no timeout → silent-hang on a stalled provider.
+ *
+ * Returns the assistant message (parsed from the HTTP response text) + usage, so the existing
+ * extractors (`extractHeaderLevels` / `extractRefinementDelta` / `extractGlobalMerge`) work unchanged.
+ */
+export type RefineLlmCaller = (
+  params: { systemPrompt: string; userContent: string; schema?: unknown; maxTokens?: number },
+) => Promise<{ message: AssistantMessageLike; usage?: unknown }>;
+
+/** Default caller: wraps `callOpenRouter` (direct HTTP) and frames the returned text as a message. */
+export function defaultRefineLlmCaller(): RefineLlmCaller {
+  return async (params) => {
+    const { text, usage } = await callOpenRouter(toCallParams(params));
+    return {
+      usage,
+      message: { role: "assistant", content: [{ type: "text", text }] },
+    };
+  };
+}
+
+function toCallParams(params: Parameters<RefineLlmCaller>[0]): OpenRouterCallParams {
+  return {
+    systemPrompt: params.systemPrompt,
+    userContent: params.userContent,
+    schema: params.schema,
+    maxTokens: params.maxTokens,
+  };
+}
 
 /** pi ThinkingLevel values for the `reasoning` option (mirrors the SDK union). */
 export type AthenaThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -291,12 +330,13 @@ export interface RefineDocumentParams {
 }
 
 export interface RefineDocumentOptions {
-  /** Provider id (default "athena" — Pi-resolvable; see ATHENA_PROVIDER). */
-  providerId?: string;
-  /** Model id within the provider (default "~deepseek/deepseek-v4-flash-latest"). */
+  /** Model id sent to OpenRouter (default: env ATHENA_REFINE_MODEL or "~deepseek/deepseek-v4-flash-latest"). */
   modelId?: string;
-  /** Reasoning level for the refinement pass (default "high" — header re-leveling needs it). */
-  thinkingLevel?: AthenaThinkingLevel;
+  /**
+   * Inject the direct-OpenRouter caller (tests stub the HTTP layer). Default: a wrapper over
+   * `callOpenRouter` that parses the response text into the assistant message shape.
+   */
+  httpCaller?: RefineLlmCaller;
   /** Retries before giving up to fallbackRefinement (default 3 — up to 4 attempts, G4.S2.T8). */
   retries?: number;
   /** Override the refinement system prompt. */
@@ -910,10 +950,9 @@ export function extractGlobalMerge(message: AssistantMessageLike): GlobalRefinem
 
 /** Stage-1 production implementation: judge header levels in batches (LOCAL, no full doc). */
 export async function judgeHeaderLevelsLLM(
-  modelRuntime: ModelRuntime,
-  model: RefineModel,
+  caller: RefineLlmCaller,
   blocks: HeaderBlock[],
-  options: Pick<RefineDocumentOptions, "thinkingLevel" | "headerBatchSize" | "systemPrompt"> = {},
+  options: Pick<RefineDocumentOptions, "headerBatchSize" | "systemPrompt"> = {},
 ): Promise<HeaderBlock[]> {
   const batchSize = options.headerBatchSize ?? HEADER_RELEVEL_BATCH_SIZE;
   const batches = batchHeaderBlocks(blocks, batchSize);
@@ -921,23 +960,12 @@ export async function judgeHeaderLevelsLLM(
   for (const batch of batches) {
     let levels = new Map<number, number>();
     try {
-      const assistant = await modelRuntime.completeSimple(
-        model,
-        {
-          systemPrompt: options.systemPrompt ?? HEADER_RELEVEL_SYSTEM_PROMPT,
-          messages: [{ role: "user", content: buildHeaderJudgePrompt(batch), timestamp: Date.now() }],
-          tools: [
-            {
-              name: EMIT_HEADER_LEVELS_TOOL,
-              description: "Emit the corrected heading level per header index.",
-              parameters: HEADER_LEVELS_SCHEMA,
-              constrainedSampling: { type: "json_schema", strict: "require" },
-            },
-          ],
-        },
-        { reasoning: options.thinkingLevel ?? "max" },
-      );
-      levels = extractHeaderLevels(assistant);
+      const { message } = await caller({
+        systemPrompt: options.systemPrompt ?? HEADER_RELEVEL_SYSTEM_PROMPT,
+        userContent: buildHeaderJudgePrompt(batch),
+        schema: HEADER_LEVELS_SCHEMA,
+      });
+      levels = extractHeaderLevels(message);
     } catch {
       // never worse: a failed batch keeps its original levels
     }
@@ -999,11 +1027,10 @@ export interface LargeRefineResult {
  * The retry nudge re-asserts the emit tool call.
  */
 async function runRefinePass(
-  modelRuntime: ModelRuntime,
-  model: RefineModel,
+  caller: RefineLlmCaller,
   markdown: string,
   topicHint: string | undefined,
-  options: Pick<RefineDocumentOptions, "thinkingLevel" | "systemPrompt" | "retries">,
+  options: Pick<RefineDocumentOptions, "systemPrompt" | "retries">,
 ): Promise<{ document: RefinedDocument; assistant: AssistantMessageLike; retries: number }> {
   const retries = options.retries ?? 3;
   let lastError: unknown;
@@ -1013,17 +1040,13 @@ async function runRefinePass(
         attempt === 1
           ? markdown
           : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_refined_document tool call carrying the extraction fields + optional patches. Do NOT re-emit the markdown.`;
-      const assistant = await modelRuntime.completeSimple(
-        model,
-        {
-          systemPrompt: options.systemPrompt ?? buildRefineSystemPrompt(topicHint),
-          messages: [{ role: "user", content: userContent, timestamp: Date.now() }],
-          tools: [emitRefinedDocumentTool()],
-        },
-        { reasoning: options.thinkingLevel ?? "max" },
-      );
-      const delta = extractRefinementDelta(assistant);
-      return { document: buildRefinedDocument(markdown, delta), assistant, retries: attempt - 1 };
+      const { message } = await caller({
+        systemPrompt: options.systemPrompt ?? buildRefineSystemPrompt(topicHint),
+        userContent,
+        schema: REFINED_DOCUMENT_SCHEMA,
+      });
+      const delta = extractRefinementDelta(message);
+      return { document: buildRefinedDocument(markdown, delta), assistant: message, retries: attempt - 1 };
     } catch (err) {
       lastError = err;
     }
@@ -1043,32 +1066,18 @@ function emitRefinedDocumentTool() {
 
 /** Global-merge production implementation: final type/topic + dedup over the merged sections. */
 async function runGlobalMerge(
-  modelRuntime: ModelRuntime,
-  model: RefineModel,
+  caller: RefineLlmCaller,
   refinements: RefinedDocument[],
   topicHint: string | undefined,
-  options: Pick<RefineDocumentOptions, "thinkingLevel">,
 ): Promise<RefinedDocument> {
   const merged = mergeRefinements(refinements);
   try {
-    const assistant = await modelRuntime.completeSimple(
-      model,
-      {
-        systemPrompt: GLOBAL_MERGE_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: buildGlobalMergePrompt(merged, topicHint, refinements.length), timestamp: Date.now() }],
-        tools: [
-          {
-            name: EMIT_GLOBAL_REFINEMENT_TOOL,
-            description:
-              "Emit the final global document view (type/topic, deduped entities/relations/keywords, quality).",
-            parameters: GLOBAL_MERGE_SCHEMA,
-            constrainedSampling: { type: "json_schema", strict: "require" },
-          },
-        ],
-      },
-      { reasoning: options.thinkingLevel ?? "max" },
-    );
-    const global = extractGlobalMerge(assistant);
+    const { message } = await caller({
+      systemPrompt: GLOBAL_MERGE_SYSTEM_PROMPT,
+      userContent: buildGlobalMergePrompt(merged, topicHint, refinements.length),
+      schema: GLOBAL_MERGE_SCHEMA,
+    });
+    const global = extractGlobalMerge(message);
     if (!global) return merged;
     return {
       ...merged,
@@ -1090,17 +1099,17 @@ async function runGlobalMerge(
  * Create the `refine_document` Pi custom tool wired into the athena agent.
  *
  * The tool executes the Athena refinement LLM pass with constrained sampling on the output contract,
- * using the dedicated `athena` provider at thinkingLevel `high`, then STORES the full re-leveled
- * markdown + chunks on disk (pi-docparser big-output pattern, T3) and returns only the SMALL metadata
- * + refs (frontmatter/entities/keywords/quality/md_ref/preview). >1MB docs take the two-stage path.
+ * calling OpenRouter directly (G4.S8.T2 — reasoning effort none, hard timeout + retry, dedicated
+ * `athena` key), then STORES the full re-leveled markdown + chunks on disk (pi-docparser big-output
+ * pattern, T3) and returns only the SMALL metadata + refs (frontmatter/entities/keywords/quality/
+ * md_ref/preview). >1MB docs take the two-stage path. The leading `modelRuntime` argument is retained
+ * for call-site compatibility; the LLM calls use `options.httpCaller` (default: direct OpenRouter).
  */
 export function createRefineDocumentTool(
-  modelRuntime: ModelRuntime,
+  _modelRuntime: ModelRuntime,
   options: RefineDocumentOptions = {},
 ): RefineDocumentTool {
-  const providerId = options.providerId ?? ATHENA_PROVIDER;
-  const modelId = options.modelId ?? ATHENA_MODEL;
-  const thinkingLevel = options.thinkingLevel ?? "max";
+  const httpCaller = options.httpCaller ?? defaultRefineLlmCaller();
   const storageDir = options.storageDir ?? defaultRefinementOutputDir();
   const store = options.storeImpl ?? storeRefinementOutput;
 
@@ -1114,7 +1123,7 @@ export function createRefineDocumentTool(
       "pattern). >1MB docs use the two-stage path (local header re-level → h1 split → per-section).",
     promptGuidelines: [
       "Use for the ingest refinement step: pass the raw docling markdown, get the small refinement ref back (md_ref to the full re-leveled markdown + chunks on disk).",
-      "Uses the dedicated athena OpenRouter provider (independent key/cost) with deepseek-v4-flash-latest at thinkingLevel high.",
+      "Calls OpenRouter directly (dedicated athena key) with deepseek-v4-flash-latest, reasoning effort NONE (no thinking tokens), hard timeout + retry.",
       "Sub-1MB docs are refined in ONE full-doc read; >1MB docs use two-stage refinement (local header pass → split → per-section pass).",
     ],
     parameters: Type.Object({
@@ -1129,13 +1138,6 @@ export function createRefineDocumentTool(
       _onUpdate?: unknown,
       _ctx?: unknown,
     ) {
-      const model = modelRuntime.getModel(providerId, modelId);
-      if (!model) {
-        throw new Error(
-          `refine_document: model ${providerId}/${modelId} not found. Check ~/.pi/agent/auth.json and models.json.`,
-        );
-      }
-
       const mode: RefinementMode = isLargeMarkdown(params.markdown) ? "two-stage" : "single";
       // G4.S1.T6 two-file design: File A = full docling md (image refs + VLM descriptions) for
       // llm_wiki display; File B = image-ref lines stripped (text + VLM descriptions only) fed to
@@ -1144,7 +1146,7 @@ export function createRefineDocumentTool(
       const originalMarkdown = params.markdown;
       const textMarkdown = stripImageRefs(originalMarkdown);
       const imageRefsStripped = textMarkdown !== originalMarkdown;
-      const emitDetails = { provider: providerId, model: modelId, mode, imageRefsStripped };
+      const emitDetails = { model: options.modelId ?? ATHENA_MODEL, mode, imageRefsStripped };
       let usage: unknown;
       let retries = 0;
 
@@ -1157,20 +1159,20 @@ export function createRefineDocumentTool(
             {
               judgeHeaderLevels:
                 options.judgeHeaderLevelsImpl ??
-                ((blocks) => judgeHeaderLevelsLLM(modelRuntime, model, blocks, options)),
+                ((blocks) => judgeHeaderLevelsLLM(httpCaller, blocks, options)),
               refineSection:
                 options.refineSectionImpl ??
-                (async (section, hint) => (await runRefinePass(modelRuntime, model, section.markdown, hint, options)).document),
+                (async (section, hint) => (await runRefinePass(httpCaller, section.markdown, hint, options)).document),
               globalMerge:
                 options.globalMergeImpl ??
-                ((refinements, hint) => runGlobalMerge(modelRuntime, model, refinements, hint, options)),
+                ((refinements, hint) => runGlobalMerge(httpCaller, refinements, hint)),
             },
             params.topic_hint,
           );
           document = result.document;
           sectionPaths = result.sections;
         } else {
-          const single = await runRefinePass(modelRuntime, model, textMarkdown, params.topic_hint, options);
+          const single = await runRefinePass(httpCaller, textMarkdown, params.topic_hint, options);
           document = single.document;
           usage = single.assistant.usage;
           retries = single.retries;

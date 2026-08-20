@@ -1,12 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { RefinedDocument, RefinementPatch } from "../src/agents/refine-document.js";
+import type { RefinedDocument, RefinementPatch, RefineLlmCaller } from "../src/agents/refine-document.js";
 import {
-  ATHENA_MODEL,
-  ATHENA_PROVIDER,
-  EMIT_GLOBAL_REFINEMENT_TOOL,
-  EMIT_HEADER_LEVELS_TOOL,
+  HEADER_LEVELS_SCHEMA,
   buildRefinedDocument,
   createRefineDocumentTool,
 } from "../src/agents/refine-document.js";
@@ -30,35 +27,16 @@ const zeroUsage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-interface FakeRuntimeCalls {
-  providerId?: string;
-  modelId?: string;
-  options?: unknown;
-  context?: { systemPrompt?: string; messages: unknown[]; tools: unknown[] };
-}
-
-function makeFakeRuntime(opts: {
-  completeResultFor?: (ctx: { systemPrompt?: string; messages: unknown[]; tools: unknown[] }) => unknown;
-  getModel?: () => unknown;
-} = {}): { runtime: ModelRuntime; calls: FakeRuntimeCalls[] } {
-  const calls: FakeRuntimeCalls[] = [];
-  const runtime = {
-    calls,
-    getModel() {
-      if (opts.getModel) return opts.getModel();
-      return { id: ATHENA_MODEL, provider: ATHENA_PROVIDER };
-    },
-    async completeSimple(
-      model: { provider: string; id: string },
-      context: { systemPrompt?: string; messages: unknown[]; tools: unknown[] },
-      options: unknown,
-    ) {
-      calls.push({ providerId: model.provider, modelId: model.id, options, context });
-      if (opts.completeResultFor) return opts.completeResultFor(context);
-      throw new Error("unexpected completeSimple call in test");
-    },
-  } as unknown as ModelRuntime;
-  return { runtime, calls };
+function makeCaller(opts: {
+  completeResultFor?: (ctx: { systemPrompt?: string; userContent: string; schema?: unknown }) => unknown;
+} = {}): { runtime: ModelRuntime; caller: RefineLlmCaller } {
+  const caller: RefineLlmCaller = async (ctx) => {
+    const message = opts.completeResultFor
+      ? opts.completeResultFor(ctx)
+      : { role: "assistant", content: [{ type: "text", text: "oops" }] };
+    return { usage: zeroUsage, message: message as never };
+  };
+  return { runtime: {} as ModelRuntime, caller };
 }
 
 function fakeStore(recorder: { stored?: RefinedDocument } = {}) {
@@ -148,26 +126,26 @@ test("canary: two-stage pipeline succeeds when the LLM output is capped at 8192 
   assert.ok(Buffer.byteLength(md, "utf8") > 1024 * 1024, "fixture exceeds 1MB so it takes the two-stage path");
 
   const recorder: { stored?: RefinedDocument } = {};
-  const { runtime } = makeFakeRuntime({
+  const { caller } = makeCaller({
     completeResultFor: (ctx) => {
-      const tool = (ctx.tools as Array<{ name?: string }>)[0]?.name;
-      if (tool === EMIT_HEADER_LEVELS_TOOL) {
+      const isHeader = JSON.stringify(ctx.schema) === JSON.stringify(HEADER_LEVELS_SCHEMA);
+      const user = ctx.userContent;
+      if (isHeader) {
         return {
           role: "assistant",
-          content: [{ type: "toolCall", id: "h", name: EMIT_HEADER_LEVELS_TOOL, arguments: { levels: [{ index: 0, level: 1 }] } }],
+          content: [{ type: "text", text: JSON.stringify({ levels: [{ index: 0, level: 1 }] }) }],
           usage: zeroUsage,
           stopReason: "stop",
         };
       }
-      if (tool === EMIT_GLOBAL_REFINEMENT_TOOL) {
+      if (user.startsWith("The document was refined in")) {
+        // global merge
         return {
           role: "assistant",
           content: [
             {
-              type: "toolCall",
-              id: "g",
-              name: EMIT_GLOBAL_REFINEMENT_TOOL,
-              arguments: {
+              type: "text",
+              text: JSON.stringify({
                 summary: "Final report summary.",
                 sections: [{ title: "Report", summary: "S1." }],
                 frontmatter: { type: "report", topic: "sap/consolidation/group-reporting" },
@@ -175,7 +153,7 @@ test("canary: two-stage pipeline succeeds when the LLM output is capped at 8192 
                 relations: [],
                 keywords: ["report"],
                 quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
-              },
+              }),
             },
           ],
           usage: zeroUsage,
@@ -187,10 +165,8 @@ test("canary: two-stage pipeline succeeds when the LLM output is capped at 8192 
         role: "assistant",
         content: [
           {
-            type: "toolCall",
-            id: "s",
-            name: "emit_refined_document",
-            arguments: {
+            type: "text",
+            text: JSON.stringify({
               summary: "Section summary.",
               sections: [],
               frontmatter: { type: "report", topic: "sap/consolidation/group-reporting" },
@@ -198,7 +174,7 @@ test("canary: two-stage pipeline succeeds when the LLM output is capped at 8192 
               relations: [],
               keywords: [],
               quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
-            },
+            }),
           },
         ],
         usage: zeroUsage,
@@ -206,10 +182,10 @@ test("canary: two-stage pipeline succeeds when the LLM output is capped at 8192 
       };
     },
   });
-  const tool = createRefineDocumentTool(runtime, {
+  const tool = createRefineDocumentTool({} as ModelRuntime, {
+    httpCaller: caller,
     storageDir: "storage",
     storeImpl: fakeStore(recorder),
-    globalMergeImpl: undefined,
   });
 
   const result = await tool.execute("c", { markdown: md }, undefined, undefined, {} as never);
@@ -226,15 +202,13 @@ test("canary: two-stage pipeline succeeds when the LLM output is capped at 8192 
 
 test("regression: single-pass sub-1MB path uses the SAME delta contract and still extracts entities/type/topic", async () => {
   const recorder: { stored?: RefinedDocument } = {};
-  const { runtime } = makeFakeRuntime({
+  const { caller } = makeCaller({
     completeResultFor: () => ({
       role: "assistant",
       content: [
         {
-          type: "toolCall",
-          id: "s",
-          name: "emit_refined_document",
-          arguments: {
+          type: "text",
+          text: JSON.stringify({
             // NOTE: NO markdown, NO chunks — delta contract only.
             summary: "CALEO's annual Sommerseminar.",
             sections: [{ title: "Sommerseminar", summary: "The annual CALEO event." }],
@@ -243,14 +217,14 @@ test("regression: single-pass sub-1MB path uses the SAME delta contract and stil
             relations: [],
             keywords: ["sommerseminar"],
             quality: { complete: true, confidence: 0.85, issues: [], action: "auto_accept" },
-          },
+          }),
         },
       ],
       usage: zeroUsage,
       stopReason: "stop",
     }),
   });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore(recorder) });
+  const tool = createRefineDocumentTool({} as ModelRuntime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore(recorder) });
 
   const result = await tool.execute(
     "c",
@@ -272,39 +246,36 @@ test("regression: single-pass sub-1MB path uses the SAME delta contract and stil
 
 // --- emit_refined_document schema no longer requires markdown/chunks ---
 
-test("emit_refined_document tool schema carries the delta contract (no markdown/chunks)", async () => {
-  const { runtime, calls } = makeFakeRuntime({
-    completeResultFor: () => ({
-      role: "assistant",
-      content: [
-        {
-          type: "toolCall",
-          id: "s",
-          name: "emit_refined_document",
-          arguments: {
-            summary: "",
-            sections: [],
-            frontmatter: { type: "document", topic: "unclassified" },
-            entities: [],
-            relations: [],
-            keywords: [],
-            quality: { complete: true, confidence: 0.5, issues: [], action: "auto_accept" },
-          },
-        },
-      ],
+test("emit_refined_document schema carries the delta contract (no markdown/chunks)", async () => {
+  let sentSchema: unknown;
+  const caller: RefineLlmCaller = async ({ schema }) => {
+    sentSchema = schema;
+    return {
       usage: zeroUsage,
-      stopReason: "stop",
-    }),
-  });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore() });
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              summary: "",
+              sections: [],
+              frontmatter: { type: "document", topic: "unclassified" },
+              entities: [],
+              relations: [],
+              keywords: [],
+              quality: { complete: true, confidence: 0.5, issues: [], action: "auto_accept" },
+            }),
+          },
+        ],
+      },
+    };
+  };
+  const tool = createRefineDocumentTool({} as ModelRuntime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore() });
   await tool.execute("c", { markdown: "# D\n\nbody" }, undefined, undefined, {} as never);
 
-  const ctx = calls[0].context!;
-  const emit = (ctx.tools as Array<{ name?: string; parameters?: unknown }>).find(
-    (t) => t.name === "emit_refined_document",
-  );
-  assert.ok(emit, "emit_refined_document tool present");
-  const schema = JSON.parse(JSON.stringify(emit!.parameters)) as {
+  assert.ok(sentSchema, "the delta schema is passed to the caller");
+  const schema = JSON.parse(JSON.stringify(sentSchema)) as {
     properties?: { markdown?: unknown; chunks?: unknown; patches?: unknown };
   };
   assert.equal(schema.properties?.markdown, undefined, "markdown is ABSENT from the emit contract");

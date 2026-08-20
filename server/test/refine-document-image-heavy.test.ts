@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { RefinedDocument } from "../src/agents/refine-document.js";
+import type { RefinedDocument, RefineLlmCaller } from "../src/agents/refine-document.js";
 import { createRefineDocumentTool, extractRefinedDocument } from "../src/agents/refine-document.js";
 import { hasImageRefs, stripImageRefs, syncRefinedHeadersToSource } from "../src/agents/refine-output.js";
 import type { RefineOutputRef, RefinementMode } from "../src/agents/refine-output.js";
@@ -91,34 +91,24 @@ const zeroUsage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-interface FakeRuntimeCalls {
-  providerId?: string;
-  modelId?: string;
-  options?: unknown;
-  context?: { systemPrompt?: string; messages: unknown[]; tools: unknown[] };
+interface CallerCalls {
+  systemPrompt?: string;
+  userContent: string;
+  schema?: unknown;
 }
 
-function makeFakeRuntime(opts: {
-  missingModel?: boolean;
-  completeResultFor?: (ctx: { systemPrompt?: string; messages: unknown[]; tools: unknown[] }) => unknown;
-} = {}): { runtime: ModelRuntime; calls: FakeRuntimeCalls[] } {
-  const calls: FakeRuntimeCalls[] = [];
-  const runtime = {
-    calls,
-    getModel(providerId: string, modelId: string) {
-      return opts.missingModel ? undefined : { id: modelId, provider: providerId };
-    },
-    async completeSimple(
-      model: { provider: string; id: string },
-      context: { systemPrompt?: string; messages: unknown[]; tools: unknown[] },
-      options: unknown,
-    ) {
-      calls.push({ providerId: model.provider, modelId: model.id, options, context });
-      if (opts.completeResultFor) return opts.completeResultFor(context);
-      throw new Error("unexpected completeSimple call in test");
-    },
-  } as unknown as ModelRuntime;
-  return { runtime, calls };
+function makeCaller(opts: {
+  completeResultFor?: (ctx: { systemPrompt?: string; userContent: string; schema?: unknown }) => unknown;
+} = {}): { runtime: ModelRuntime; caller: RefineLlmCaller; calls: CallerCalls[] } {
+  const calls: CallerCalls[] = [];
+  const caller: RefineLlmCaller = async (ctx) => {
+    calls.push(ctx);
+    const message = opts.completeResultFor
+      ? opts.completeResultFor(ctx)
+      : { role: "assistant", content: [{ type: "text", text: "oops" }] };
+    return { usage: zeroUsage, message: message as never };
+  };
+  return { runtime: {} as ModelRuntime, caller, calls };
 }
 
 interface FakeStoreRecorder {
@@ -216,22 +206,15 @@ body`;
 
 test("refine_document returns structured output (not fallback) on image-heavy md and feeds the LLM the stripped File B", async () => {
   const recorder: FakeStoreRecorder = {};
-  const { runtime, calls } = makeFakeRuntime({
+  const { runtime, caller, calls } = makeCaller({
     completeResultFor: () => ({
       role: "assistant",
-      content: [
-        {
-          type: "toolCall",
-          id: "t1",
-          name: "emit_refined_document",
-          arguments: REFINED_DOC,
-        },
-      ],
+      content: [{ type: "text", text: JSON.stringify(REFINED_DOC) }],
       usage: zeroUsage,
       stopReason: "stop",
     }),
   });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore(recorder) });
+  const tool = createRefineDocumentTool(runtime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore(recorder) });
 
   const result = await tool.execute("c", { markdown: IMAGE_HEAVY_MD }, undefined, undefined, {} as never);
   const ref = parseResult<RefineOutputRef>(result);
@@ -249,7 +232,7 @@ test("refine_document returns structured output (not fallback) on image-heavy md
   assert.equal(details.imageRefsStripped, true, "reports image refs were stripped");
 
   // the LLM pass read File B: image refs stripped, VLM descriptions kept
-  const userContent = calls[0].context!.messages[0].content as string;
+  const userContent = calls[0].userContent;
   assert.ok(!userContent.includes("![Image]"), "LLM input has no image refs");
   assert.ok(userContent.includes("The image displays a bright welcome banner"), "LLM input keeps VLM descriptions");
 
@@ -267,15 +250,15 @@ test("refine_document returns structured output (not fallback) on image-heavy md
 
 test("refine_document keeps a single md_ref when the doc has no image refs (no separate File B)", async () => {
   const recorder: FakeStoreRecorder = {};
-  const { runtime } = makeFakeRuntime({
+  const { runtime, caller } = makeCaller({
     completeResultFor: () => ({
       role: "assistant",
-      content: [{ type: "toolCall", id: "t1", name: "emit_refined_document", arguments: REFINED_DOC }],
+      content: [{ type: "text", text: JSON.stringify(REFINED_DOC) }],
       usage: zeroUsage,
       stopReason: "stop",
     }),
   });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore(recorder) });
+  const tool = createRefineDocumentTool(runtime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore(recorder) });
 
   const result = await tool.execute("c", { markdown: REFINED_DOC.markdown }, undefined, undefined, {} as never);
   const ref = parseResult<RefineOutputRef>(result);
@@ -287,12 +270,13 @@ test("refine_document keeps a single md_ref when the doc has no image refs (no s
 
 test("refine_document fallback on image-heavy md keeps the full md for llm_wiki and a stripped working copy for RAG", async () => {
   const recorder: FakeStoreRecorder = {};
-  const { runtime } = makeFakeRuntime({
-    completeResultFor: () => {
+  const tool = createRefineDocumentTool({} as ModelRuntime, {
+    storageDir: "storage",
+    storeImpl: fakeStore(recorder),
+    httpCaller: async () => {
       throw new Error("openrouter 429 rate limited");
     },
   });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore(recorder) });
 
   const result = await tool.execute("c", { markdown: IMAGE_HEAVY_MD }, undefined, undefined, {} as never);
   const ref = parseResult<RefineOutputRef>(result);
@@ -343,7 +327,7 @@ test("extractRefinedDocument still throws when no JSON can be found at all", () 
 test("runRefinePass retries up to the default of 3 before giving up (T8)", async () => {
   const recorder: FakeStoreRecorder = {};
   let attempts = 0;
-  const { runtime, calls } = makeFakeRuntime({
+  const { runtime, caller, calls } = makeCaller({
     completeResultFor: () => {
       attempts += 1;
       if (attempts <= 3) {
@@ -351,13 +335,13 @@ test("runRefinePass retries up to the default of 3 before giving up (T8)", async
       }
       return {
         role: "assistant",
-        content: [{ type: "toolCall", id: "t1", name: "emit_refined_document", arguments: REFINED_DOC }],
+        content: [{ type: "text", text: JSON.stringify(REFINED_DOC) }],
         usage: zeroUsage,
         stopReason: "stop",
       };
     },
   });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore(recorder) });
+  const tool = createRefineDocumentTool(runtime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore(recorder) });
 
   const result = await tool.execute("c", { markdown: IMAGE_HEAVY_MD }, undefined, undefined, {} as never);
   const ref = parseResult<RefineOutputRef>(result);
@@ -373,7 +357,7 @@ test("runRefinePass retries up to the default of 3 before giving up (T8)", async
 test("explicit retries option still overrides the default (0 gives up after the first pass)", async () => {
   const recorder: FakeStoreRecorder = {};
   let attempts = 0;
-  const { runtime, calls } = makeFakeRuntime({
+  const { runtime, caller, calls } = makeCaller({
     completeResultFor: () => {
       attempts += 1;
       if (attempts === 1) {
@@ -381,7 +365,7 @@ test("explicit retries option still overrides the default (0 gives up after the 
       }
       return {
         role: "assistant",
-        content: [{ type: "toolCall", id: "t1", name: "emit_refined_document", arguments: REFINED_DOC }],
+        content: [{ type: "text", text: JSON.stringify(REFINED_DOC) }],
         usage: zeroUsage,
         stopReason: "stop",
       };
@@ -390,6 +374,7 @@ test("explicit retries option still overrides the default (0 gives up after the 
   const tool = createRefineDocumentTool(runtime, {
     storageDir: "storage",
     storeImpl: fakeStore(recorder),
+    httpCaller: caller,
     retries: 0,
   });
 
@@ -402,15 +387,15 @@ test("explicit retries option still overrides the default (0 gives up after the 
 
 test("retry does not add calls when the first pass already returns structured output", async () => {
   const recorder: FakeStoreRecorder = {};
-  const { runtime, calls } = makeFakeRuntime({
+  const { runtime, caller, calls } = makeCaller({
     completeResultFor: () => ({
       role: "assistant",
-      content: [{ type: "toolCall", id: "t1", name: "emit_refined_document", arguments: REFINED_DOC }],
+      content: [{ type: "text", text: JSON.stringify(REFINED_DOC) }],
       usage: zeroUsage,
       stopReason: "stop",
     }),
   });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore(recorder) });
+  const tool = createRefineDocumentTool(runtime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore(recorder) });
 
   const result = await tool.execute("c", { markdown: IMAGE_HEAVY_MD }, undefined, undefined, {} as never);
   const details = result.details as { retries?: number };

@@ -3,9 +3,10 @@
  *
  * The ingest task queue takes an optional `refiner` (a plain function) so tests
  * can fake the LLM pass. The production default wires the real `refine_document`
- * Pi custom tool against the dedicated `athena` OpenRouter provider — lazily
- * creating a ModelRuntime on first use (like createAgent does), so the server
- * boots without forcing a model runtime up front.
+ * Pi custom tool, which (G4.S8.T2) calls OpenRouter DIRECTLY for the three
+ * refinement LLM passes — no Pi `ModelRuntime` is created at all: reasoning is
+ * OFF (effort none), with a hard timeout + retry so a stalled provider can never
+ * hang the ingest queue.
  *
  * The tool returns the SMALL big-output ref (frontmatter/entities/keywords/
  * quality/md_ref/chunks_ref); this runner also reads the full re-leveled
@@ -20,8 +21,8 @@
 import { readFile } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
-  createRefineDocumentTool,
   ATHENA_PROVIDER,
+  createRefineDocumentTool,
   defaultRefinementOutputDir,
   runWikiEditRefine,
   type RefineDocumentOptions,
@@ -42,14 +43,8 @@ async function readStored(path: string | undefined, fallback: string): Promise<s
 
 /** Build the default Athena refiner for the ingest pipeline. */
 export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refiner {
-  let runtimePromise: Promise<ModelRuntime> | undefined;
-
   return async (markdown: string, topicHint?: string) => {
-    runtimePromise ??= import("@earendil-works/pi-coding-agent").then((m) =>
-      m.ModelRuntime.create(),
-    );
-    const runtime = await runtimePromise;
-    const tool = createRefineDocumentTool(runtime, options);
+    const tool = createRefineDocumentTool({} as never, options);
     const result = await tool.execute(
       "refine_document",
       { markdown, ...(topicHint ? { topic_hint: topicHint } : {}) },

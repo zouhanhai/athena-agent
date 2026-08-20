@@ -1,13 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { RefinedDocument } from "../src/agents/refine-document.js";
+import type { RefinedDocument, RefineLlmCaller } from "../src/agents/refine-document.js";
 import {
-  ATHENA_MODEL,
-  ATHENA_PROVIDER,
-  EMIT_HEADER_LEVELS_TOOL,
   buildHeaderJudgePrompt,
   createRefineDocumentTool,
+  EMIT_HEADER_LEVELS_TOOL,
   extractGlobalMerge,
   extractHeaderLevels,
   judgeHeaderLevelsLLM,
@@ -30,33 +28,16 @@ const zeroUsage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-interface FakeRuntimeCalls {
-  providerId?: string;
-  modelId?: string;
-  options?: unknown;
-  context?: { systemPrompt?: string; messages: unknown[]; tools: unknown[] };
-}
-
-function makeFakeRuntime(opts: {
-  completeResultFor?: (ctx: { systemPrompt?: string; messages: unknown[]; tools: unknown[] }) => unknown;
-} = {}): { runtime: ModelRuntime; calls: FakeRuntimeCalls[] } {
-  const calls: FakeRuntimeCalls[] = [];
-  const runtime = {
-    calls,
-    getModel(providerId: string, modelId: string) {
-      return { id: modelId, provider: providerId };
-    },
-    async completeSimple(
-      model: { provider: string; id: string },
-      context: { systemPrompt?: string; messages: unknown[]; tools: unknown[] },
-      options: unknown,
-    ) {
-      calls.push({ providerId: model.provider, modelId: model.id, options, context });
-      if (opts.completeResultFor) return opts.completeResultFor(context);
-      throw new Error("unexpected completeSimple call in test");
-    },
-  } as unknown as ModelRuntime;
-  return { runtime, calls };
+function makeCaller(opts: {
+  completeResultFor?: (ctx: { systemPrompt?: string; userContent: string; schema?: unknown }) => unknown;
+} = {}): { runtime: ModelRuntime; caller: RefineLlmCaller } {
+  const caller: RefineLlmCaller = async (ctx) => {
+    const message = opts.completeResultFor
+      ? opts.completeResultFor(ctx)
+      : { role: "assistant", content: [{ type: "text", text: "oops" }] };
+    return { usage: zeroUsage, message: message as never };
+  };
+  return { runtime: {} as ModelRuntime, caller };
 }
 
 function fakeStore(recorder: { stored?: RefinedDocument; storageDir?: string } = {}) {
@@ -134,24 +115,24 @@ test("refineLargeDocument runs judge → split by refined h1 → per-section ref
   assert.equal(result.document.chunks.length, 3);
 });
 
-test("judgeHeaderLevelsLLM re-levels header batches via the emit_header_levels tool", async () => {
+test("judgeHeaderLevelsLLM re-levels header batches via the direct OpenRouter caller", async () => {
   const md = "# A\n\na\n\n# B\n\nb\n\n# C\n\nc\n\n# D\n\nd\n\n# E\n\ne";
   const { blocks } = splitByHeaders(md);
   assert.equal(blocks.length, 5);
 
-  const { runtime, calls } = makeFakeRuntime({
+  let calls = 0;
+  const { caller } = makeCaller({
     completeResultFor: (ctx) => {
-      // demote the LAST index of each batch (indices are absolute block positions)
-      const content = ctx.messages[0].content as string;
+      calls += 1;
+      // demote the LAST index of each batch (indices are absolute block positions in the prompt)
+      const content = ctx.userContent;
       const indices = [...content.matchAll(/\[index (\d+)\]/g)].map((m) => Number(m[1]));
       return {
         role: "assistant",
         content: [
           {
-            type: "toolCall",
-            id: "t",
-            name: EMIT_HEADER_LEVELS_TOOL,
-            arguments: { levels: [{ index: indices[indices.length - 1], level: 2 }] },
+            type: "text",
+            text: JSON.stringify({ levels: [{ index: indices[indices.length - 1], level: 2 }] }),
           },
         ],
         usage: zeroUsage,
@@ -159,8 +140,7 @@ test("judgeHeaderLevelsLLM re-levels header batches via the emit_header_levels t
       };
     },
   });
-  const model = { id: ATHENA_MODEL, provider: ATHENA_PROVIDER } as never;
-  const corrected = await judgeHeaderLevelsLLM(runtime as unknown as ModelRuntime, model, blocks, {
+  const corrected = await judgeHeaderLevelsLLM(caller, blocks, {
     headerBatchSize: 2,
   });
 
@@ -170,10 +150,8 @@ test("judgeHeaderLevelsLLM re-levels header batches via the emit_header_levels t
   assert.equal(corrected[2].level, 1, "index 2 not covered by the response keeps original level");
   assert.equal(corrected[3].level, 2, "index 3 (batch 1 last) demoted to h2");
   assert.equal(corrected[4].level, 2, "index 4 (batch 2 last) demoted to h2");
-  // ceil(5/2) = 3 batches → 3 LLM calls, each carrying the emit_header_levels tool
-  assert.equal(calls.length, 3);
-  const emitTools = calls.flatMap((c) => (c.context!.tools as Array<{ name?: string }>).map((t) => t.name));
-  assert.equal(emitTools.filter((n) => n === EMIT_HEADER_LEVELS_TOOL).length, 3);
+  // ceil(5/2) = 3 batches → 3 LLM calls
+  assert.equal(calls, 3);
 });
 
 test("buildHeaderJudgePrompt includes header text + body excerpt per index", () => {
@@ -240,9 +218,8 @@ test("refine_document routes a >1MB doc through the two-stage path and returns t
   assert.ok(Buffer.byteLength(md, "utf8") > 1024 * 1024, "fixture must exceed 1MB");
 
   const recorder: { stored?: RefinedDocument } = {};
-  const { runtime } = makeFakeRuntime();
   const sectionsRefined: string[] = [];
-  const tool = createRefineDocumentTool(runtime, {
+  const tool = createRefineDocumentTool({} as ModelRuntime, {
     storageDir: "storage",
     storeImpl: fakeStore(recorder),
     judgeHeaderLevelsImpl: async (blocks) => blocks.map((b) => ({ ...b, level: b.index < 3 ? 1 : 2 })),
@@ -288,15 +265,13 @@ test("refine_document routes a >1MB doc through the two-stage path and returns t
 
 test("refine_document single path stores the full output and returns the small ref (sub-1MB)", async () => {
   const recorder: { stored?: RefinedDocument } = {};
-  const { runtime } = makeFakeRuntime({
+  const { caller } = makeCaller({
     completeResultFor: () => ({
       role: "assistant",
       content: [
         {
-          type: "toolCall",
-          id: "t",
-          name: "emit_refined_document",
-          arguments: {
+          type: "text",
+          text: JSON.stringify({
             markdown: "# Sommerseminar\n\n## Workshops\n\ndetails",
             summary: "CALEO's annual Sommerseminar.",
             sections: [{ title: "Sommerseminar", summary: "The annual CALEO event." }],
@@ -306,14 +281,14 @@ test("refine_document single path stores the full output and returns the small r
             relations: [],
             keywords: ["sommerseminar"],
             quality: { complete: true, confidence: 0.85, issues: [], action: "auto_accept" },
-          },
+          }),
         },
       ],
       usage: zeroUsage,
       stopReason: "stop",
     }),
   });
-  const tool = createRefineDocumentTool(runtime, { storageDir: "storage", storeImpl: fakeStore(recorder) });
+  const tool = createRefineDocumentTool({} as ModelRuntime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore(recorder) });
 
   const result = await tool.execute("c", { markdown: "# Sommerseminar\n\n## Workshops\n\ndetails" }, undefined, undefined, {} as never);
   const ref = parseResult<RefineOutputRef>(result);
@@ -332,12 +307,7 @@ test("refine_document single path stores the full output and returns the small r
 
 test("refine_document fallback stores the raw docling markdown and returns a review_required ref", async () => {
   const recorder: { stored?: RefinedDocument } = {};
-  const { runtime } = makeFakeRuntime({
-    completeResultFor: () => {
-      throw new Error("openrouter 429 rate limited");
-    },
-  });
-  const tool = createRefineDocumentTool(runtime, {
+  const tool = createRefineDocumentTool({} as ModelRuntime, {
     storageDir: "storage",
     storeImpl: fakeStore(recorder),
     judgeHeaderLevelsImpl: async (b) => b,
@@ -345,6 +315,9 @@ test("refine_document fallback stores the raw docling markdown and returns a rev
       throw new Error("section failed");
     },
     globalMergeImpl: async (r) => mergeRefinements(r),
+    httpCaller: async () => {
+      throw new Error("openrouter 429 rate limited");
+    },
   });
 
   const result = await tool.execute(
