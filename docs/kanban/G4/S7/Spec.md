@@ -4,7 +4,7 @@ title: "G4.S7: Remote agent federation (reverse WebSocket + Cloudflare Tunnel) +
 layer: S
 parent: G4
 owner: consultant
-status: in_progress
+status: done
 milestone: M4
 acceptance_criteria:
   - "Local agents (remote wts, LAN 6900XT, and the local Hermes) register to the platform via an invitation flow {agent_id, api_url, token}"
