@@ -8,10 +8,11 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,6 +52,16 @@ export interface DoclingParserOptions {
   readFileImpl?: (path: string) => Promise<string>;
   /** Injectable mkdir for unit tests. */
   mkdirImpl?: (path: string) => Promise<void>;
+  /**
+   * G4.S8.T16 (parse cache): hash a local input file (SHA-256 hex). Return
+   * null for inputs that cannot be hashed (URLs / network) so they always
+   * re-parse. Default: sha256 of the file bytes (local paths only).
+   */
+  hashFileImpl?: (path: string) => Promise<string | null>;
+  /** G4.S8.T16: does a file exist? (cache probe). Default: fs stat. */
+  existsImpl?: (path: string) => Promise<boolean>;
+  /** G4.S8.T16: write the sidecar hash file. Default: fs write. */
+  writeSmallFileImpl?: (path: string, content: string) => Promise<void>;
 }
 
 export function defaultDoclingPython(): string {
@@ -99,6 +110,9 @@ export class DoclingParser {
   private readonly execFileImpl: (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
   private readonly readFileImpl: (path: string) => Promise<string>;
   private readonly mkdirImpl: (path: string) => Promise<void>;
+  private readonly hashFileImpl: (path: string) => Promise<string | null>;
+  private readonly existsImpl: (path: string) => Promise<boolean>;
+  private readonly writeSmallFileImpl: (path: string, content: string) => Promise<void>;
 
   constructor(options: DoclingParserOptions = {}) {
     this.pythonBin = options.pythonBin ?? defaultDoclingPython();
@@ -109,15 +123,73 @@ export class DoclingParser {
     this.mkdirImpl = options.mkdirImpl ?? (async (path: string) => {
       await mkdir(path, { recursive: true });
     });
+    this.hashFileImpl =
+      options.hashFileImpl ??
+      (async (path: string): Promise<string | null> => {
+        if (/^https?:\/\//.test(path)) return null;
+        try {
+          const data = await readFile(path);
+          return createHash("sha256").update(data).digest("hex");
+        } catch {
+          return null;
+        }
+      });
+    this.existsImpl =
+      options.existsImpl ??
+      (async (path: string): Promise<boolean> => {
+        try {
+          return (await readFile(path)).length >= 0;
+        } catch {
+          return false;
+        }
+      });
+    this.writeSmallFileImpl =
+      options.writeSmallFileImpl ??
+      (async (path: string, content: string) => {
+        await writeFile(path, content, "utf8");
+      });
   }
 
   /**
    * Parse a file path or URL via parse_doc.py → Markdown in the shared
    * input-dir, then read the produced Markdown back.
+   *
+   * G4.S8.T16 (parse cache): when the input is a LOCAL file whose SHA-256
+   * matches the `<md>.sha256` sidecar written by a previous parse, the
+   * existing Markdown + images are reused WITHOUT re-running docling. This is
+   * what lets a re-upload of the same file resume at refinement instead of
+   * paying the full docling/VLM pass again. The sidecar makes staleness
+   * detectable: a NEW upload (different bytes → different hash) always
+   * re-parses.
    */
   async parse(input: string): Promise<DoclingParseResult> {
     await this.mkdirImpl(this.outputDir);
-    const imagesDir = join(this.outputDir, "images", deriveStemHint(input));
+    const stem = deriveStemHint(input);
+    const imagesDir = join(this.outputDir, "images", stem);
+    const expectedMd = join(this.outputDir, `${stem}.md`);
+
+    // Cache probe: local input + md exists + sidecar hash matches → reuse.
+    if (!/^https?:\/\//.test(input)) {
+      const hash = await this.hashFileImpl(input);
+      if (hash) {
+        const sidecarPath = `${expectedMd}.sha256`;
+        const mdExists = await this.existsImpl(expectedMd);
+        const sidecarExists = await this.existsImpl(sidecarPath);
+        if (mdExists && sidecarExists) {
+          const stored = (await this.readFileImpl(sidecarPath)).trim();
+          if (stored === hash) {
+            const markdown = await this.readFileImpl(expectedMd);
+            return {
+              markdown,
+              outputPath: expectedMd,
+              stem: expectedMd.replace(/\.md$/i, "").split("/").pop() ?? "document",
+              imagesDir,
+            };
+          }
+        }
+      }
+    }
+
     const { stdout } = await this.execFileImpl(this.pythonBin, [
       this.scriptPath,
       input,
@@ -131,6 +203,15 @@ export class DoclingParser {
     }
     const resolved = resolve(outputPath);
     const markdown = await this.readFileImpl(resolved);
+
+    // Write the source-hash sidecar so a re-upload of the SAME bytes skips
+    // docling next time. Best-effort: cache miss on hash failure is fine.
+    if (!/^https?:\/\//.test(input)) {
+      const hash = await this.hashFileImpl(input);
+      if (hash) {
+        await this.writeSmallFileImpl(`${resolved}.sha256`, hash);
+      }
+    }
     return {
       markdown,
       outputPath: resolved,

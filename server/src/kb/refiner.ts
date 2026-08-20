@@ -21,6 +21,7 @@ import { readFile } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   createRefineDocumentTool,
+  ATHENA_PROVIDER,
   defaultRefinementOutputDir,
   runWikiEditRefine,
   type RefineDocumentOptions,
@@ -93,7 +94,7 @@ export function createAthenaWikiEditRefiner(
       m.ModelRuntime.create(),
     );
     const runtime = await runtimePromise;
-    const model = runtime.getModel("athena", "~deepseek/deepseek-v4-flash-latest");
+    const model = runtime.getModel(ATHENA_PROVIDER, "~deepseek/deepseek-v4-flash-latest");
     if (!model) {
       throw new Error("wiki edit refine: athena model not found");
     }

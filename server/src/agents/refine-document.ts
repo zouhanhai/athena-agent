@@ -47,7 +47,9 @@ import {
   type RefinementMode,
 } from "./refine-output.js";
 
-export const ATHENA_PROVIDER = "athena";
+/** Provider id (default "athena-ingest" — dedicated OpenRouter provider with the
+ *  ingest key, independent from the chat key (G4.S8.T16 key separation). */
+export const ATHENA_PROVIDER = "athena-ingest";
 export const ATHENA_MODEL = "~deepseek/deepseek-v4-flash-latest";
 
 /** pi ThinkingLevel values for the `reasoning` option (mirrors the SDK union). */
@@ -245,7 +247,8 @@ export interface RefineDocumentParams {
 }
 
 export interface RefineDocumentOptions {
-  /** Provider id (default "athena" — dedicated OpenRouter provider, independent key). */
+  /** Provider id (default "athena-ingest" — dedicated OpenRouter provider,
+   *  independent ingest key, separated from the chat key). */
   providerId?: string;
   /** Model id within the provider (default "~deepseek/deepseek-v4-flash-latest"). */
   modelId?: string;

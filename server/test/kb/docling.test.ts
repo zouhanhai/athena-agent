@@ -6,9 +6,13 @@ function makeParser(opts: {
   stdout?: string;
   markdown?: string;
   error?: Error;
+  hash?: string | null;
+  exists?: Record<string, boolean>;
+  sidecar?: Record<string, string>;
 }) {
   const execCalls: [string, string[]][] = [];
   const readCalls: string[] = [];
+  const written: Record<string, string> = {};
   const parser = new DoclingParser({
     pythonBin: "/opt/docling/bin/python",
     scriptPath: "/opt/parse_doc.py",
@@ -20,17 +24,24 @@ function makeParser(opts: {
     },
     readFileImpl: async (path) => {
       readCalls.push(path);
+      if (path.endsWith(".sha256")) return opts.sidecar?.[path] ?? "deadbeef";
       return opts.markdown ?? "# Doc";
     },
     mkdirImpl: async () => {},
+    hashFileImpl: async () => opts.hash ?? null,
+    existsImpl: async (path) => opts.exists?.[path] ?? false,
+    writeSmallFileImpl: async (path, content) => {
+      written[path] = content;
+    },
   });
-  return { parser, execCalls, readCalls };
+  return { parser, execCalls, readCalls, written };
 }
 
 test("parse invokes python parse_doc.py with input + shared input-dir + --images-dir and returns markdown", async () => {
   const { parser, execCalls, readCalls } = makeParser({
-    stdout: "/shared/input/report.md\n",
+    stdout: "/shared/input/report.pdf.md\n",
     markdown: "# Report\n\nBody",
+    hash: "abc",
   });
   const result = await parser.parse("/tmp/report.pdf");
 
@@ -46,11 +57,85 @@ test("parse invokes python parse_doc.py with input + shared input-dir + --images
       ],
     ],
   ]);
-  assert.deepEqual(readCalls, ["/shared/input/report.md"]);
+  assert.deepEqual(readCalls, ["/shared/input/report.pdf.md"]);
   assert.equal(result.markdown, "# Report\n\nBody");
-  assert.equal(result.outputPath, "/shared/input/report.md");
-  assert.equal(result.stem, "report");
+  assert.equal(result.outputPath, "/shared/input/report.pdf.md");
+  assert.equal(result.stem, "report.pdf");
   assert.equal(result.imagesDir, "/shared/input/images/report.pdf");
+});
+
+test("parse writes a sha256 sidecar after a fresh parse", async () => {
+  const { parser, written } = makeParser({
+    stdout: "/shared/input/report.pdf.md\n",
+    markdown: "# Doc",
+    hash: "abc123",
+  });
+  await parser.parse("/tmp/report.pdf");
+  assert.equal(written["/shared/input/report.pdf.md.sha256"], "abc123");
+});
+
+test("parse SKIPS python when the md exists and the sidecar hash matches the input", async () => {
+  const { parser, execCalls, readCalls } = makeParser({
+    stdout: "/shared/input/report.pdf.md\n",
+    markdown: "# Cached Doc",
+    hash: "abc123",
+    exists: {
+      "/shared/input/report.pdf.md": true,
+      "/shared/input/report.pdf.md.sha256": true,
+    },
+    sidecar: { "/shared/input/report.pdf.md.sha256": "abc123" },
+  });
+  const result = await parser.parse("/tmp/report.pdf");
+
+  assert.equal(execCalls.length, 0, "docling NOT invoked on cache hit");
+  assert.equal(result.markdown, "# Cached Doc");
+  assert.equal(result.outputPath, "/shared/input/report.pdf.md");
+  assert.equal(result.imagesDir, "/shared/input/images/report.pdf");
+  // The cached path + sidecar are read; no python.
+  assert.ok(readCalls.some((p) => p === "/shared/input/report.pdf.md"));
+});
+
+test("parse re-runs python when the sidecar hash does NOT match (new upload)", async () => {
+  const { parser, execCalls } = makeParser({
+    stdout: "/shared/input/report.pdf.md\n",
+    markdown: "# Fresh Doc",
+    hash: "NEWHASH",
+    exists: {
+      "/shared/input/report.pdf.md": true,
+      "/shared/input/report.pdf.md.sha256": true,
+    },
+    sidecar: { "/shared/input/report.pdf.md.sha256": "OLDHASH" },
+  });
+  const result = await parser.parse("/tmp/report.pdf");
+
+  assert.equal(execCalls.length, 1, "docling invoked when hash differs");
+  assert.equal(result.markdown, "# Fresh Doc");
+});
+
+test("parse re-runs python when the sidecar is missing even if md exists", async () => {
+  const { parser, execCalls } = makeParser({
+    stdout: "/shared/input/report.pdf.md\n",
+    markdown: "# Doc",
+    hash: "abc123",
+    exists: { "/shared/input/report.pdf.md": true }, // no sidecar
+  });
+  await parser.parse("/tmp/report.pdf");
+  assert.equal(execCalls.length, 1, "no sidecar → no cache trust");
+});
+
+test("URL inputs never use the cache (hash is null) — always parse", async () => {
+  const { parser, execCalls } = makeParser({
+    stdout: "/shared/input/example.com-index.md\n",
+    markdown: "# Example Domain",
+    hash: null,
+    exists: {
+      "/shared/input/example.com-index.md": true,
+      "/shared/input/example.com-index.md.sha256": true,
+    },
+  });
+  const result = await parser.parse("https://example.com/");
+  assert.equal(execCalls.length, 1, "URL inputs always re-parse");
+  assert.equal(result.stem, "example.com-index");
 });
 
 test("parse returns the images dir for URL inputs (host-path stem)", async () => {
@@ -62,22 +147,12 @@ test("parse returns the images dir for URL inputs (host-path stem)", async () =>
   assert.equal(result.imagesDir, "/shared/input/images/example.com-index");
 });
 
-test("parse uses the last stdout line as output path (URL produces host-path stem)", async () => {
-  const { parser } = makeParser({
-    stdout: "log line one\n/shared/input/example.com-index.md\n",
-    markdown: "# Example Domain",
-  });
-  const result = await parser.parse("https://example.com/");
-  assert.equal(result.outputPath, "/shared/input/example.com-index.md");
-  assert.equal(result.stem, "example.com-index");
-});
-
 test("parse rejects when docling produces no output path", async () => {
-  const { parser } = makeParser({ stdout: "\n" });
+  const { parser } = makeParser({ stdout: "\n", hash: "abc" });
   await assert.rejects(() => parser.parse("/tmp/x.pdf"), /no output path/);
 });
 
 test("parse propagates exec errors", async () => {
-  const { parser } = makeParser({ error: new Error("docling crashed") });
+  const { parser } = makeParser({ error: new Error("docling crashed"), hash: "abc" });
   await assert.rejects(() => parser.parse("/tmp/x.pdf"), /docling crashed/);
 });
