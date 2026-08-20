@@ -18,6 +18,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CdsView } from "../codeparse/cds.js";
+import type { AbapUnit, AbapObjectType, AbapDependency } from "../codeparse/abap.js";
 import type { RefinementChunk, RefinementFrontmatter } from "../../agents/refine-document.js";
 import type { RefineOutputRef } from "../../agents/refine-output.js";
 
@@ -153,4 +154,111 @@ export async function storeCodeOutput(
   };
 
   return { ref, chunks_ref: chunksPath, md_ref: mdPath, chunk_count: chunks.length, chunks, names: views.map((v) => v.technicalName) };
+}
+
+// --- ABAP code intake (G4.S8.T4) ---------------------------------------------
+
+/** An ABAP unit rendered as a chunk, extending the standard RefinementChunk
+ *  shape with the parsed unit metadata so downstream enrichment/QA can use it.
+ *  `heading_path` carries the unit path `<devclass>/<devName>[/<method>]`. */
+export interface AbapCodeChunk extends RefinementChunk {
+  /** The ABAP object type (class/report/function/include/form). */
+  objectType: AbapObjectType;
+  /** Object name, e.g. `zcl_fi_delivery`. */
+  devName: string;
+  /** Method/form/function name for a sub-chunk; null for top-level units. */
+  method: string | null;
+  /** The unit path `<devclass>/<devName>[/<method>]`. */
+  modulePath: string;
+  /** Locally-extracted dependency edges (feed the relations contract). */
+  dependencies: AbapDependency[];
+}
+
+export interface AbapCodeStoreResult {
+  ref: RefineOutputRef;
+  chunks_ref: string;
+  md_ref: string;
+  chunk_count: number;
+  chunks: AbapCodeChunk[];
+  names: string[];
+}
+
+/** Render parsed ABAP units as RefinementChunk-shaped chunks (one per unit),
+ *  with heading_path = `<devclass>/<devName>[/<method>]`. Pure. */
+export function abapUnitsToChunks(units: AbapUnit[]): AbapCodeChunk[] {
+  return units.map((u) => ({
+    id: u.id,
+    text: u.text,
+    heading_path: u.path,
+    objectType: u.objectType,
+    devName: u.devName,
+    method: u.method,
+    modulePath: u.path,
+    dependencies: u.dependencies,
+  }));
+}
+
+/** The wiki-page body for an ABAP source: per-unit sections with provenance
+ *  frontmatter so answers can distinguish current/active objects. */
+export function renderAbapMarkdown(units: AbapUnit[], provenance?: CodeProvenance): string {
+  const meta: string[] = [
+    "---",
+    "type: code",
+    "topic: abap",
+    ...(provenance?.system ? [`system: ${provenance.system}`] : []),
+    ...(provenance?.devclass ? [`devclass: ${provenance.devclass}`] : []),
+    ...(provenance?.transport ? [`transport: ${provenance.transport}`] : []),
+    "---",
+  ];
+  const body = units.map((u) => u.text.trim()).filter(Boolean).join("\n\n");
+  return `${meta.join("\n")}\n\n# ABAP Source\n\n${body}\n`;
+}
+
+/**
+ * Persist a parsed ABAP source: write one `chunks.json` (RefinementChunk[]
+ * shape, one entry per unit with path = `<devclass>/<devName>[/<method>]`) and a
+ * `markdown.md` holding every unit's source as a durable artifact. Returns the
+ * ref the wiki/Neo4j consumers read. Local, deterministic, no LLM.
+ */
+export async function storeAbapOutput(
+  units: AbapUnit[],
+  options: CodeStoreOptions = {},
+): Promise<AbapCodeStoreResult> {
+  const chunks = abapUnitsToChunks(units);
+  const stem = (options.stem ?? units[0]?.devName ?? "abap").replace(/[^A-Za-z0-9._-]+/g, "-");
+  const storageDir = options.storageDir ?? (process.env.CODE_OUTPUT_DIR ?? defaultCodeOutputDir());
+  const dir = join(storageDir, stem);
+  const mdPath = join(dir, "markdown.md");
+  const chunksPath = join(dir, "chunks.json");
+  const mkdirImpl = options.mkdir ?? (async (path: string) => void (await mkdir(path, { recursive: true })));
+  const writeFileImpl =
+    options.writeFile ?? ((path: string, content: string) => writeFile(path, content, "utf8"));
+
+  await mkdirImpl(dir);
+  const markdown = renderAbapMarkdown(units, options.provenance);
+  await writeFileImpl(chunksPath, JSON.stringify(chunks, null, 2));
+  await writeFileImpl(mdPath, markdown);
+
+  const frontmatter: RefinementFrontmatter = { type: "code", topic: "abap" };
+  const ref: RefineOutputRef = {
+    md_ref: mdPath,
+    rag_md_ref: mdPath,
+    chunks_ref: chunksPath,
+    preview: markdown.slice(0, 140),
+    char_count: markdown.length,
+    line_count: markdown.split("\n").length,
+    header_count: units.length,
+    chunk_count: chunks.length,
+    frontmatter,
+    entities: [],
+    relations: [],
+    keywords: [],
+    quality: { complete: chunks.length > 0, confidence: 1, issues: [], action: "auto_accept" },
+    summary: `ABAP source with ${chunks.length} unit(s): ${units.map((u) => u.devName).join(", ")}`,
+    sections: [],
+    mode: "single",
+    section_paths: [],
+  };
+
+  return { ref, chunks_ref: chunksPath, md_ref: mdPath, chunk_count: chunks.length, chunks, names: units.map((u) => u.devName) };
 }

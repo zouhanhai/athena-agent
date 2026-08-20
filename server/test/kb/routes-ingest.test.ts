@@ -8,6 +8,7 @@ import { IngestTaskQueue } from "../../src/kb/tasks.js";
 import type { FastifyInstance } from "fastify";
 
 const CDS_FIXTURE = join(import.meta.dirname, "..", "fixtures", "cds", "gr-cds-scope.cds");
+const ABAP_CLASS_FIXTURE = join(import.meta.dirname, "..", "fixtures", "abap", "zcl_fi_delivery.clas.abap");
 
 /** Point the code-store at a temp dir so CDS intake writes stay test-local. Returns
  *  a teardown that restores the previous env value. */
@@ -478,6 +479,82 @@ test("POST /api/kb/ingest kind=cds fails the task when the source has no CDS vie
     const task = await pollTask(app, taskId);
     assert.equal(task.status, "failed");
     assert.match(task.error as string, /no .*define view/i);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=abap submits a task that parses source via the code channel (no docling)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-abap-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const content = await readFile(ABAP_CLASS_FIXTURE, "utf8");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: {
+        kind: "abap",
+        filename: "zcl_fi_delivery.clas.abap",
+        system: "S4H",
+        devclass: "ZFIDL",
+        content,
+      },
+    });
+    assert.equal(res.statusCode, 202);
+    const { taskId, kind } = res.json() as { taskId: string; kind: string };
+    assert.ok(taskId);
+    assert.equal(kind, "abap");
+
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "done");
+    // The ABAP source parsed into one chunk per METHOD and flowed into the
+    // llm_wiki stage.
+    assert.equal(
+      (task.stages as { ingesting_llmwiki: { status: string } }).ingesting_llmwiki.status,
+      "done",
+    );
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=abap rejects empty content", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-abap-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: { kind: "abap", content: "" },
+    });
+    assert.equal(res.statusCode, 400);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=abap fails the task when the source has no ABAP units", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-abap-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: { kind: "abap", content: "this is not abap\nnothing here\n" },
+    });
+    const { taskId } = res.json() as { taskId: string };
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "failed");
+    assert.match(task.error as string, /no .*abap|no .*class|no .*unit/i);
   } finally {
     await app.close();
     teardown();

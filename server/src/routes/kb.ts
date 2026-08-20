@@ -175,6 +175,38 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       return reply.code(202).send({ taskId, kind: "cds" });
     }
 
+    // G4.S8.T4: ABAP code channel — SAP ABAP source (class/report/function
+    // group, incl. INCLUDEs) is NOT prose, so it skips docling/PDF parsing. The
+    // source is submitted as an async ingest task: the local ABAP parser splits
+    // it into per-unit chunks (one per METHOD/FORM/FUNCTION/INCLUDE) and the
+    // code-store façade writes them in the standard RefinementChunk shape (path
+    // = <devclass>/<devName>[/<method>]), flowing into the same llm_wiki + Neo4j
+    // stages as a normal doc. Optional lineage (system/devclass/transport) is
+    // folded into the wiki frontmatter.
+    if (kind === "abap") {
+      if (!options.taskQueue) {
+        return reply.code(500).send({ error: "ingestion task queue not configured" });
+      }
+      if (invalidField(body.content)) {
+        return reply.code(400).send({ error: "content is required" });
+      }
+      const filename =
+        typeof body.filename === "string" && body.filename.trim() ? body.filename.trim() : undefined;
+      const system = typeof body.system === "string" && body.system.trim() ? body.system.trim() : undefined;
+      const devclass =
+        typeof body.devclass === "string" && body.devclass.trim() ? body.devclass.trim() : undefined;
+      const transport =
+        typeof body.transport === "string" && body.transport.trim() ? body.transport.trim() : undefined;
+      const { taskId } = options.taskQueue.submitAbap({
+        content: body.content as string,
+        ...(filename ? { filename } : {}),
+        ...(system ? { system } : {}),
+        ...(devclass ? { devclass } : {}),
+        ...(transport ? { transport } : {}),
+      });
+      return reply.code(202).send({ taskId, kind: "abap" });
+    }
+
     if (invalidField(body.title)) {
       return reply.code(400).send({ error: "title is required" });
     }
