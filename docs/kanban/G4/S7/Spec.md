@@ -13,7 +13,6 @@ acceptance_criteria:
   - "Platform Chat panel routes to a selected remote agent's API Server, streaming tool progress (tool.started / tool.completed) into the panel"
   - "Knowledge base exposed as an MCP server (search_knowledge / get_wiki_page / get_graph) so any agent can retrieve company KB"
   - "Agent identity traceable: each agent connects with a unique id + token (invitation-issued); the platform knows which agent is where and how to reach it"
-status: in_progress
 ---
 
 # G4.S7: Remote agent federation (reverse WebSocket + Cloudflare Tunnel) + KB-as-MCP
