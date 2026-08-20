@@ -88,6 +88,8 @@ export interface ChatHistoryStore {
   ensureSession(employeeId: string, sessionId: string): Promise<boolean>;
   /** G4.S7.T12: refresh a session's updated_at after a message lands ('' = no-op). */
   touchSession(employeeId: string, sessionId: string): Promise<void>;
+  /** G4.S7.T13: rename a session (user's own label so history is easier to find). */
+  renameSession(employeeId: string, sessionId: string, title: string): Promise<boolean>;
 }
 
 export class PostgresChatHistoryStore implements ChatHistoryStore {
@@ -305,6 +307,20 @@ export class PostgresChatHistoryStore implements ChatHistoryStore {
       [sessionId, employeeId],
     );
   }
+
+  async renameSession(employeeId: string, sessionId: string, title: string): Promise<boolean> {
+    await this.ensureReady();
+    if (sessionId === "") return false; // the virtual legacy session can't be renamed
+    const clean = title.trim().slice(0, 120);
+    if (!clean) return false;
+    const res = await this.pool.query(
+      `UPDATE chat_sessions
+          SET title = $3, updated_at = now()
+        WHERE session_id = $1 AND employee_id = $2`,
+      [sessionId, employeeId, clean],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
 }
 
 /** In-memory store — used by tests and as a dev fallback without DATABASE_URL. */
@@ -434,6 +450,17 @@ export class MemoryChatHistoryStore implements ChatHistoryStore {
     if (s && s.employee_id === employeeId) {
       s.updated_at = this.tick();
     }
+  }
+
+  async renameSession(employeeId: string, sessionId: string, title: string): Promise<boolean> {
+    if (sessionId === "") return false;
+    const clean = title.trim().slice(0, 120);
+    if (!clean) return false;
+    const s = this.sessions.get(sessionId);
+    if (!s || s.employee_id !== employeeId) return false;
+    s.title = clean;
+    s.updated_at = this.tick();
+    return true;
   }
 
   private bumpSession(employeeId: string, sessionId: string, at: string): void {

@@ -1,8 +1,14 @@
 import { defineStore } from "pinia";
-import { streamChat, fetchChatHistory, type ChatHistoryTurn } from "@/api/chat";
+import {
+  streamChat,
+  fetchChatHistory,
+  fetchChatSessions,
+  renameChatSession,
+  type ChatHistoryTurn,
+  type ChatSessionDto,
+} from "@/api/chat";
 import { sendFeedback, type FeedbackDirection } from "@/api/feedback";
 import type { ChatClarification, ToolProgress } from "@/api/sse";
-import { fetchChatSessions, type ChatSessionDto } from "@/api/chat";
 
 export type ChatSpeakerKind = "agent" | "employee";
 export type ChatMessageRole = "user" | "assistant" | "system";
@@ -172,6 +178,25 @@ export const useChatStore = defineStore("chat", {
           };
         });
         this.activeSessionId = sessionId;
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : String(err);
+      }
+    },
+
+    /**
+     * G4.S7.T13: rename one of the user's chat sessions (their own label so
+     * history is easier to find). Updates the picker list in place (no refetch).
+     */
+    async renameSession(sessionId: string, title: string) {
+      if (!this.userId) return;
+      const clean = title.trim().slice(0, 120);
+      if (!clean) return;
+      try {
+        await renameChatSession(this.userId, sessionId, clean);
+        const target = this.sessions.find((s) => s.session_id === sessionId);
+        if (target) target.title = clean;
+        // If the active session was renamed, the trigger label refreshes too
+        // (it reads sessions.find by activeSessionId).
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
       }

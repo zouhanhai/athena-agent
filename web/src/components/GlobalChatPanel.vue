@@ -62,6 +62,24 @@ function startNewChat() {
   void chat.newChat();
 }
 
+/** G4.S7.T13: inline session rename in the picker (edit pencil → input → save). */
+const renamingSessionId = ref<string | null>(null);
+const renameDraft = ref("");
+function startRename(sessionId: string, currentTitle: string) {
+  renamingSessionId.value = sessionId;
+  renameDraft.value = currentTitle || "";
+}
+function submitRename(sessionId: string) {
+  const draft = renameDraft.value.trim();
+  if (draft) {
+    void chat.renameSession(sessionId, draft);
+  }
+  renamingSessionId.value = null;
+}
+function cancelRename() {
+  renamingSessionId.value = null;
+}
+
 /** G4.S7.T10: estimated tokens of the accumulated user/assistant conversation —
  *  mirrors the server heuristic; drives the context meter in the panel.
  *  G4.S7.T11: includes the assistant's `thinking` and each tool `output` so the
@@ -227,10 +245,29 @@ function addEmployee(emp: EmployeeRecord) {
             :class="{ active: s.session_id === chat.activeSessionId }"
             @click="pickSession(s.session_id)"
           >
-            <span class="session-option-title">{{ s.title || "Previous chat" }}</span>
-            <span class="session-option-meta">
-              {{ s.message_count }} msg · {{ relativeTime(s.updated_at) }}
-            </span>
+            <template v-if="renamingSessionId === s.session_id">
+              <input
+                v-model="renameDraft"
+                class="session-rename-input"
+                :placeholder="s.title || 'Chat title'"
+                @keyup.enter="submitRename(s.session_id)"
+                @keyup.esc="cancelRename"
+                @blur="submitRename(s.session_id)"
+                @click.stop
+              />
+            </template>
+            <template v-else>
+              <span class="session-option-title">{{ s.title || "Previous chat" }}</span>
+              <span class="session-option-meta">
+                {{ s.message_count }} msg · {{ relativeTime(s.updated_at) }}
+              </span>
+            </template>
+            <span
+              v-if="renamingSessionId !== s.session_id"
+              class="session-rename"
+              title="Rename this chat"
+              @click.stop="startRename(s.session_id, s.title)"
+            >✏️</span>
           </button>
         </div>
       </div>
@@ -557,6 +594,29 @@ function addEmployee(emp: EmployeeRecord) {
   font-size: 12px;
   color: var(--caleo-text-secondary);
   text-align: center;
+}
+
+/* G4.S7.T13: inline rename in a session option (pencil + edit input). */
+.session-rename {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.session-rename:hover {
+  background: var(--caleo-hover);
+}
+.session-rename-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--caleo-primary);
+  border-radius: 4px;
+  background: var(--caleo-surface);
+  color: var(--caleo-text);
+  font-size: 12px;
+  outline: none;
 }
 
 .agent-cards {

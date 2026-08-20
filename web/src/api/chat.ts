@@ -112,6 +112,22 @@ export async function fetchChatSessions(
   return data.sessions ?? [];
 }
 
+/** G4.S7.T13: rename one of the user's chat sessions. */
+export async function renameChatSession(
+  userId: string,
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  const res = await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, title }),
+  });
+  if (!res.ok) {
+    throw new Error(`Rename session failed with status ${res.status}`);
+  }
+}
+
 /** G4.S7.T11-followup: fetch the signed-in user's persisted chat history.
  *  G4.S7.T12: with `sessionId` the window is scoped to that one session. */
 export async function fetchChatHistory(

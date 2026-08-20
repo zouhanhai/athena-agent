@@ -157,6 +157,33 @@ describe("chat-history store sessions (G4.S7.T12)", () => {
     assert.equal(await store.ensureSession("e1", "nope"), false);
     assert.equal(await store.ensureSession("e2", id), false);
   });
+
+  test("G4.S7.T13 renameSession updates the title and bumps updated_at", async () => {
+    const id = await store.createSession("e1", "old title");
+    const ok = await store.renameSession("e1", id, "My Q2 analysis");
+    assert.equal(ok, true);
+    const sessions = await store.listSessions("e1");
+    assert.equal(sessions[0]!.title, "My Q2 analysis");
+  });
+
+  test("G4.S7.T13 renameSession respects ownership + rejects blank titles + legacy '' session", async () => {
+    const id = await store.createSession("e1", "mine");
+    assert.equal(await store.renameSession("e2", id, "hijack"), false, "other user cannot rename");
+    assert.equal(await store.renameSession("e1", "nope", "ghost"), false, "missing session returns false");
+    assert.equal(await store.renameSession("e1", id, "   "), false, "blank title rejected");
+    // The virtual legacy session cannot be renamed.
+    await store.saveMessage({ employeeId: "e1", role: "user", content: "flat" });
+    assert.equal(await store.renameSession("e1", "", "trying"), false, "legacy '' session not renamable");
+  });
+
+  test("G4.S7.T13 renameSession truncates long titles and trims whitespace", async () => {
+    const id = await store.createSession("e1", "a");
+    await store.renameSession("e1", id, "  " + "x".repeat(300) + "  ");
+    const sessions = await store.listSessions("e1");
+    assert.equal(sessions[0]!.title.length, 120, "capped at 120 chars");
+    assert.equal(sessions[0]!.title.startsWith("x"), true);
+    assert.equal(sessions[0]!.title.endsWith(" "), false, "no trailing whitespace");
+  });
 });
 
 describe("chat-session routes (G4.S7.T12)", () => {
@@ -303,5 +330,61 @@ describe("chat-session routes (G4.S7.T12)", () => {
     assert.equal(hist.statusCode, 200);
     const messages = (hist.json() as { messages: Array<{ content: string }> }).messages;
     assert.deepEqual(messages.map((m) => m.content), ["legacy q"]);
+  });
+
+  test("G4.S7.T13 PATCH /api/chat/sessions/:id renames a session and GET sessions reflects it", async () => {
+    const sid = await store.createSession("u1", "original");
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/chat/sessions/${sid}`,
+      payload: { userId: "u1", title: "Project CALEO planning" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { ok: true, session_id: sid, title: "Project CALEO planning" });
+
+    const list = await app.inject({ method: "GET", url: "/api/chat/sessions?userId=u1" });
+    const { sessions } = list.json() as { sessions: Array<{ session_id: string; title: string }> };
+    assert.equal(sessions[0]!.title, "Project CALEO planning");
+  });
+
+  test("G4.S7.T13 PATCH rename rejects cross-user rename + blank title + legacy ''", async () => {
+    const sid = await store.createSession("u1", "mine");
+
+    const other = await app.inject({
+      method: "PATCH",
+      url: `/api/chat/sessions/${sid}`,
+      payload: { userId: "u2", title: "hijack" },
+    });
+    assert.equal(other.statusCode, 404, "someone else's session → 404");
+
+    const blank = await app.inject({
+      method: "PATCH",
+      url: `/api/chat/sessions/${sid}`,
+      payload: { userId: "u1", title: "   " },
+    });
+    assert.equal(blank.statusCode, 400, "blank title → 400");
+
+    const missingUserId = await app.inject({
+      method: "PATCH",
+      url: `/api/chat/sessions/${sid}`,
+      payload: { title: "no user" },
+    });
+    assert.equal(missingUserId.statusCode, 400, "missing userId → 400");
+
+    const missingSid = await app.inject({
+      method: "PATCH",
+      url: "/api/chat/sessions/",
+      payload: { userId: "u1", title: "nope" },
+    });
+    assert.ok([400, 404].includes(missingSid.statusCode), "missing/empty sessionId → 400/404");
+
+    // Legacy '' session cannot be renamed (404).
+    await store.saveMessage({ employeeId: "u1", role: "user", content: "flat" });
+    const legacy = await app.inject({
+      method: "PATCH",
+      url: "/api/chat/sessions/%20",
+      payload: { userId: "u1", title: "renamed" },
+    });
+    assert.ok([400, 404].includes(legacy.statusCode), "legacy '' not renamable");
   });
 });

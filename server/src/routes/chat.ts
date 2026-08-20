@@ -244,6 +244,47 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     }
   });
 
+  // G4.S7.T13: rename a session (the user's own label so history is easier to
+  // find). PATCH /api/chat/sessions/:sessionId { userId, title } → 200 {ok} |
+  // 404 (not the user's session) | 400 (bad input) | 500.
+  app.patch("/api/chat/sessions/:sessionId", async (request, reply) => {
+    const params = request.params as { sessionId?: unknown };
+    const body = (request.body ?? {}) as {
+      userId?: unknown;
+      title?: unknown;
+    };
+    if (invalidField(params.sessionId)) {
+      return reply.code(400).send({ error: "sessionId is required" });
+    }
+    if (invalidField(body.userId)) {
+      return reply.code(400).send({ error: "userId is required" });
+    }
+    const sessionId = (params.sessionId as string).trim();
+    const titleRaw = typeof body.title === "string" ? body.title : "";
+    const title = titleRaw.trim();
+    if (!title) {
+      return reply.code(400).send({ error: "title is required" });
+    }
+    if (!options.historyStore) {
+      return reply.code(404).send({ error: "history store is not configured" });
+    }
+    try {
+      const renamed = await options.historyStore.renameSession(
+        body.userId as string,
+        sessionId,
+        title,
+      );
+      if (!renamed) {
+        return reply.code(404).send({ error: "session not found or not yours" });
+      }
+      return { ok: true, session_id: sessionId, title: title.slice(0, 120) };
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/api/chat", async (request, reply) => {
     const body = (request.body ?? {}) as ChatRequestBody;
 
