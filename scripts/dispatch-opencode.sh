@@ -50,6 +50,7 @@ if [ -z "$TITLE" ]; then
   exit 2
 fi
 TASK="${ARGS[1]:-}"
+TASK_FILE="${TASK_FILE:-}"   # explicit default: --title-only calls must not trip set -u unbound-var
 if [ -z "$TASK" ] && [ -n "$TASK_FILE" ] && [ -r "$TASK_FILE" ]; then
   # shellcheck disable=SC2154
   TASK="$(cat "$TASK_FILE")"
@@ -104,18 +105,29 @@ if [ "$CODE" != "204" ]; then
 fi
 grn "task queued (204) — worker should start shortly"
 
-# 3. verify busy
+# 3. verify busy — POLL (the session may take a moment to appear in /session/status)
 if [ -n "$VERIFY" ]; then
-  sleep 3
-  STATUS=$(curl -s -m 3 "$BASE/session/status")
-  if echo "$STATUS" | grep -q "\"$SID\""; then
-    if echo "$STATUS" | grep -q "busy"; then
-      grn "verified: session busy (worker executing)"
-    else
-      red "warning: session present but not busy yet — check: curl $BASE/session/$SID"
+  BUSY=0
+  for _ in $(seq 1 8); do
+    sleep 2
+    STATUS=$(curl -s -m 3 "$BASE/session/status")
+    if echo "$STATUS" | grep -q "\"$SID\""; then
+      if echo "$STATUS" | grep -q "busy"; then
+        BUSY=1
+        break
+      fi
     fi
+    # also check the session object itself (agent resolved + tokens moving)
+    SDETAIL=$(curl -s -m 3 "$BASE/session/$SID")
+    if echo "$SDETAIL" | grep -q '"agent"'; then
+      BUSY=1
+      break
+    fi
+  done
+  if [ "$BUSY" = "1" ]; then
+    grn "verified: session busy (worker executing)"
   else
-    red "warning: session not in /session/status yet — check: curl $BASE/session/$SID"
+    red "warning: session not busy after 16s — check: curl $BASE/session/$SID"
   fi
 fi
 
