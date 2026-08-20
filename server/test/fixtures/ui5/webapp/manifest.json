@@ -1,0 +1,33 @@
+{
+  "_version": "1.12.0",
+  "sap.app": {
+    "id": "com.caleo.consolidation",
+    "type": "application",
+    "applicationVersion": { "version": "1.0.0" },
+    "title": "Consolidation Cockpit",
+    "dataSources": {
+      "consolidationService": {
+        "uri": "/odata/consolidation",
+        "type": "OData",
+        "settings": { "odataVersion": "2.0" }
+      },
+      "reporting": {
+        "uri": "/reporting/",
+        "type": "OData",
+        "settings": { "odataVersion": "4.0" }
+      }
+    }
+  },
+  "sap.ui5": {
+    "rootView": { "viewName": "com.caleo.consolidation.view.Consolidation", "type": "XML" },
+    "routing": {
+      "config": { "routerClass": "sap.m.routing.Router", "viewType": "XML" },
+      "routes": [
+        { "pattern": "", "name": "consolidation", "target": ["consolidation"] }
+      ]
+    },
+    "models": {
+      "i18n": { "type": "sap.ui.model.resource.ResourceModel", "settings": { "bundleName": "com.caleo.consolidation.i18n.i18n" } }
+    }
+  }
+}

@@ -27,7 +27,8 @@ import type { ContentDedupStore } from "./dedup.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
 import { parseCdsViews, type CdsView } from "./codeparse/cds.js";
 import { parseAbapUnits, type AbapUnit } from "./codeparse/abap.js";
-import { storeCodeOutput, renderCodeMarkdown, storeAbapOutput, renderAbapMarkdown, type CodeProvenance } from "./store/code.js";
+import { parseUi5Units, type Ui5Unit } from "./codeparse/ui5.js";
+import { storeCodeOutput, renderCodeMarkdown, storeAbapOutput, renderAbapMarkdown, storeUi5Output, renderUi5Markdown, type CodeProvenance } from "./store/code.js";
 
 /** Athena refinement runner (G4.S1.T4): one full-doc LLM pass, returns the small
  *  big-output ref + the full re-leveled markdown for downstream consumption.
@@ -260,6 +261,11 @@ export interface IngestTask {
   abapSource?: AbapIntakeInput;
   /** Deterministic parse of an ABAP source (G4.S8.T4), retained for retry. */
   abapUnits?: AbapUnit[];
+  /** Present on tasks created by submitUi5: the raw UI5 intake so the code
+   *  pipeline can be re-run on retry without re-fetching the app files. */
+  ui5Source?: Ui5IntakeInput;
+  /** Deterministic parse of a UI5 app (G4.S8.T5), retained for retry. */
+  ui5Units?: Ui5Unit[];
   /** Code lineage (system/devclass/transport) folded into the wiki frontmatter
    *  so answers can distinguish current/active objects (G4.S8.T3). */
   provenance?: CodeProvenance;
@@ -309,6 +315,25 @@ export interface AbapIntakeInput {
   transport?: string;
 }
 
+/** What a UI5 code-intake task ingests (G4.S8.T5): the app's business files.
+ *  `files` maps a relative app path (e.g. `webapp/controller/Report.controller.js`)
+ *  to its source text. The task queue hands these straight to the local UI5
+ *  parser (no docling); node_modules/dist are excluded by the parser. */
+export interface Ui5IntakeInput {
+  /** Relative app path -> source text for each business file under webapp/. */
+  files: Record<string, string>;
+  /** Source file / zip label (for the wiki page / provenance naming). */
+  filename?: string;
+  /** App component namespace, e.g. `com.caleo.consolidation`. */
+  component?: string;
+  /** Optional lineage: which SAP BTP/system the app came from (via remote pull). */
+  system?: string;
+  /** Optional lineage: the ABAP devclass/package. */
+  devclass?: string;
+  /** Optional lineage: the transport request / commit ref. */
+  transport?: string;
+}
+
 /** Slugify a technical name / filename for storage + wiki naming. */
 export function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -330,6 +355,18 @@ export function abapSourceName(input: AbapIntakeInput): string {
     return base.replace(/\.(abap|clas|fugr|prog|report|txt|abap)$/i, "");
   }
   return "abap-source";
+}
+
+/** Stable source key for a UI5 intake (filename stem without the zip/app ext). */
+export function ui5SourceName(input: Ui5IntakeInput): string {
+  if (input.filename) {
+    const base = input.filename.split(/[\\/]/).pop() ?? input.filename;
+    return base.replace(/\.(zip|tar|tgz|gz|app)$/i, "");
+  }
+  if (input.component) {
+    return input.component.split(".").pop() ?? "ui5-app";
+  }
+  return "ui5-app";
 }
 
 export interface IngestTaskQueueOptions {
@@ -479,6 +516,28 @@ export class IngestTaskQueue {
       };
     }
     void this.runAbap(task.id);
+    return { taskId: task.id };
+  }
+
+  /**
+   * Start the UI5 code-intake pipeline (G4.S8.T5). The source is a map of UI5
+   * business files (webapp controllers/view/manifest/model — NOT a docling
+   * document): parsing + chunking happen LOCALLY with parseUi5Units (business
+   * code only; node_modules/dist excluded). The resulting per-file/per-method
+   * chunks flow into the SAME llm_wiki + Neo4j ingest stages as a normal doc.
+   * Returns a task id; poll GET /api/kb/task/:id. Provenance is optional.
+   */
+  submitUi5(input: Ui5IntakeInput): IngestSubmitResult {
+    const task = this.createTask(input.filename ?? input.component ?? "ui5-source");
+    task.ui5Source = input;
+    if (input.system || input.devclass || input.transport) {
+      task.provenance = {
+        ...(input.system ? { system: input.system } : {}),
+        ...(input.devclass ? { devclass: input.devclass } : {}),
+        ...(input.transport ? { transport: input.transport } : {}),
+      };
+    }
+    void this.runUi5(task.id);
     return { taskId: task.id };
   }
 
@@ -1342,6 +1401,190 @@ export class IngestTaskQueue {
   }
 
   /**
+   * UI5 code-intake pipeline (G4.S8.T5): parse the UI5 app's business files
+   * LOCALLY (no docling, no LLM — boundaries are file/method-guaranteed),
+   * persist the code ref (markdown + per-file/per-method chunks) then drive the
+   * SAME llm_wiki + Neo4j ingest stages as a normal doc. node_modules/dist are
+   * excluded so only business code (webapp/) reaches the KB. Retry re-runs from
+   * the retained file map.
+   */
+  private async runUi5(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    const input = task?.ui5Source;
+    if (!task || !input) return;
+
+    task.input = JSON.stringify(input.files).slice(0, 200) || "";
+    const provenance: CodeProvenance = {
+      system: input.system,
+      devclass: input.devclass,
+      transport: input.transport,
+    };
+
+    // --- parsing: local UI5 parse (the code channel; NOT docling) ---
+    if (task.stages.parsing.status !== "done") {
+      this.patch(id, (t) => {
+        t.status = "parsing";
+        t.progress = 15;
+        t.stages.parsing = { name: "parsing", status: "running", steps: t.stages.parsing.steps };
+      });
+      this.setStep(id, "parsing", "read_file", "running");
+      try {
+        const units = parseUi5Units(input.files, { component: input.component ?? "app" });
+        if (units.length === 0) {
+          throw new Error("UI5 source contains no business files (controllers/views/manifest) under webapp/");
+        }
+        const stem = slugify(units[0]!.name);
+        const fileName = `${stem}.md`;
+        const documentId = documentIdFrom(ui5SourceName(input), ui5SourceName(input));
+        const stored = await storeUi5Output(units, { provenance, stem });
+        const markdown = renderUi5Markdown(units, provenance);
+        this.patch(id, (t) => {
+          t.stages.parsing = { name: "parsing", status: "done", steps: t.stages.parsing.steps };
+          t.ui5Units = units;
+          t.documentId = documentId;
+          t.markdown = markdown;
+          t.fileName = fileName;
+          t.progress = 35;
+        });
+        this.setStep(id, "parsing", "read_file", "done");
+        this.setStep(id, "parsing", "parse_ocr_image_desc", "done");
+
+        // --- refinement: no LLM — the local parse IS the code ref ---
+        this.patch(id, (t) => {
+          t.refinedMarkdown = markdown;
+          t.ragMarkdown = markdown;
+          t.refinement = stored.ref;
+          t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
+        });
+        this.setStep(id, "refinement", "refine_document", "done");
+      } catch (err) {
+        console.error(`[tasks:${id}] UI5 parse FAILED:`, err);
+        return this.fail(id, err, "parsing");
+      }
+    }
+
+    const taskNow = this.tasks.get(id);
+    if (!taskNow || !taskNow.fileName || !taskNow.refinement) {
+      return this.fail(id, new Error("missing UI5 parse output"), "parsing");
+    }
+    const fileName = taskNow.fileName;
+    const markdown = taskNow.markdown!;
+    const refinementRef = taskNow.refinement;
+    const units = taskNow.ui5Units ?? [];
+    const documentId = taskNow.documentId ?? documentIdFrom(ui5SourceName(input), ui5SourceName(input));
+
+    // Classification is folded into the local code ref (frontmatter type=code/topic=ui5).
+    const preclassified: WikiClassification = {
+      category: "source",
+      pagePath: `wiki/code/${fileName}`,
+      topic: "ui5",
+    };
+
+    const llmwikiTodo = taskNow.stages.ingesting_llmwiki.status !== "done";
+    const neo4jTodo = taskNow.stages.ingesting_neo4j.status !== "done";
+
+    await Promise.all([
+      (async () => {
+        if (!llmwikiTodo) return;
+        this.patch(id, (t) => {
+          t.status = "ingesting";
+          t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
+          t.progress = 85;
+        });
+        const res = await this.safeIngest(() =>
+          this.ingest.ingestLlmWiki(fileName, markdown, (step, status) => {
+            this.setStep(id, "ingesting_llmwiki", step, status);
+          }, preclassified, undefined, refinementRef.summary),
+        );
+        console.log(`[tasks:${id}] llm_wiki ingest (ui5): ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}`);
+        this.patch(id, (t) => {
+          t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: res.ok ? "done" : "failed", ...(res.ok ? {} : { error: res.error }), steps: t.stages.ingesting_llmwiki.steps };
+        });
+        this.updateProgress(id);
+        this.markStageSteps(id, "ingesting_llmwiki", res.ok ? "done" : "failed", res.error);
+      })(),
+      (async () => {
+        if (!neo4jTodo) return;
+        this.patch(id, (t) => {
+          t.status = "ingesting";
+          t.stages.ingesting_neo4j = { name: "ingesting_neo4j", status: "running", steps: t.stages.ingesting_neo4j.steps };
+          t.progress = 50;
+        });
+        this.markStageSteps(id, "ingesting_neo4j", "running");
+
+        const title = units[0]?.name ?? stemTitle(fileName);
+        const res = this.neo4j
+          ? await this.safeIngest(() => {
+              const wikiPath = wikiPathFor(fileName, preclassified);
+              return this.neo4j!.ingest({
+                ref: refinementRef,
+                documentId,
+                title,
+                ...(wikiPath ? { wikiPath } : {}),
+                onProgress: (p) => {
+                  if (p.chunksStored > 0 && !this.etaStartAt.has(id)) {
+                    this.etaStartAt.set(id, Date.now());
+                  }
+                  this.patch(id, (t) => {
+                    const stage = t.stages.ingesting_neo4j;
+                    stage.chunksStored = p.chunksStored;
+                    stage.chunksTotal = p.chunksTotal;
+                    stage.progress = p.progress;
+                    stage.processed = p.chunksStored;
+                    stage.total = p.chunksTotal;
+                  });
+                },
+              }).then((r) => ({ ok: true, count: r.chunksStored }));
+            })
+          : { ok: true };
+        console.log(
+          `[tasks:${id}] neo4j ingest (ui5): ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}` +
+            (res.ok && "count" in res ? ` (${res.count} chunks embedded)` : ""),
+        );
+        this.patch(id, (t) => {
+          t.stages.ingesting_neo4j = {
+            ...t.stages.ingesting_neo4j,
+            status: res.ok ? "done" : "failed",
+            ...(res.ok ? {} : { error: res.error }),
+          };
+          if (res.ok && this.neo4j) t.neo4jStored = true;
+        });
+        this.updateProgress(id);
+        this.markStageSteps(id, "ingesting_neo4j", res.ok ? "done" : "failed", res.error);
+      })(),
+    ]);
+
+    // --- finalize ---
+    this.patch(id, (t) => {
+      const llmwikiOk = t.stages.ingesting_llmwiki.status === "done";
+      const neo4jOk = t.neo4jStored === true;
+      const failedStage = t.stages.parsing.status === "failed"
+        ? t.stages.parsing
+        : t.stages.refinement.status === "failed"
+          ? t.stages.refinement
+          : t.stages.ingesting_llmwiki.status === "failed"
+            ? t.stages.ingesting_llmwiki
+            : t.stages.ingesting_neo4j.status === "failed"
+              ? t.stages.ingesting_neo4j
+              : undefined;
+      if (llmwikiOk || neo4jOk) {
+        t.status = "done";
+        t.progress = 100;
+        if (failedStage?.error) t.error = failedStage.error;
+      } else {
+        t.status = "failed";
+        t.progress = 100;
+        t.error = failedStage?.error ?? "All knowledge systems failed";
+      }
+    });
+
+    const finalTask = this.tasks.get(id);
+    console.log(
+      `[tasks:${id}] ui5 FINAL status=${finalTask?.status} progress=${finalTask?.progress} units=${units.length} llmwiki=${finalTask?.stages.ingesting_llmwiki.status} neo4j=${finalTask?.stages.ingesting_neo4j.status}`,
+    );
+  }
+
+  /**
    * Mechanical wiki-edit refine (G4.S3.T10): store the corrected text verbatim
    * with heading-derived chunks (no fabricated entities/relations) and flag the
    * task review_required — used when the diff-refine LLM is unavailable/failed.
@@ -1421,6 +1664,8 @@ export class IngestTaskQueue {
       void this.runCode(taskId);
     } else if (task.abapSource) {
       void this.runAbap(taskId);
+    } else if (task.ui5Source) {
+      void this.runUi5(taskId);
     } else {
       void this.run(taskId, task.input!, task.source);
     }

@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { buildApp } from "../../src/app.js";
 import { IngestTaskQueue } from "../../src/kb/tasks.js";
 import type { FastifyInstance } from "fastify";
@@ -555,6 +556,100 @@ test("POST /api/kb/ingest kind=abap fails the task when the source has no ABAP u
     const task = await pollTask(app, taskId);
     assert.equal(task.status, "failed");
     assert.match(task.error as string, /no .*abap|no .*class|no .*unit/i);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// --- G4.S8.T5: UI5 code channel -------------------------------------------------
+
+const UI5_ROOT = join(import.meta.dirname, "..", "fixtures", "ui5", "webapp");
+
+function loadUi5Files(): Record<string, string> {
+  const files: Record<string, string> = {};
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const abs = join(dir, entry);
+      if (statSync(abs).isDirectory()) walk(abs);
+      else files[`webapp/${relative(UI5_ROOT, abs).split(sep).join("/")}`] = readFileSync(abs, "utf8");
+    }
+  };
+  walk(UI5_ROOT);
+  return files;
+}
+
+test("POST /api/kb/ingest kind=ui5 submits a task that parses business files via the code channel (no docling)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-ui5-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: {
+        kind: "ui5",
+        filename: "com.caleo.consolidation.zip",
+        component: "com.caleo.consolidation",
+        system: "BTP",
+        devclass: "ZCNSLD",
+        files: loadUi5Files(),
+      },
+    });
+    assert.equal(res.statusCode, 202);
+    const { taskId, kind } = res.json() as { taskId: string; kind: string };
+    assert.ok(taskId);
+    assert.equal(kind, "ui5");
+
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "done");
+    assert.equal(
+      (task.stages as { ingesting_llmwiki: { status: string } }).ingesting_llmwiki.status,
+      "done",
+    );
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=ui5 rejects missing files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-ui5-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: { kind: "ui5", files: {} },
+    });
+    assert.equal(res.statusCode, 400);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=ui5 fails the task when only node_modules (no business code) is supplied", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-ui5-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: {
+        kind: "ui5",
+        files: { "webapp/node_modules/lodash/index.js": "export const x = 1;" },
+      },
+    });
+    const { taskId } = res.json() as { taskId: string };
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "failed");
+    assert.match(task.error as string, /no business files|no .*controller|no .*unit/i);
   } finally {
     await app.close();
     teardown();

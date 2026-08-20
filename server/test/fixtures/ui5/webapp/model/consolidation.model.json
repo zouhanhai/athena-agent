@@ -1,0 +1,25 @@
+{
+  "name": "consolidationReporting",
+  "type": "sap.ui.model.odata.v4.ODataModel",
+  "settings": {
+    "serviceUrl": "/reporting/"
+  },
+  "annotations": {
+    "cds": {
+      "serviceUrl": "/reporting/CDS_VIEW",
+      "model": "reporting"
+    }
+  },
+  "bindingPaths": {
+    "ConsolidationGrid": {
+      "path": "/CDS_VIEW",
+      "entityType": "ConsolidationGridType"
+    }
+  },
+  "odataBindings": {
+    "grid": {
+      "entitySet": "CDS_VIEW",
+      "cdsView": "/reporting/CDS_VIEW"
+    }
+  }
+}

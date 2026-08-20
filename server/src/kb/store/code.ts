@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CdsView } from "../codeparse/cds.js";
 import type { AbapUnit, AbapObjectType, AbapDependency } from "../codeparse/abap.js";
+import type { Ui5Unit, Ui5UnitKind, Ui5EntityRef } from "../codeparse/ui5.js";
 import type { RefinementChunk, RefinementFrontmatter } from "../../agents/refine-document.js";
 import type { RefineOutputRef } from "../../agents/refine-output.js";
 
@@ -261,4 +262,113 @@ export async function storeAbapOutput(
   };
 
   return { ref, chunks_ref: chunksPath, md_ref: mdPath, chunk_count: chunks.length, chunks, names: units.map((u) => u.devName) };
+}
+
+// --- UI5 front-end code intake (G4.S8.T5) -----------------------------------
+
+/** A UI5 business file rendered as a chunk, extending the standard RefinementChunk
+ *  shape with the parsed unit metadata. `heading_path` carries the app location
+ *  `<component>/<modulePath>[/<method>]`. */
+export interface Ui5CodeChunk extends RefinementChunk {
+  kind: Ui5UnitKind;
+  /** File name without extension (controller/view/manifest name). */
+  name: string;
+  /** Relative app path of the source file, e.g. `webapp/controller/Report.controller.js`. */
+  file: string;
+  /** App component namespace, e.g. `com.caleo.consolidation`. */
+  component: string;
+  /** Method name for a sub-chunk; null for whole-file units. */
+  method: string | null;
+  /** OData / CDS / backend references extracted locally (feed relations). */
+  references: Ui5EntityRef[];
+}
+
+export interface Ui5CodeStoreResult {
+  ref: RefineOutputRef;
+  chunks_ref: string;
+  md_ref: string;
+  chunk_count: number;
+  chunks: Ui5CodeChunk[];
+  names: string[];
+}
+
+/** Render parsed UI5 units as RefinementChunk-shaped chunks (one per unit),
+ *  with heading_path = `<component>/<modulePath>[/<method>]`. Pure. */
+export function ui5UnitsToChunks(units: Ui5Unit[]): Ui5CodeChunk[] {
+  return units.map((u) => ({
+    id: u.id,
+    text: u.text,
+    heading_path: u.path,
+    kind: u.kind,
+    name: u.name,
+    file: u.file,
+    component: u.component,
+    method: u.method,
+    references: u.references,
+  }));
+}
+
+/** The wiki-page body for a UI5 source: per-file sections with provenance
+ *  frontmatter so answers carry the app / source-version lineage. */
+export function renderUi5Markdown(units: Ui5Unit[], provenance?: CodeProvenance): string {
+  const meta: string[] = [
+    "---",
+    "type: code",
+    "topic: ui5",
+    ...(provenance?.system ? [`system: ${provenance.system}`] : []),
+    ...(provenance?.devclass ? [`devclass: ${provenance.devclass}`] : []),
+    ...(provenance?.transport ? [`transport: ${provenance.transport}`] : []),
+    "---",
+  ];
+  const body = units.map((u) => `## ${u.file}\n\n${u.text.trim()}`).join("\n\n");
+  return `${meta.join("\n")}\n\n# UI5 Source\n\n${body}\n`;
+}
+
+/**
+ * Persist a parsed UI5 source: write one `chunks.json` (RefinementChunk[]
+ * shape, one entry per unit with path = `<component>/<modulePath>[/<method>]`)
+ * and a `markdown.md` holding every file's source as a durable artifact.
+ * Returns the ref the wiki/Neo4j consumers read. Local, deterministic, no LLM.
+ */
+export async function storeUi5Output(
+  units: Ui5Unit[],
+  options: CodeStoreOptions = {},
+): Promise<Ui5CodeStoreResult> {
+  const chunks = ui5UnitsToChunks(units);
+  const stem = (options.stem ?? units[0]?.name ?? "ui5").replace(/[^A-Za-z0-9._-]+/g, "-");
+  const storageDir = options.storageDir ?? (process.env.CODE_OUTPUT_DIR ?? defaultCodeOutputDir());
+  const dir = join(storageDir, stem);
+  const mdPath = join(dir, "markdown.md");
+  const chunksPath = join(dir, "chunks.json");
+  const mkdirImpl = options.mkdir ?? (async (path: string) => void (await mkdir(path, { recursive: true })));
+  const writeFileImpl =
+    options.writeFile ?? ((path: string, content: string) => writeFile(path, content, "utf8"));
+
+  await mkdirImpl(dir);
+  const markdown = renderUi5Markdown(units, options.provenance);
+  await writeFileImpl(chunksPath, JSON.stringify(chunks, null, 2));
+  await writeFileImpl(mdPath, markdown);
+
+  const frontmatter: RefinementFrontmatter = { type: "code", topic: "ui5" };
+  const ref: RefineOutputRef = {
+    md_ref: mdPath,
+    rag_md_ref: mdPath,
+    chunks_ref: chunksPath,
+    preview: markdown.slice(0, 140),
+    char_count: markdown.length,
+    line_count: markdown.split("\n").length,
+    header_count: units.length,
+    chunk_count: chunks.length,
+    frontmatter,
+    entities: [],
+    relations: [],
+    keywords: [],
+    quality: { complete: chunks.length > 0, confidence: 1, issues: [], action: "auto_accept" },
+    summary: `UI5 source with ${chunks.length} unit(s): ${units.map((u) => u.name).join(", ")}`,
+    sections: [],
+    mode: "single",
+    section_paths: [],
+  };
+
+  return { ref, chunks_ref: chunksPath, md_ref: mdPath, chunk_count: chunks.length, chunks, names: units.map((u) => u.name) };
 }

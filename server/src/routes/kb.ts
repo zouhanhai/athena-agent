@@ -141,6 +141,8 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       system?: unknown;
       devclass?: unknown;
       transport?: unknown;
+      component?: unknown;
+      files?: unknown;
     };
     const kind = typeof body.kind === "string" ? body.kind : undefined;
 
@@ -205,6 +207,43 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
         ...(transport ? { transport } : {}),
       });
       return reply.code(202).send({ taskId, kind: "abap" });
+    }
+
+    // G4.S8.T5: UI5 code channel — SAP UI5 business front-end (controllers,
+    // XML views, manifest.json, .model.json) is NOT prose, so it skips
+    // docling/PDF parsing entirely. The source is a map of business files under
+    // webapp/ (node_modules/dist excluded): the local UI5 parser splits each
+    // controller into per-method chunks (large controllers) and one chunk per
+    // view/manifest/model, written in the standard RefinementChunk shape (path =
+    // <component>/<modulePath>[/<method>]), flowing into the same llm_wiki +
+    // Neo4j stages as a normal doc. Optional lineage folds into the wiki
+    // frontmatter so answers carry the app/commit provenance.
+    if (kind === "ui5") {
+      if (!options.taskQueue) {
+        return reply.code(500).send({ error: "ingestion task queue not configured" });
+      }
+      const files = body.files;
+      if (!files || typeof files !== "object" || Object.keys(files as Record<string, unknown>).length === 0) {
+        return reply.code(400).send({ error: "files (object of <app-path>: <source>) is required" });
+      }
+      const filename =
+        typeof body.filename === "string" && body.filename.trim() ? body.filename.trim() : undefined;
+      const component =
+        typeof body.component === "string" && body.component.trim() ? body.component.trim() : undefined;
+      const system = typeof body.system === "string" && body.system.trim() ? body.system.trim() : undefined;
+      const devclass =
+        typeof body.devclass === "string" && body.devclass.trim() ? body.devclass.trim() : undefined;
+      const transport =
+        typeof body.transport === "string" && body.transport.trim() ? body.transport.trim() : undefined;
+      const { taskId } = options.taskQueue.submitUi5({
+        files: files as Record<string, string>,
+        ...(filename ? { filename } : {}),
+        ...(component ? { component } : {}),
+        ...(system ? { system } : {}),
+        ...(devclass ? { devclass } : {}),
+        ...(transport ? { transport } : {}),
+      });
+      return reply.code(202).send({ taskId, kind: "ui5" });
     }
 
     if (invalidField(body.title)) {

@@ -1,0 +1,30 @@
+<mvc:View xmlns:mvc="sap.ui.core.mvc" xmlns="sap.m" xmlns:core="sap.ui.core"
+  controllerName="com.caleo.consolidation.controller.Report">
+  <Page id="reportPage" title="Consolidation Report">
+    <headerContent>
+      <Select id="periodSelect" change="onPeriodChange">
+        <core:Item key="2026001" text="Period 001" />
+        <core:Item key="2026002" text="Period 002" />
+        <core:Item key="2026003" text="Period 003" />
+      </Select>
+    </headerContent>
+    <content>
+      <Table id="grid" growing="true" growingThreshold="100">
+        <columns>
+          <Column><header><Text text="Company" /></header></Column>
+          <Column><header><Text text="Consolidation Item" /></header></Column>
+          <Column><header><Text text="Amount" /></header></Column>
+        </columns>
+        <items>
+          <ColumnListItem>
+            <cells>
+              <Text text="{CompanyCode}" />
+              <Text text="{ConsItem}" />
+              <Text text="{Amount}" />
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
+    </content>
+  </Page>
+</mvc:View>
