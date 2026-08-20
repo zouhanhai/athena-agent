@@ -80,6 +80,28 @@ function cancelRename() {
   renamingSessionId.value = null;
 }
 
+/** G4.S7.T15: delete one session with a t-dialog confirmation (like the agent
+ *  delete flow — never a silent window.confirm). */
+const deleteVisible = ref(false);
+const deleteTarget = ref<{ session_id: string; title: string } | null>(null);
+const deleting = ref(false);
+function openDelete(sessionId: string, title: string) {
+  deleteTarget.value = { session_id: sessionId, title: title || "Previous chat" };
+  deleteVisible.value = true;
+}
+async function confirmDelete() {
+  const target = deleteTarget.value;
+  if (!target) return;
+  deleting.value = true;
+  try {
+    await chat.deleteSession(target.session_id);
+    deleteVisible.value = false;
+    deleteTarget.value = null;
+  } finally {
+    deleting.value = false;
+  }
+}
+
 /** G4.S7.T10: estimated tokens of the accumulated user/assistant conversation —
  *  mirrors the server heuristic; drives the context meter in the panel.
  *  G4.S7.T11: includes the assistant's `thinking` and each tool `output` so the
@@ -268,6 +290,12 @@ function addEmployee(emp: EmployeeRecord) {
               title="Rename this chat"
               @click.stop="startRename(s.session_id, s.title)"
             >✏️</span>
+            <span
+              v-if="renamingSessionId !== s.session_id"
+              class="session-delete"
+              title="Delete this chat"
+              @click.stop="openDelete(s.session_id, s.title)"
+            >🗑️</span>
           </button>
         </div>
       </div>
@@ -462,6 +490,25 @@ function addEmployee(emp: EmployeeRecord) {
         {{ loading ? "Sending..." : "Send" }}
       </t-button>
     </footer>
+
+    <!-- G4.S7.T15: delete-session confirmation (t-dialog, consistent with the
+         agent delete flow — never a browser confirm). -->
+    <t-dialog
+      v-model:visible="deleteVisible"
+      header="Delete chat"
+      :confirm-btn="{ content: 'Delete', theme: 'danger' }"
+      :cancel-btn="{ content: 'Cancel' }"
+      :confirm-loading="deleting"
+      @confirm="confirmDelete"
+      @close="deleteVisible = false"
+    >
+      <template #body>
+        <p>
+          Delete chat <strong>{{ deleteTarget?.title || "" }}</strong>? This
+          permanently removes the conversation and its messages.
+        </p>
+      </template>
+    </t-dialog>
   </aside>
 </template>
 
@@ -617,6 +664,20 @@ function addEmployee(emp: EmployeeRecord) {
   color: var(--caleo-text);
   font-size: 12px;
   outline: none;
+}
+
+/* G4.S7.T15: delete button in a session option (next to the rename pencil). */
+.session-delete {
+  margin-left: 2px;
+  font-size: 12px;
+  color: var(--caleo-danger, #c0392b);
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.session-delete:hover {
+  background: var(--caleo-hover);
+  color: #e74c3c;
 }
 
 .agent-cards {

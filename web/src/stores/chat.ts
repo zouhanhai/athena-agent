@@ -4,6 +4,7 @@ import {
   fetchChatHistory,
   fetchChatSessions,
   renameChatSession,
+  deleteChatSession,
   type ChatHistoryTurn,
   type ChatSessionDto,
 } from "@/api/chat";
@@ -197,6 +198,24 @@ export const useChatStore = defineStore("chat", {
         if (target) target.title = clean;
         // If the active session was renamed, the trigger label refreshes too
         // (it reads sessions.find by activeSessionId).
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : String(err);
+      }
+    },
+
+    /**
+     * G4.S7.T15: delete one chat session (and its messages). The picker list
+     * and the current view (if it was the active session) are updated.
+     */
+    async deleteSession(sessionId: string) {
+      if (!this.userId) return;
+      try {
+        await deleteChatSession(this.userId, sessionId);
+        this.sessions = this.sessions.filter((s) => s.session_id !== sessionId);
+        if (this.activeSessionId === sessionId) {
+          this.messages = [];
+          this.activeSessionId = null;
+        }
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
       }

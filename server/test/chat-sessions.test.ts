@@ -230,6 +230,27 @@ describe("chat-history store sessions (G4.S7.T12)", () => {
     assert.equal(after[0]!.title, "My old flat chats");
     assert.equal(await store.legacyTitle("e1"), "My old flat chats");
   });
+
+  test("G4.S7.T15 deleteSession removes the session and its messages, ownership-checked", async () => {
+    const myId = await store.createSession("e1", "mine");
+    await store.saveMessage({ employeeId: "e1", role: "user", content: "q1", sessionId: myId });
+    await store.saveMessage({ employeeId: "e1", role: "assistant", content: "a1", sessionId: myId });
+
+    // Other user cannot delete it.
+    assert.equal(await store.deleteSession("e2", myId), false);
+    assert.equal(await store.ensureSession("e1", myId), true, "still there for owner");
+
+    // Owner deletes → session + messages gone.
+    assert.equal(await store.deleteSession("e1", myId), true);
+    assert.equal(await store.ensureSession("e1", myId), false);
+    assert.equal((await store.listMessages("e1", myId)).length, 0);
+    assert.equal((await store.listSessions("e1")).length, 0);
+
+    // Missing session returns false.
+    assert.equal(await store.deleteSession("e1", "ghost"), false);
+    // Legacy ('' session) has no real row to delete.
+    assert.equal(await store.deleteSession("e1", ""), false);
+  });
 });
 
 describe("chat-session routes (G4.S7.T12)", () => {
@@ -473,5 +494,55 @@ describe("chat-session routes (G4.S7.T12)", () => {
     assert.equal(sessions[0]!.title, "welcome to my 11th chat");
     // The oldest (old0) got pruned.
     assert.ok(!sessions.some((s) => s.title === "old0"));
+  });
+
+  test("G4.S7.T15 DELETE /api/chat/sessions/:id removes the session and its messages", async () => {
+    // Create one session via the route so it has persisted messages.
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/chat",
+      payload: { userId: "u1", message: "delete me", session_id: "" },
+    });
+    assert.equal(created.statusCode, 200);
+    const body = created.json() as { session_id: string };
+    const sid = body.session_id;
+
+    // Confirm it exists with messages.
+    const hist = await app.inject({ method: "GET", url: `/api/chat/history?userId=u1&sessionId=${sid}` });
+    const msgs = (hist.json() as { messages: unknown[] }).messages;
+    assert.ok(msgs.length >= 2, "session has persisted messages");
+
+    // Delete it.
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/chat/sessions/${sid}?userId=u1`,
+    });
+    assert.equal(del.statusCode, 200);
+    assert.deepEqual(del.json(), { ok: true, session_id: sid });
+
+    // Gone from list + history + store.
+    const sessions = await store.listSessions("u1");
+    assert.ok(!sessions.some((s) => s.session_id === sid));
+    assert.equal(await store.ensureSession("u1", sid), false);
+  });
+
+  test("G4.S7.T15 DELETE rejects cross-user delete + missing userId", async () => {
+    const sid = await store.createSession("u1", "mine");
+    await store.saveMessage({ employeeId: "u1", role: "user", content: "q", sessionId: sid });
+
+    const other = await app.inject({
+      method: "DELETE",
+      url: `/api/chat/sessions/${sid}?userId=u2`,
+    });
+    assert.equal(other.statusCode, 404, "someone else's session → 404");
+
+    const noUser = await app.inject({
+      method: "DELETE",
+      url: `/api/chat/sessions/${sid}`,
+    });
+    assert.equal(noUser.statusCode, 400, "missing userId → 400");
+
+    // Still exists for the owner.
+    assert.equal(await store.ensureSession("u1", sid), true);
   });
 });

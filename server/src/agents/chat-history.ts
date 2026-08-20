@@ -101,6 +101,8 @@ export interface ChatHistoryStore {
    *  "Previous chat" session ('' session). "" = no override (use the default). */
   legacyTitle(employeeId: string): Promise<string>;
   setLegacyTitle(employeeId: string, title: string): Promise<void>;
+  /** G4.S7.T15: delete one session (and its messages). Ownership-checked. */
+  deleteSession(employeeId: string, sessionId: string): Promise<boolean>;
 }
 
 export class PostgresChatHistoryStore implements ChatHistoryStore {
@@ -389,6 +391,23 @@ export class PostgresChatHistoryStore implements ChatHistoryStore {
       [employeeId, clean],
     );
   }
+
+  async deleteSession(employeeId: string, sessionId: string): Promise<boolean> {
+    await this.ensureReady();
+    if (sessionId === "") return false; // the virtual legacy session is not a real row
+    // Ownership-guarded delete: only the session owned by this employee.
+    const res = await this.pool.query(
+      `DELETE FROM chat_sessions WHERE session_id = $1 AND employee_id = $2`,
+      [sessionId, employeeId],
+    );
+    if ((res.rowCount ?? 0) === 0) return false;
+    // Cascade-remove the session's messages (in case any remain).
+    await this.pool.query(
+      `DELETE FROM chat_messages WHERE session_id = $1`,
+      [sessionId],
+    );
+    return true;
+  }
 }
 
 /** In-memory store — used by tests and as a dev fallback without DATABASE_URL. */
@@ -552,6 +571,15 @@ export class MemoryChatHistoryStore implements ChatHistoryStore {
 
   async setLegacyTitle(employeeId: string, title: string): Promise<void> {
     this.legacyTitles.set(employeeId, title.trim().slice(0, 120));
+  }
+
+  async deleteSession(employeeId: string, sessionId: string): Promise<boolean> {
+    if (sessionId === "") return false;
+    const s = this.sessions.get(sessionId);
+    if (!s || s.employee_id !== employeeId) return false;
+    this.sessions.delete(sessionId);
+    this.messages = this.messages.filter((m) => m.session_id !== sessionId);
+    return true;
   }
 
   private bumpSession(employeeId: string, sessionId: string, at: string): void {

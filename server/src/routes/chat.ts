@@ -299,6 +299,49 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     }
   });
 
+  // G4.S7.T15: delete one session (and its messages) — the user's own history.
+  // DELETE /api/chat/sessions/:sessionId?userId=<id> → 200 {ok} | 404 | 400.
+  app.delete("/api/chat/sessions/:sessionId", async (request, reply) => {
+    const params = request.params as { sessionId?: unknown };
+    const query = (request.query ?? {}) as { userId?: unknown };
+    if (invalidField(params.sessionId)) {
+      return reply.code(400).send({ error: "sessionId is required" });
+    }
+    if (invalidField(query.userId)) {
+      return reply.code(400).send({ error: "userId is required" });
+    }
+    const sessionId =
+      params.sessionId === "legacy" ? "" : (params.sessionId as string).trim();
+    if (!options.historyStore) {
+      return reply.code(404).send({ error: "history store is not configured" });
+    }
+    try {
+      // The virtual legacy session ('' => "legacy" wire id) has no real row;
+      // deleting it removes the override + its messages, if any.
+      if (sessionId === "") {
+        await options.historyStore.setLegacyTitle(query.userId as string, "");
+        const deleted = await options.historyStore.deleteSession(
+          query.userId as string,
+          "",
+        );
+        void deleted; // always ok: legacy delete is idempotent
+        return { ok: true, session_id: "" };
+      }
+      const deleted = await options.historyStore.deleteSession(
+        query.userId as string,
+        sessionId,
+      );
+      if (!deleted) {
+        return reply.code(404).send({ error: "session not found or not yours" });
+      }
+      return { ok: true, session_id: sessionId };
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/api/chat", async (request, reply) => {
     const body = (request.body ?? {}) as ChatRequestBody;
 

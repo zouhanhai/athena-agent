@@ -112,6 +112,19 @@ export async function fetchChatSessions(
   return data.sessions ?? [];
 }
 
+/** G4.S7.T15: delete one chat session (and its messages). The virtual legacy
+ *  "Previous chat" is addressed as "legacy" on the wire. */
+export async function deleteChatSession(userId: string, sessionId: string): Promise<void> {
+  const wireId = sessionId === "" ? "legacy" : encodeURIComponent(sessionId);
+  const res = await fetch(`/api/chat/sessions/${wireId}?userId=${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Delete session failed with status ${res.status}`);
+  }
+}
+
 /** G4.S7.T13: rename one of the user's chat sessions.
  *  The virtual legacy "Previous chat" (empty session_id) is addressed as
  *  "legacy" on the wire so the URL path keeps a non-empty segment. */
