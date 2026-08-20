@@ -47,9 +47,12 @@ import {
   type RefinementMode,
 } from "./refine-output.js";
 
-/** Provider id (default "athena-ingest" — dedicated OpenRouter provider with the
- *  ingest key, independent from the chat key (G4.S8.T16 key separation). */
-export const ATHENA_PROVIDER = "athena-ingest";
+/** Provider id (default "athena" — Pi-resolvable provider; custom ids like
+ *  athena-ingest/athenaingest are NOT resolved by ModelRuntime.completeSimple
+ *  ("Provider is not configured"), so refinement uses the known athena
+ *  provider. Key separation from chat pending a Pi custom-provider path
+ *  (G4.S8 T2 — see S8 Spec). */
+export const ATHENA_PROVIDER = "athena";
 export const ATHENA_MODEL = "~deepseek/deepseek-v4-flash-latest";
 
 /** pi ThinkingLevel values for the `reasoning` option (mirrors the SDK union). */
@@ -247,8 +250,7 @@ export interface RefineDocumentParams {
 }
 
 export interface RefineDocumentOptions {
-  /** Provider id (default "athena-ingest" — dedicated OpenRouter provider,
-   *  independent ingest key, separated from the chat key). */
+  /** Provider id (default "athena" — Pi-resolvable; see ATHENA_PROVIDER). */
   providerId?: string;
   /** Model id within the provider (default "~deepseek/deepseek-v4-flash-latest"). */
   modelId?: string;

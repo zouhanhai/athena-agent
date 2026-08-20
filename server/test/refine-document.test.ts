@@ -177,7 +177,7 @@ test("uses the athena provider + deepseek-v4-flash-latest with thinkingLevel max
   await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.providerId, "athena-ingest");
+  assert.equal(calls[0]!.providerId, "athena");
   assert.equal(calls[0].modelId, "~deepseek/deepseek-v4-flash-latest");
   assert.deepEqual(calls[0].options, { reasoning: "max" });
 });
@@ -211,7 +211,7 @@ test("rejects when the athena model is not registered (models.json/auth.json mis
 
   await assert.rejects(
     () => tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never),
-    /athena-ingest\/~deepseek\/deepseek-v4-flash-latest not found/,
+    /athena\/~deepseek\/deepseek-v4-flash-latest not found/,
   );
 });
 

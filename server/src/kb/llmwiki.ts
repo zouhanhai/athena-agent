@@ -318,9 +318,17 @@ export class LlmWikiClient {
         if (node.isDir) {
           await walk(node.children ?? []);
         } else if (node.path.endsWith(".md")) {
-          const { content } = await this.readFile(projectId, node.path);
-          const fm = parseFrontmatter(content);
-          pages.push({ path: node.path, type: fm.type || undefined, topic: fm.topic || undefined });
+          // G4.S8.T16: a single wiki page larger than llm_wiki's API file-size
+          // ceiling (413) must not crash the pipeline — skip its frontmatter
+          // probe and keep walking. Dedup/ingest then treats the page as
+          // unclassified rather than dying on a huge file.
+          try {
+            const { content } = await this.readFile(projectId, node.path);
+            const fm = parseFrontmatter(content);
+            pages.push({ path: node.path, type: fm.type || undefined, topic: fm.topic || undefined });
+          } catch {
+            // skip files llm_wiki refuses to return (e.g. > its API limit)
+          }
         }
       }
     };
