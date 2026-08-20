@@ -1,11 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildApp } from "../../src/app.js";
 import { IngestTaskQueue } from "../../src/kb/tasks.js";
 import type { FastifyInstance } from "fastify";
+
+const CDS_FIXTURE = join(import.meta.dirname, "..", "fixtures", "cds", "gr-cds-scope.cds");
+
+/** Point the code-store at a temp dir so CDS intake writes stay test-local. Returns
+ *  a teardown that restores the previous env value. */
+function useCodeDir(dir: string): () => void {
+  const prev = process.env.CODE_OUTPUT_DIR;
+  process.env.CODE_OUTPUT_DIR = dir;
+  return () => {
+    if (prev === undefined) delete process.env.CODE_OUTPUT_DIR;
+    else process.env.CODE_OUTPUT_DIR = prev;
+  };
+}
 
 const BOUNDARY = "test-boundary-123";
 
@@ -393,5 +406,81 @@ test("DELETE /api/kb/doc returns 500 when deletion fails", async () => {
     assert.equal((res.json() as { ok: boolean }).ok, false);
   } finally {
     await app.close();
+  }
+});
+
+test("POST /api/kb/ingest kind=cds submits a task that parses DDL via the code channel (no docling)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-cds-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const content = await readFile(CDS_FIXTURE, "utf8");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: {
+        kind: "cds",
+        filename: "gr-cds-scope.cds",
+        system: "S4H",
+        devclass: "ZCNSLD",
+        content,
+      },
+    });
+    assert.equal(res.statusCode, 202);
+    const { taskId, kind } = res.json() as { taskId: string; kind: string };
+    assert.ok(taskId);
+    assert.equal(kind, "cds");
+
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "done");
+    // The CDS source parsed into one chunk per `define view ... }` boundary and
+    // flowed into the llm_wiki stage.
+    assert.equal(
+      (task.stages as { ingesting_llmwiki: { status: string } }).ingesting_llmwiki.status,
+      "done",
+    );
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=cds rejects empty content", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-cds-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: { kind: "cds", content: "" },
+    });
+    assert.equal(res.statusCode, 400);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=cds fails the task when the source has no CDS views", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-cds-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: { kind: "cds", content: "this is not cds\nno view here\n" },
+    });
+    const { taskId } = res.json() as { taskId: string };
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "failed");
+    assert.match(task.error as string, /no .*define view/i);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
   }
 });

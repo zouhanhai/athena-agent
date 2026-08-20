@@ -25,6 +25,8 @@ import {
 } from "../agents/refine-document.js";
 import type { ContentDedupStore } from "./dedup.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
+import { parseCdsViews, type CdsView } from "./codeparse/cds.js";
+import { storeCodeOutput, renderCodeMarkdown, type CodeProvenance } from "./store/code.js";
 
 /** Athena refinement runner (G4.S1.T4): one full-doc LLM pass, returns the small
  *  big-output ref + the full re-leveled markdown for downstream consumption.
@@ -247,6 +249,14 @@ export interface IngestTask {
   };
   documentId?: string;
   error?: string;
+  /** Present on tasks created by submitCds: the raw CDS intake + lineage so the
+   *  code pipeline can be re-run on retry without re-fetching the source. */
+  codeSource?: CdsIntakeInput;
+  /** Deterministic parse of a CDS source (G4.S8.T3), retained for retry. */
+  cdsViews?: CdsView[];
+  /** Code lineage (system/devclass/transport) folded into the wiki frontmatter
+   *  so answers can distinguish current/active objects (G4.S8.T3). */
+  provenance?: CodeProvenance;
   /** Content dedup outcome (G2.S5.T14). Present when the doc was skipped as a
    *  duplicate: exact normalized-hash match or long-doc chunk-sequence match. */
   dedup?: {
@@ -264,6 +274,34 @@ export class TaskNotFoundError extends Error {}
 export class TaskBusyError extends Error {}
 /** Thrown when retry() finds no failed stage worth re-running. */
 export class NothingToRetryError extends Error {}
+
+/** What a CDS code-intake task ingests (G4.S8.T3): raw DDL source + optional lineage. */
+export interface CdsIntakeInput {
+  /** Full CDS DDL source text (one or many `define view ... }` blocks). */
+  content: string;
+  /** Source file name (for the wiki page / provenance naming). */
+  filename?: string;
+  /** Optional lineage: which SAP system the object came from (via MCP pull). */
+  system?: string;
+  /** Optional lineage: the ABAP devclass/package. */
+  devclass?: string;
+  /** Optional lineage: the transport request. */
+  transport?: string;
+}
+
+/** Slugify a technical name / filename for storage + wiki naming. */
+export function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** Stable source key for a CDS intake (filename stem without the DDL ext). */
+export function sourceName(input: CdsIntakeInput): string {
+  if (input.filename) {
+    const base = input.filename.split(/[\\/]/).pop() ?? input.filename;
+    return base.replace(/\.(cds|json|ddls|sql)$/i, "");
+  }
+  return "cds-source";
+}
 
 export interface IngestTaskQueueOptions {
   parser: DoclingParser;
@@ -369,6 +407,27 @@ export class IngestTaskQueue {
     const task = this.createTask(input.path);
     task.wikiSave = input;
     void this.runWikiSave(task.id);
+    return { taskId: task.id };
+  }
+
+  /**
+   * Start the CDS code-intake pipeline (G4.S8.T3). The source is CDS DDL text
+   * (NOT a docling document): parsing + chunking happen LOCALLY with parseCdsViews
+   * — no docling, no LLM — and the resulting per-view chunks flow into the SAME
+   * llm_wiki + Neo4j ingest stages as a normal doc. Returns a task id; poll
+   * GET /api/kb/task/:id. Provenance (system/devclass/transport) is optional.
+   */
+  submitCds(input: CdsIntakeInput): IngestSubmitResult {
+    const task = this.createTask(input.filename ?? "cds-source");
+    task.codeSource = input;
+    if (input.system || input.devclass || input.transport) {
+      task.provenance = {
+        ...(input.system ? { system: input.system } : {}),
+        ...(input.devclass ? { devclass: input.devclass } : {}),
+        ...(input.transport ? { transport: input.transport } : {}),
+      };
+    }
+    void this.runCode(task.id);
     return { taskId: task.id };
   }
 
@@ -865,6 +924,188 @@ export class IngestTaskQueue {
   }
 
   /**
+   * CDS code-intake pipeline (G4.S8.T3): parse the CDS DDL LOCALLY (no docling, no
+   * LLM — chunk boundaries are syntax-guaranteed), persist the code ref (markdown +
+   * per-view chunks) then drive the SAME llm_wiki + Neo4j ingest stages as a normal
+   * doc. Retry re-runs from the retained source.
+   */
+  private async runCode(id: string): Promise<void> {
+    const task = this.tasks.get(id);
+    const input = task?.codeSource;
+    if (!task || !input) return;
+
+    task.input = input.content;
+    const provenance: CodeProvenance = {
+      system: input.system,
+      devclass: input.devclass,
+      transport: input.transport,
+    };
+
+    // --- parsing: local CDS parse (the code channel; NOT docling) ---
+    if (task.stages.parsing.status !== "done") {
+      this.patch(id, (t) => {
+        t.status = "parsing";
+        t.progress = 15;
+        t.stages.parsing = { name: "parsing", status: "running", steps: t.stages.parsing.steps };
+      });
+      this.setStep(id, "parsing", "read_file", "running");
+      try {
+        const views = parseCdsViews(input.content);
+        if (views.length === 0) {
+          throw new Error("CDS source contains no `define view ... }` blocks");
+        }
+        const stem = slugify(views[0]!.technicalName);
+        const fileName = `${stem}.md`;
+        const documentId = documentIdFrom(sourceName(input), sourceName(input));
+        const stored = await storeCodeOutput(input.content, views, { provenance, stem });
+        const markdown = renderCodeMarkdown(views, provenance);
+        this.patch(id, (t) => {
+          t.stages.parsing = { name: "parsing", status: "done", steps: t.stages.parsing.steps };
+          t.cdsViews = views;
+          t.documentId = documentId;
+          t.markdown = markdown;
+          t.fileName = fileName;
+          t.progress = 35;
+        });
+        this.setStep(id, "parsing", "read_file", "done");
+        this.setStep(id, "parsing", "parse_ocr_image_desc", "done");
+
+        // --- refinement: no LLM — the local parse IS the code ref ---
+        this.patch(id, (t) => {
+          t.refinedMarkdown = markdown;
+          t.ragMarkdown = markdown;
+          t.refinement = stored.ref;
+          t.stages.refinement = { name: "refinement", status: "done", steps: t.stages.refinement.steps };
+        });
+        this.setStep(id, "refinement", "refine_document", "done");
+      } catch (err) {
+        console.error(`[tasks:${id}] CDS parse FAILED:`, err);
+        return this.fail(id, err, "parsing");
+      }
+    }
+
+    const taskNow = this.tasks.get(id);
+    if (!taskNow || !taskNow.fileName || !taskNow.refinement) {
+      return this.fail(id, new Error("missing CDS parse output"), "parsing");
+    }
+    const fileName = taskNow.fileName;
+    const markdown = taskNow.markdown!;
+    const refinementRef = taskNow.refinement;
+    const views = taskNow.cdsViews ?? [];
+    const documentId = taskNow.documentId ?? documentIdFrom(sourceName(input), sourceName(input));
+
+    // Classification is folded into the local code ref (frontmatter type=code/topic=cds).
+    const preclassified: WikiClassification = {
+      category: "source",
+      pagePath: `wiki/cds/${fileName}`,
+      topic: "cds",
+    };
+
+    const llmwikiTodo = taskNow.stages.ingesting_llmwiki.status !== "done";
+    const neo4jTodo = taskNow.stages.ingesting_neo4j.status !== "done";
+
+    await Promise.all([
+      (async () => {
+        if (!llmwikiTodo) return;
+        this.patch(id, (t) => {
+          t.status = "ingesting";
+          t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
+          t.progress = 85;
+        });
+        const res = await this.safeIngest(() =>
+          this.ingest.ingestLlmWiki(fileName, markdown, (step, status) => {
+            this.setStep(id, "ingesting_llmwiki", step, status);
+          }, preclassified, undefined, refinementRef.summary),
+        );
+        console.log(`[tasks:${id}] llm_wiki ingest (cds): ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}`);
+        this.patch(id, (t) => {
+          t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: res.ok ? "done" : "failed", ...(res.ok ? {} : { error: res.error }), steps: t.stages.ingesting_llmwiki.steps };
+        });
+        this.updateProgress(id);
+        this.markStageSteps(id, "ingesting_llmwiki", res.ok ? "done" : "failed", res.error);
+      })(),
+      (async () => {
+        if (!neo4jTodo) return;
+        this.patch(id, (t) => {
+          t.status = "ingesting";
+          t.stages.ingesting_neo4j = { name: "ingesting_neo4j", status: "running", steps: t.stages.ingesting_neo4j.steps };
+          t.progress = 50;
+        });
+        this.markStageSteps(id, "ingesting_neo4j", "running");
+
+        const title = views[0]?.technicalName ?? stemTitle(fileName);
+        const res = this.neo4j
+          ? await this.safeIngest(() => {
+              const wikiPath = wikiPathFor(fileName, preclassified);
+              return this.neo4j!.ingest({
+                ref: refinementRef,
+                documentId,
+                title,
+                ...(wikiPath ? { wikiPath } : {}),
+                onProgress: (p) => {
+                  if (p.chunksStored > 0 && !this.etaStartAt.has(id)) {
+                    this.etaStartAt.set(id, Date.now());
+                  }
+                  this.patch(id, (t) => {
+                    const stage = t.stages.ingesting_neo4j;
+                    stage.chunksStored = p.chunksStored;
+                    stage.chunksTotal = p.chunksTotal;
+                    stage.progress = p.progress;
+                    stage.processed = p.chunksStored;
+                    stage.total = p.chunksTotal;
+                  });
+                },
+              }).then((r) => ({ ok: true, count: r.chunksStored }));
+            })
+          : { ok: true };
+        console.log(
+          `[tasks:${id}] neo4j ingest (cds): ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}` +
+            (res.ok && "count" in res ? ` (${res.count} chunks embedded)` : ""),
+        );
+        this.patch(id, (t) => {
+          t.stages.ingesting_neo4j = {
+            ...t.stages.ingesting_neo4j,
+            status: res.ok ? "done" : "failed",
+            ...(res.ok ? {} : { error: res.error }),
+          };
+          if (res.ok && this.neo4j) t.neo4jStored = true;
+        });
+        this.updateProgress(id);
+        this.markStageSteps(id, "ingesting_neo4j", res.ok ? "done" : "failed", res.error);
+      })(),
+    ]);
+
+    // --- finalize ---
+    this.patch(id, (t) => {
+      const llmwikiOk = t.stages.ingesting_llmwiki.status === "done";
+      const neo4jOk = t.neo4jStored === true;
+      const failedStage = t.stages.parsing.status === "failed"
+        ? t.stages.parsing
+        : t.stages.refinement.status === "failed"
+          ? t.stages.refinement
+          : t.stages.ingesting_llmwiki.status === "failed"
+            ? t.stages.ingesting_llmwiki
+            : t.stages.ingesting_neo4j.status === "failed"
+              ? t.stages.ingesting_neo4j
+              : undefined;
+      if (llmwikiOk || neo4jOk) {
+        t.status = "done";
+        t.progress = 100;
+        if (failedStage?.error) t.error = failedStage.error;
+      } else {
+        t.status = "failed";
+        t.progress = 100;
+        t.error = failedStage?.error ?? "All knowledge systems failed";
+      }
+    });
+
+    const finalTask = this.tasks.get(id);
+    console.log(
+      `[tasks:${id}] cds FINAL status=${finalTask?.status} progress=${finalTask?.progress} views=${views.length} llmwiki=${finalTask?.stages.ingesting_llmwiki.status} neo4j=${finalTask?.stages.ingesting_neo4j.status}`,
+    );
+  }
+
+  /**
    * Mechanical wiki-edit refine (G4.S3.T10): store the corrected text verbatim
    * with heading-derived chunks (no fabricated entities/relations) and flag the
    * task review_required — used when the diff-refine LLM is unavailable/failed.
@@ -940,6 +1181,8 @@ export class IngestTaskQueue {
     });
     if (task.wikiSave) {
       void this.runWikiSave(taskId);
+    } else if (task.codeSource) {
+      void this.runCode(taskId);
     } else {
       void this.run(taskId, task.input!, task.source);
     }
