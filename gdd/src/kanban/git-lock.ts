@@ -93,9 +93,24 @@ export class GitClaimLock {
   /** Discard local work and resync the working tree to the remote branch. */
   private async resync(): Promise<void> {
     const branch = await this.branch();
-    await this.git(["fetch", "origin"]).catch(() => undefined);
+    // Push/resync target = the branch's configured upstream remote (caleo for
+    // master, G4.S8.T6: previously hard-coded "origin" = the zouhanhai shadow
+    // repo, so the resync reset the worktree to stale shadow commits and made
+    // new tickets vanish after every claim attempt).
+    const remote = await this.upstreamRemote(branch);
+    await this.git(["fetch", remote]).catch(() => undefined);
     await this.git(["rebase", "--abort"]).catch(() => undefined);
-    await this.git(["reset", "--hard", `origin/${branch}`]).catch(() => undefined);
+    await this.git(["reset", "--hard", `${remote}/${branch}`]).catch(() => undefined);
+  }
+
+  /** The configured upstream remote for `branch` (defaults to "caleo"). */
+  private async upstreamRemote(branch: string): Promise<string> {
+    try {
+      const out = await this.git(["config", "--get", `branch.${branch}.remote`]);
+      return out || "caleo";
+    } catch {
+      return "caleo";
+    }
   }
 
   /**
@@ -111,7 +126,7 @@ export class GitClaimLock {
       const result = await claimTicket(this.boardRoot, ref, input);
       await this.commitFiles([file, specFile], `claim ${ref} (in_progress)`);
       try {
-        await this.git(["push", "origin", await this.branch()]);
+        await this.git(["push", await this.upstreamRemote(await this.branch()), await this.branch()]);
         return result;
       } catch (err) {
         if (attempts >= MAX_PUSH_ATTEMPTS) {
@@ -141,7 +156,7 @@ export class GitClaimLock {
       const result = await reportTicket(this.boardRoot, ref, input);
       await this.commitFile(file, `report ${ref} (${input.status})`);
       try {
-        await this.git(["push", "origin", await this.branch()]);
+        await this.git(["push", await this.upstreamRemote(await this.branch()), await this.branch()]);
         return result;
       } catch (err) {
         if (attempts >= MAX_PUSH_ATTEMPTS) {
