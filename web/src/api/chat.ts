@@ -40,6 +40,8 @@ export interface ChatStreamHandlers {
   onThinking?: (text: string) => void;
   /** G4.S7.T4: tool progress rows from a remote agent. */
   onTool?: (tool: ToolProgress) => void;
+  /** G4.S7.T12: the server resolved/created the chat session for this turn. */
+  onSessionId?: (sessionId: string) => void;
 }
 
 /**
@@ -55,8 +57,18 @@ export async function sendChat(
   page?: string,
   targetAgentId?: string,
   history?: ChatHistoryTurn[],
+  sessionId?: string,
 ): Promise<string> {
-  const res = await postChat(userId, message, {}, page, undefined, targetAgentId, history);
+  const res = await postChat(
+    userId,
+    message,
+    {},
+    page,
+    undefined,
+    targetAgentId,
+    history,
+    sessionId,
+  );
   const data = (await res.json()) as ChatReply;
   return data.reply;
 }
@@ -75,12 +87,41 @@ export interface PersistedChatMessageDto {
   created_at: string;
 }
 
-/** G4.S7.T11-followup: fetch the signed-in user's persisted chat history. */
+/** G4.S7.T12: one picker row for a user's chat session. */
+export interface ChatSessionDto {
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+/** G4.S7.T12: fetch the user's recent chat sessions (max 10, most-recent first).
+ *  Cheap list — no messages; restore happens via fetchChatHistory per session. */
+export async function fetchChatSessions(
+  userId: string,
+  limit = 10,
+): Promise<ChatSessionDto[]> {
+  const res = await fetch(`/api/chat/sessions?userId=${encodeURIComponent(userId)}&limit=${limit}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Sessions request failed with status ${res.status}`);
+  }
+  const data = (await res.json()) as { sessions: ChatSessionDto[] };
+  return data.sessions ?? [];
+}
+
+/** G4.S7.T11-followup: fetch the signed-in user's persisted chat history.
+ *  G4.S7.T12: with `sessionId` the window is scoped to that one session. */
 export async function fetchChatHistory(
   userId: string,
   limit = 200,
+  sessionId?: string,
 ): Promise<PersistedChatMessageDto[]> {
-  const res = await fetch(`/api/chat/history?userId=${encodeURIComponent(userId)}&limit=${limit}`, {
+  const params = new URLSearchParams({ userId, limit: String(limit) });
+  if (sessionId !== undefined) params.set("sessionId", sessionId);
+  const res = await fetch(`/api/chat/history?${params.toString()}`, {
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
@@ -108,6 +149,7 @@ export async function streamChat(
   clarifyAnswer?: ChatClarifyAnswer,
   targetAgentId?: string,
   history?: ChatHistoryTurn[],
+  sessionId?: string,
 ): Promise<void> {
   const res = await postChat(
     userId,
@@ -117,6 +159,7 @@ export async function streamChat(
     clarifyAnswer,
     targetAgentId,
     history,
+    sessionId,
   );
   await consumeSSEStream(res, handlers);
 }
@@ -129,6 +172,7 @@ async function postChat(
   clarifyAnswer?: ChatClarifyAnswer,
   targetAgentId?: string,
   history?: ChatHistoryTurn[],
+  sessionId?: string,
 ): Promise<Response> {
   const body: Record<string, unknown> = { userId, message };
   if (page) {
@@ -142,6 +186,10 @@ async function postChat(
   }
   if (history && history.length > 0) {
     body.history = history;
+  }
+  if (sessionId) {
+    // G4.S7.T12: resume this session; omitted → server creates a NEW one.
+    body.session_id = sessionId;
   }
   const res = await fetch(CHAT_ENDPOINT, {
     method: "POST",

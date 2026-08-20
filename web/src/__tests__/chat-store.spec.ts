@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 
 import { useChatStore } from "@/stores/chat";
-import { streamChat } from "@/api/chat";
+import { streamChat, fetchChatSessions, fetchChatHistory } from "@/api/chat";
 import { sendFeedback } from "@/api/feedback";
 
 vi.mock("@/api/chat", () => ({
   streamChat: vi.fn(),
   sendChat: vi.fn(),
+  fetchChatSessions: vi.fn(),
+  fetchChatHistory: vi.fn(),
 }));
 
 vi.mock("@/api/feedback", () => ({
@@ -17,12 +19,15 @@ vi.mock("@/api/feedback", () => ({
 
 const streamChatMock = streamChat as unknown as ReturnType<typeof vi.fn>;
 const sendFeedbackMock = sendFeedback as unknown as ReturnType<typeof vi.fn>;
+const fetchChatSessionsMock = fetchChatSessions as unknown as ReturnType<typeof vi.fn>;
+const fetchChatHistoryMock = fetchChatHistory as unknown as ReturnType<typeof vi.fn>;
 
 interface StreamArgs {
   onDelta: (delta: string) => void;
   onDone?: () => void;
   onError?: (message: string) => void;
   onClarify?: (clarify: { question: string; options: string[]; query?: string }) => void;
+  onSessionId?: (sessionId: string) => void;
 }
 
 function resolveStream() {
@@ -59,6 +64,8 @@ beforeEach(() => {
   setActivePinia(createPinia());
   streamChatMock.mockReset();
   sendFeedbackMock.mockReset();
+  fetchChatSessionsMock.mockReset();
+  fetchChatHistoryMock.mockReset();
 });
 
 describe("chat store", () => {
@@ -98,6 +105,7 @@ describe("chat store", () => {
       undefined,
       undefined,
       [],
+      undefined,
     );
 
     stream.push("Hel");
@@ -124,6 +132,7 @@ describe("chat store", () => {
       undefined,
       undefined,
       [],
+      undefined,
     );
   });
 
@@ -493,5 +502,93 @@ describe("chat store message speakers", () => {
       name: "Carol",
       logoUrl: "/logos/raven-clean.png",
     });
+  });
+});
+
+describe("chat store session switcher (G4.S7.T12)", () => {
+  const sessions = [
+    { session_id: "s1", title: "First chat", created_at: "2026-08-20T00:00:00.000Z", updated_at: "2026-08-20T01:00:00.000Z", message_count: 2 },
+    { session_id: "", title: "Previous chat", created_at: "2026-08-19T00:00:00.000Z", updated_at: "2026-08-19T05:00:00.000Z", message_count: 5 },
+  ];
+
+  it("loadSessions fills the sessions list (cheap, no message fetch)", async () => {
+    fetchChatSessionsMock.mockResolvedValue(sessions);
+    const store = useChatStore();
+    await store.loadSessions();
+
+    expect(store.sessions).toEqual(sessions);
+    expect(store.messages).toEqual([]);
+    expect(fetchChatHistoryMock).not.toHaveBeenCalled();
+    expect(fetchChatSessionsMock).toHaveBeenCalledWith("hermes", 10);
+  });
+
+  it("loadSessions degrades to an empty list on failure without blocking", async () => {
+    fetchChatSessionsMock.mockRejectedValue(new Error("net"));
+    const store = useChatStore();
+    await store.loadSessions();
+    expect(store.sessions).toEqual([]);
+    expect(store.error).toBe("");
+  });
+
+  it("pickSession restores ONLY that session's messages and sets it active", async () => {
+    fetchChatHistoryMock.mockResolvedValue([
+      { message_id: "m1", employee_id: "u1", role: "user", content: "q", speaker_id: "u1", speaker_name: "", page: "", thinking: "", progress: [], created_at: "" },
+      { message_id: "m2", employee_id: "u1", role: "assistant", content: "a", speaker_id: "athena", speaker_name: "Athena", page: "", thinking: "", progress: [], created_at: "" },
+    ]);
+    const store = useChatStore();
+    store.messages = [{ role: "user", content: "stale view" }];
+    store.activeSessionId = null;
+
+    await store.pickSession("s1");
+
+    expect(fetchChatHistoryMock).toHaveBeenCalledWith("hermes", 200, "s1");
+    expect(store.activeSessionId).toBe("s1");
+    expect(store.messages.map((m) => m.content)).toEqual(["q", "a"]);
+    expect(store.messages[0]).toMatchObject({ role: "user" });
+    expect(store.messages[1]).toMatchObject({ role: "assistant", speaker: { id: "athena" } });
+  });
+
+  it("newChat clears the view + active session and refreshes the picker", async () => {
+    fetchChatSessionsMock.mockResolvedValue(sessions);
+    const store = useChatStore();
+    store.messages = [{ role: "user", content: "old" }];
+    store.activeSessionId = "s1";
+
+    await store.newChat();
+
+    expect(store.messages).toEqual([]);
+    expect(store.activeSessionId).toBeNull();
+    expect(store.sessions).toEqual(sessions);
+  });
+
+  it("send passes the active session_id and captures a newly-created one from the stream", async () => {
+    resolveStream();
+    const store = useChatStore();
+    store.activeSessionId = "s1";
+    store.sessions = sessions;
+
+    const promise = store.send("hello");
+    // The request carries the active session as the last arg (8th).
+    const call = streamChatMock.mock.calls.at(-1)! as unknown[];
+    expect(call[0]).toBe("hermes");
+    expect(call[6]).toEqual([]); // history
+    expect(call[7]).toBe("s1"); // session_id
+
+    // Server streams a brand-new session id for a fresh conversation → captured.
+    streamChatMock.mock.calls.at(-1);
+    const [, , handlers] = streamChatMock.mock.calls.at(-1)! as [string, string, StreamArgs];
+    fetchChatSessionsMock.mockResolvedValue(sessions);
+    handlers.onSessionId?.("fresh-1");
+    await promise;
+
+    expect(store.activeSessionId).toBe("fresh-1");
+  });
+
+  it("send omits session_id when starting a brand-new chat (empty active)", async () => {
+    resolveStream();
+    const store = useChatStore();
+    await store.send("first ever");
+    const call = streamChatMock.mock.calls.at(-1)! as unknown[];
+    expect(call[7]).toBeUndefined();
   });
 });

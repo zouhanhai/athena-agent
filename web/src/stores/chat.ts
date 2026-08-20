@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { streamChat, fetchChatHistory, type ChatHistoryTurn } from "@/api/chat";
 import { sendFeedback, type FeedbackDirection } from "@/api/feedback";
 import type { ChatClarification, ToolProgress } from "@/api/sse";
+import { fetchChatSessions, type ChatSessionDto } from "@/api/chat";
 
 export type ChatSpeakerKind = "agent" | "employee";
 export type ChatMessageRole = "user" | "assistant" | "system";
@@ -65,6 +66,10 @@ interface ChatState {
   participants: ChatParticipant[];
   /** The human behind the user bubbles (current employee, or a default fallback). */
   userSpeaker: ChatSpeaker;
+  /** G4.S7.T12: the user's recent chat sessions (max 10) for the session picker. */
+  sessions: ChatSessionDto[];
+  /** G4.S7.T12: the active session being viewed/edited (null = brand-new chat). */
+  activeSessionId: string | null;
 }
 
 /** Pages whose capabilities are injected into the chat context (server-side). */
@@ -101,6 +106,8 @@ export const useChatStore = defineStore("chat", {
     page: "",
     participants: [{ ...DEFAULT_ATHENA_PARTICIPANT }],
     userSpeaker: { ...DEFAULT_USER_SPEAKER },
+    sessions: [],
+    activeSessionId: null,
   }),
   actions: {
     /** Track the current page (route path). Switching tabs never resets the conversation. */
@@ -112,9 +119,81 @@ export const useChatStore = defineStore("chat", {
       this.userSpeaker = { ...speaker };
     },
     /**
+     * G4.S7.T12: load the user's recent sessions (cheap list, NO message fetch).
+     * Called after sign-in so the session picker populates; the conversation
+     * starts at a fresh "New chat" empty state until the user picks a session
+     * (mirrors Hermes' /resume — show the list, let the user choose).
+     */
+    async loadSessions() {
+      if (!this.userId) return;
+      try {
+        this.sessions = await fetchChatSessions(this.userId, 10);
+      } catch (err) {
+        // Best-effort: a failed fetch must not block the chat.
+        console.warn("[chat] load sessions failed:", err);
+        this.sessions = [];
+      }
+    },
+
+    /**
+     * G4.S7.T12: pick a session to RESUME — set it active and restore ONLY that
+     * session's messages into the store (the view switches, previous messages
+     * are cleared).
+     */
+    async pickSession(sessionId: string) {
+      if (!this.userId || this.loading) return;
+      this.error = "";
+      try {
+        const rows = await fetchChatHistory(this.userId, 200, sessionId);
+        this.messages = rows.map((row) => {
+          if (row.role === "assistant") {
+            const speaker =
+              this.participants.find((p) => p.id === row.speaker_id) ??
+              this.participants.find((p) => p.id === "athena");
+            return {
+              role: "assistant",
+              content: row.content,
+              speaker: speaker ?? {
+                id: row.speaker_id || "athena",
+                kind: "agent",
+                name: row.speaker_name || "Athena",
+                logoUrl: "",
+              },
+              thinking: row.thinking || undefined,
+              progress: Array.isArray(row.progress) && row.progress.length > 0
+                ? (row.progress as unknown as ToolProgressRow[])
+                : undefined,
+            };
+          }
+          return {
+            role: "user" as const,
+            content: row.content,
+            speaker: this.userSpeaker,
+          };
+        });
+        this.activeSessionId = sessionId;
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : String(err);
+      }
+    },
+
+    /**
+     * G4.S7.T12: start a brand-new chat — clear the current view, drop the active
+     * session, and refresh the picker. The first message opens a new session on
+     * the server (lazily).
+     */
+    async newChat() {
+      if (this.loading) return;
+      this.messages = [];
+      this.error = "";
+      this.activeSessionId = null;
+      await this.loadSessions();
+    },
+
+    /**
      * G4.S7.T11-followup: restore this employee's persisted chat history (F5
-     * persistence). Called once the signed-in employee is known. Server rows
-     * are ordered oldest-first; system join/leave notices are not persisted.
+     * persistence). Kept for callers that want the full flat conversation; the
+     * session switcher (G4.S7.T12) is the preferred entry point.
      */
     async loadHistory() {
       if (!this.userId) return;
@@ -283,6 +362,14 @@ export const useChatStore = defineStore("chat", {
           this.messages.splice(assistantIndex, 1);
         }
       };
+      // G4.S7.T12: a streamed session_id is the one the server created for this
+      // brand-new conversation — remember it so later messages resume it.
+      const onSessionId = (sessionId: string): void => {
+        if (sessionId) {
+          this.activeSessionId = sessionId;
+          void this.loadSessions();
+        }
+      };
 
       try {
         // G4.S7.T4: a remote agent participant carries its registered identity →
@@ -290,10 +377,13 @@ export const useChatStore = defineStore("chat", {
         // G4.S7.T10: history rides along on BOTH paths — the server decides what
         // to do with it (local sessions keep their own history; remote tasks fold
         // it in / summarize it).
+        // G4.S7.T12: pass the active session (or omit to open a new one); the
+        // server echoes the resolved session_id back.
+        const handlers = { onDelta, onTool, onThinking, onClarify, onError, onSessionId };
         if (agent.agentId) {
-          await streamChat(this.userId, text, { onDelta, onTool, onThinking, onClarify, onError }, this.page, undefined, agent.agentId, history);
+          await streamChat(this.userId, text, handlers, this.page, undefined, agent.agentId, history, this.activeSessionId ?? undefined);
         } else {
-          await streamChat(this.userId, text, { onDelta, onClarify, onThinking, onTool, onError }, this.page, undefined, undefined, history);
+          await streamChat(this.userId, text, handlers, this.page, undefined, undefined, history, this.activeSessionId ?? undefined);
         }
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
@@ -356,6 +446,7 @@ export const useChatStore = defineStore("chat", {
         }) - 1;
 
       try {
+        const sessionArg = this.activeSessionId ?? undefined;
         if (agent.agentId) {
           await streamChat(
             this.userId,
@@ -375,6 +466,7 @@ export const useChatStore = defineStore("chat", {
             { query, answer: text },
             agent.agentId,
             history,
+            sessionArg,
           );
         } else {
           await streamChat(this.userId, text, {
@@ -387,7 +479,7 @@ export const useChatStore = defineStore("chat", {
                 this.messages.splice(assistantIndex, 1);
               }
             },
-          }, this.page, { query, answer: text }, undefined, history);
+          }, this.page, { query, answer: text }, undefined, history, sessionArg);
         }
       } catch (err) {
         this.error = err instanceof Error ? err.message : String(err);
@@ -426,6 +518,8 @@ export const useChatStore = defineStore("chat", {
       this.error = "";
       this.participants = [{ ...DEFAULT_ATHENA_PARTICIPANT }];
       this.userSpeaker = { ...DEFAULT_USER_SPEAKER };
+      this.sessions = [];
+      this.activeSessionId = null;
     },
   },
 });

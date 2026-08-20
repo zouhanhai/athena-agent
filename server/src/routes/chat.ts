@@ -37,6 +37,12 @@ export interface ChatRequestBody {
    * `{ role, content }`; validated + filtered + capped server-side.
    */
   history?: unknown;
+  /**
+   * G4.S7.T12: the chat session to persist/resume. When present the messages
+   * are stored under that session (404 if it does not belong to the user);
+   * when absent the server creates a NEW session automatically.
+   */
+  session_id?: unknown;
 }
 
 export interface ChatRouteOptions {
@@ -61,6 +67,13 @@ export interface ChatRouteOptions {
 
 function invalidField(value: unknown): boolean {
   return typeof value !== "string" || value.trim().length === 0;
+}
+
+/** G4.S7.T12: derive a session title from its first user message (flattened to
+ *  one line, truncated) — "New chat" when the message is empty. */
+function deriveSessionTitle(message: string): string {
+  const oneLine = message.replace(/\s+/g, " ").trim();
+  return oneLine ? oneLine.slice(0, 60) : "New chat";
 }
 
 function sseFrame(payload: unknown): string {
@@ -168,15 +181,22 @@ function buildClarifyReRunPrompt(answer: ClarifyAnswer, page: string | undefined
  *   tool.started / tool.completed (`{ tool: ... }` frames) + result deltas back.
  */
 export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptions): void {
+
   // G4.S7.T11-followup: per-user chat history restore (F5 persistence).
-  // GET /api/chat/history?userId=<id>&limit=N → persisted messages newest-first
-  // window (the store returns oldest-first for rendering order).
+  // GET /api/chat/history?userId=<id>&limit=N[&sessionId=<sid>] → persisted
+  // messages newest-first window (the store returns oldest-first for rendering
+  // order). G4.S7.T12: with `sessionId` the window is scoped to that session.
   app.get("/api/chat/history", async (request, reply) => {
-    const query = (request.query ?? {}) as { userId?: unknown; limit?: unknown };
+    const query = (request.query ?? {}) as {
+      userId?: unknown;
+      limit?: unknown;
+      sessionId?: unknown;
+    };
     if (invalidField(query.userId)) {
       return reply.code(400).send({ error: "userId is required" });
     }
     const userId = query.userId as string;
+    const sessionId = typeof query.sessionId === "string" ? query.sessionId : undefined;
     const limitRaw =
       typeof query.limit === "string" && /^\d+$/.test(query.limit)
         ? Number(query.limit)
@@ -185,8 +205,38 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
       return { messages: [] };
     }
     try {
-      const messages = await options.historyStore.listMessages(userId, limitRaw);
+      const messages = await options.historyStore.listMessages(
+        userId,
+        sessionId,
+        limitRaw,
+      );
       return { messages };
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // G4.S7.T12: session switcher — a user's recent chat sessions (max 10, most
+  // recent first), each with title + timestamps + message count. Cheap list (no
+  // full messages); restoring messages happens via GET /api/chat/history.
+  app.get("/api/chat/sessions", async (request, reply) => {
+    const query = (request.query ?? {}) as { userId?: unknown; limit?: unknown };
+    if (invalidField(query.userId)) {
+      return reply.code(400).send({ error: "userId is required" });
+    }
+    if (!options.historyStore) {
+      return { sessions: [] };
+    }
+    const userId = query.userId as string;
+    const limitRaw =
+      typeof query.limit === "string" && /^\d+$/.test(query.limit)
+        ? Number(query.limit)
+        : 10;
+    try {
+      const sessions = await options.historyStore.listSessions(userId, limitRaw);
+      return { sessions };
     } catch (err) {
       return reply
         .code(500)
@@ -208,12 +258,29 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     const message = body.message as string;
     const page = typeof body.page === "string" ? body.page : "";
     const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
+    // G4.S7.T12: the session this message belongs to. '' is treated as absent
+    // (a new session is created) when no store is available.
+    const requestedSession =
+      typeof body.session_id === "string" ? body.session_id.trim() : "";
     const clarifyAnswer = parseClarifyAnswer(body.clarify);
     const history = parseHistory(body.history);
 
     const wantsStream =
       typeof request.headers.accept === "string" &&
       request.headers.accept.includes("text/event-stream");
+
+    // G4.S7.T12: resolve the session — create a new one when none was given
+    // (resume-style picker starts a fresh conversation by default), or verify
+    // ownership of a requested one (404 for another user's session). Legacy
+    // '' is allowed (the flat pre-T12 conversation is a valid virtual session).
+    const session =
+      options.historyStore && !agentId
+        ? await resolveChatSession(options.historyStore, userId, requestedSession, message, reply)
+        : requestedSession;
+    if (session === null) {
+      // resolveChatSession already sent the 404.
+      return reply;
+    }
 
     if (agentId) {
       return await handleRemoteChat(reply, {
@@ -222,6 +289,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         message,
         page,
         history,
+        sessionId: session,
         wantsStream,
         options,
       });
@@ -247,6 +315,9 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
       // G4.S7.T11-followup: accumulate the streamed answer for persistence.
       const chunks: string[] = [];
       try {
+        // G4.S7.T12: emit the resolved session_id up front so the client learns
+        // the session a newly-created conversation belongs to.
+        raw.write(sseFrame({ session_id: session }));
         for await (const event of streamAgentChat(agent, finalPrompt)) {
           if (event.type === "clarify") {
             chunks.push(event.clarification.question);
@@ -270,6 +341,7 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
           assistantText: chunks.join(""),
           speakerId: "athena",
           speakerName: "Athena",
+          sessionId: session,
           clarifyAnswer: Boolean(clarifyAnswer),
         });
       } catch (err) {
@@ -289,15 +361,44 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
         assistantText: replyText,
         speakerId: "athena",
         speakerName: "Athena",
+        sessionId: session,
         clarifyAnswer: Boolean(clarifyAnswer),
       });
-      return { reply: replyText };
+      // G4.S7.T12: echo the session_id so the client can attach subsequent
+      // messages to the newly-created session.
+      return { reply: replyText, session_id: session };
     } catch (err) {
       return reply
         .code(500)
         .send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
+}
+
+/**
+ * G4.S7.T12: resolve the chat session for a POST /api/chat.
+ * - No `sessionId` given → create a NEW session (returns its id).
+ * - `sessionId` given and owned by the user → return it as-is.
+ * - `sessionId` given but not the user's → send 404 and return null.
+ * The legacy '' session is resolved as the virtual flat conversation.
+ */
+async function resolveChatSession(
+  store: ChatHistoryStore,
+  userId: string,
+  sessionId: string,
+  firstMessage: string,
+  reply: import("fastify").FastifyReply,
+): Promise<string | null> {
+  if (!sessionId) {
+    const created = await store.createSession(userId, deriveSessionTitle(firstMessage));
+    return created;
+  }
+  const owns = await store.ensureSession(userId, sessionId);
+  if (!owns) {
+    reply.code(404).send({ error: "session not found" });
+    return null;
+  }
+  return sessionId;
 }
 
 /** G4.S7.T11-followup: persist one user→assistant turn (best-effort; never fails the request). */
@@ -310,6 +411,7 @@ async function persistTurn(
     assistantText: string;
     speakerId?: string;
     speakerName?: string;
+    sessionId?: string;
     clarifyAnswer?: boolean;
   },
 ): Promise<void> {
@@ -325,6 +427,7 @@ async function persistTurn(
       page: turn.page,
       speakerId: turn.employeeId,
       speakerName: "",
+      sessionId: turn.sessionId,
     });
     await store.saveMessage({
       employeeId: turn.employeeId,
@@ -333,7 +436,13 @@ async function persistTurn(
       page: turn.page,
       speakerId: turn.speakerId ?? "",
       speakerName: turn.speakerName ?? "",
+      sessionId: turn.sessionId,
     });
+    // G4.S7.T12: a message landing in a session refreshes its last-activity
+    // timestamp so the picker surfaces recently-active sessions first.
+    if (turn.sessionId) {
+      await store.touchSession(turn.employeeId, turn.sessionId);
+    }
   } catch (err) {
     // Persistence is best-effort: a DB hiccup must never break the chat.
     console.warn("[chat-history] persist failed (ignored):", err);
@@ -348,6 +457,8 @@ interface RemoteChatContext {
   page: string;
   /** G4.S7.T10: validated accumulated history (empty when the client sent none). */
   history: ChatTurn[];
+  /** G4.S7.T12: the session the remote turn persists under ('' when unset). */
+  sessionId: string;
   wantsStream: boolean;
   options: ChatRouteOptions;
 }
@@ -430,6 +541,7 @@ async function handleRemoteChat(
         assistantText: answer,
         speakerId: agentId,
         speakerName: remoteAlias,
+        sessionId: ctx.sessionId,
       });
       return { reply: answer };
     } catch (err) {
@@ -465,6 +577,7 @@ async function handleRemoteChat(
       assistantText: deltaChunks.join(""),
       speakerId: agentId,
       speakerName: remoteAlias,
+      sessionId: ctx.sessionId,
     });
   };
   const fail = (err: string): void => {

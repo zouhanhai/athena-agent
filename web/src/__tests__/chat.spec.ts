@@ -7,7 +7,7 @@ import "tdesign-vue-next/es/style/index.css";
 
 import GlobalChatPanel from "@/components/GlobalChatPanel.vue";
 import { useChatStore } from "@/stores/chat";
-import { streamChat } from "@/api/chat";
+import { streamChat, fetchChatSessions, fetchChatHistory } from "@/api/chat";
 import { listAgents } from "@/api/agents";
 import { listEmployees } from "@/api/invitations";
 import { sendFeedback } from "@/api/feedback";
@@ -15,6 +15,8 @@ import { sendFeedback } from "@/api/feedback";
 vi.mock("@/api/chat", () => ({
   streamChat: vi.fn(),
   sendChat: vi.fn(),
+  fetchChatSessions: vi.fn(),
+  fetchChatHistory: vi.fn(),
 }));
 
 vi.mock("@/api/feedback", () => ({
@@ -34,6 +36,8 @@ const streamChatMock = streamChat as unknown as ReturnType<typeof vi.fn>;
 const listAgentsMock = listAgents as unknown as ReturnType<typeof vi.fn>;
 const listEmployeesMock = listEmployees as unknown as ReturnType<typeof vi.fn>;
 const sendFeedbackMock = sendFeedback as unknown as ReturnType<typeof vi.fn>;
+const fetchChatSessionsMock = fetchChatSessions as unknown as ReturnType<typeof vi.fn>;
+const fetchChatHistoryMock = fetchChatHistory as unknown as ReturnType<typeof vi.fn>;
 
 const HERMES_AGENT = {
   id: "a2",
@@ -133,6 +137,8 @@ afterEach(() => {
   listAgentsMock.mockReset();
   listEmployeesMock.mockReset();
   sendFeedbackMock.mockReset();
+  fetchChatSessionsMock.mockReset();
+  fetchChatHistoryMock.mockReset();
 });
 
 describe("GlobalChatPanel personal chat panel (store-backed)", () => {
@@ -158,6 +164,7 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       undefined,
       undefined,
       [],
+      undefined,
     );
 
     const rows = wrapper.findAll(".message-row");
@@ -203,6 +210,7 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       undefined,
       undefined,
       [],
+      undefined,
     );
     wrapper.unmount();
   });
@@ -263,6 +271,7 @@ describe("GlobalChatPanel personal chat panel (store-backed)", () => {
       undefined,
       undefined,
       [],
+      undefined,
     );
     expect((composerTextarea(wrapper).element as HTMLTextAreaElement).value).toBe("");
     wrapper.unmount();
@@ -747,6 +756,76 @@ describe("GlobalChatPanel clarification follow-up (G4.S3.T13)", () => {
     expect(lastCall[0]).toBe("hermes");
     expect(lastCall[1]).toBe("company");
     expect(lastCall[4]).toEqual({ query: "what is caleo", answer: "company" });
+    wrapper.unmount();
+  });
+});
+
+describe("GlobalChatPanel session switcher (G4.S7.T12)", () => {
+  const sessions = [
+    { session_id: "s1", title: "First chat", created_at: "2026-08-20T00:00:00.000Z", updated_at: "2026-08-20T01:00:00.000Z", message_count: 2 },
+    { session_id: "", title: "Previous chat", created_at: "2026-08-19T00:00:00.000Z", updated_at: "2026-08-19T05:00:00.000Z", message_count: 5 },
+  ];
+
+  it("renders the session switcher trigger in the agent-card area", () => {
+    const wrapper = mountChat();
+    expect(wrapper.find(".session-trigger").exists()).toBe(true);
+    expect(wrapper.find(".session-trigger").text()).toContain("New chat");
+    wrapper.unmount();
+  });
+
+  it("opens the picker with recent sessions (title + count + time) and a New chat item", async () => {
+    fetchChatSessionsMock.mockResolvedValue(sessions);
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.sessions = sessions;
+
+    await wrapper.find(".session-trigger").trigger("click");
+    await flushPromises();
+
+    const menu = wrapper.find(".session-menu");
+    expect(menu.exists()).toBe(true);
+    expect(menu.find(".session-new").text()).toContain("New chat");
+    const options = wrapper.findAll(".session-option");
+    expect(options.length).toBe(3); // New chat + 2 sessions
+    expect(menu.text()).toContain("First chat");
+    expect(menu.text()).toContain("2 msg");
+    expect(menu.text()).toContain("Previous chat");
+    wrapper.unmount();
+  });
+
+  it("picking a session restores ONLY that session's messages through the store", async () => {
+    fetchChatHistoryMock.mockResolvedValue([
+      { message_id: "m1", employee_id: "u1", role: "user", content: "resumed q", speaker_id: "u1", speaker_name: "", page: "", thinking: "", progress: [], created_at: "" },
+    ]);
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.sessions = sessions;
+
+    await wrapper.find(".session-trigger").trigger("click");
+    await flushPromises();
+    await wrapper.findAll(".session-option").find((o) => o.text().includes("First chat"))!.trigger("click");
+    await flushPromises();
+
+    expect(fetchChatHistoryMock).toHaveBeenCalledWith("hermes", 200, "s1");
+    expect(store.activeSessionId).toBe("s1");
+    expect(store.messages.map((m) => m.content)).toEqual(["resumed q"]);
+    wrapper.unmount();
+  });
+
+  it("New chat clears the current view and starts fresh", async () => {
+    fetchChatSessionsMock.mockResolvedValue(sessions);
+    const wrapper = mountChat();
+    const store = useChatStore();
+    store.messages = [{ role: "user", content: "old view" }];
+    store.activeSessionId = "s1";
+
+    await wrapper.find(".session-trigger").trigger("click");
+    await flushPromises();
+    await wrapper.find(".session-new").trigger("click");
+    await flushPromises();
+
+    expect(store.messages).toEqual([]);
+    expect(store.activeSessionId).toBeNull();
     wrapper.unmount();
   });
 });

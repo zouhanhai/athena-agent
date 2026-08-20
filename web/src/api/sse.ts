@@ -8,6 +8,8 @@ export interface SSEHandlers {
   onThinking?: (text: string) => void;
   /** G4.S7.T4: tool progress from a remote agent (tool.started / tool.completed). */
   onTool?: (tool: ToolProgress) => void;
+  /** G4.S7.T12: the server resolved/created the chat session for this turn. */
+  onSessionId?: (sessionId: string) => void;
 }
 
 /** G4.S7.T4: a tool-progress row streamed by a remote agent over its reverse tunnel. */
@@ -88,6 +90,7 @@ function dispatchEvent(event: string, handlers: SSEHandlers): void {
     clarify?: unknown;
     thinking?: unknown;
     tool?: unknown;
+    session_id?: unknown;
   };
   try {
     parsed = JSON.parse(payload) as {
@@ -97,6 +100,7 @@ function dispatchEvent(event: string, handlers: SSEHandlers): void {
       clarify?: unknown;
       thinking?: unknown;
       tool?: unknown;
+      session_id?: unknown;
     };
   } catch {
     return;
@@ -112,6 +116,8 @@ function dispatchEvent(event: string, handlers: SSEHandlers): void {
     handlers.onThinking?.(parsed.thinking);
   } else if (isToolProgress(parsed.tool)) {
     handlers.onTool?.(parsed.tool);
+  } else if (typeof parsed.session_id === "string") {
+    handlers.onSessionId?.(parsed.session_id);
   } else if (typeof parsed.delta === "string") {
     handlers.onDelta?.(parsed.delta);
   }

@@ -17,13 +17,15 @@ async function collect(chunks: string[]) {
   let done = 0;
   const errors: string[] = [];
   const clarifies: Array<{ question: string; options: string[]; query?: string }> = [];
+  const sessionIds: string[] = [];
   await consumeSSEStream(response(chunks), {
     onDelta: (d) => deltas.push(d),
     onDone: () => done++,
     onError: (e) => errors.push(e),
     onClarify: (c) => clarifies.push(c),
+    onSessionId: (id) => sessionIds.push(id),
   });
-  return { deltas, done, errors, clarifies };
+  return { deltas, done, errors, clarifies, sessionIds };
 }
 
 describe("consumeSSEStream", () => {
@@ -50,6 +52,20 @@ describe("consumeSSEStream", () => {
       { question: "Which do you mean?", options: ["company", "person"], query: "what is caleo" },
     ]);
     expect(result.deltas).toEqual([]);
+  });
+
+  it("dispatches a session_id event (G4.S7.T12) before the deltas", async () => {
+    const result = await collect([
+      'data: {"session_id":"abc-123"}\n\n',
+      'data: {"delta":"hi"}\n\n',
+    ]);
+    expect(result.sessionIds).toEqual(["abc-123"]);
+    expect(result.deltas).toEqual(["hi"]);
+  });
+
+  it("does not call onSessionId for delta / done / error events", async () => {
+    const result = await collect(['data: {"delta":"hi"}\n\n', 'data: {"done":true}\n\n']);
+    expect(result.sessionIds).toEqual([]);
   });
 
   it("does not call onClarify for delta / done events", async () => {

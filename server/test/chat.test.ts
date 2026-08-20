@@ -120,7 +120,8 @@ test("POST /api/chat non-streaming returns Pi answer", async () => {
     payload: { userId: "alice", message: "hi" },
   });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { reply: "mock reply" });
+  const body = res.json() as { reply: string };
+  assert.equal(body.reply, "mock reply");
 });
 
 test("POST /api/chat streaming (Accept: text/event-stream) returns SSE chunk by chunk", async () => {

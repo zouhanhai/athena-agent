@@ -23,10 +23,44 @@ const { messages, loading, error } = storeToRefs(chat);
 const input = ref("");
 const agentPickerOpen = ref(false);
 const employeePickerOpen = ref(false);
+const sessionPickerOpen = ref(false);
 const availableAgents = ref<AgentRecord[]>([]);
 const availableEmployees = ref<EmployeeRecord[]>([]);
 const pickerError = ref("");
 const expandedAgentId = ref<string | null>(null);
+
+/** G4.S7.T12: compact relative-time label for a session's last activity. */
+function relativeTime(iso: string): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffMs = Date.now() - then;
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(then).toLocaleDateString();
+}
+
+async function toggleSessionPicker() {
+  sessionPickerOpen.value = !sessionPickerOpen.value;
+  if (sessionPickerOpen.value && chat.sessions.length === 0) {
+    await chat.loadSessions();
+  }
+}
+
+function pickSession(sessionId: string) {
+  sessionPickerOpen.value = false;
+  void chat.pickSession(sessionId);
+}
+
+function startNewChat() {
+  sessionPickerOpen.value = false;
+  void chat.newChat();
+}
 
 /** G4.S7.T10: estimated tokens of the accumulated user/assistant conversation —
  *  mirrors the server heuristic; drives the context meter in the panel.
@@ -73,8 +107,11 @@ watch(
         logoUrl: employee.logo_url,
       });
       chat.userId = employee.id;
-      // G4.S7.T11-followup: restore this user's persisted conversation (F5).
-      void chat.loadHistory();
+      // G4.S7.T12: populate the session picker (cheap list, no message fetch).
+      // The conversation starts at a fresh "New chat" empty state until the user
+      // picks a prior session (mirrors Hermes' /resume — show the list, let the
+      // user choose; do NOT auto-load a full conversation on sign-in).
+      void chat.loadSessions();
     }
   },
   { immediate: true },
@@ -167,6 +204,36 @@ function addEmployee(emp: EmployeeRecord) {
   <aside class="global-chat-panel">
     <section class="participants">
       <h3 class="participants-title">In conversation</h3>
+      <!-- G4.S7.T12: session switcher — recent chats (resume) + New chat. Lives
+           in the agent-card area per the user's explicit UI request. -->
+      <div class="session-switcher">
+        <button type="button" class="session-trigger" @click="toggleSessionPicker">
+          <span v-if="chat.activeSessionId">
+            {{ chat.sessions.find((s) => s.session_id === chat.activeSessionId)?.title || "Current chat" }}
+          </span>
+          <span v-else>New chat</span>
+          <span class="session-caret">▾</span>
+        </button>
+        <div v-if="sessionPickerOpen" class="session-menu">
+          <button type="button" class="session-option session-new" @click="startNewChat">
+            <span class="session-option-title">+ New chat</span>
+          </button>
+          <div v-if="chat.sessions.length === 0" class="session-empty">No previous chats.</div>
+          <button
+            v-for="s in chat.sessions"
+            :key="s.session_id"
+            type="button"
+            class="session-option"
+            :class="{ active: s.session_id === chat.activeSessionId }"
+            @click="pickSession(s.session_id)"
+          >
+            <span class="session-option-title">{{ s.title || "Previous chat" }}</span>
+            <span class="session-option-meta">
+              {{ s.message_count }} msg · {{ relativeTime(s.updated_at) }}
+            </span>
+          </button>
+        </div>
+      </div>
       <div class="agent-cards">
         <AgentCard
           v-for="(participant, idx) in chat.participants"
@@ -391,6 +458,105 @@ function addEmployee(emp: EmployeeRecord) {
   margin: 0 0 8px;
   font-size: 13px;
   color: var(--caleo-text-secondary);
+}
+
+/* G4.S7.T12: session switcher in the agent-card area. */
+.session-switcher {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.session-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: var(--caleo-surface);
+  color: var(--caleo-text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.session-trigger:hover {
+  border-color: var(--caleo-primary);
+}
+
+.session-caret {
+  margin-left: auto;
+  color: var(--caleo-text-secondary);
+  font-size: 11px;
+}
+
+.session-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  box-shadow: var(--caleo-shadow);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.session-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--caleo-text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.session-option:hover {
+  background: var(--caleo-hover);
+}
+
+.session-option.active {
+  background: color-mix(in srgb, var(--caleo-primary) 12%, transparent);
+}
+
+.session-new {
+  font-weight: 600;
+  color: var(--caleo-primary);
+  border-bottom: 1px solid var(--caleo-border);
+  border-radius: 6px 6px 0 0;
+}
+
+.session-option-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-option-meta {
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
+  white-space: nowrap;
+}
+
+.session-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+  text-align: center;
 }
 
 .agent-cards {

@@ -58,7 +58,7 @@ describe("chat-history store (memory)", () => {
     for (let i = 0; i < 5; i++) {
       await store.saveMessage({ employeeId: "e1", role: "user", content: `msg${i}` });
     }
-    const list = await store.listMessages("e1", 3);
+    const list = await store.listMessages("e1", undefined, 3);
     assert.deepEqual(
       list.map((m) => m.content),
       ["msg2", "msg3", "msg4"],
