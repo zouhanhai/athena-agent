@@ -10,6 +10,12 @@ import {
   type InviteResult,
 } from "@/api/invitations";
 import { listAgents, type AgentRecord } from "@/api/agents";
+import {
+  KbAuditHttpError,
+  listKbAuditReports,
+  runKbAudit,
+  type KbAuditReport,
+} from "@/api/kb";
 
 const KB_EDIT = "kb.edit";
 const DEFAULT_LOGO = "/athena-logo-ai.png";
@@ -36,6 +42,55 @@ const inviteTtlDays = computed(() =>
     ? Math.max(1, Math.round(inviteResult.value.expiresInMs / 86_400_000))
     : 7,
 );
+
+// G4.S8.T15: knowledge-base audit (run now + report history).
+const auditRunning = ref(false);
+const auditError = ref("");
+const auditNotice = ref("");
+const auditReports = ref<KbAuditReport[]>([]);
+
+const latestReport = computed<KbAuditReport | null>(
+  () => auditReports.value[0] ?? null,
+);
+
+function triggerLabel(report: KbAuditReport): string {
+  return report.trigger === "scheduled" ? "scheduled" : "manual";
+}
+
+function formatStartedAt(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+}
+
+async function loadAuditReports() {
+  try {
+    auditReports.value = await listKbAuditReports(20);
+  } catch (err) {
+    auditError.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
+async function runAuditNow() {
+  if (auditRunning.value) {
+    return;
+  }
+  auditRunning.value = true;
+  auditError.value = "";
+  auditNotice.value = "";
+  try {
+    await runKbAudit();
+    await loadAuditReports();
+    auditNotice.value = "Knowledge-base audit finished.";
+  } catch (err) {
+    if (err instanceof KbAuditHttpError && err.status === 409) {
+      auditError.value = "An audit is already running — please wait for it to finish.";
+    } else {
+      auditError.value = err instanceof Error ? err.message : String(err);
+    }
+  } finally {
+    auditRunning.value = false;
+  }
+}
 
 function ownedAgents(employeeId: string): AgentRecord[] {
   return agentsByOwner.value[employeeId] ?? [];
@@ -74,6 +129,7 @@ async function loadAll() {
       (byOwner[key] ??= []).push(agent);
     }
     agentsByOwner.value = byOwner;
+    await loadAuditReports();
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -262,6 +318,67 @@ onMounted(() => {
             </ul>
           </li>
         </ul>
+      </div>
+
+      <div class="admin-section">
+        <h3 class="section-title">Knowledge-Base Audit</h3>
+        <p class="audit-hint">
+          Weekly audit runs automatically (default Sunday 03:00). Run it now to
+          re-review confidence, re-check files and sweep orphan refinements.
+        </p>
+        <div class="audit-actions">
+          <button
+            type="button"
+            class="audit-run-button"
+            data-testid="kb-audit-run"
+            :disabled="auditRunning"
+            @click="runAuditNow"
+          >
+            {{ auditRunning ? "Auditing…" : "Run audit now" }}
+          </button>
+        </div>
+        <p v-if="auditError" class="admin-error" data-testid="kb-audit-error">{{ auditError }}</p>
+        <p v-else-if="auditNotice" class="audit-hint" data-testid="kb-audit-notice">{{ auditNotice }}</p>
+
+        <div v-if="latestReport" class="audit-summary" data-testid="kb-audit-latest">
+          <span class="audit-badge" :class="`is-${latestReport.trigger}`">
+            {{ triggerLabel(latestReport) }}
+          </span>
+          <span class="audit-meta">{{ formatStartedAt(latestReport.startedAt) }}</span>
+          <ul class="audit-stats">
+            <li>Review: {{ latestReport.review.changed }} change(s) across {{ latestReport.review.scanned }} page(s)</li>
+            <li>File repairs: {{ latestReport.fileCheck.repaired }}</li>
+            <li>Orphans removed: {{ latestReport.orphans.removed.length }}</li>
+          </ul>
+        </div>
+
+        <table v-if="auditReports.length > 0" class="audit-table" data-testid="kb-audit-table">
+          <thead>
+            <tr>
+              <th>Started</th>
+              <th>Trigger</th>
+              <th>Review</th>
+              <th>Repairs</th>
+              <th>Orphans</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="report in auditReports" :key="report.id ?? report.startedAt">
+              <td>{{ formatStartedAt(report.startedAt) }}</td>
+              <td>
+                <span class="audit-badge" :class="`is-${report.trigger}`">
+                  {{ triggerLabel(report) }}
+                </span>
+              </td>
+              <td>{{ report.review.changed }}/{{ report.review.scanned }}</td>
+              <td>{{ report.fileCheck.repaired }}</td>
+              <td>{{ report.orphans.removed.length }}</td>
+              <td>{{ (report.durationMs / 1000).toFixed(1) }}s</td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="audit-hint">No audit reports yet.</p>
       </div>
 
       <div class="admin-section">
@@ -519,6 +636,102 @@ onMounted(() => {
   gap: 8px;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+
+.audit-actions {
+  margin-top: 8px;
+}
+
+.audit-hint {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+  color: var(--caleo-text-secondary);
+}
+
+.audit-run-button {
+  padding: 8px 16px;
+  background: var(--caleo-primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.audit-run-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.audit-summary {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  background: var(--caleo-body-bg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.audit-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--caleo-text);
+}
+
+.audit-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+}
+
+.audit-badge.is-scheduled {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.audit-badge.is-manual {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.audit-meta {
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
+}
+
+.audit-table {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--caleo-text);
+}
+
+.audit-table th,
+.audit-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--caleo-border);
+}
+
+.audit-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--caleo-text-secondary);
 }
 
 .invite-link {

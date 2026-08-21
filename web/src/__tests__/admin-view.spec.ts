@@ -13,6 +13,7 @@ import {
   type EmployeeRecord,
 } from "@/api/invitations";
 import { listAgents, type AgentRecord } from "@/api/agents";
+import { listKbAuditReports, type KbAuditReport } from "@/api/kb";
 import { useAuthStore } from "@/stores/auth";
 
 vi.mock("@/api/invitations", () => ({
@@ -23,6 +24,29 @@ vi.mock("@/api/invitations", () => ({
 vi.mock("@/api/agents", () => ({
   listAgents: vi.fn(),
 }));
+vi.mock("@/api/kb", () => ({
+  KbAuditHttpError: class KbAuditHttpError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+    }
+  },
+  listKbAuditReports: vi.fn(),
+  runKbAudit: vi.fn(),
+}));
+
+const listKbAuditReportsMock = listKbAuditReports as unknown as ReturnType<typeof vi.fn>;
+
+const emptyReport: KbAuditReport = {
+  id: "run-1",
+  trigger: "scheduled",
+  startedAt: "2026-08-16T03:00:00.000Z",
+  durationMs: 1200,
+  review: { runAt: "2026-08-16", scanned: 5, changed: 2, archive: [], results: [] },
+  fileCheck: { repaired: 1, details: [] },
+  orphans: { scannedDirs: 4, removed: ["/r/stale"], kept: [] },
+};
 
 const listEmployeesMock = listEmployees as unknown as ReturnType<typeof vi.fn>;
 const updateEmployeeMock = updateEmployee as unknown as ReturnType<typeof vi.fn>;
@@ -132,6 +156,7 @@ beforeEach(() => {
   updateEmployeeMock.mockReset();
   sendInviteMock.mockReset();
   listAgentsMock.mockReset().mockResolvedValue(agents);
+  listKbAuditReportsMock.mockReset().mockResolvedValue([emptyReport]);
 });
 
 afterEach(() => {

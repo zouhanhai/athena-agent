@@ -53,6 +53,11 @@ import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
 import { KbReviewService, scheduleKbReview } from "./kb/review.js";
+import { KbAuditScheduler, KbAuditService } from "./kb/audit.js";
+import {
+  defaultKbAuditRunsStore,
+  type KbAuditRunsStore,
+} from "./kb/audit-runs.js";
 import { WikiReCurator } from "./kb/recurate.js";
 import { FeedbackService } from "./kb/feedback.js";
 import { MemoryQaPairStore, PostgresQaPairStore } from "./kb/qa-pairs.js";
@@ -91,6 +96,21 @@ export interface BuildAppOptions {
   retrieval?: KnowledgeRetrievalService;
   /** Athena KB review pass (G4.S3.T2). Default: defaultReviewService(). */
   review?: KbReviewService;
+  /**
+   * G4.S8.T15: the weekly knowledge-base audit service (3-stage pipeline).
+   * Default: built from the review service + Neo4j ingest + runs store.
+   */
+  audit?: KbAuditService;
+  /** G4.S8.T15: audit report persistence. Default: Postgres when DATABASE_URL
+   *  is set, else in-memory. */
+  auditRunsStore?: KbAuditRunsStore;
+  /**
+   * G4.S8.T15: start the in-server weekly audit scheduler on ready. Only the
+   * real server entry opts in (default false) so the test suite's buildApp()
+   * calls never trigger catch-up audits; the scheduler itself still honors
+   * KB_AUDIT_ENABLED/DAY/HOUR.
+   */
+  auditScheduler?: boolean;
   /** Incremental re-curation tool (G4.S3.T3). Default: defaultReCurator(). */
   recurator?: WikiReCurator;
   /** Feedback loop service (G4.S3.T5). Default: defaultFeedbackService(). */
@@ -383,6 +403,21 @@ export function defaultLogoStore(): LogoStore {
   });
 }
 
+/** G4.S8.T15: the weekly knowledge-base audit — review pass (existing
+ *  reviewAll) + WikiPage-vs-disk file re-check (T14 cascade repairs) + orphan
+ *  refinement sweep, persisted one report row per run. */
+export function defaultKbAuditService(
+  review: KbReviewService,
+  runsStore: KbAuditRunsStore,
+): KbAuditService {
+  return new KbAuditService({
+    review,
+    runsStore,
+    graph: defaultNeo4jIngest(),
+    wikiDir: process.env.LLM_WIKI_WIKI_DIR || undefined,
+  });
+}
+
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
   const manager = options.manager ?? new AgentManager();
@@ -433,6 +468,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     return { status: "ok" };
   });
 
+  // G4.S8.T15: the weekly knowledge-base audit (3 stages, one persisted
+  // report row per run) + manual trigger endpoints in registerKbRoutes.
+  const auditRunsStore = options.auditRunsStore ?? defaultKbAuditRunsStore();
+  const audit =
+    options.audit ??
+    defaultKbAuditService(options.review ?? review, auditRunsStore);
+  let auditScheduler: KbAuditScheduler | undefined;
+
   app.addHook("onReady", async () => {
     if (!options.registry) {
       await registry.seed();
@@ -445,6 +488,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     const interval = Number(process.env.KB_REVIEW_INTERVAL_MS);
     if (Number.isFinite(interval) && interval > 0) {
       scheduledReview = scheduleKbReview(review, interval);
+    }
+    // G4.S8.T15: weekly KB audit scheduler — ONLY the real server entry opts
+    // in via auditScheduler: true; tests construct buildApp() hundreds of
+    // times and must never fire catch-up audits. Env-configurable cadence:
+    // KB_AUDIT_ENABLED (default true) / KB_AUDIT_DAY / KB_AUDIT_HOUR.
+    if (options.auditScheduler) {
+      auditScheduler = new KbAuditScheduler({ service: audit, runsStore: auditRunsStore });
+      await auditScheduler.start();
     }
   });
 
@@ -461,6 +512,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.addHook("onClose", async () => {
     hub.close();
     scheduledReview?.stop();
+    auditScheduler?.stop();
+    await auditRunsStore.close();
     await registry.close();
     await logos.close();
     await employees.close();
@@ -499,6 +552,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     mappings,
     taskQueue: options.taskQueue ?? defaultTaskQueue(),
     maxFileSize: options.maxFileSize,
+    // G4.S8.T15: manual audit trigger + report history (admin-gated).
+    audit,
+    auditRunsStore,
     // G4.S3.T10: the wiki-edit save endpoint is RBAC-gated behind `kb.edit`.
     auth,
     // G4.S8.T10: code-intake channels authenticate agent invitation tokens

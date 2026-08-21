@@ -440,3 +440,77 @@ export async function listCodeObjects(options: {
 export async function getCodeObject(name: string): Promise<CodeObjectDetail> {
   return request<CodeObjectDetail>(`${KB_BASE}/graph/entities/${encodeURIComponent(name)}`);
 }
+
+// --- Knowledge-base audit (G4.S8.T15) ----------------------------------------
+
+export type KbAuditTrigger = "scheduled" | "manual";
+
+/** Stage-2 outcome of an audit run (graph vs disk repairs). */
+export interface KbAuditFileCheck {
+  repaired: number;
+  details: string[];
+}
+
+/** Stage-3 outcome: the orphan refinement sweep. */
+export interface KbAuditOrphanSweep {
+  scannedDirs: number;
+  removed: string[];
+  kept: string[];
+}
+
+export interface KbAuditReport {
+  id?: string;
+  trigger: KbAuditTrigger;
+  startedAt: string;
+  durationMs: number;
+  review: {
+    runAt: string;
+    scanned: number;
+    changed: number;
+    archive: string[];
+    results: Array<{ path: string; action: string; reason: string }>;
+  };
+  fileCheck: KbAuditFileCheck;
+  orphans: KbAuditOrphanSweep;
+}
+
+/** Error carrying the HTTP status so the UI can special-case 409 (a run is
+ *  already in progress) and 401/403. */
+export class KbAuditHttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function auditRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers ?? {});
+  const token = localStorage.getItem("athena.session_token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(url, { ...init, headers });
+  if (!res.ok) {
+    throw new KbAuditHttpError(res.status, `Request failed with status ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
+/** POST /api/kb/audit → run the full audit pipeline now (admin-gated). Rejects
+ *  with KbAuditHttpError(409) while another run is in progress. */
+export async function runKbAudit(): Promise<KbAuditReport> {
+  const data = await auditRequest<{ report: KbAuditReport }>(`${KB_BASE}/audit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return data.report;
+}
+
+/** GET /api/kb/audit/reports?limit= → recent runs, newest first (scheduled AND
+ *  manual). */
+export async function listKbAuditReports(limit = 20): Promise<KbAuditReport[]> {
+  const data = await auditRequest<{ reports: KbAuditReport[] }>(
+    `${KB_BASE}/audit/reports?limit=${limit}`,
+  );
+  return data.reports;
+}

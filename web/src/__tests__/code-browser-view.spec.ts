@@ -5,16 +5,18 @@ import { createRouter, createMemoryHistory } from "vue-router";
 import TDesign from "tdesign-vue-next";
 import "tdesign-vue-next/es/style/index.css";
 import CodeBrowserView from "@/views/CodeBrowserView.vue";
-import { getCodeObject, listCodeObjects } from "@/api/kb";
+import { deleteWikiDoc, getCodeObject, listCodeObjects } from "@/api/kb";
 import type { CodeObjectDetail, CodeObjectEntity } from "@/api/kb";
 
 vi.mock("@/api/kb", () => ({
+  deleteWikiDoc: vi.fn(),
   getCodeObject: vi.fn(),
   listCodeObjects: vi.fn(),
 }));
 
 const listMock = listCodeObjects as unknown as ReturnType<typeof vi.fn>;
 const getMock = getCodeObject as unknown as ReturnType<typeof vi.fn>;
+const deleteMock = deleteWikiDoc as unknown as ReturnType<typeof vi.fn>;
 
 const sampleEntities: CodeObjectEntity[] = [
   { name: "FICOMPUTE", type: "abap_unit", description: "ABAP function module" },
@@ -60,6 +62,7 @@ async function mountView() {
 afterEach(() => {
   listMock.mockReset();
   getMock.mockReset();
+  deleteMock.mockReset();
 });
 
 describe("CodeBrowserView", () => {
@@ -170,6 +173,59 @@ describe("CodeBrowserView", () => {
 
     expect(wrapper.find(".cb-error").exists()).toBe(true);
     expect(wrapper.text()).toContain("entity down");
+    wrapper.unmount();
+  });
+
+  it("offers a delete action only for entries whose page resolves and deletes the PAGE (never the entity)", async () => {
+    listMock.mockResolvedValue(sampleEntities);
+    getMock.mockResolvedValue(sampleDetail);
+    deleteMock.mockResolvedValue({ ok: true });
+    const confirm = vi.fn().mockReturnValue(true);
+    Object.assign(window, { confirm });
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    const ent = wrapper.findAll('[data-testid="cb-entity"]').find((b) => b.text().includes("FICOMPUTE"))!;
+    await ent.trigger("click");
+    await flushPromises();
+
+    // Only the wiki-page-backed relation (ZCL_FI_DELIVERY) gets a delete button.
+    const buttons = wrapper.findAll('[data-testid="cb-delete-page"]');
+    expect(buttons).toHaveLength(1);
+
+    await buttons[0].trigger("click");
+    await flushPromises();
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("wiki/code/dev/zcl_fi_delivery.md"));
+    expect(deleteMock).toHaveBeenCalledWith("wiki/code/dev/zcl_fi_delivery.md");
+    // After delete both list + detail refresh.
+    expect(listMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(getMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    // Declining the confirm never calls the API.
+    confirm.mockReturnValue(false);
+    getMock.mockResolvedValue(sampleDetail);
+    await wrapper.findAll('[data-testid="cb-delete-page"]')[0].trigger("click");
+    await flushPromises();
+    expect(deleteMock).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("surfaces a delete failure without losing the current detail", async () => {
+    listMock.mockResolvedValue(sampleEntities);
+    getMock.mockResolvedValue(sampleDetail);
+    deleteMock.mockRejectedValue(new Error("delete failed"));
+    Object.assign(window, { confirm: () => true });
+    const { wrapper } = await mountView();
+    await flushPromises();
+
+    const ent = wrapper.findAll('[data-testid="cb-entity"]').find((b) => b.text().includes("FICOMPUTE"))!;
+    await ent.trigger("click");
+    await flushPromises();
+    await wrapper.find('[data-testid="cb-delete-page"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cb-delete-error"]').text()).toContain("delete failed");
+    expect(wrapper.find('[data-testid="cb-detail"]').exists()).toBe(true);
     wrapper.unmount();
   });
 });

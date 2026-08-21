@@ -667,6 +667,52 @@ export class Neo4jIngestService {
     }
   }
 
+  /**
+   * Distinct wiki-page paths known to the graph (G4.S8.T15 audit stage-2
+   * file re-check). WikiPage nodes carry their project-relative page path in
+   * `id` (older nodes: `path`). Read-only, best-effort listing.
+   */
+  async listWikiPagePaths(): Promise<string[]> {
+    const session = this.driver.session();
+    try {
+      const result = (await session.run(
+        `MATCH (wp:${WIKIPAGE_LABEL})
+         RETURN coalesce(wp.id, wp.path) AS path`,
+      )) as { records?: Array<{ get(key: string): unknown }> };
+      const out: string[] = [];
+      for (const record of result?.records ?? []) {
+        const path = record.get?.("path");
+        if (typeof path === "string" && path) out.push(path);
+      }
+      return [...new Set(out)];
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * All Document.md_ref values currently referenced by graph documents
+   * (G4.S8.T15 audit stage-3 md_ref protection). Read-only.
+   */
+  async listMdRefs(): Promise<string[]> {
+    const session = this.driver.session();
+    try {
+      const result = (await session.run(
+        `MATCH (d:${DOCUMENT_LABEL})
+         WHERE d.md_ref IS NOT NULL
+         RETURN d.md_ref AS mdRef`,
+      )) as { records?: Array<{ get(key: string): unknown }> };
+      const out: string[] = [];
+      for (const record of result?.records ?? []) {
+        const mdRef = record.get?.("mdRef");
+        if (typeof mdRef === "string" && mdRef) out.push(mdRef);
+      }
+      return out;
+    } finally {
+      await session.close();
+    }
+  }
+
   /** Run a counting DETACH DELETE and return the removed-node count as a number. */
   private async deleteCounting(
     session: Neo4jSessionLike,

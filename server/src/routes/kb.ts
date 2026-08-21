@@ -8,6 +8,8 @@ import type { KnowledgeIngestService } from "../kb/ingest.js";
 import type { KnowledgeRetrievalService } from "../kb/retrieval.js";
 import type { IngestTaskQueue } from "../kb/tasks.js";
 import type { KbReviewService } from "../kb/review.js";
+import type { KbAuditService } from "../kb/audit.js";
+import type { KbAuditRunsStore } from "../kb/audit-runs.js";
 import type { WikiReCurator } from "../kb/recurate.js";
 import type { FeedbackService } from "../kb/feedback.js";
 import type { ManualQaMode } from "../kb/feedback.js";
@@ -24,6 +26,7 @@ import {
   TaskBusyError,
   TaskNotFoundError,
 } from "../kb/tasks.js";
+import { KbAuditAlreadyRunningError } from "../kb/audit.js";
 
 export interface KbRequestBody {
   title?: unknown;
@@ -47,6 +50,11 @@ export interface KbRouteOptions {
   taskQueue?: IngestTaskQueue;
   /** Athena KB review pass (G4.S3.T2): POST /api/kb/review. */
   review?: KbReviewService;
+  /** Weekly KB audit pipeline (G4.S8.T15): POST /api/kb/audit (admin, 409 on
+   *  a concurrent run). */
+  audit?: KbAuditService;
+  /** Audit report persistence (G4.S8.T15): GET /api/kb/audit/reports. */
+  auditRunsStore?: KbAuditRunsStore;
   /** Incremental re-curation tool (G4.S3.T3): POST /api/kb/wiki/retopic. */
   recurator?: WikiReCurator;
   /** Feedback loop (G4.S3.T5): POST /api/kb/feedback + GET /api/kb/qa. */
@@ -449,6 +457,69 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     }
   };
   app.post("/api/kb/review", reviewHandler);
+
+  /**
+   * G4.S8.T15: the KB audit endpoints are an admin-console surface — require
+   * a signed-in employee whose role is admin. 401 without a session, 403 for
+   * members.
+   */
+  const requireAdmin = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<boolean> => {
+    if (!options.auth) {
+      reply.code(500).send({ error: "audit endpoints require the auth service" });
+      return false;
+    }
+    const employee = await currentEmployee(request, options.auth);
+    if (!employee) {
+      reply.code(401).send({ error: "unauthorized" });
+      return false;
+    }
+    if (employee.role !== "admin") {
+      reply.code(403).send({ error: "forbidden: admin role required" });
+      return false;
+    }
+    return true;
+  };
+
+  /** POST /api/kb/audit → run the full weekly-audit pipeline immediately
+   *  (admin-gated): review pass + file re-check + orphan sweep. One report
+   *  row is persisted exactly like a scheduled run. Concurrent invocations
+   *  are rejected with 409 while one is running. */
+  app.post("/api/kb/audit", async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.audit) {
+      return reply.code(500).send({ error: "KB audit service not configured" });
+    }
+    try {
+      const report = await options.audit.run("manual");
+      return reply.code(200).send({ report });
+    } catch (err) {
+      if (err instanceof KbAuditAlreadyRunningError) {
+        return reply.code(409).send({ error: err.message });
+      }
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** GET /api/kb/audit/reports?limit= → recent persisted audit reports,
+   *  newest first — scheduled AND manual runs (trigger badge in the UI). */
+  app.get("/api/kb/audit/reports", async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.auditRunsStore) {
+      return reply.code(500).send({ error: "KB audit runs store not configured" });
+    }
+    const { limit } = request.query as { limit?: unknown };
+    try {
+      const reports = await options.auditRunsStore.list(
+        Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 20,
+      );
+      return { reports };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   /** POST /api/kb/wiki/retopic → re-curate a wiki page into a deeper topic dir
    *  (G4.S3.T3): move the file, update topic + topic_history + last_reviewed,

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
+  deleteWikiDoc,
   getCodeObject,
   listCodeObjects,
   type CodeObjectDetail,
@@ -31,6 +32,12 @@ const detail = ref<CodeObjectDetail | null>(null);
 const detailLoading = ref(false);
 const detailError = ref("");
 const selectedName = ref("");
+
+// G4.S8.T15: document-level delete affordance (T14 cascade behind
+// DELETE /api/kb/doc). Entity-level deletion is forbidden — a shared
+// nameUpper entity spans documents — so only the resolved wiki PAGE goes away.
+const deletingPath = ref("");
+const deleteError = ref("");
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -100,6 +107,27 @@ async function select(name: string): Promise<void> {
 /** Open a relation entry's wiki page (deep link into the Wiki view). */
 function openWiki(wikiPath: string): void {
   void router.push({ path: "/wiki", query: { path: wikiPath } });
+}
+
+/** Delete the wiki page behind a relation entry (T14 cascade: graph subtree +
+ *  orphan entities + refinement dir). Refreshes list + detail afterwards —
+ *  entries whose page no longer exists render without a link automatically. */
+async function deleteWikiPage(rel: CodeObjectRelation): Promise<void> {
+  const wikiPath = firstWikiPath(rel);
+  if (!wikiPath || deletingPath.value) return;
+  if (!window.confirm(`Delete the source wiki page ${wikiPath}? This removes its graph subtree.`)) {
+    return;
+  }
+  deletingPath.value = wikiPath;
+  deleteError.value = "";
+  try {
+    await deleteWikiDoc(wikiPath);
+    await Promise.all([loadList(), selectedName.value ? select(selectedName.value) : Promise.resolve()]);
+  } catch (err) {
+    deleteError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    deletingPath.value = "";
+  }
 }
 
 onMounted(() => void loadList());
@@ -182,6 +210,8 @@ watch(query, (q) => {
             <p v-if="detail.description" class="cb-detail-desc">{{ detail.description }}</p>
           </div>
 
+          <p v-if="deleteError" class="cb-error" data-testid="cb-delete-error">{{ deleteError }}</p>
+
           <div class="cb-sections">
             <section class="cb-section" data-testid="cb-uses">
               <h4 class="cb-section-title">Uses <span class="cb-section-count">{{ detail.outgoing.length }}</span></h4>
@@ -197,6 +227,17 @@ watch(query, (q) => {
                     {{ rel.entity }}
                   </a>
                   <span v-else class="cb-link-plain" data-testid="cb-link-plain">{{ rel.entity }}</span>
+                  <button
+                    v-if="firstWikiPath(rel)"
+                    type="button"
+                    class="cb-delete"
+                    data-testid="cb-delete-page"
+                    :disabled="deletingPath.length > 0"
+                    :title="`Delete source page ${firstWikiPath(rel)}`"
+                    @click="deleteWikiPage(rel)"
+                  >
+                    {{ deletingPath === firstWikiPath(rel) ? "Deleting…" : "Delete page" }}
+                  </button>
                 </li>
               </ul>
               <p v-else class="cb-none">Nothing.</p>
@@ -218,6 +259,17 @@ watch(query, (q) => {
                     {{ rel.entity }}
                   </a>
                   <span v-else class="cb-link-plain" data-testid="cb-link-plain">{{ rel.entity }}</span>
+                  <button
+                    v-if="firstWikiPath(rel)"
+                    type="button"
+                    class="cb-delete"
+                    data-testid="cb-delete-page"
+                    :disabled="deletingPath.length > 0"
+                    :title="`Delete source page ${firstWikiPath(rel)}`"
+                    @click="deleteWikiPage(rel)"
+                  >
+                    {{ deletingPath === firstWikiPath(rel) ? "Deleting…" : "Delete page" }}
+                  </button>
                 </li>
               </ul>
               <p v-else class="cb-none">Nothing.</p>
@@ -523,5 +575,26 @@ watch(query, (q) => {
   margin: 0;
   color: var(--caleo-text-secondary);
   font-size: 13px;
+}
+
+.cb-delete {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: var(--caleo-surface);
+  color: var(--caleo-error);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cb-delete:hover:not(:disabled) {
+  border-color: var(--caleo-error);
+}
+
+.cb-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
