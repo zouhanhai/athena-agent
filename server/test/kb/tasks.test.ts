@@ -996,3 +996,38 @@ test("runAbap derives preclassified from the stored code ref frontmatter (code/u
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// --- G4.S8.T9: DDIC table-structure intake channel ---------------------------
+
+test("runDdic derives preclassified from the stored code ref frontmatter (category=code, topic=code/<system>)", async () => {
+  const ddicFixture = readFileSync(
+    join(import.meta.dirname, "..", "fixtures", "ddic", "mara-t001.json"),
+    "utf8",
+  );
+  const dir = await mkdtemp(join(tmpdir(), "ddic-preclassified-"));
+  const prevEnv = process.env.CODE_OUTPUT_DIR;
+  process.env.CODE_OUTPUT_DIR = dir;
+  try {
+    const { queue, calls } = makeFakes({});
+    const { taskId } = queue.submitDdic({ content: ddicFixture, filename: "mara-t001.json", system: "prd", devclass: "ZFI" });
+    await untilDone(queue, taskId);
+
+    const task = queue.getTask(taskId)!;
+    assert.equal(task.status, "done");
+    const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+    assert.ok(llmwiki, "llm_wiki ingest was reached");
+    const preclassified = (llmwiki!.args[3] as { category: string; pagePath: string; topic?: string }) ?? {};
+    assert.equal(preclassified.category, "code");
+    assert.equal(preclassified.topic, "code/prd");
+    assert.equal(preclassified.pagePath, `wiki/code/prd/${task.fileName}`);
+
+    // Table + external FK target entities reach the Neo4j ref (graph contract).
+    const ref = (queue.getTask(taskId)!.refinement as unknown as { entities: Array<{ name: string; type: string }> });
+    assert.ok(ref.entities.some((e) => e.name === "MARA" && e.type === "Table"));
+    assert.ok(ref.entities.some((e) => e.name === "T134"), "external FK target emitted");
+  } finally {
+    if (prevEnv === undefined) delete process.env.CODE_OUTPUT_DIR;
+    else process.env.CODE_OUTPUT_DIR = prevEnv;
+    await rm(dir, { recursive: true, force: true });
+  }
+});

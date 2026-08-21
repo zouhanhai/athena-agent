@@ -89,7 +89,7 @@ function sanitizeSlug(value: string): string {
 
 /** The code topic key for a code document: `code/<system>` (sanitized), or
  *  `code/unknown` when no system was reported by the intake agent (G4.S8.T7). */
-function codeTopic(provenance?: CodeProvenance): string {
+export function codeTopic(provenance?: CodeProvenance): string {
   const system = provenance?.system?.trim();
   return system ? `code/${sanitizeSlug(system)}` : "code/unknown";
 }

@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 
 const CDS_FIXTURE = join(import.meta.dirname, "..", "fixtures", "cds", "gr-cds-scope.cds");
 const ABAP_CLASS_FIXTURE = join(import.meta.dirname, "..", "fixtures", "abap", "zcl_fi_delivery.clas.abap");
+const DDIC_FIXTURE = join(import.meta.dirname, "..", "fixtures", "ddic", "mara-t001.json");
 
 /** Point the code-store at a temp dir so CDS intake writes stay test-local. Returns
  *  a teardown that restores the previous env value. */
@@ -650,6 +651,82 @@ test("POST /api/kb/ingest kind=ui5 fails the task when only node_modules (no bus
     const task = await pollTask(app, taskId);
     assert.equal(task.status, "failed");
     assert.match(task.error as string, /no business files|no .*controller|no .*unit/i);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// --- G4.S8.T9: DDIC table-structure intake channel ---------------------------
+
+test("POST /api/kb/ingest kind=ddic submits a task that parses table descriptors via the code channel (no docling)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-ddic-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const content = await readFile(DDIC_FIXTURE, "utf8");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: {
+        kind: "ddic",
+        filename: "mara-t001.json",
+        system: "prd",
+        devclass: "ZFI",
+        content,
+      },
+    });
+    assert.equal(res.statusCode, 202);
+    const { taskId, kind } = res.json() as { taskId: string; kind: string };
+    assert.ok(taskId);
+    assert.equal(kind, "ddic");
+
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "done");
+    assert.equal(
+      (task.stages as { ingesting_llmwiki: { status: string } }).ingesting_llmwiki.status,
+      "done",
+    );
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=ddic rejects empty content", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-ddic-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: { kind: "ddic", content: "" },
+    });
+    assert.equal(res.statusCode, 400);
+  } finally {
+    await app.close();
+    teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("POST /api/kb/ingest kind=ddic fails the task on a malformed descriptor set", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kb-ddic-"));
+  const teardown = useCodeDir(dir);
+  const app = buildApp({ taskQueue: makeTaskQueue() });
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/ingest",
+      payload: { kind: "ddic", content: "not-json-at-all" },
+    });
+    const { taskId } = res.json() as { taskId: string };
+    const task = await pollTask(app, taskId);
+    assert.equal(task.status, "failed");
+    assert.match(task.error as string, /JSON|parse|invalid|table/i);
   } finally {
     await app.close();
     teardown();

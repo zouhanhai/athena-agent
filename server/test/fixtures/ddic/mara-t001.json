@@ -1,0 +1,47 @@
+[
+  {
+    "name": "MARA",
+    "description": "General Material Data",
+    "fields": [
+      { "name": "MANDT", "key": true, "dataType": "CLNT", "dataElement": "MANDT", "domain": "MANDT", "description": "Client" },
+      { "name": "MATNR", "key": true, "dataType": "CHAR", "length": 40, "dataElement": "MATNR", "domain": "MATNR", "description": "Material Number" },
+      { "name": "ERSDA", "key": false, "dataType": "DATS", "dataElement": "ERSDA", "domain": "DATUM", "description": "Created On" },
+      { "name": "ERNAM", "key": false, "dataType": "CHAR", "length": 12, "dataElement": "ERNAM", "domain": "USNAM", "description": "Created By" },
+      { "name": "LAEDA", "key": false, "dataType": "DATS", "dataElement": "LAEDA", "domain": "DATUM", "description": "Last Changed On" },
+      { "name": "AENAM", "key": false, "dataType": "CHAR", "length": 12, "dataElement": "AENAM", "domain": "USNAM", "description": "Last Changed By" },
+      { "name": "VPSTA", "key": false, "dataType": "CHAR", "length": 15, "dataElement": "VPSTA", "domain": "VPSTA", "description": "Maintenance Status" },
+      { "name": "PSTAT", "key": false, "dataType": "CHAR", "length": 15, "dataElement": "PSTAT", "domain": "PSTAT", "description": "Maintenance Status" },
+      { "name": "LVORM", "key": false, "dataType": "CHAR", "length": 1, "dataElement": "LVORM", "domain": "X", "description": "Flag for Deletion" },
+      { "name": "MTART", "key": false, "dataType": "CHAR", "length": 4, "dataElement": "MTART", "domain": "MTART", "description": "Material Type" },
+      { "name": "MBRSH", "key": false, "dataType": "CHAR", "length": 1, "dataElement": "MBRSH", "domain": "MBRSH", "description": "Industry Sector" },
+      { "name": "MATKL", "key": false, "dataType": "CHAR", "length": 9, "dataElement": "MATKL", "domain": "MATKL", "description": "Material Group" },
+      { "name": "BISMT", "key": false, "dataType": "CHAR", "length": 18, "dataElement": "BISMT", "domain": "BISMT", "description": "Industry Standard Description" },
+      { "name": "MEINS", "key": false, "dataType": "UNIT", "length": 3, "dataElement": "MEINS", "domain": "MEINS", "description": "Base Unit of Measure" },
+      { "name": "BSTME", "key": false, "dataType": "UNIT", "length": 3, "dataElement": "BSTME", "domain": "MEINS", "description": "Order Unit" },
+      { "name": "ZEINR", "key": false, "dataType": "CHAR", "length": 22, "dataElement": "ZEINR", "domain": "ZEINR", "description": "Document Number" },
+      { "name": "ZEIAR", "key": false, "dataType": "CHAR", "length": 3, "dataElement": "ZEIAR", "domain": "ZEIAR", "description": "Document Type" },
+      { "name": "KZKFG", "key": false, "dataType": "CHAR", "length": 1, "dataElement": "KZKFG", "domain": "X", "description": "Configurable Material" },
+      { "name": "KZUMB", "key": false, "dataType": "CHAR", "length": 1, "dataElement": "KZUMB", "domain": "X", "description": "Batch Management Requirement Indicator" },
+      { "name": "XCHPF", "key": false, "dataType": "CHAR", "length": 1, "dataElement": "XCHPF", "domain": "X", "description": "Batch Management Requirement Indicator" },
+      { "name": "VHART", "key": false, "dataType": "CHAR", "length": 1, "dataElement": "VHART", "domain": "VHART", "description": "Handling Indicator" },
+      { "name": "FHGLC", "key": false, "dataType": "CHAR", "length": 1, "dataElement": "FHGLC", "domain": "X", "description": "General Material/Goods Action Control" },
+      { "name": "STFAK", "key": false, "dataType": "DEC", "dataElement": "STFAK", "domain": "STFAK", "description": "Using Factor" },
+      { "name": "MSTAE", "key": false, "dataType": "CHAR", "length": 2, "dataElement": "MSTAE", "domain": "MSTAE", "description": "Cross-Plant Status" },
+      { "name": "MSTDE", "key": false, "dataType": "DATS", "dataElement": "MSTDE", "domain": "DATUM", "description": "Cross-Plant Status Valid From" },
+      { "name": "MSTDA", "key": false, "dataType": "DATS", "dataElement": "MSTDA", "domain": "DATUM", "description": "Cross-Plant Status Valid To" }
+    ],
+    "foreignKeys": [
+      { "field": "MTART", "table": "T134", "description": "Material Type" },
+      { "field": "MATKL", "table": "T023", "description": "Material Group" },
+      { "field": "MEINS", "table": "T006", "description": "Units of Measure" }
+    ]
+  },
+  {
+    "name": "T001",
+    "description": "Company Codes",
+    "fields": [
+      { "name": "MANDT", "key": true, "dataType": "CLNT", "dataElement": "MANDT", "domain": "MANDT", "description": "Client" },
+      { "name": "BUKRS", "key": true, "dataType": "CHAR", "length": 4, "dataElement": "BUKRS", "domain": "BUKRS", "description": "Company Code" }
+    ]
+  }
+]
