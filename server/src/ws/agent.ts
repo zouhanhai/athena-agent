@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { AgentRegistry } from "../agents/registry.js";
 import type { ChatTurn } from "../agents/chat-context.js";
+import { INTAKE_CHANNELS } from "../kb/intake-channels.js";
 
 /** Public inbound WebSocket endpoint remote agents connect INTO (G4.S7.T1). */
 export const AGENT_WS_PATH = "/ws/agent";
@@ -52,6 +53,19 @@ export interface AgentTaskReplyContract {
     thinking: { payloadField: "thinking"; compat: "text also accepted" };
     "tool.completed": { output: "optional tool result content" };
   };
+}
+
+/**
+ * Self-describing INTAKE contract shipped in the `registered` frame (G4.S8.T10).
+ * Same philosophy as the taskReply contract: a remote agent learns HOW to submit
+ * code/DDIC into the knowledge base purely from the wire — the channel list
+ * (`kind`/`method`/`endpoint`/fields/`returns`) comes from the single
+ * INTAKE_CHANNELS source of truth and the required auth header is declared, so
+ * no protocol guessing / no out-of-band setup. Re-sent on EVERY handshake.
+ */
+export interface AgentIntakeContract {
+  channels: typeof INTAKE_CHANNELS;
+  auth: "Authorization: Bearer <agent token>";
 }
 
 /** Default idle window before a task with no agent activity is auto-errored. */
@@ -112,7 +126,7 @@ export type AgentServerMessage =
       protocolVersion: number;
       connectedAt: string;
     }
-  | { type: "registered"; agent_id: string; connectedAt: string; taskReply: AgentTaskReplyContract }
+  | { type: "registered"; agent_id: string; connectedAt: string; taskReply: AgentTaskReplyContract; intake: AgentIntakeContract }
   | { type: "pong"; at: string }
   | { type: "echo"; data?: unknown; at: string }
   | { type: "error"; message: string }
@@ -340,6 +354,14 @@ export class AgentWsGateway {
           thinking: { payloadField: "thinking", compat: "text also accepted" },
           "tool.completed": { output: "optional tool result content" },
         },
+      },
+      // Self-describing intake contract (G4.S8.T10): how to submit code/DDIC
+      // into the KB. Channel list derived from the single INTAKE_CHANNELS
+      // source of truth — a future kind appears here automatically. Re-sent on
+      // every handshake.
+      intake: {
+        channels: INTAKE_CHANNELS,
+        auth: "Authorization: Bearer <agent token>",
       },
     });
     this.events.emit("agent.connected", {

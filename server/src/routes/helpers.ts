@@ -3,7 +3,7 @@ import type { AuthService } from "../employees/auth.js";
 import type { EmployeeRecord } from "../employees/employees.js";
 
 /** Extract the Bearer token from a request, or null. */
-function bearerToken(request: FastifyRequest): string | null {
+export function bearerToken(request: FastifyRequest): string | null {
   const header = request.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
     return null;

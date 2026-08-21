@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { buildApp } from "../../src/app.js";
 import { IngestTaskQueue } from "../../src/kb/tasks.js";
+import { MemoryAgentRegistry } from "../../src/agents/registry.js";
 import type { FastifyInstance } from "fastify";
 
 const CDS_FIXTURE = join(import.meta.dirname, "..", "fixtures", "cds", "gr-cds-scope.cds");
@@ -24,6 +25,31 @@ function useCodeDir(dir: string): () => void {
 }
 
 const BOUNDARY = "test-boundary-123";
+
+const AUTH_CAPABILITIES = {
+  system: "hermes",
+  mcp: [],
+  tools: ["shell"],
+  skills: [],
+  specialty: "coding",
+};
+
+/** Build the app with a memory agent registry that carries an invited agent, and
+ *  return the agent's invitation token so code-intake tests can authenticate
+ *  (G4.S8.T10: code channels require an agent or employee token). */
+async function makeAuthApp(
+  taskQueue: IngestTaskQueue,
+): Promise<{ app: FastifyInstance; token: string }> {
+  const registry = new MemoryAgentRegistry();
+  const invite = await registry.createInvitation({
+    alias: "RemoteHermes",
+    owner_employee_id: "e1",
+    capabilities: AUTH_CAPABILITIES,
+    runtime: "hermes",
+  });
+  const app = buildApp({ taskQueue, registry });
+  return { app, token: invite.invite.token };
+}
 
 function makeTaskQueue(opts: {
   failParse?: boolean;
@@ -415,12 +441,13 @@ test("DELETE /api/kb/doc returns 500 when deletion fails", async () => {
 test("POST /api/kb/ingest kind=cds submits a task that parses DDL via the code channel (no docling)", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-cds-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const content = await readFile(CDS_FIXTURE, "utf8");
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: {
         kind: "cds",
         filename: "gr-cds-scope.cds",
@@ -452,11 +479,12 @@ test("POST /api/kb/ingest kind=cds submits a task that parses DDL via the code c
 test("POST /api/kb/ingest kind=cds rejects empty content", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-cds-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: { kind: "cds", content: "" },
     });
     assert.equal(res.statusCode, 400);
@@ -470,11 +498,12 @@ test("POST /api/kb/ingest kind=cds rejects empty content", async () => {
 test("POST /api/kb/ingest kind=cds fails the task when the source has no CDS views", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-cds-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: { kind: "cds", content: "this is not cds\nno view here\n" },
     });
     const { taskId } = res.json() as { taskId: string };
@@ -491,12 +520,13 @@ test("POST /api/kb/ingest kind=cds fails the task when the source has no CDS vie
 test("POST /api/kb/ingest kind=abap submits a task that parses source via the code channel (no docling)", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-abap-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const content = await readFile(ABAP_CLASS_FIXTURE, "utf8");
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: {
         kind: "abap",
         filename: "zcl_fi_delivery.clas.abap",
@@ -528,11 +558,12 @@ test("POST /api/kb/ingest kind=abap submits a task that parses source via the co
 test("POST /api/kb/ingest kind=abap rejects empty content", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-abap-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: { kind: "abap", content: "" },
     });
     assert.equal(res.statusCode, 400);
@@ -546,11 +577,12 @@ test("POST /api/kb/ingest kind=abap rejects empty content", async () => {
 test("POST /api/kb/ingest kind=abap fails the task when the source has no ABAP units", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-abap-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: { kind: "abap", content: "this is not abap\nnothing here\n" },
     });
     const { taskId } = res.json() as { taskId: string };
@@ -584,11 +616,12 @@ function loadUi5Files(): Record<string, string> {
 test("POST /api/kb/ingest kind=ui5 submits a task that parses business files via the code channel (no docling)", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-ui5-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: {
         kind: "ui5",
         filename: "com.caleo.consolidation.zip",
@@ -619,11 +652,12 @@ test("POST /api/kb/ingest kind=ui5 submits a task that parses business files via
 test("POST /api/kb/ingest kind=ui5 rejects missing files", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-ui5-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: { kind: "ui5", files: {} },
     });
     assert.equal(res.statusCode, 400);
@@ -637,11 +671,12 @@ test("POST /api/kb/ingest kind=ui5 rejects missing files", async () => {
 test("POST /api/kb/ingest kind=ui5 fails the task when only node_modules (no business code) is supplied", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-ui5-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: {
         kind: "ui5",
         files: { "webapp/node_modules/lodash/index.js": "export const x = 1;" },
@@ -663,12 +698,13 @@ test("POST /api/kb/ingest kind=ui5 fails the task when only node_modules (no bus
 test("POST /api/kb/ingest kind=ddic submits a task that parses table descriptors via the code channel (no docling)", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-ddic-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const content = await readFile(DDIC_FIXTURE, "utf8");
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: {
         kind: "ddic",
         filename: "mara-t001.json",
@@ -698,11 +734,12 @@ test("POST /api/kb/ingest kind=ddic submits a task that parses table descriptors
 test("POST /api/kb/ingest kind=ddic rejects empty content", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-ddic-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: { kind: "ddic", content: "" },
     });
     assert.equal(res.statusCode, 400);
@@ -716,11 +753,12 @@ test("POST /api/kb/ingest kind=ddic rejects empty content", async () => {
 test("POST /api/kb/ingest kind=ddic fails the task on a malformed descriptor set", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-ddic-"));
   const teardown = useCodeDir(dir);
-  const app = buildApp({ taskQueue: makeTaskQueue() });
+  const { app, token } = await makeAuthApp(makeTaskQueue());
   try {
     const res = await app.inject({
       method: "POST",
       url: "/api/kb/ingest",
+      headers: { authorization: `Bearer ${token}` },
       payload: { kind: "ddic", content: "not-json-at-all" },
     });
     const { taskId } = res.json() as { taskId: string };

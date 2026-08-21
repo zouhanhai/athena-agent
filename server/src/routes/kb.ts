@@ -16,7 +16,9 @@ import { isFeedbackDirection, toSources } from "../kb/qa-pairs.js";
 import { computeWikiDiff } from "../kb/diff.js";
 import { PermissionDeniedError, assertEmployeePermission } from "../employees/rbac.js";
 import type { AuthService } from "../employees/auth.js";
-import { currentEmployee } from "./helpers.js";
+import type { AgentRegistry } from "../agents/registry.js";
+import { currentEmployee, bearerToken } from "./helpers.js";
+import { INTAKE_CHANNELS } from "../kb/intake-channels.js";
 import {
   NothingToRetryError,
   TaskBusyError,
@@ -53,6 +55,11 @@ export interface KbRouteOptions {
   mappings?: SemanticMappingStore;
   /** Auth service for the RBAC-gated wiki-edit save (G4.S3.T10): PUT /api/kb/wiki/page. */
   auth?: AuthService;
+  /** Agent registry (G4.S8.T10): code-intake channels accept agent invitation
+   *  tokens (the same credential the WS `register` frame validates) as an
+   *  alternative to an employee session token. Optional — when absent only the
+   *  employee session-token path authenticates. */
+  registry?: AgentRegistry;
   /** Directory to stage uploaded files before docling parsing. Default: os.tmpdir(). */
   uploadDir?: string;
   /** Max multipart upload size. Default: 50 MiB. */
@@ -109,6 +116,40 @@ function isSafeWikiImagePath(value: string): boolean {
  * - POST /api/kb/search { query } → fused Neo4j + llm_wiki results
  */
 export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions): void {
+  /**
+   * G4.S8.T10: authenticate a code-intake request (kinds cds/abap/ui5/ddic).
+   * Accepts EITHER:
+   *  - an agent invitation token (verified against the AgentRegistry invitation
+   *    hash — the SAME credential that authenticates the WS `register` frame), or
+   *  - an employee session token (the existing web-UI `currentEmployee` path).
+   * Missing/invalid token → 401. Only the code channels opt into this; all other
+   * KB routes are untouched.
+   */
+  const requireIntakeAuth = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<boolean> => {
+    const token = bearerToken(request);
+    if (!token) {
+      return reply.code(401).send({ error: "unauthorized" }) === reply;
+    }
+    // Agent token (matches the WS register credential path).
+    if (options.registry) {
+      try {
+        const agent = await options.registry.getByInviteToken(token);
+        if (agent) return true;
+      } catch {
+        // fall through to the employee path
+      }
+    }
+    // Employee session token (web UI path).
+    if (options.auth) {
+      const employee = await currentEmployee(request, options.auth);
+      if (employee) return true;
+    }
+    return reply.code(401).send({ error: "unauthorized" }) === reply;
+  };
+
   app.post("/api/kb/ingest", async (request, reply) => {
     const uploadDir = options.uploadDir ?? tmpdir();
     const maxFileSize = options.maxFileSize ?? 50 * 1024 * 1024;
@@ -154,6 +195,7 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     // + Neo4j stages as a normal doc. Optional lineage (system/devclass/transport)
     // is folded into the wiki frontmatter so answers distinguish active objects.
     if (kind === "cds") {
+      if (!(await requireIntakeAuth(request, reply))) return;
       if (!options.taskQueue) {
         return reply.code(500).send({ error: "ingestion task queue not configured" });
       }
@@ -186,6 +228,7 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     // stages as a normal doc. Optional lineage (system/devclass/transport) is
     // folded into the wiki frontmatter.
     if (kind === "abap") {
+      if (!(await requireIntakeAuth(request, reply))) return;
       if (!options.taskQueue) {
         return reply.code(500).send({ error: "ingestion task queue not configured" });
       }
@@ -219,6 +262,7 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     // Neo4j stages as a normal doc. Optional lineage folds into the wiki
     // frontmatter so answers carry the app/commit provenance.
     if (kind === "ui5") {
+      if (!(await requireIntakeAuth(request, reply))) return;
       if (!options.taskQueue) {
         return reply.code(500).send({ error: "ingestion task queue not configured" });
       }
@@ -257,6 +301,7 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     // flow into the graph. Optional lineage (system/devclass/transport) is
     // folded into the wiki frontmatter.
     if (kind === "ddic") {
+      if (!(await requireIntakeAuth(request, reply))) return;
       if (!options.taskQueue) {
         return reply.code(500).send({ error: "ingestion task queue not configured" });
       }

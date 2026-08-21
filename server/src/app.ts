@@ -490,6 +490,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     maxFileSize: options.maxFileSize,
     // G4.S3.T10: the wiki-edit save endpoint is RBAC-gated behind `kb.edit`.
     auth,
+    // G4.S8.T10: code-intake channels authenticate agent invitation tokens
+    // against the same registry the WS `register` frame uses.
+    registry,
   });
 
   // G4.S7.T3: KB-as-MCP — wrap KnowledgeRetrievalService into the 5 retrieval

@@ -155,6 +155,62 @@ test("WS contract: registered frame carries the self-describing taskReply contra
   }
 });
 
+test("WS contract: registered frame carries the self-describing intake contract (G4.S8.T10)", async () => {
+  const harness = await buildHarness();
+  try {
+    const client = openClient(harness.wsUrl);
+    const frame = await registerAgent(client, harness.agentId, harness.token);
+    try {
+      const intake = frame.intake as
+        | { channels?: Array<Record<string, unknown>>; auth?: string }
+        | undefined;
+      assert.ok(intake, "registered frame must include the intake contract");
+
+      const kinds = (intake.channels ?? []).map((c) => c.kind);
+      // ddic is in the list (G4.S8.T9) — every existing code channel is present.
+      for (const k of ["cds", "abap", "ui5", "ddic"]) {
+        assert.ok(kinds.includes(k), `intake contract must describe the ${k} channel`);
+      }
+
+      // Each channel is fully self-describing on the wire.
+      for (const c of intake.channels ?? []) {
+        assert.equal(c.method, "POST");
+        assert.equal(c.endpoint, "/api/kb/ingest");
+        assert.ok(Array.isArray(c.requiredFields) && c.requiredFields.length > 0);
+        assert.ok(Array.isArray(c.optionalFields));
+        assert.ok(c.returns && typeof c.returns === "object");
+      }
+
+      // The auth header is declared so a remote agent knows HOW to authenticate.
+      assert.match(String(intake.auth), /Authorization: Bearer \S+/);
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
+test("WS contract: the intake contract is re-sent on EVERY handshake (new connection)", async () => {
+  const harness = await buildHarness();
+  try {
+    const first = openClient(harness.wsUrl);
+    const f1 = await registerAgent(first, harness.agentId, harness.token);
+    const second = openClient(harness.wsUrl);
+    const f2 = await registerAgent(second, harness.agentId, harness.token);
+    try {
+      assert.ok(f1.intake, "first handshake must carry the intake contract");
+      assert.ok(f2.intake, "second handshake must also carry the intake contract");
+      assert.deepEqual(f2.intake, f1.intake);
+    } finally {
+      await second.close();
+      await first.close();
+    }
+  } finally {
+    await harness.app.close();
+  }
+});
+
 test("WS contract: the taskReply contract is re-sent on EVERY handshake (new connection)", async () => {
   const harness = await buildHarness();
   try {
