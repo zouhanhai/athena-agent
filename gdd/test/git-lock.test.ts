@@ -72,6 +72,7 @@ const BOARD_DOCS: Array<[string, Record<string, unknown>]> = [
   ["G1.S1", specFm("G1.S1")],
   ["G1.S1.T1", ticketFm("G1.S1.T1")],
   ["G1.S1.T2", ticketFm("G1.S1.T2")],
+  ["G1.S1.T3", ticketFm("G1.S1.T3", { assignee: "eng-director" })],
 ];
 
 /** Create a git repo (with board docs committed + pushed to a bare remote). */
@@ -125,6 +126,27 @@ test("GitClaimLock.claim writes the claim and pushes it to the remote", async ()
     assert.equal(doc.frontmatter.assignee, "opencode");
     assert.equal(doc.frontmatter.session_id, "ses_abc");
     assert.match(doc.body, /## Log/);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("claim succeeds over the eng-director pre-claim placeholder", async () => {
+  const { base, repo, remote } = await setupGitRepo();
+  try {
+    const lock = new GitClaimLock({ repoDir: repo });
+    // G1.S1.T3 is created with assignee: "eng-director" (unclaimed tickets sit
+    // in the Eng Director's court) — a worker claim must overwrite it.
+    const result = await lock.claim("G1.S1.T3", {
+      assignee: "opencode",
+      sessionId: "ses_xyz",
+      now: "2026-08-21",
+    });
+    assert.equal(result.ref, "G1.S1.T3");
+
+    const doc = await readBoardFile(path.join(repo, "docs", "kanban"), "G1.S1.T3");
+    assert.equal(doc.frontmatter.status, "in_progress");
+    assert.equal(doc.frontmatter.assignee, "opencode");
   } finally {
     await rm(base, { recursive: true, force: true });
   }

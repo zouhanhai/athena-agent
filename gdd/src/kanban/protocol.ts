@@ -135,7 +135,11 @@ export async function claimTicket(
       `ticket ${ref} cannot be claimed: status is ${ticket.status}, expected backlog`,
     );
   }
-  if (ticket.assignee !== "" && ticket.assignee !== input.assignee) {
+  // `eng-director` is the pre-claim placeholder written at ticket creation
+  // (unclaimed tickets sit in the Eng Director's court); a worker claim
+  // overwrites it with the worker identity.
+  const unclaimed = ticket.assignee === "" || ticket.assignee === "eng-director";
+  if (!unclaimed && ticket.assignee !== input.assignee) {
     throw new ClaimError(
       `ticket ${ref} cannot be claimed: assignee is ${ticket.assignee}, not ${input.assignee}`,
     );
