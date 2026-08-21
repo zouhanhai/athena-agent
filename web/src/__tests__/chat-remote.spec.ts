@@ -152,6 +152,133 @@ describe("chat store remote-agent routing (G4.S7.T4)", () => {
   });
 });
 
+const LOCAL_ATHENA = {
+  id: "a1",
+  alias: "Athena",
+  agent_id: "agent-athena-local",
+  owner_employee_id: "system",
+  logo_url: "/athena-logo-ai.png",
+  runtime: "server",
+  api_url: "",
+  status: "local",
+  has_token: false,
+  created_at: "",
+  updated_at: "",
+  capabilities: {
+    system: "athena",
+    mcp: ["llm_wiki"],
+    tools: [],
+    skills: [],
+    specialty: "knowledge",
+  },
+};
+
+describe("GlobalChatPanel add-agent picker (G4.S8.T13)", () => {
+  function mountChat() {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    return mount(GlobalChatPanel, {
+      global: { plugins: [pinia, TDesign] },
+    });
+  }
+
+  async function openAgentPicker(wrapper: ReturnType<typeof mountChat>) {
+    await wrapper.find(".add-agent-entry").trigger("click");
+    await flushPromises();
+  }
+
+  it("excludes an agent already in the chat, keyed canonically on agent_id", async () => {
+    listAgentsMock.mockResolvedValue([
+      LOCAL_ATHENA,
+      { ...REMOTE_AGENT },
+    ]);
+    const wrapper = mountChat();
+    const store = useChatStore();
+    // A joined participant whose id does NOT match the registry alias (e.g.
+    // restored from a persisted session) — only the canonical agent_id key
+    // catches this; the old alias-vs-id comparison let the agent reappear.
+    store.onAgentJoined({
+      id: "athena-restored-session",
+      kind: "agent",
+      name: LOCAL_ATHENA.alias,
+      logoUrl: LOCAL_ATHENA.logo_url,
+      agentId: LOCAL_ATHENA.agent_id,
+      capabilities: [],
+    });
+
+    await openAgentPicker(wrapper);
+    const options = wrapper.findAll(".add-agent-picker .picker-option");
+    expect(options).toHaveLength(1);
+    expect(options[0]!.text()).toContain("RemoteHermes");
+
+    // Add the remaining agent, close the picker, reopen — must not be listed again.
+    await wrapper.find(".add-agent-picker .picker-option").trigger("click");
+    await flushPromises();
+    expect(store.participants.some((p) => p.agentId === "agent-hermes-1")).toBe(true);
+
+    await openAgentPicker(wrapper);
+    expect(wrapper.find(".add-agent-picker .picker-empty").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("still excludes a legacy participant that only carries the alias as its id", async () => {
+    listAgentsMock.mockResolvedValue([LOCAL_ATHENA]);
+    const wrapper = mountChat();
+    const store = useChatStore();
+    // Pre-agentId participants used the alias as their participant id.
+    store.onAgentJoined({
+      id: LOCAL_ATHENA.alias,
+      kind: "agent",
+      name: LOCAL_ATHENA.alias,
+      logoUrl: LOCAL_ATHENA.logo_url,
+      capabilities: [],
+    });
+
+    await openAgentPicker(wrapper);
+    expect(wrapper.find(".add-agent-picker .picker-empty").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("refetches availableAgents on EVERY picker open (no load-once cache)", async () => {
+    listAgentsMock.mockResolvedValue([REMOTE_AGENT]);
+    const wrapper = mountChat();
+
+    await openAgentPicker(wrapper);
+    await wrapper.find(".add-agent-entry").trigger("click"); // close
+    await openAgentPicker(wrapper);
+    expect(listAgentsMock).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("refetches availableEmployees on EVERY employee picker open", async () => {
+    listEmployeesMock.mockResolvedValue([
+      { id: "e1", email: "a@caleo.com", display_name: "Ada", role: "member" },
+    ]);
+    const wrapper = mountChat();
+
+    await wrapper.find(".add-employee-entry").trigger("click");
+    await flushPromises();
+    await wrapper.find(".add-employee-entry").trigger("click"); // close
+    await wrapper.find(".add-employee-entry").trigger("click");
+    await flushPromises();
+    expect(listEmployeesMock).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("renders the seeded local Athena as online/local, not offline", async () => {
+    listAgentsMock.mockResolvedValue([LOCAL_ATHENA]);
+    const wrapper = mountChat();
+
+    await openAgentPicker(wrapper);
+    const option = wrapper.find(".add-agent-picker .picker-option");
+    expect(option.exists()).toBe(true);
+    expect(option.find(".picker-connectivity.is-live").exists()).toBe(true);
+    expect(option.text()).toContain("Local");
+    expect(option.text()).not.toContain("Offline");
+    wrapper.unmount();
+  });
+});
+
 describe("GlobalChatPanel remote agent (G4.S7.T4)", () => {
   function mountChat() {
     const pinia = createPinia();

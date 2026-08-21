@@ -192,11 +192,13 @@ test("manual registration with a token stores it auth-capable", async () => {
   assert.equal(registered.status, "reachable", "a token-carrying agent can confirm its reachability");
 });
 
-test("seeded legacy agents report unknown status", async () => {
+// G4.S8.T13: the seeded in-process Athena derives `local` (always available) —
+// never the legacy `unknown` that rendered as offline.
+test("seeded local agents report local status", async () => {
   await registry.seed();
   const athena = await registry.getByAlias("Athena");
   assert.ok(athena);
-  assert.equal(athena.status, "unknown");
+  assert.equal(athena.status, "local");
 });
 
 test("reachable status degrades to registered after the freshness window", async () => {

@@ -146,6 +146,8 @@ const STATUS_LABEL: Record<AgentRecord["status"], string> = {
   invited: "invited",
   registered: "registered",
   reachable: "reachable",
+  // G4.S8.T13: the platform-seeded in-process agent is always available.
+  local: "local",
 };
 
 // Manual register (POST /api/agents, G3.S2.T9 reborn with G4.S7.T2 remote fields)
@@ -582,6 +584,12 @@ onMounted(load);
 }
 
 .status-reachable {
+  color: #166534;
+  background: #dcfce7;
+}
+
+/* G4.S8.T13: local in-process agent — always online. */
+.status-local {
   color: #166534;
   background: #dcfce7;
 }

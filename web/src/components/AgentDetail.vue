@@ -38,6 +38,8 @@ const STATUS_LABEL: Record<AgentRecord["status"], string> = {
   invited: "invited",
   registered: "registered",
   reachable: "reachable",
+  // G4.S8.T13: the platform-seeded in-process agent is always available.
+  local: "local",
 };
 
 // ----- logo picker (reuses the owl + generated/uploaded logo set) -----
@@ -70,6 +72,11 @@ function selectLogo(url: string) {
 }
 
 // ----- declaration review (merged DeclarationCard surface) -----
+// G4.S8.T13 fix: `logoUrl` must be declared BEFORE the immediate watchers below
+// — both watcher callbacks write it during setup, and writing it from a watcher
+// registered above its declaration hit a temporal-dead-zone ReferenceError that
+// crashed every pending-declaration detail open.
+const logoUrl = ref(DEFAULT_LOGO);
 const declAlias = ref("");
 const declOwner = ref("");
 const declSubmitting = ref(false);
@@ -142,7 +149,6 @@ async function confirmCapabilities() {
 
 // ----- agent edit (alias + logo + capabilities) -----
 const alias = ref("");
-const logoUrl = ref(DEFAULT_LOGO);
 const capsSystem = ref("");
 const capsSpecialty = ref("");
 const capsDescription = ref("");
@@ -595,6 +601,12 @@ async function saveEdit() {
 }
 
 .status-reachable {
+  color: #166534;
+  background: #dcfce7;
+}
+
+/* G4.S8.T13: local in-process agent — always online. */
+.status-local {
   color: #166534;
   background: #dcfce7;
 }

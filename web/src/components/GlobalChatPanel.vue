@@ -172,12 +172,14 @@ function onKeydown(_value: string, ctx: { e: KeyboardEvent }) {
   }
 }
 
-/** Open/close the add-agent picker, loading the agent registry on first open. */
+/** Open/close the add-agent picker. G4.S8.T13: the registry is re-fetched on
+ *  EVERY open (no load-once cache) so newly registered agents and post-add
+ *  state are always current. */
 async function toggleAgentPicker() {
   agentPickerOpen.value = !agentPickerOpen.value;
   employeePickerOpen.value = false;
   pickerError.value = "";
-  if (agentPickerOpen.value && availableAgents.value.length === 0) {
+  if (agentPickerOpen.value) {
     try {
       availableAgents.value = await listAgents();
     } catch (err) {
@@ -186,12 +188,12 @@ async function toggleAgentPicker() {
   }
 }
 
-/** Open/close the add-employee picker, loading employees on first open. */
+/** Open/close the add-employee picker, refreshing on every open (G4.S8.T13). */
 async function toggleEmployeePicker() {
   employeePickerOpen.value = !employeePickerOpen.value;
   agentPickerOpen.value = false;
   pickerError.value = "";
-  if (employeePickerOpen.value && availableEmployees.value.length === 0) {
+  if (employeePickerOpen.value) {
     try {
       availableEmployees.value = await listEmployees(auth.sessionToken ?? "");
     } catch (err) {
@@ -200,9 +202,18 @@ async function toggleEmployeePicker() {
   }
 }
 
+/** G4.S8.T13: exclude joined agents by their CANONICAL agent_id
+ *  (participant.agentId); the alias stays a fallback for legacy participants
+ *  that only carry the alias as their id (pre-agentId sessions / default seed). */
 function pickableAgents() {
-  const joined = new Set(chat.participants.map((p) => p.id));
-  return availableAgents.value.filter((agent) => !joined.has(agent.alias));
+  const joinedKeys = new Set<string>();
+  for (const p of chat.participants) {
+    if (p.agentId) joinedKeys.add(p.agentId);
+    joinedKeys.add(p.id);
+  }
+  return availableAgents.value.filter(
+    (agent) => !joinedKeys.has(agent.agent_id) && !joinedKeys.has(agent.alias),
+  );
 }
 
 function pickableEmployees() {
@@ -334,9 +345,14 @@ function addEmployee(emp: EmployeeRecord) {
         >
           <img class="picker-logo" :src="agent.logo_url" alt="" />
           <span>{{ agent.alias }}</span>
-          <!-- G4.S7.T4: a live reverse tunnel = the agent is reachable now. -->
-          <span class="picker-connectivity" :class="agent.connected ? 'is-live' : 'is-offline'">
-            {{ agent.connected ? "Live" : "Offline" }}
+          <!-- G4.S7.T4: a live reverse tunnel = the agent is reachable now.
+               G4.S8.T13: the seeded local agent runs in-process → always
+               online, rendered as "Local" (never offline). -->
+          <span
+            class="picker-connectivity"
+            :class="agent.status === 'local' || agent.connected ? 'is-live' : 'is-offline'"
+          >
+            {{ agent.status === "local" ? "Local" : agent.connected ? "Live" : "Offline" }}
           </span>
         </button>
         <p v-if="!pickerError && pickableAgents().length === 0" class="picker-empty">

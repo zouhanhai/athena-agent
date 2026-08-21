@@ -20,8 +20,11 @@ export interface AgentCapabilities {
 /**
  * Reachability / onboarding status of an agent (G4.S7.T2):
  * - unknown / invited / registered / reachable — see server AgentStatus.
+ * - `local` (G4.S8.T13): the platform-seeded IN-PROCESS agent (owner "system",
+ *   e.g. Athena) — it runs inside the platform, so it is always available and
+ *   must never render as offline/unknown.
  */
-export type AgentStatus = "unknown" | "invited" | "registered" | "reachable";
+export type AgentStatus = "unknown" | "invited" | "registered" | "reachable" | "local";
 
 export interface AgentRecord {
   id: string;

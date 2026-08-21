@@ -16,12 +16,15 @@ export interface AgentCapabilities {
 
 /**
  * Reachability / onboarding status of an agent (G4.S7.T2):
- * - `unknown`: no remote identity or reachability recorded (e.g. seeded local Athena).
- * - `invited`: an invitation `{agent_id, api_url, token}` was issued; the agent has not registered yet.
+ * - `unknown`: pre-onboarding placeholder (no invitation token, not registered).
+ * - `invited`: invitation issued (token hash stored); registration pending.
  * - `registered`: registered with the platform (manual or via invitation); reachability recorded but not recently confirmed.
  * - `reachable`: registered AND the agent confirmed connectivity recently (api_url + fresh last_seen_at).
+ * - `local` (G4.S8.T13): the platform-seeded IN-PROCESS agent (owner "system", e.g. Athena) —
+ *   it runs inside the platform itself, so it is always available; it holds no remote
+ *   identity/tunnel and must never render as offline/unknown.
  */
-export type AgentStatus = "unknown" | "invited" | "registered" | "reachable";
+export type AgentStatus = "unknown" | "invited" | "registered" | "reachable" | "local";
 
 export interface AgentRecord {
   id: string;
@@ -242,12 +245,19 @@ function toEpochMs(value: Date | string): number {
 }
 
 function recordStatus(
+  ownerEmployeeId: string,
   registeredAt: Date | string | null,
   tokenHash: string,
   apiUrl: string,
   lastSeenAt: Date | string | null,
   windowMs: number,
 ): AgentStatus {
+  // G4.S8.T13: the platform-seeded in-process agent (seed path: owner "system",
+  // never invited, never remotely registered) IS the platform — always available.
+  // Remote agents (invited/registered, with token or registered_at) are unaffected.
+  if (ownerEmployeeId === "system" && !registeredAt && !tokenHash) {
+    return "local";
+  }
   if (!registeredAt) {
     return tokenHash ? "invited" : "unknown";
   }
@@ -678,7 +688,14 @@ function recordFromFields(
     capabilities: fields.capabilities,
     runtime: fields.runtime,
     api_url: fields.api_url,
-    status: recordStatus(fields.registered_at, fields.token_hash, fields.api_url, fields.last_seen_at, windowMs),
+    status: recordStatus(
+      fields.owner_employee_id,
+      fields.registered_at,
+      fields.token_hash,
+      fields.api_url,
+      fields.last_seen_at,
+      windowMs,
+    ),
     has_token: fields.token_hash.length > 0,
     // Capability changes (or unconfirmed declarations) remain pending review
     // until the owner approves them again (G4.S7.T9).

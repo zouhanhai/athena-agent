@@ -364,7 +364,9 @@ describe("SettingsView agents", () => {
     const { wrapper } = await mountView();
 
     expect(listDeclarationsMock).toHaveBeenCalled();
-    const row = wrapper.find(".agent-decl-row");
+    // G4.S8.T13-era DOM: the accordion refactor moved the row toggle onto the
+    // inner summary element.
+    const row = wrapper.find(".agent-decl-row .agent-decl-summary");
     expect(row.exists()).toBe(true);
     expect(row.text()).toContain("opencode-ses_xyz");
 
@@ -386,7 +388,7 @@ describe("SettingsView agents", () => {
     registerDeclarationMock.mockResolvedValue({ id: "a1" });
     const { wrapper } = await mountView();
 
-    await wrapper.find(".agent-decl-row").trigger("click");
+    await wrapper.find(".agent-decl-row .agent-decl-summary").trigger("click");
     await flushPromises();
     await wrapper.find(".decl-alias").setValue("Hermes");
     const fox = wrapper
@@ -396,35 +398,37 @@ describe("SettingsView agents", () => {
     await wrapper.find(".detail-register").trigger("click");
     await flushPromises();
 
+    // G4.S7.T9: the owner is an EMAIL (prefilled from the signed-in employee)
+    // and api_url is no longer collected on the confirm page (reverse-WS).
     expect(registerDeclarationMock).toHaveBeenCalledWith("d1", {
       alias: "Hermes",
-      owner_employee_id: "employee",
+      owner_employee_id: "carol@caleo.com",
       logo_url: "/logos/fox-clean.png",
-      api_url: undefined,
     });
     expect(wrapper.find(".agent-detail").exists()).toBe(false);
     expect(wrapper.findAll(".agent-decl-row")).toHaveLength(0);
     wrapper.unmount();
   });
 
-  it("carries the api_url entered on the declaration review to the registration", async () => {
+  it("registers a declaration with alias, owner email and logo — no api_url (removed in G4.S7.T9)", async () => {
     listDeclarationsMock.mockResolvedValue([declaration]);
     registerDeclarationMock.mockResolvedValue({ id: "a1" });
     const { wrapper } = await mountView();
 
-    await wrapper.find(".agent-decl-row").trigger("click");
+    await wrapper.find(".agent-decl-row .agent-decl-summary").trigger("click");
     await flushPromises();
     await wrapper.find(".decl-alias").setValue("Hermes");
-    await wrapper.find(".decl-api-url").setValue("http://hermes.local:3001");
+    // The confirm form collects alias + owner + logo only; reachability is via
+    // the reverse-WS tunnel, so there is no api_url input anymore.
+    expect(wrapper.find(".decl-api-url").exists()).toBe(false);
     await wrapper.find(".detail-register").trigger("click");
     await flushPromises();
 
-    expect(registerDeclarationMock).toHaveBeenCalledWith("d1", {
-      alias: "Hermes",
-      owner_employee_id: "employee",
-      logo_url: "/athena-logo-ai.png",
-      api_url: "http://hermes.local:3001",
-    });
+    expect(registerDeclarationMock).toHaveBeenCalledTimes(1);
+    const [, payload] = registerDeclarationMock.mock.calls[0] as [string, Record<string, unknown>];
+    expect(payload.alias).toBe("Hermes");
+    expect(payload.owner_employee_id).toBe("carol@caleo.com");
+    expect(payload.api_url).toBeUndefined();
     wrapper.unmount();
   });
 
@@ -485,19 +489,19 @@ describe("SettingsView agents", () => {
     ]);
     const { wrapper } = await mountView();
 
-    await wrapper.find(".agent-status-row").trigger("click");
+    await wrapper.find(".agent-status-row .agent-status-summary").trigger("click");
     await flushPromises();
     const detail = wrapper.find(".agent-detail");
     expect(detail.exists()).toBe(true);
-    expect(detail.text()).toContain("agent-hermes");
-    expect(detail.text()).toContain("Hermes");
+    // Inline/accordion mode omits the identity block the summary row already
+    // shows (alias, agent_id, connected chip) — capabilities + meta remain.
+    expect(detail.text()).toContain("hermes");
     expect(detail.text()).toContain("sap");
     expect(detail.text()).toContain("github");
     expect(detail.text()).toContain("code");
     expect(detail.text()).toContain("code_review");
     expect(detail.text()).toContain("reporting");
     expect(detail.text()).toContain("How is Q2 reporting structured?");
-    expect(detail.text()).toContain("connected");
     expect(detail.text()).toContain("http://hermes.local:3001");
     expect(detail.text()).toContain("Capabilities approved");
     wrapper.unmount();
@@ -542,7 +546,7 @@ describe("SettingsView agents", () => {
     confirmAgentMock.mockResolvedValue({ id: "a1", capabilities_pending_review: false });
     const { wrapper } = await mountView();
 
-    await wrapper.find(".agent-status-row").trigger("click");
+    await wrapper.find(".agent-status-row .agent-status-summary").trigger("click");
     await flushPromises();
     expect(wrapper.find(".detail-review.is-pending").exists()).toBe(true);
     expect(wrapper.find(".detail-review").text()).toContain("review and confirm");
@@ -577,7 +581,7 @@ describe("SettingsView agents", () => {
     updateAgentMock.mockResolvedValue({ id: "a1", alias: "Hermes-2" });
     const { wrapper } = await mountView();
 
-    await wrapper.find(".agent-status-row").trigger("click");
+    await wrapper.find(".agent-status-row .agent-status-summary").trigger("click");
     await flushPromises();
     await wrapper.find(".detail-edit-toggle").trigger("click");
     await wrapper.find(".detail-alias").setValue("Hermes-2");
@@ -616,7 +620,7 @@ describe("SettingsView agents", () => {
     updateAgentMock.mockResolvedValue({ id: "a1", capabilities_pending_review: true });
     const { wrapper } = await mountView();
 
-    await wrapper.find(".agent-status-row").trigger("click");
+    await wrapper.find(".agent-status-row .agent-status-summary").trigger("click");
     await flushPromises();
     await wrapper.find(".detail-edit-toggle").trigger("click");
     await wrapper.find(".caps-mcp").setValue("sap, github");
