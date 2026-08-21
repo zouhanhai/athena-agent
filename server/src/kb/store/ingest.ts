@@ -87,6 +87,19 @@ export interface Neo4jOverwriteResult extends Neo4jIngestResult {
   documentId: string;
 }
 
+/** Delete-cascade result (G4.S8.T14): per-label subtree counts + the md_refs of the
+ *  deleted Document nodes (callers clean up their refinement directories with them). */
+export interface Neo4jDeleteDocumentsResult {
+  documentsRemoved: number;
+  chunksRemoved: number;
+  sectionsRemoved: number;
+  entitiesRemoved: number;
+  /** Entities that still have MENTIONED_IN edges after the cleanup (shared/cross-document). */
+  entitiesRetained: number;
+  /** `Document.md_ref` values collected from the deleted documents, for refinement-dir cleanup. */
+  mdRefs: string[];
+}
+
 const DEFAULT_READ_CHUNKS: (chunksRef: string) => Promise<RefinementChunk[]> = async (chunksRef) => {
   const raw = await readFile(chunksRef, "utf8");
   return JSON.parse(raw) as RefinementChunk[];
@@ -541,6 +554,128 @@ export class Neo4jIngestService {
     } finally {
       await session.close();
     }
+  }
+
+  /**
+   * Full knowledge-graph cascade for a deleted wiki page (G4.S8.T14).
+   *
+   * 1. Resolve candidate Document ids via BOTH signals, unioned: the page's
+   *    WikiPage node (WikiPage → IS_DOCUMENT → Document) and the md_ref stem
+   *    fallback (`Document.md_ref ENDS WITH '/<stem>/markdown.md'` — covers docs
+   *    whose WikiPage node was never written). Zero matches → clean no-op.
+   * 2. Per document: collect its md_ref, DETACH DELETE the Chunk/Section subtree
+   *    (both edge-linked and `documentId`-property-linked nodes) and the Document
+   *    node itself. MENTIONED_IN edges die with their Chunk nodes.
+   * 3. AFTER all documents: orphan-entity rule — Entities with ZERO remaining
+   *    MENTIONED_IN edges are DETACH DELETEd (their RELATION edges die with them);
+   *    entities still mentioned by other documents are retained (the shared
+   *    nameUpper MERGE means cross-document entities must survive). Batch-scoped:
+   *    an entity shared by two deleted documents is only orphaned at the end.
+   */
+  async deleteDocumentsForWikiPage(input: { wikiPath: string; stem: string }): Promise<Neo4jDeleteDocumentsResult> {
+    const session = this.driver.session();
+    try {
+      const result: Neo4jDeleteDocumentsResult = {
+        documentsRemoved: 0,
+        chunksRemoved: 0,
+        sectionsRemoved: 0,
+        entitiesRemoved: 0,
+        entitiesRetained: 0,
+        mdRefs: [],
+      };
+
+      // 1. Resolution — union of both signals (deduped by document id).
+      const docs = new Map<string, string | null>();
+      const byPage = (await session.run(
+        `MATCH (wp:${WIKIPAGE_LABEL})
+         WHERE wp.id = $wikiPath OR wp.path = $wikiPath
+         MATCH (d:${DOCUMENT_LABEL})-[:${IS_DOCUMENT_TYPE}]->(wp)
+         RETURN d.id AS id, d.md_ref AS mdRef`,
+        { wikiPath: input.wikiPath },
+      )) as { records?: Array<{ get(key: string): unknown }> };
+      const byStem = (await session.run(
+        `MATCH (d:${DOCUMENT_LABEL})
+         WHERE d.md_ref IS NOT NULL AND d.md_ref ENDS WITH $suffix
+         RETURN d.id AS id, d.md_ref AS mdRef`,
+        { suffix: `/${input.stem}/markdown.md` },
+      )) as { records?: Array<{ get(key: string): unknown }> };
+      for (const record of [...(byPage?.records ?? []), ...(byStem?.records ?? [])]) {
+        const id = record.get?.("id");
+        if (id === undefined || id === null) continue;
+        const mdRef = record.get?.("mdRef");
+        docs.set(String(id), mdRef === undefined || mdRef === null ? null : String(mdRef));
+      }
+      if (docs.size === 0) return result;
+
+      // 2. Subtree deletes per document (children first, then the Document node).
+      for (const [documentId, mdRef] of docs) {
+        if (mdRef !== null) result.mdRefs.push(mdRef);
+        // Edge-linked subtree (verified residue shape: Document -[:IS_DOCUMENT]-> Chunk).
+        result.chunksRemoved += await this.deleteCounting(
+          session,
+          `MATCH (d:${DOCUMENT_LABEL} {id: $id})-[:${IS_DOCUMENT_TYPE}]->(c:${CHUNK_LABEL})
+           DETACH DELETE c RETURN count(c) AS n`,
+          { id: documentId },
+        );
+        result.sectionsRemoved += await this.deleteCounting(
+          session,
+          `MATCH (d:${DOCUMENT_LABEL} {id: $id})-[:${IS_DOCUMENT_TYPE}]->(s:${SECTION_LABEL})
+           DETACH DELETE s RETURN count(s) AS n`,
+          { id: documentId },
+        );
+        // Property-linked sweep (the shape the ingest pipeline writes: chunks/sections
+        // carry `documentId`; sections chain via HAS_SECTION/HAS_SUBSECTION and die here too).
+        result.chunksRemoved += await this.deleteCounting(
+          session,
+          `MATCH (c:${CHUNK_LABEL} {documentId: $id}) DETACH DELETE c RETURN count(c) AS n`,
+          { id: documentId },
+        );
+        result.sectionsRemoved += await this.deleteCounting(
+          session,
+          `MATCH (s:${SECTION_LABEL} {documentId: $id}) DETACH DELETE s RETURN count(s) AS n`,
+          { id: documentId },
+        );
+        await session.run(`MATCH (d:${DOCUMENT_LABEL} {id: $id}) DETACH DELETE d`, { id: documentId });
+        result.documentsRemoved += 1;
+      }
+
+      // The page's own WikiPage node(s) — drop them once no Document references them
+      // anymore, so deleting a page does not leave ghost WikiPage nodes behind.
+      await session.run(
+        `MATCH (wp:${WIKIPAGE_LABEL})
+         WHERE (wp.id = $wikiPath OR wp.path = $wikiPath)
+           AND NOT EXISTS { MATCH (:${DOCUMENT_LABEL})-[:${IS_DOCUMENT_TYPE}]->(wp) }
+         DETACH DELETE wp`,
+        { wikiPath: input.wikiPath },
+      );
+
+      // 3. Orphan entities — scoped AFTER all documentIds in this delete are processed.
+      result.entitiesRemoved += await this.deleteCounting(
+        session,
+        `MATCH (e:${ENTITY_LABEL}) WHERE NOT (e)-[:${MENTIONED_IN_TYPE}]->()
+         DETACH DELETE e RETURN count(e) AS n`,
+        {},
+      );
+      const remaining = (await session.run(
+        `MATCH (e:${ENTITY_LABEL}) RETURN count(e) AS total`,
+      )) as { records?: Array<{ get(key: string): unknown }> };
+      const total = remaining?.records?.[0]?.get?.("total");
+      result.entitiesRetained = total === undefined || total === null ? 0 : Number(total);
+      return result;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /** Run a counting DETACH DELETE and return the removed-node count as a number. */
+  private async deleteCounting(
+    session: Neo4jSessionLike,
+    query: string,
+    params: Record<string, unknown>,
+  ): Promise<number> {
+    const result = (await session.run(query, params)) as { records?: Array<{ get(key: string): unknown }> };
+    const n = result?.records?.[0]?.get?.("n");
+    return n === undefined || n === null ? 0 : Number(n);
   }
 
   /** Resolve the real Document id via the wikiPath bridge, falling back to the

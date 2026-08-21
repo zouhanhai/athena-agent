@@ -123,11 +123,14 @@ export interface BuildAppOptions {
   summarizer?: Summarizer;
 }
 
-export function defaultIngestService(): KnowledgeIngestService {
+export function defaultIngestService(neo4j?: Neo4jIngestService): KnowledgeIngestService {
   return new KnowledgeIngestService({
     llmwiki: new LlmWikiClient(),
     wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
+    // G4.S8.T14: wiki page delete → full knowledge-graph cascade (subtree +
+    // orphan entities + refinement dirs). Absent when NEO4J_PASSWORD is unset.
+    ...(neo4j ? { graph: neo4j } : {}),
   });
 }
 
@@ -258,7 +261,10 @@ export function createDefaultReranker(): Reranker | undefined {
 }
 
 export function defaultTaskQueue(): IngestTaskQueue {
-  const ingest = defaultIngestService();
+  // G4.S8.T14: one shared Neo4j ingest service drives both the ingest stage and
+  // the delete cascade (undefined when NEO4J_PASSWORD is unset → both no-op).
+  const neo4j = defaultNeo4jIngest();
+  const ingest = defaultIngestService(neo4j);
   return new IngestTaskQueue({
     parser: new DoclingParser(),
     ingest,
@@ -271,7 +277,7 @@ export function defaultTaskQueue(): IngestTaskQueue {
     // G4.S2.T4: the lean Neo4j RAG store is wired only when NEO4J_PASSWORD is
     // set (see .env.local / deployment). When absent the ingesting_neo4j stage
     // is a no-op and ingestion continues unchanged.
-    neo4j: defaultNeo4jIngest(),
+    neo4j,
   });
 }
 

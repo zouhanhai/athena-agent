@@ -678,3 +678,126 @@ test("overwrite fires onProgress per chunk (G4.S3.T9 reuse)", async () => {
 
   assert.deepEqual(progress, [1, 2], "one progress report per chunk processed");
 });
+
+// --- G4.S8.T14: wiki page delete → full knowledge-graph cascade ---
+
+interface CascadeDocRow {
+  id: string;
+  md_ref?: string | null;
+}
+
+/**
+ * Driver double for the delete cascade. Resolution answers come from
+ * `byPage` (WikiPage→IS_DOCUMENT→Document) and `byStem` (md_ref ENDS WITH);
+ * count queries return the queued numbers in order; everything else is recorded.
+ */
+function makeCascadeDriver(opts: {
+  byPage?: CascadeDocRow[];
+  byStem?: CascadeDocRow[];
+  counts?: number[];
+} = {}) {
+  const calls: RecordedCall[] = [];
+  const counts = [...opts.counts ?? []];
+  const rows = (rows?: CascadeDocRow[]) =>
+    (rows ?? []).map((row) => ({
+      get: (key: string) => {
+        if (key === "id") return row.id;
+        if (key === "mdRef" || key === "md_ref") return row.md_ref ?? null;
+        return null;
+      },
+    }));
+  const driver: Neo4jDriverLike = {
+    session() {
+      return {
+        run: async (query: string, params?: Record<string, unknown>) => {
+          calls.push({ query, params });
+          if (query.includes("IS_DOCUMENT") && query.includes("RETURN d.id")) {
+            return { records: rows(opts.byPage) };
+          }
+          if (query.includes("ENDS WITH")) {
+            return { records: rows(opts.byStem) };
+          }
+          if (query.includes("DETACH DELETE") && query.includes("AS n")) {
+            const n = counts.shift() ?? 0;
+            return { records: [{ get: (key: string) => (key === "n" ? n : null) }] };
+          }
+          if (query.trim().startsWith("MATCH (e:Entity)") && query.includes("count(e)")) {
+            const n = counts.shift() ?? 0;
+            return { records: [{ get: (key: string) => (key === "total" || key === "n" ? n : null) }] };
+          }
+          return { records: [] };
+        },
+        close: async () => {},
+      };
+    },
+  };
+  return { driver, calls };
+}
+
+test("deleteDocumentsForWikiPage resolves documents via WikiPage bridge AND md_ref stem fallback (union)", async () => {
+  const { driver, calls } = makeCascadeDriver({
+    byPage: [{ id: "doc-a", md_ref: "/ref/a/markdown.md" }],
+    byStem: [{ id: "doc-a-legacy", md_ref: "/ref/doc-a/markdown.md" }],
+  });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1]) },
+  });
+
+  const result = await service.deleteDocumentsForWikiPage({ wikiPath: "wiki/concepts/foo.md", stem: "foo" });
+
+  assert.equal(result.documentsRemoved, 2, "both signals unioned");
+  assert.deepEqual(result.mdRefs.sort(), ["/ref/a/markdown.md", "/ref/doc-a/markdown.md"]);
+  const pageQuery = calls.find((c) => c.query.includes("IS_DOCUMENT"));
+  assert.ok(pageQuery, "WikiPage→IS_DOCUMENT→Document resolution issued");
+  assert.equal(pageQuery!.params!.wikiPath, "wiki/concepts/foo.md");
+  const stemQuery = calls.find((c) => c.query.includes("ENDS WITH"));
+  assert.ok(stemQuery, "md_ref stem fallback resolution issued");
+  assert.equal(stemQuery!.params!.suffix, "/foo/markdown.md");
+});
+
+test("deleteDocumentsForWikiPage DETACH DELETEs the Document subtree and reports per-label counts", async () => {
+  // counts queue order: chunks(edge), sections(edge), chunks(prop), sections(prop), orphans, retained-total
+  const { driver, calls } = makeCascadeDriver({
+    byPage: [{ id: "doc-a", md_ref: "/ref/a/markdown.md" }],
+    counts: [3, 2, 1, 0, 1, 4],
+  });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1]) },
+  });
+
+  const result = await service.deleteDocumentsForWikiPage({ wikiPath: "wiki/concepts/foo.md", stem: "foo" });
+
+  assert.equal(result.documentsRemoved, 1);
+  assert.equal(result.chunksRemoved, 4, "edge-linked + property-linked chunks both counted");
+  assert.equal(result.sectionsRemoved, 2);
+  assert.equal(result.entitiesRemoved, 1);
+  assert.equal(result.entitiesRetained, 4, "entities still mentioned elsewhere are retained");
+  const joined = calls.map((c) => c.query).join("\n");
+  assert.ok(joined.includes(`DETACH DELETE c`), "chunks detach-deleted");
+  assert.ok(joined.includes(`DETACH DELETE s`), "sections detach-deleted");
+  assert.ok(joined.includes(`DETACH DELETE d`), "the Document node itself detach-deleted");
+  assert.ok(
+    calls.findIndex((c) => c.query.includes("NOT (e)-[:MENTIONED_IN]")) >
+      calls.findIndex((c) => c.query.includes(`DETACH DELETE d`)),
+    "orphan-entity cleanup runs AFTER all document deletions",
+  );
+});
+
+test("deleteDocumentsForWikiPage with zero matches is a clean no-op", async () => {
+  const { driver, calls } = makeCascadeDriver();
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [1]) },
+  });
+
+  const result = await service.deleteDocumentsForWikiPage({ wikiPath: "wiki/concepts/ghost.md", stem: "ghost" });
+
+  assert.equal(result.documentsRemoved, 0);
+  assert.equal(result.chunksRemoved, 0);
+  assert.equal(result.sectionsRemoved, 0);
+  assert.equal(result.entitiesRemoved, 0);
+  assert.deepEqual(result.mdRefs, []);
+  assert.ok(!calls.some((c) => c.query.includes("DETACH DELETE")), "no delete issued without a resolved document");
+});

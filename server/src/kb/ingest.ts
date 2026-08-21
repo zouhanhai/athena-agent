@@ -6,14 +6,16 @@
  * searchable wiki page. The RAG store ingest (Neo4j) is driven by the ingest
  * task queue from the Athena refinement output (G4.S2.T4).
  */
-import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { LlmWikiClient, WikiCategory, WikiClassification } from "./llmwiki.js";
 import { WIKI_CATEGORIES, isValidTopic } from "./llmwiki.js";
 import { DOC_TYPE_DIRS } from "./taxonomy.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { wikiLocalPath } from "./wiki-frontmatter.js";
 import { stripImageRefs } from "../agents/refine-output.js";
+import { defaultRefinementOutputDir } from "../agents/refine-document.js";
+import type { Neo4jDeleteDocumentsResult } from "./store/ingest.js";
 
 export interface IngestInput {
   /** Human-readable document title (also used to derive a safe filename). */
@@ -34,11 +36,26 @@ export interface SystemIngestStatus {
 export type LlmWikiStepName = "classify" | "write_page" | "rebuild_index";
 export type LlmWikiProgress = (step: LlmWikiStepName, status: "running" | "done") => void;
 
+export interface DeleteDocumentGraphResult {
+  documentsRemoved: number;
+  chunksRemoved: number;
+  sectionsRemoved: number;
+  entitiesRemoved: number;
+  /** Entities still mentioned by other documents after the cleanup (shared entities survive). */
+  entitiesRetained: number;
+  /** Refinement output directories removed with the graph subtree (md_ref dirs inside the root). */
+  refinementDirsRemoved: string[];
+  /** Set when the graph cascade failed — NEVER blocks the llmwiki file deletion. */
+  error?: string;
+}
+
 export interface DeleteDocumentResult {
   /** True when the wiki page was removed (the tree can refresh). */
   ok: boolean;
   /** llm_wiki delete outcome for the page path (and/or an error). */
   llmwiki?: { path?: string; error?: string };
+  /** Knowledge-graph cascade outcome (G4.S8.T14). Absent when no Neo4j store is wired. */
+  graph?: DeleteDocumentGraphResult;
 }
 
 /**
@@ -95,6 +112,20 @@ export interface KnowledgeIngestOptions {
    * index.md grouped by frontmatter type (best-effort: failure never fails ingest).
    */
   rebuildIndex?: (wikiDir: string) => Promise<void>;
+  /**
+   * Neo4j RAG-store delete cascade (G4.S8.T14): resolves the page's Document
+   * node(s) and DETACH DELETEs their subtree + orphaned entities. Optional —
+   * when absent (store not deployed) the graph step is skipped entirely.
+   * Satisfied structurally by `Neo4jIngestService`.
+   */
+  graph?: {
+    deleteDocumentsForWikiPage(input: { wikiPath: string; stem: string }): Promise<Neo4jDeleteDocumentsResult>;
+  };
+  /** Refinement output root: md_ref directories are only removed INSIDE it
+   *  (path-traversal guarded). Default: defaultRefinementOutputDir(). */
+  refinementOutputDir?: string;
+  /** Override refinement-directory removal (tests). Default: fs.rm recursive. */
+  rmDir?: (path: string) => Promise<void>;
 }
 
 /** Map any title/source to a filesystem-safe stem. */
@@ -427,6 +458,9 @@ export class KnowledgeIngestService {
   private readonly copyFile: (src: string, dest: string) => Promise<void>;
   private readonly classify: (input: { title: string; content: string }) => Promise<WikiClassification>;
   private readonly rebuildIndex: (wikiDir: string) => Promise<void>;
+  private readonly graph?: KnowledgeIngestOptions["graph"];
+  private readonly refinementOutputDir: string;
+  private readonly rmDir: (path: string) => Promise<void>;
   private resolved?: ResolvedProject;
 
   constructor(options: KnowledgeIngestOptions) {
@@ -445,6 +479,9 @@ export class KnowledgeIngestService {
     this.copyFile = options.copyFile ?? copyFile;
     this.classify = options.classify ?? ((input) => this.classifyWithAgent(input));
     this.rebuildIndex = options.rebuildIndex ?? ((dir: string) => this.rebuildIndexDefault(dir));
+    this.graph = options.graph;
+    this.refinementOutputDir = resolve(options.refinementOutputDir ?? defaultRefinementOutputDir());
+    this.rmDir = options.rmDir ?? ((path: string) => rm(path, { recursive: true, force: true }));
   }
 
   /**
@@ -591,9 +628,17 @@ export class KnowledgeIngestService {
   }
 
   /**
-   * Delete a wiki page from llm_wiki (G2.S5.T12). `path` is the project-relative
-   * wiki page, e.g. "wiki/concepts/foo.md". Deletes the page file on disk +
-   * rescan (Source Watch drops it from the index) + rebuilds wiki/index.md.
+   * Delete a wiki page from llm_wiki (G2.S5.T12) + full knowledge-graph cascade
+   * (G4.S8.T14). `path` is the project-relative wiki page, e.g.
+   * "wiki/concepts/foo.md". Deletes the page file on disk + rescan (Source Watch
+   * drops it from the index) + rebuilds wiki/index.md — this ALWAYS completes
+   * first and defines `ok`. Then, when a Neo4j store is wired, cascades the
+   * graph: resolve the page's Document node(s) (WikiPage→IS_DOCUMENT bridge AND
+   * md_ref stem fallback), DETACH DELETE each Document with its Chunk/Section
+   * subtree, drop now-orphaned Entities (shared entities survive), and remove
+   * the deleted documents' refinement directories (md_ref dirs inside the
+   * configured output root). Graph failures land in `graph.error` and never
+   * block or undo the file deletion; a page with no graph record is a clean no-op.
    */
   async deleteDocument(path: string): Promise<DeleteDocumentResult> {
     const llmwikiOutcome: { path?: string; error?: string } = { path };
@@ -606,10 +651,62 @@ export class KnowledgeIngestService {
       llmwikiOutcome.error = err instanceof Error ? err.message : String(err);
     }
 
-    return {
+    const result: DeleteDocumentResult = {
       ok: !llmwikiOutcome.error,
       llmwiki: llmwikiOutcome,
     };
+
+    if (!this.graph) return result;
+    try {
+      const cascade = await this.graph.deleteDocumentsForWikiPage({
+        wikiPath: path,
+        stem: basename(path).replace(/\.md$/i, ""),
+      });
+      const refinementDirsRemoved = await this.removeRefinementDirs(cascade.mdRefs);
+      result.graph = {
+        documentsRemoved: cascade.documentsRemoved,
+        chunksRemoved: cascade.chunksRemoved,
+        sectionsRemoved: cascade.sectionsRemoved,
+        entitiesRemoved: cascade.entitiesRemoved,
+        entitiesRetained: cascade.entitiesRetained,
+        refinementDirsRemoved,
+      };
+    } catch (err) {
+      result.graph = {
+        documentsRemoved: 0,
+        chunksRemoved: 0,
+        sectionsRemoved: 0,
+        entitiesRemoved: 0,
+        entitiesRetained: 0,
+        refinementDirsRemoved: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+    return result;
+  }
+
+  /**
+   * Remove the refinement output directories of the deleted documents. A dir is
+   * only removed when it resolves STRICTLY INSIDE the configured refinement
+   * output root (path-traversal guard); failures are best-effort skips.
+   */
+  private async removeRefinementDirs(mdRefs: string[]): Promise<string[]> {
+    if (mdRefs.length === 0) return [];
+    const root = this.refinementOutputDir;
+    const removed: string[] = [];
+    for (const mdRef of mdRefs) {
+      if (!mdRef) continue;
+      const dir = resolve(dirname(mdRef));
+      const rel = relative(root, dir);
+      if (rel.length === 0 || rel.startsWith("..") || isAbsolute(rel)) continue;
+      try {
+        await this.rmDir(dir);
+        removed.push(dir);
+      } catch {
+        // best-effort — the graph subtree is already gone
+      }
+    }
+    return removed;
   }
 
   /**

@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { rm, mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   KnowledgeIngestService,
   buildWikiIndex,
@@ -205,6 +209,236 @@ test("deleteDocument reports failure when the wiki file cannot be deleted", asyn
   const result = await service.deleteDocument("wiki/concepts/foo.md");
   assert.equal(result.ok, false);
   assert.match(result.llmwiki?.error ?? "", /cannot delete/);
+});
+
+// --- G4.S8.T14: wiki page delete → full knowledge-graph cascade ---
+
+/**
+ * Fixture (acceptance criteria): doc A mentions E1 + the shared E2; doc B
+ * mentions the shared E2 + its own E3. Deleting A must remove A's subtree +
+ * orphaned E1 while RETAINING E2 (still mentioned by B) and all of B.
+ */
+function makeSharedEntityGraph() {
+  const deletedNodes: string[] = [];
+  const graph = {
+    async deleteDocumentsForWikiPage(input: { wikiPath: string; stem: string }) {
+      if (input.stem !== "doc-a") {
+        return { documentsRemoved: 0, chunksRemoved: 0, sectionsRemoved: 0, entitiesRemoved: 0, entitiesRetained: 0, mdRefs: [] };
+      }
+      // Doc A's subtree dies; E1 is orphaned; E2 survives (B still mentions it).
+      deletedNodes.push("Document:doc-a", "Chunk:doc-a:c1", "Section:doc-a:s1", "Entity:E1");
+      return {
+        documentsRemoved: 1,
+        chunksRemoved: 1,
+        sectionsRemoved: 1,
+        entitiesRemoved: 1,
+        entitiesRetained: 2,
+        mdRefs: [join("/refinement", "doc-a", "markdown.md")],
+      };
+    },
+  };
+  return { graph, deletedNodes };
+}
+
+test("deleteDocument cascades to the graph: subtree removed, orphan entity dropped, shared entity retained", async () => {
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile() {},
+  };
+  const { graph, deletedNodes } = makeSharedEntityGraph();
+  const service = new KnowledgeIngestService({
+    llmwiki: llmwiki as never,
+    projectId: "athena-wiki",
+    rebuildIndex: async () => {},
+    graph,
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/doc-a.md");
+
+  assert.equal(result.ok, true, "llmwiki deletion still defines ok");
+  assert.ok(deletedNodes.includes("Entity:E1"), "the A-only entity is orphan-deleted");
+  assert.equal(result.graph?.documentsRemoved, 1);
+  assert.equal(result.graph?.chunksRemoved, 1);
+  assert.equal(result.graph?.sectionsRemoved, 1);
+  assert.equal(result.graph?.entitiesRemoved, 1, "E1 removed");
+  assert.equal(result.graph?.entitiesRetained, 2, "E2 (shared with B) + E3 retained");
+  assert.ok(!result.graph?.error);
+});
+
+test("deleteDocument removes the Document.md_ref refinement directory inside the output root", async () => {
+  const root = join(tmpdir(), `athena-t14-${Date.now()}`);
+  const dirA = join(root, "doc-a");
+  const dirB = join(root, "doc-b");
+  await mkdir(dirA, { recursive: true });
+  await mkdir(dirB, { recursive: true });
+  await writeFile(join(dirA, "markdown.md"), "A");
+  await writeFile(join(dirB, "markdown.md"), "B");
+  try {
+    const llmwiki = {
+      async listProjects() {
+        return {
+          currentProject: null,
+          projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+        };
+      },
+      async deleteFile() {},
+    };
+    const graph = {
+      async deleteDocumentsForWikiPage(input: { wikiPath: string; stem: string }) {
+        return input.stem === "doc-a"
+          ? { documentsRemoved: 1, chunksRemoved: 0, sectionsRemoved: 0, entitiesRemoved: 0, entitiesRetained: 3, mdRefs: [join(dirA, "markdown.md")] }
+          : { documentsRemoved: 0, chunksRemoved: 0, sectionsRemoved: 0, entitiesRemoved: 0, entitiesRetained: 3, mdRefs: [] };
+      },
+    };
+    const service = new KnowledgeIngestService({
+      llmwiki: llmwiki as never,
+      projectId: "athena-wiki",
+      rebuildIndex: async () => {},
+      graph,
+      refinementOutputDir: root,
+    });
+
+    const result = await service.deleteDocument("wiki/concepts/doc-a.md");
+
+    assert.deepEqual(result.graph?.refinementDirsRemoved, [dirA], "A's refinement dir removed");
+    assert.equal(existsSync(dirA), false, "doc A's refinement dir is gone");
+    assert.equal(existsSync(dirB), true, "doc B's refinement dir remains");
+    assert.equal(existsSync(join(dirB, "markdown.md")), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("deleteDocument refuses to remove refinement dirs outside the configured output root", async () => {
+  const removed: string[] = [];
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile() {},
+  };
+  const graph = {
+    async deleteDocumentsForWikiPage() {
+      // a poisoned md_ref trying to escape the root via traversal
+      return {
+        documentsRemoved: 1,
+        chunksRemoved: 0,
+        sectionsRemoved: 0,
+        entitiesRemoved: 0,
+        entitiesRetained: 0,
+        mdRefs: ["/refinement/../../etc/markdown.md"],
+      };
+    },
+  };
+  const service = new KnowledgeIngestService({
+    llmwiki: llmwiki as never,
+    projectId: "athena-wiki",
+    rebuildIndex: async () => {},
+    graph,
+    refinementOutputDir: "/refinement",
+    rmDir: async (path) => {
+      removed.push(path);
+    },
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/doc-a.md");
+
+  assert.deepEqual(removed, [], "no directory outside the root is removed");
+  assert.deepEqual(result.graph?.refinementDirsRemoved, []);
+});
+
+test("deleteDocument reports graph errors in graph.error without blocking the llmwiki deletion", async () => {
+  const calls: string[] = [];
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile(_projectId: string, path: string) {
+      calls.push(`deleteFile:${path}`);
+    },
+  };
+  const graph = {
+    async deleteDocumentsForWikiPage() {
+      throw new Error("neo4j down");
+    },
+  };
+  const service = new KnowledgeIngestService({
+    llmwiki: llmwiki as never,
+    projectId: "athena-wiki",
+    rebuildIndex: async () => {},
+    graph,
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/foo.md");
+
+  assert.deepEqual(calls, ["deleteFile:wiki/concepts/foo.md"], "llmwiki deletion completed first");
+  assert.equal(result.ok, true, "ok reflects the llmwiki deletion, not the graph step");
+  assert.match(result.graph?.error ?? "", /neo4j down/);
+});
+
+test("deleteDocument on a page with no graph record deletes cleanly (no-op graph step)", async () => {
+  let cascadeCalls = 0;
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile() {},
+  };
+  const graph = {
+    async deleteDocumentsForWikiPage() {
+      cascadeCalls += 1;
+      return { documentsRemoved: 0, chunksRemoved: 0, sectionsRemoved: 0, entitiesRemoved: 0, entitiesRetained: 0, mdRefs: [] };
+    },
+  };
+  const service = new KnowledgeIngestService({
+    llmwiki: llmwiki as never,
+    projectId: "athena-wiki",
+    rebuildIndex: async () => {},
+    graph,
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/plain.md");
+
+  assert.equal(result.ok, true);
+  assert.equal(cascadeCalls, 1, "cascade consulted once");
+  assert.equal(result.graph?.documentsRemoved, 0, "clean no-op");
+  assert.deepEqual(result.graph?.refinementDirsRemoved, []);
+});
+
+test("deleteDocument without a graph service keeps today's contract (no graph field)", async () => {
+  const llmwiki = {
+    async listProjects() {
+      return {
+        currentProject: null,
+        projects: [{ id: "athena-wiki", name: "athena-wiki", path: "/data/wiki", current: false }],
+      };
+    },
+    async deleteFile() {},
+  };
+  const service = new KnowledgeIngestService({
+    llmwiki: llmwiki as never,
+    projectId: "athena-wiki",
+    rebuildIndex: async () => {},
+  });
+
+  const result = await service.deleteDocument("wiki/concepts/foo.md");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.graph, undefined, "graph step absent when no store is wired");
 });
 
 test("ingestMarkdown resolves wiki dir from project path when not configured", async () => {
