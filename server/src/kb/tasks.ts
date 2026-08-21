@@ -13,8 +13,8 @@ import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
 import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTitle, categoryDir } from "./ingest.js";
-import type { WikiClassification } from "./llmwiki.js";
-import { isValidTopic } from "./llmwiki.js";
+import type { WikiClassification, WikiCategory } from "./llmwiki.js";
+import { isValidTopic, WIKI_CATEGORIES } from "./llmwiki.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import { deriveStem, storeRefinementOutput } from "../agents/refine-output.js";
 import {
@@ -166,6 +166,25 @@ function wikiPathFor(fileName: string, preclassified?: WikiClassification): stri
       ? preclassified.topic
       : categoryDir(preclassified.category);
   return `wiki/${subDir}/${fileName}`;
+}
+
+/**
+ * Derive the llm_wiki classification from the STORED code ref frontmatter — the
+ * single source of truth shared with the Neo4j Document node (G4.S8.T8). The code
+ * store emits `frontmatter = { type: "code", topic: "code/<system>" }` (with
+ * `code/unknown` fallback when no system was reported), so the wiki page lands
+ * under `wiki/code/<system>/` and both consumers read the same ref.
+ */
+function codePreclassified(ref: Pick<RefineOutputRef, "frontmatter">, fileName: string): WikiClassification {
+  const category = (WIKI_CATEGORIES as readonly string[]).includes(ref.frontmatter.type)
+    ? (ref.frontmatter.type as WikiCategory)
+    : "code";
+  const topic = ref.frontmatter.topic;
+  return {
+    category,
+    pagePath: `wiki/${topic}/${fileName}`,
+    topic,
+  };
 }
 
 /** Fresh pending sub-steps for a stage, e.g. `["read_file", "parse_ocr_image_desc"]`. */
@@ -1104,12 +1123,8 @@ export class IngestTaskQueue {
     const views = taskNow.cdsViews ?? [];
     const documentId = taskNow.documentId ?? documentIdFrom(sourceName(input), sourceName(input));
 
-    // Classification is folded into the local code ref (frontmatter type=code/topic=cds).
-    const preclassified: WikiClassification = {
-      category: "source",
-      pagePath: `wiki/cds/${fileName}`,
-      topic: "cds",
-    };
+    // Classification comes from the stored code ref frontmatter (type=code, topic=code/<system>).
+    const preclassified = codePreclassified(refinementRef, fileName);
 
     const llmwikiTodo = taskNow.stages.ingesting_llmwiki.status !== "done";
     const neo4jTodo = taskNow.stages.ingesting_neo4j.status !== "done";
@@ -1289,12 +1304,8 @@ export class IngestTaskQueue {
     const units = taskNow.abapUnits ?? [];
     const documentId = taskNow.documentId ?? documentIdFrom(abapSourceName(input), abapSourceName(input));
 
-    // Classification is folded into the local code ref (frontmatter type=code/topic=abap).
-    const preclassified: WikiClassification = {
-      category: "source",
-      pagePath: `wiki/code/${fileName}`,
-      topic: "abap",
-    };
+    // Classification comes from the stored code ref frontmatter (type=code, topic=code/<system>).
+    const preclassified = codePreclassified(refinementRef, fileName);
 
     const llmwikiTodo = taskNow.stages.ingesting_llmwiki.status !== "done";
     const neo4jTodo = taskNow.stages.ingesting_neo4j.status !== "done";
@@ -1473,12 +1484,8 @@ export class IngestTaskQueue {
     const units = taskNow.ui5Units ?? [];
     const documentId = taskNow.documentId ?? documentIdFrom(ui5SourceName(input), ui5SourceName(input));
 
-    // Classification is folded into the local code ref (frontmatter type=code/topic=ui5).
-    const preclassified: WikiClassification = {
-      category: "source",
-      pagePath: `wiki/code/${fileName}`,
-      topic: "ui5",
-    };
+    // Classification comes from the stored code ref frontmatter (type=code, topic=code/<system>).
+    const preclassified = codePreclassified(refinementRef, fileName);
 
     const llmwikiTodo = taskNow.stages.ingesting_llmwiki.status !== "done";
     const neo4jTodo = taskNow.stages.ingesting_neo4j.status !== "done";

@@ -5,7 +5,22 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { parseUi5Units, type Ui5Unit } from "../../src/kb/codeparse/ui5.js";
-import { ui5UnitsToChunks, storeUi5Output, type Ui5CodeChunk } from "../../src/kb/store/code.js";
+import { ui5UnitsToChunks, storeUi5Output, ui5UnitsToGraph, type Ui5CodeChunk } from "../../src/kb/store/code.js";
+
+function makeUi5Unit(opts: { component?: string; references?: Ui5Unit["references"] }): Ui5Unit {
+  return {
+    id: "c1",
+    kind: "controller",
+    name: "Report.controller",
+    file: "webapp/controller/Report.controller.js",
+    component: opts.component ?? "com.caleo.consolidation",
+    text: "sap.ui.define([...], function () {});",
+    path: "com.caleo.consolidation/controller/Report.controller",
+    method: null,
+    references: opts.references ?? [],
+    warnings: [],
+  };
+}
 
 const FIXTURE_ROOT = join(import.meta.dirname, "..", "fixtures", "ui5", "webapp");
 
@@ -111,5 +126,55 @@ test("storeUi5Output: empty source stores zero chunks (no crash)", async () => {
     const result = await storeUi5Output([], { storageDir: dir });
     assert.equal(result.chunk_count, 0);
     assert.deepEqual(result.names, []);
+  });
+});
+
+test("ui5UnitsToGraph: component + every reference target as uppercase entities, BINDS_TO relations", () => {
+  const { entities, relations } = ui5UnitsToGraph([
+    makeUi5Unit({
+      component: "com.caleo.consolidation",
+      references: [
+        { kind: "cds", target: "I_CnsldtnSubitem_2" },
+        { kind: "odata", service: "/reporting", target: "reporting" },
+      ],
+    }),
+  ]);
+
+  assert.deepEqual(
+    entities.map((e) => e.name).sort(),
+    ["COM.CALEO.CONSOLIDATION", "I_CNSLDTNSUBITEM_2", "REPORTING"],
+  );
+  assert.ok(entities.every((e) => e.name === e.name.toUpperCase()), "canonical uppercase");
+
+  assert.deepEqual(relations.map((r) => `${r.keywords[0]!}|${r.source}|${r.target}`).sort(), [
+    "BINDS_TO|COM.CALEO.CONSOLIDATION|I_CNSLDTNSUBITEM_2",
+    "BINDS_TO|COM.CALEO.CONSOLIDATION|REPORTING",
+  ]);
+});
+
+test("ui5UnitsToGraph: dedupes duplicate entities and relations within one ref", () => {
+  const { entities, relations } = ui5UnitsToGraph([
+    makeUi5Unit({ references: [{ kind: "cds", target: "CDS_VIEW" }] }),
+    makeUi5Unit({ references: [{ kind: "cds", target: "CDS_VIEW" }] }),
+  ]);
+
+  assert.deepEqual(entities.map((e) => e.name).sort(), ["CDS_VIEW", "COM.CALEO.CONSOLIDATION"]);
+  assert.deepEqual(
+    relations.map((r) => `${r.keywords[0]!}|${r.source}|${r.target}`),
+    ["BINDS_TO|COM.CALEO.CONSOLIDATION|CDS_VIEW"],
+  );
+});
+
+test("ui5UnitsToGraph: empty units yield empty graph", () => {
+  assert.deepEqual(ui5UnitsToGraph([]), { entities: [], relations: [] });
+});
+
+test("storeUi5Output: ref carries the mapped entities + relations from the parsed units", async () => {
+  const units = await loadFixture();
+  await withTempDir(async (dir) => {
+    const result = await storeUi5Output(units, { storageDir: dir });
+    assert.ok(result.ref.entities.length > 0, "entities mapped");
+    assert.ok(result.ref.relations.length > 0, "relations mapped");
+    assert.ok(result.ref.entities.some((e) => e.name === "COM.CALEO.CONSOLIDATION"));
   });
 });

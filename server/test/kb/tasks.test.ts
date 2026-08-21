@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -894,4 +894,105 @@ test("submitWikiSave retry re-runs only the failed overwrite stage (refine kept)
   assert.equal(calls.filter((c) => c.kind === "wikiRefiner").length, 1, "refine not re-run");
   assert.equal(calls.filter((c) => c.kind === "neo4j.overwrite").length, 2, "overwrite re-run once");
   assert.equal(calls.some((c) => c.kind === "parser.parse"), false, "never parses");
+});
+
+// --- G4.S8.T8: code channels derive preclassified from the stored code ref ---
+
+test("runCode derives preclassified from the stored code ref frontmatter (category=code, topic=code/<system>)", async () => {
+  const cdsFixture = readFileSync(join(import.meta.dirname, "..", "fixtures", "cds", "gr-cds-scope.cds"), "utf8");
+  const dir = await mkdtemp(join(tmpdir(), "code-preclassified-"));
+  const prevEnv = process.env.CODE_OUTPUT_DIR;
+  process.env.CODE_OUTPUT_DIR = dir;
+  try {
+    const { queue, calls } = makeFakes({});
+    const { taskId } = queue.submitCds({ content: cdsFixture, filename: "gr-cds-scope.cds", system: "S4H" });
+    await untilDone(queue, taskId);
+
+    const task = queue.getTask(taskId)!;
+    assert.equal(task.status, "done");
+    const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+    assert.ok(llmwiki, "llm_wiki ingest was reached");
+    // args[3] = preclassified passed to ingestLlmWiki.
+    const preclassified = (llmwiki!.args[3] as { category: string; pagePath: string; topic?: string }) ?? {};
+    assert.equal(preclassified.category, "code");
+    assert.equal(preclassified.topic, "code/s4h");
+    assert.equal(preclassified.pagePath, `wiki/code/s4h/${task.fileName}`, "page lands under wiki/code/<system>/");
+  } finally {
+    if (prevEnv === undefined) delete process.env.CODE_OUTPUT_DIR;
+    else process.env.CODE_OUTPUT_DIR = prevEnv;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runUi5 derives preclassified from the stored code ref frontmatter (category=code, topic=code/<system>)", async () => {
+  const ui5Dir = join(import.meta.dirname, "..", "fixtures", "ui5", "webapp");
+  const files: Record<string, string> = {};
+  for (const entry of ["controller", "model", "view", "manifest.json"]) {
+    const abs = join(ui5Dir, entry);
+    if (existsSync(abs)) {
+      if (abs.endsWith(".json")) {
+        const rel = entry.startsWith("webapp/") ? entry : `webapp/${entry}`;
+        files[rel] = readFileSync(abs, "utf8");
+      } else {
+        for (const sub of ["Report.controller.js", "Consolidation.model.js"]) {
+          const p = join(abs, sub);
+          if (existsSync(p)) files[`webapp/${entry.split("/").pop()}/${sub}`] = readFileSync(p, "utf8");
+        }
+      }
+    }
+  }
+  const dir = await mkdtemp(join(tmpdir(), "ui5-preclassified-"));
+  const prevEnv = process.env.CODE_OUTPUT_DIR;
+  process.env.CODE_OUTPUT_DIR = dir;
+  try {
+    const { queue, calls } = makeFakes({});
+    const { taskId } = queue.submitUi5({
+      files,
+      filename: "consolidation.app.zip",
+      component: "com.caleo.consolidation",
+      system: "BTP",
+    });
+    await untilDone(queue, taskId);
+
+    const task = queue.getTask(taskId)!;
+    assert.equal(task.status, "done");
+    const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+    assert.ok(llmwiki, "llm_wiki ingest was reached");
+    const preclassified = (llmwiki!.args[3] as { category: string; pagePath: string; topic?: string }) ?? {};
+    assert.equal(preclassified.category, "code");
+    assert.equal(preclassified.topic, "code/btp");
+    assert.equal(preclassified.pagePath, `wiki/code/btp/${task.fileName}`);
+  } finally {
+    if (prevEnv === undefined) delete process.env.CODE_OUTPUT_DIR;
+    else process.env.CODE_OUTPUT_DIR = prevEnv;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runAbap derives preclassified from the stored code ref frontmatter (code/unknown fallback)", async () => {
+  const abapFixture = readFileSync(
+    join(import.meta.dirname, "..", "fixtures", "abap", "zcl_fi_delivery.clas.abap"),
+    "utf8",
+  );
+  const dir = await mkdtemp(join(tmpdir(), "abap-preclassified-"));
+  const prevEnv = process.env.CODE_OUTPUT_DIR;
+  process.env.CODE_OUTPUT_DIR = dir;
+  try {
+    const { queue, calls } = makeFakes({});
+    const { taskId } = queue.submitAbap({ content: abapFixture, filename: "zcl_fi_delivery.clas.abap" });
+    await untilDone(queue, taskId);
+
+    const task = queue.getTask(taskId)!;
+    assert.equal(task.status, "done");
+    const llmwiki = calls.find((c) => c.kind === "ingest.llmwiki");
+    assert.ok(llmwiki, "llm_wiki ingest was reached");
+    const preclassified = (llmwiki!.args[3] as { category: string; pagePath: string; topic?: string }) ?? {};
+    assert.equal(preclassified.category, "code");
+    assert.equal(preclassified.topic, "code/unknown", "no system → code/unknown fallback");
+    assert.equal(preclassified.pagePath, `wiki/code/unknown/${task.fileName}`);
+  } finally {
+    if (prevEnv === undefined) delete process.env.CODE_OUTPUT_DIR;
+    else process.env.CODE_OUTPUT_DIR = prevEnv;
+    await rm(dir, { recursive: true, force: true });
+  }
 });

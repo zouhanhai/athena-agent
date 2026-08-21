@@ -4,8 +4,26 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseCdsViews, type CdsView } from "../../src/kb/codeparse/cds.js";
-import { cdsViewsToChunks, storeCodeOutput } from "../../src/kb/store/code.js";
+import { cdsViewsToChunks, cdsViewsToGraph, storeCodeOutput } from "../../src/kb/store/code.js";
 import type { CdsCodeChunk } from "../../src/kb/store/code.js";
+
+function makeView(opts: {
+  name: string;
+  sourceTables?: string[];
+  associations?: Array<{ name: string; target: string }>;
+}): CdsView {
+  return {
+    technicalName: opts.name,
+    order: 0,
+    rawText: `define view ${opts.name} as select from ... { }`,
+    rawMembers: [],
+    sourceTables: opts.sourceTables ?? [],
+    annotations: [],
+    associations: opts.associations ?? [],
+    dataCategory: "unknown",
+    warnings: [],
+  };
+}
 
 const fixturePath = join(import.meta.dirname, "..", "fixtures", "cds", "gr-cds-scope.cds");
 
@@ -145,5 +163,70 @@ test("storeCodeOutput: empty source stores zero chunks (no crash)", async () => 
     const result = await storeCodeOutput("", [], { storageDir: dir });
     assert.equal(result.chunk_count, 0);
     assert.deepEqual(result.names, []);
+  });
+});
+
+test("cdsViewsToGraph: view + every sourceTable/association target as uppercase entities, READS_FROM/ASSOCIATES relations", () => {
+  const { entities, relations } = cdsViewsToGraph([
+    makeView({
+      name: "i_cnsldtnsubitem_2",
+      sourceTables: ["mara", "I_T005"],
+      associations: [
+        { name: "_Text", target: "I_CnsldtnSubitmTx" },
+        { name: "_Group", target: "i_cnsldtngroup" },
+      ],
+    }),
+  ]);
+
+  // Entities: the submitted view + every external target, all canonical uppercase.
+  assert.deepEqual(
+    entities.map((e) => e.name).sort(),
+    ["I_CNSLDTNGROUP", "I_CNSLDTNSUBITEM_2", "I_CNSLDTNSUBITMTX", "I_T005", "MARA"],
+  );
+  assert.ok(entities.every((e) => e.name === e.name.toUpperCase()), "canonical uppercase");
+
+  // Relations: view READS_FROM each sourceTable, view ASSOCIATES each target.
+  const relationPairs = relations
+    .map((r) => `${r.keywords[0]!}|${r.source}|${r.target}`)
+    .sort();
+  assert.deepEqual(relationPairs, [
+    "ASSOCIATES|I_CNSLDTNSUBITEM_2|I_CNSLDTNGROUP",
+    "ASSOCIATES|I_CNSLDTNSUBITEM_2|I_CNSLDTNSUBITMTX",
+    "READS_FROM|I_CNSLDTNSUBITEM_2|I_T005",
+    "READS_FROM|I_CNSLDTNSUBITEM_2|MARA",
+  ]);
+  assert.ok(relations.every((r) => typeof r.description === "string" && r.description.length > 0));
+});
+
+test("cdsViewsToGraph: dedupes duplicate entities and relations within one ref", () => {
+  const { entities, relations } = cdsViewsToGraph([
+    makeView({ name: "V1", sourceTables: ["mara", "mara", "MARA"], associations: [{ name: "A", target: "T1" }] }),
+    makeView({ name: "V2", sourceTables: ["mara"], associations: [{ name: "A", target: "T1" }] }),
+  ]);
+
+  assert.deepEqual(entities.map((e) => e.name).sort(), ["MARA", "T1", "V1", "V2"]);
+  assert.deepEqual(
+    relations.map((r) => `${r.source}|${r.keywords[0]!}|${r.target}`).sort(),
+    ["V1|ASSOCIATES|T1", "V1|READS_FROM|MARA", "V2|ASSOCIATES|T1", "V2|READS_FROM|MARA"],
+  );
+});
+
+test("cdsViewsToGraph: empty views yield empty graph", () => {
+  assert.deepEqual(cdsViewsToGraph([]), { entities: [], relations: [] });
+});
+
+test("storeCodeOutput: ref carries the mapped entities + relations from the parsed views", async () => {
+  const source = await readFile(fixturePath, "utf8");
+  const views = parseCdsViews(source);
+  const cdsView = views.find((v) => v.technicalName === "I_CnsldtnSubitem_2")!;
+  const expected: CdsView[] = [
+    makeView({ name: cdsView.technicalName, sourceTables: cdsView.sourceTables, associations: cdsView.associations }),
+  ];
+  await withTempDir(async (dir) => {
+    const result = await storeCodeOutput("", expected, { storageDir: dir });
+    assert.ok(result.ref.entities.length > 0, "entities mapped");
+    assert.ok(result.ref.relations.length > 0, "relations mapped");
+    assert.ok(result.ref.entities.some((e) => e.name === "I_CNSLDTNSUBITEM_2"));
+    assert.ok(result.ref.relations.every((r) => r.source === "I_CNSLDTNSUBITEM_2"));
   });
 });

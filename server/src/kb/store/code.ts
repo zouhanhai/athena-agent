@@ -18,9 +18,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CdsView } from "../codeparse/cds.js";
-import type { AbapUnit, AbapObjectType, AbapDependency } from "../codeparse/abap.js";
+import type { AbapUnit, AbapObjectType, AbapDependency, AbapDependencyKind } from "../codeparse/abap.js";
 import type { Ui5Unit, Ui5UnitKind, Ui5EntityRef } from "../codeparse/ui5.js";
-import type { RefinementChunk, RefinementFrontmatter } from "../../agents/refine-document.js";
+import type { RefinementChunk, RefinementFrontmatter, RefinementEntity, RefinementRelation } from "../../agents/refine-document.js";
 import type { RefineOutputRef } from "../../agents/refine-output.js";
 
 /** Lineage of a code object: which SAP system / package / transport the code
@@ -94,6 +94,117 @@ function codeTopic(provenance?: CodeProvenance): string {
   return system ? `code/${sanitizeSlug(system)}` : "code/unknown";
 }
 
+// --- code-graph entity/relation mapping (G4.S8.T8) ---------------------------
+
+/** SAP canonical uppercase form of an entity name (`mara` → `MARA`, `zcl_fi_delivery`
+ *  → `ZCL_FI_DELIVERY`). Cross-document edges join on the global nameUpper MERGE,
+ *  so every entity/relation emitted here MUST use this exact form. */
+function canonicalCodeName(name: string): string {
+  return name.trim().toUpperCase();
+}
+
+interface CodeGraphAccumulator {
+  entities: RefinementEntity[];
+  relations: RefinementRelation[];
+  entitySeen: Set<string>;
+  relationSeen: Set<string>;
+}
+
+function newCodeGraph(): CodeGraphAccumulator {
+  return { entities: [], relations: [], entitySeen: new Set(), relationSeen: new Set() };
+}
+
+/** Push a deduped entity (canonical-uppercase name, so the global nameUpper MERGE
+ *  finds the node). External targets MUST be emitted too — relation edges MATCH by
+ *  nameUpper and are silently dropped when an endpoint entity is missing. */
+function addCodeEntity(acc: CodeGraphAccumulator, name: string, type: string, description: string): void {
+  const canonical = canonicalCodeName(name);
+  if (!canonical || acc.entitySeen.has(canonical)) return;
+  acc.entitySeen.add(canonical);
+  acc.entities.push({ name: canonical, type, description });
+}
+
+/** Push a deduped relation whose endpoints match the emitted entities by their
+ *  uppercase nameUpper; `keywords` carries the relationship keyword. */
+function addCodeRelation(
+  acc: CodeGraphAccumulator,
+  source: string,
+  target: string,
+  keywords: string[],
+  description: string,
+): void {
+  const src = canonicalCodeName(source);
+  const tgt = canonicalCodeName(target);
+  if (!src || !tgt) return;
+  const key = `${src}|${keywords.join(",")}|${tgt}`;
+  if (acc.relationSeen.has(key)) return;
+  acc.relationSeen.add(key);
+  acc.relations.push({ source: src, target: tgt, keywords, description });
+}
+
+/** Build the CDS knowledge-graph slice: the submitted view + every source table +
+ *  every association target as entities, with `READS_FROM` / `ASSOCIATES` edges.
+ *  Local + deterministic; no LLM. */
+export function cdsViewsToGraph(views: CdsView[]): { entities: RefinementEntity[]; relations: RefinementRelation[] } {
+  const acc = newCodeGraph();
+  for (const view of views) {
+    addCodeEntity(acc, view.technicalName, "cds_view", `CDS view ${view.technicalName}`);
+    for (const table of view.sourceTables ?? []) {
+      addCodeEntity(acc, table, "table", `CDS source table ${table}`);
+      addCodeRelation(acc, view.technicalName, table, ["READS_FROM"], `${view.technicalName} reads from ${table}`);
+    }
+    for (const assoc of view.associations ?? []) {
+      addCodeEntity(acc, assoc.target, "cds_view", `CDS association target ${assoc.target}`);
+      addCodeRelation(acc, view.technicalName, assoc.target, ["ASSOCIATES"], `${view.technicalName} associates ${assoc.target}`);
+    }
+  }
+  return { entities: acc.entities, relations: acc.relations };
+}
+
+/** The ABAP dependency relation: table reads map to `READS_FROM`, the three call
+ *  kinds (`call_function` / `call_method` / `call_form`) to `CALLS` (G4.S8.T8). */
+function abapRelationKeyword(kind: AbapDependencyKind): string {
+  return kind === "table_read" ? "READS_FROM" : "CALLS";
+}
+
+/** Build the ABAP knowledge-graph slice: the submitted unit + every dependency
+ *  target as entities, with `READS_FROM` / `CALLS` edges. Local + deterministic. */
+export function abapUnitsToGraph(units: AbapUnit[]): { entities: RefinementEntity[]; relations: RefinementRelation[] } {
+  const acc = newCodeGraph();
+  for (const unit of units) {
+    addCodeEntity(acc, unit.devName, "abap_unit", `ABAP ${unit.objectType} ${unit.devName}`);
+    for (const dep of unit.dependencies ?? []) {
+      const type = dep.kind === "table_read" ? "table" : "abap_call";
+      addCodeEntity(acc, dep.name, type, `ABAP ${dep.kind} target ${dep.name}`);
+      addCodeRelation(acc, unit.devName, dep.name, [abapRelationKeyword(dep.kind)], `${unit.devName} ${abapRelationKeyword(dep.kind)} ${dep.name}`);
+    }
+  }
+  return { entities: acc.entities, relations: acc.relations };
+}
+
+/** Build the UI5 knowledge-graph slice: the app component + every reference target
+ *  (OData service / CDS view / backend path) as entities, with `BINDS_TO` edges.
+ *  Local + deterministic; no LLM. */
+export function ui5UnitsToGraph(units: Ui5Unit[]): { entities: RefinementEntity[]; relations: RefinementRelation[] } {
+  const acc = newCodeGraph();
+  for (const unit of units) {
+    addCodeEntity(acc, unit.component, "ui5_component", `UI5 app component ${unit.component}`);
+    for (const ref of unit.references ?? []) {
+      const type = ui5ReferenceType(ref);
+      addCodeEntity(acc, ref.target, type, `UI5 ${ref.kind} reference ${ref.target}`);
+      addCodeRelation(acc, unit.component, ref.target, ["BINDS_TO"], `${unit.component} binds to ${ref.target}`);
+    }
+  }
+  return { entities: acc.entities, relations: acc.relations };
+}
+
+/** The entity type for a UI5 reference target by its local kind (G4.S8.T8). */
+function ui5ReferenceType(ref: Ui5EntityRef): string {
+  if (ref.kind === "cds") return "cds_view";
+  if (ref.kind === "odata") return "odata_service";
+  return "backend_service";
+}
+
 /** Render parsed CDS views as RefinementChunk-shaped chunks (one per view), with
  *  heading_path = `dataCategory/technicalName`. Pure — no storage side effects. */
 export function cdsViewsToChunks(views: CdsView[]): CdsCodeChunk[] {
@@ -151,6 +262,7 @@ export async function storeCodeOutput(
   await writeFileImpl(mdPath, markdown);
 
   const frontmatter: RefinementFrontmatter = { type: "code", topic: codeTopic(options.provenance) };
+  const graph = cdsViewsToGraph(views);
   const ref: RefineOutputRef = {
     md_ref: mdPath,
     rag_md_ref: mdPath,
@@ -161,8 +273,8 @@ export async function storeCodeOutput(
     header_count: views.length,
     chunk_count: chunks.length,
     frontmatter,
-    entities: [],
-    relations: [],
+    entities: graph.entities,
+    relations: graph.relations,
     keywords: [],
     quality: { complete: chunks.length > 0, confidence: 1, issues: [], action: "auto_accept" },
     summary: `CDS source with ${chunks.length} view(s): ${views.map((v) => v.technicalName).join(", ")}`,
@@ -258,6 +370,7 @@ export async function storeAbapOutput(
   await writeFileImpl(mdPath, markdown);
 
   const frontmatter: RefinementFrontmatter = { type: "code", topic: codeTopic(options.provenance) };
+  const graph = abapUnitsToGraph(units);
   const ref: RefineOutputRef = {
     md_ref: mdPath,
     rag_md_ref: mdPath,
@@ -268,8 +381,8 @@ export async function storeAbapOutput(
     header_count: units.length,
     chunk_count: chunks.length,
     frontmatter,
-    entities: [],
-    relations: [],
+    entities: graph.entities,
+    relations: graph.relations,
     keywords: [],
     quality: { complete: chunks.length > 0, confidence: 1, issues: [], action: "auto_accept" },
     summary: `ABAP source with ${chunks.length} unit(s): ${units.map((u) => u.devName).join(", ")}`,
@@ -367,6 +480,7 @@ export async function storeUi5Output(
   await writeFileImpl(mdPath, markdown);
 
   const frontmatter: RefinementFrontmatter = { type: "code", topic: codeTopic(options.provenance) };
+  const graph = ui5UnitsToGraph(units);
   const ref: RefineOutputRef = {
     md_ref: mdPath,
     rag_md_ref: mdPath,
@@ -377,8 +491,8 @@ export async function storeUi5Output(
     header_count: units.length,
     chunk_count: chunks.length,
     frontmatter,
-    entities: [],
-    relations: [],
+    entities: graph.entities,
+    relations: graph.relations,
     keywords: [],
     quality: { complete: chunks.length > 0, confidence: 1, issues: [], action: "auto_accept" },
     summary: `UI5 source with ${chunks.length} unit(s): ${units.map((u) => u.name).join(", ")}`,
