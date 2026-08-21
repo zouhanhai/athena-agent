@@ -72,6 +72,40 @@ const renderedContent = computed(() =>
   }),
 );
 
+/** Best-effort parse of the leading `---` frontmatter of the active page. */
+interface PageFrontmatter {
+  type?: string;
+  system?: string;
+  devclass?: string;
+  transport?: string;
+}
+
+const pageFrontmatter = computed<PageFrontmatter>(() => {
+  const normalized = content.value.replace(/\r\n/g, "\n");
+  const match = /^---\n([\s\S]*?)\n---/.exec(normalized);
+  if (!match) return {};
+  const out: PageFrontmatter = {};
+  for (const line of match[1].split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
+    if (key && value) out[key as keyof PageFrontmatter] = value;
+  }
+  return out;
+});
+
+/** Code metadata (system / devclass / transport) shown for type: code pages. */
+const codeMeta = computed(() => {
+  const fm = pageFrontmatter.value;
+  if (fm.type !== "code") return null;
+  return {
+    system: fm.system,
+    devclass: fm.devclass,
+    transport: fm.transport,
+  };
+});
+
 /** The active page's internal heading outline (h1/h2/h3) for the left tree. */
 const headings = computed(() => extractWikiHeadings(content.value));
 
@@ -452,14 +486,30 @@ watch(
             </t-button>
           </div>
         </div>
-        <div
-          v-else
-          ref="contentPane"
-          class="wiki-content"
-          data-testid="wiki-content"
-          v-html="renderedContent"
-          @click="onContentClick"
-        />
+        <div v-else class="wiki-view-content">
+          <div v-if="codeMeta" class="wiki-code-meta" data-testid="wiki-code-meta">
+            <span class="wiki-code-meta-title">Code</span>
+            <span v-if="codeMeta.system" class="wiki-code-tag">
+              <span class="wiki-code-tag-label">system</span>
+              <code>{{ codeMeta.system }}</code>
+            </span>
+            <span v-if="codeMeta.devclass" class="wiki-code-tag">
+              <span class="wiki-code-tag-label">devclass</span>
+              <code>{{ codeMeta.devclass }}</code>
+            </span>
+            <span v-if="codeMeta.transport" class="wiki-code-tag">
+              <span class="wiki-code-tag-label">transport</span>
+              <code>{{ codeMeta.transport }}</code>
+            </span>
+          </div>
+          <div
+            ref="contentPane"
+            class="wiki-content"
+            data-testid="wiki-content"
+            v-html="renderedContent"
+            @click="onContentClick"
+          />
+        </div>
       </div>
     </div>
   </section>
@@ -626,6 +676,59 @@ watch(
 
 .wiki-empty-hint {
   text-align: center;
+}
+
+/* G4.S8.T7: code-metadata panel for type: code pages (system/devclass/transport) */
+.wiki-view-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.wiki-code-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: var(--caleo-surface-hover);
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+}
+
+.wiki-code-meta-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--caleo-primary);
+  margin-right: 4px;
+}
+
+.wiki-code-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--caleo-text-secondary);
+}
+
+.wiki-code-tag-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--caleo-text-secondary);
+}
+
+.wiki-code-tag code {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  background: var(--caleo-surface);
+  border: 1px solid var(--caleo-border);
+  color: var(--caleo-text);
 }
 
 /* G4.S3.T10: inline markdown editor for a corrected wiki page. */

@@ -30,6 +30,7 @@ Each document gets exactly **one** type. Use the criteria + counterexamples to a
 | `person`       | Employee / individual profile. | A general bio about a company → `entity`. |
 | `entity`       | Introduction/profile of a named thing: client, company, project, product, dataset. | It is an abstract idea → `concept`. |
 | `concept`      | Abstract idea / technique / phenomenon (e.g. consolidation method, ABAP technique). | It is a concrete named thing → `entity`. |
+| `code`         | Actual SAP source code / model definition: ABAP class/method, CDS view DDL, UI5 controller/view/fragment/Component. The source text itself is required, typically pulled from SAP via MCP or a repo. | It is a written *description* of code → `spec`/`manual`/`concept`. |
 
 ## 2. topic — Business Domain (hierarchical)
 
@@ -108,6 +109,16 @@ internal/reports                        Internal reports
 internal/onboarding                     Onboarding
 internal/training                       Training
 ```
+
+### Code (actual source-code documents, `type: code`)
+```
+code/<system-name>                      SAP system the code was pulled from, e.g. code/prd,
+                                        code/dev, code/qas; use code/unknown when the system is
+                                        not reported by the intake agent
+```
+> Code documents (ABAP / CDS / UI5, `type: code`) carry a `code/<system>` topic so the Topic view
+> groups them under a `code/` folder per SAP system. The `sap/development/abap|cds|fiori` branches
+> above are for prose *about* development; the `code/` branch is for the source text itself.
 
 ---
 

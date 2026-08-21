@@ -96,7 +96,7 @@ test("storeCodeOutput: deterministic chunk ids (stable path in chunks.json)", as
   assert.deepEqual(ids.get("a"), ids.get("b"));
 });
 
-test("storeCodeOutput: provenance is rendered into the markdown frontmatter", async () => {
+test("storeCodeOutput: provenance is rendered into the markdown frontmatter + topic code/<system>", async () => {
   const source = await readFile(fixturePath, "utf8");
   const views = parseCdsViews(source);
   await withTempDir(async (dir) => {
@@ -105,9 +105,38 @@ test("storeCodeOutput: provenance is rendered into the markdown frontmatter", as
       provenance: { system: "S4H", devclass: "ZCNSLD", transport: "K900123" },
     });
     const md = await readFile(result.md_ref, "utf8");
+    assert.ok(md.includes("type: code"));
+    assert.ok(md.includes("topic: code/s4h"), `expected topic code/s4h in:\n${md}`);
     assert.ok(md.includes("system: S4H"));
     assert.ok(md.includes("devclass: ZCNSLD"));
     assert.ok(md.includes("transport: K900123"));
+  });
+});
+
+test("storeCodeOutput: topic defaults to code/unknown when no system is reported", async () => {
+  const source = await readFile(fixturePath, "utf8");
+  const views = parseCdsViews(source);
+  await withTempDir(async (dir) => {
+    const result = await storeCodeOutput(source, views, {
+      storageDir: dir,
+      provenance: { devclass: "ZCNSLD" },
+    });
+    const md = await readFile(result.md_ref, "utf8");
+    assert.ok(md.includes("topic: code/unknown"), `expected code/unknown fallback in:\n${md}`);
+  });
+});
+
+test("storeCodeOutput: topic system value is sanitized into a safe slug", async () => {
+  const source = await readFile(fixturePath, "utf8");
+  const views = parseCdsViews(source);
+  await withTempDir(async (dir) => {
+    const result = await storeCodeOutput(source, views, {
+      storageDir: dir,
+      provenance: { system: "PRD Backup/Test!" },
+    });
+    const md = await readFile(result.md_ref, "utf8");
+    const topicLine = md.match(/^topic: (.+)$/m)?.[1];
+    assert.equal(topicLine, "code/prd-backup-test", `unexpected topic: ${topicLine}`);
   });
 });
 

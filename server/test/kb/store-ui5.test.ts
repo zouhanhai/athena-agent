@@ -89,7 +89,7 @@ test("storeUi5Output: node_modules files never reach the stored chunks", async (
   });
 });
 
-test("storeUi5Output: provenance is rendered into the markdown frontmatter", async () => {
+test("storeUi5Output: provenance is rendered into the markdown frontmatter + topic code/<system>", async () => {
   const files = loadWebappDir(FIXTURE_ROOT);
   const units = parseUi5Units(files, { component: "com.caleo.consolidation" });
   await withTempDir(async (dir) => {
@@ -98,7 +98,8 @@ test("storeUi5Output: provenance is rendered into the markdown frontmatter", asy
       provenance: { system: "BTP", devclass: "ZCNSLD", transport: "K900124" },
     });
     const md = await readFile(result.md_ref, "utf8");
-    assert.ok(md.includes("topic: ui5"));
+    assert.ok(md.includes("type: code"));
+    assert.ok(md.includes("topic: code/btp"), `expected topic code/btp in:\n${md}`);
     assert.ok(md.includes("system: BTP"));
     assert.ok(md.includes("devclass: ZCNSLD"));
     assert.ok(md.includes("transport: K900124"));

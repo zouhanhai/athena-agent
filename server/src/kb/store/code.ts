@@ -77,6 +77,23 @@ export function defaultCodeOutputDir(): string {
   return process.env.REFINEMENT_OUTPUT_DIR ?? join(homedir(), "athena-data", "code");
 }
 
+/** Lowercase + sanitize a raw slug segment: any char outside [a-z0-9] → "-",
+ *  with leading/trailing dashes trimmed so the segment stays a valid topic key. */
+function sanitizeSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** The code topic key for a code document: `code/<system>` (sanitized), or
+ *  `code/unknown` when no system was reported by the intake agent (G4.S8.T7). */
+function codeTopic(provenance?: CodeProvenance): string {
+  const system = provenance?.system?.trim();
+  return system ? `code/${sanitizeSlug(system)}` : "code/unknown";
+}
+
 /** Render parsed CDS views as RefinementChunk-shaped chunks (one per view), with
  *  heading_path = `dataCategory/technicalName`. Pure — no storage side effects. */
 export function cdsViewsToChunks(views: CdsView[]): CdsCodeChunk[] {
@@ -97,7 +114,7 @@ export function renderCodeMarkdown(views: CdsView[], provenance?: CodeProvenance
   const meta: string[] = [
     "---",
     "type: code",
-    "topic: cds",
+    `topic: ${codeTopic(provenance)}`,
     ...(provenance?.system ? [`system: ${provenance.system}`] : []),
     ...(provenance?.devclass ? [`devclass: ${provenance.devclass}`] : []),
     ...(provenance?.transport ? [`transport: ${provenance.transport}`] : []),
@@ -133,7 +150,7 @@ export async function storeCodeOutput(
   await writeFileImpl(chunksPath, JSON.stringify(chunks, null, 2));
   await writeFileImpl(mdPath, markdown);
 
-  const frontmatter: RefinementFrontmatter = { type: "code", topic: "cds" };
+  const frontmatter: RefinementFrontmatter = { type: "code", topic: codeTopic(options.provenance) };
   const ref: RefineOutputRef = {
     md_ref: mdPath,
     rag_md_ref: mdPath,
@@ -205,7 +222,7 @@ export function renderAbapMarkdown(units: AbapUnit[], provenance?: CodeProvenanc
   const meta: string[] = [
     "---",
     "type: code",
-    "topic: abap",
+    `topic: ${codeTopic(provenance)}`,
     ...(provenance?.system ? [`system: ${provenance.system}`] : []),
     ...(provenance?.devclass ? [`devclass: ${provenance.devclass}`] : []),
     ...(provenance?.transport ? [`transport: ${provenance.transport}`] : []),
@@ -240,7 +257,7 @@ export async function storeAbapOutput(
   await writeFileImpl(chunksPath, JSON.stringify(chunks, null, 2));
   await writeFileImpl(mdPath, markdown);
 
-  const frontmatter: RefinementFrontmatter = { type: "code", topic: "abap" };
+  const frontmatter: RefinementFrontmatter = { type: "code", topic: codeTopic(options.provenance) };
   const ref: RefineOutputRef = {
     md_ref: mdPath,
     rag_md_ref: mdPath,
@@ -314,7 +331,7 @@ export function renderUi5Markdown(units: Ui5Unit[], provenance?: CodeProvenance)
   const meta: string[] = [
     "---",
     "type: code",
-    "topic: ui5",
+    `topic: ${codeTopic(provenance)}`,
     ...(provenance?.system ? [`system: ${provenance.system}`] : []),
     ...(provenance?.devclass ? [`devclass: ${provenance.devclass}`] : []),
     ...(provenance?.transport ? [`transport: ${provenance.transport}`] : []),
@@ -349,7 +366,7 @@ export async function storeUi5Output(
   await writeFileImpl(chunksPath, JSON.stringify(chunks, null, 2));
   await writeFileImpl(mdPath, markdown);
 
-  const frontmatter: RefinementFrontmatter = { type: "code", topic: "ui5" };
+  const frontmatter: RefinementFrontmatter = { type: "code", topic: codeTopic(options.provenance) };
   const ref: RefineOutputRef = {
     md_ref: mdPath,
     rag_md_ref: mdPath,

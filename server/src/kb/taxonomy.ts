@@ -2,7 +2,7 @@
  * CALEO document taxonomy (docs/taxonomy.md is authoritative).
  *
  * Every ingested document is classified along two orthogonal dimensions:
- *   - type:  what the document IS (13 kinds, with criteria + counterexamples)
+ *   - type:  what the document IS (14 kinds, with criteria + counterexamples)
  *   - topic: what the document is ABOUT (hierarchical slash-path tree)
  *
  * These constants feed BOTH the llm_wiki classify agent prompt (llmwiki.ts) and
@@ -10,7 +10,7 @@
  * two paths classify consistently.
  */
 
-/** The 13 document types (exactly one per document). */
+/** The 14 document types (exactly one per document). */
 export const DOC_TYPES = [
   "report",
   "minute",
@@ -25,6 +25,7 @@ export const DOC_TYPES = [
   "person",
   "entity",
   "concept",
+  "code",
 ] as const;
 
 export type DocType = (typeof DOC_TYPES)[number];
@@ -44,6 +45,7 @@ export const DOC_TYPE_DIRS: Record<DocType, string> = {
   person: "people",
   entity: "entities",
   concept: "concepts",
+  code: "code",
 };
 
 /** Prompt section: type criteria + counterexamples (from docs/taxonomy.md §1). */
@@ -60,7 +62,8 @@ export const TYPE_CRITERIA_PROMPT = `Pick exactly ONE document type, using the c
 - source: external reference material (official docs, papers, vendor material) NOT authored in-house. Authored in-house -> use the fitting internal type (report/minute/...).
 - person: employee / individual profile. NOT a general company bio (-> entity).
 - entity: introduction/profile of a named thing (client, company, project, product, dataset). NOT an abstract idea (-> concept).
-- concept: abstract idea / technique / phenomenon (e.g. consolidation method, ABAP technique). NOT a concrete named thing (-> entity).`;
+- concept: abstract idea / technique / phenomenon (e.g. consolidation method, ABAP technique). NOT a concrete named thing (-> entity).
+- code: actual SAP source code / model definition (ABAP class/method, CDS view DDL, UI5 controller/view/fragment/Component). NOT a written description of code (-> spec/manual/concept); the source text itself is required, typically pulled from SAP via MCP or a repo.`;
 
 /** Prompt section: hierarchical topic tree (from docs/taxonomy.md §2). */
 export const TOPIC_TREE_PROMPT = `Pick ONE hierarchical topic path (slash-separated). Choose the MOST SPECIFIC path that fits; reuse an existing topic when the document belongs to it.
@@ -114,7 +117,8 @@ Allowed topic tree:
 - internal/events (e.g. Sommerseminar)
 - internal/reports
 - internal/onboarding
-- internal/training`;
+- internal/training
+- code/<system-name> (SAP system the code was pulled from, e.g. code/prd, code/dev, code/qas; use code/unknown when the system is not reported). CODE ONLY: for actual source-code documents (type: code). Keep the sap/development/abap|cds|fiori branches for prose ABOUT development — the code/ branch is for the source text itself.`;
 
-/** Compact list of the 13 type keys, used in the JSON reply contract. */
+/** Compact list of the 14 type keys, used in the JSON reply contract. */
 export const DOC_TYPES_JOINED = DOC_TYPES.join(", ");

@@ -67,7 +67,7 @@ test("storeAbapOutput: writes chunks.json (RefinementChunk[] shape) + markdown p
   });
 });
 
-test("storeAbapOutput: provenance is rendered into the markdown frontmatter", async () => {
+test("storeAbapOutput: provenance is rendered into the markdown frontmatter + topic code/<system>", async () => {
   const source = await readFile(CLASS_FIXTURE, "utf8");
   const units = parseAbapUnits(source);
   await withTempDir(async (dir) => {
@@ -76,10 +76,21 @@ test("storeAbapOutput: provenance is rendered into the markdown frontmatter", as
       provenance: { system: "S4H", devclass: "ZFIDL", transport: "K900456" },
     });
     const md = await readFile(result.md_ref, "utf8");
+    assert.ok(md.includes("type: code"));
+    assert.ok(md.includes("topic: code/s4h"), `expected topic code/s4h in:\n${md}`);
     assert.ok(md.includes("system: S4H"));
     assert.ok(md.includes("devclass: ZFIDL"));
     assert.ok(md.includes("transport: K900456"));
-    assert.ok(md.includes("topic: abap"));
+  });
+});
+
+test("storeAbapOutput: topic falls back to code/unknown when no system is reported", async () => {
+  const source = await readFile(CLASS_FIXTURE, "utf8");
+  const units = parseAbapUnits(source);
+  await withTempDir(async (dir) => {
+    const result = await storeAbapOutput(units, { storageDir: dir, provenance: { devclass: "ZFIDL" } });
+    const md = await readFile(result.md_ref, "utf8");
+    assert.ok(md.includes("topic: code/unknown"), `expected code/unknown fallback in:\n${md}`);
   });
 });
 
