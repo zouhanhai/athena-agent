@@ -772,6 +772,36 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     }
   });
 
+  /** GET /api/kb/wiki/code-meta?path= → structured code metadata for a
+   *  `type: code` wiki page (G4.S8.T11), resolved from the page's stored
+   *  chunks_ref. Read-only; same auth posture as the other KB GET wiki routes.
+   *
+   *  Chunks-ref resolution: the code store façades write
+   *  `<CODE_OUTPUT_DIR>/<stem>/chunks.json` next to `markdown.md`, where `stem`
+   *  is the source object's slugified name — identical to the wiki page FILE
+   *  stem (`wiki/code/<system>/<stem>.md`), because the ingest runner derives
+   *  both from the same `slugify`. So `path`'s basename stem maps straight to
+   *  `<CODE_OUTPUT_DIR>/<stem>/chunks.json`; no Neo4j Document lookup needed.
+   *
+   *  404 when the page is missing or not a code page. */
+  app.get("/api/kb/wiki/code-meta", async (request, reply) => {
+    const { path } = request.query as { path?: unknown };
+    if (typeof path !== "string" || path.trim().length === 0) {
+      return reply.code(400).send({ error: "path is required" });
+    }
+    try {
+      const meta = await options.retrieval!.getWikiCodeMeta(path);
+      if (!meta) {
+        return reply.code(404).send({ error: "wiki code metadata not found" });
+      }
+      return meta;
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /** GET /api/kb/wiki/image?path= → stream a wiki page's source image bytes
    *  so WikiView can render <img src="/api/kb/wiki/image?path=..."> (G3.S5.T5).
    *  The path is validated with the same isSafeWikiPath-style guard. */

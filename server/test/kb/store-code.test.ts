@@ -98,6 +98,35 @@ test("storeCodeOutput: writes chunks.json (RefinementChunk[] shape) + markdown p
   });
 });
 
+test("cdsViewsToChunks: members carries the select-body field/expression lines (G4.S8.T11)", async () => {
+  const source = await readFile(fixturePath, "utf8");
+  const views = parseCdsViews(source);
+  const chunks = cdsViewsToChunks(views);
+
+  assert.equal(chunks.length, views.length);
+  for (const view of views) {
+    const chunk = chunks.find((c) => c.technicalName === view.technicalName)!;
+    assert.ok(chunk, `chunk exists for ${view.technicalName}`);
+    // members mirrors the parser's rawMembers exactly.
+    assert.deepEqual(chunk.members, view.rawMembers);
+    assert.ok(Array.isArray(chunk.members));
+    // members are real select-body lines (at least for a valued fixture view).
+    const valued = views.find((v) => v.rawMembers.length > 0);
+    if (valued) {
+      const valuedChunk = chunks.find((c) => c.technicalName === valued.technicalName)!;
+      assert.ok(valuedChunk.members.length > 0);
+      assert.ok(valuedChunk.members.some((m) => /^[A-Za-z_][A-Za-z0-9_]*/.test(m)));
+    }
+  }
+
+  // on-disk chunks.json also carries members (survives the store façade).
+  await withTempDir(async (dir) => {
+    const result = await storeCodeOutput(source, views, { storageDir: dir });
+    const onDisk = JSON.parse(await readFile(result.chunks_ref, "utf8")) as CdsCodeChunk[];
+    assert.ok(onDisk.every((c) => Array.isArray(c.members)));
+  });
+});
+
 test("storeCodeOutput: deterministic chunk ids (stable path in chunks.json)", async () => {
   const source = await readFile(fixturePath, "utf8");
   const views = parseCdsViews(source);

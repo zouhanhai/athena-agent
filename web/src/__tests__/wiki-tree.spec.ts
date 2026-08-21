@@ -103,6 +103,71 @@ describe("buildViewTree type view", () => {
   });
 });
 
+describe("topic tree code hierarchy (G4.S8.T11)", () => {
+  const codePages: WikiPage[] = [
+    // ABAP devclass group
+    { path: "wiki/code/S4H/zcl_fi_delivery.md", name: "zcl_fi_delivery.md", type: "code", topic: "code/S4H", system: "S4H", devclass: "ZFI", transport: "K900123" },
+    { path: "wiki/code/S4H/zcl_fi_post.md", name: "zcl_fi_post.md", type: "code", topic: "code/S4H", system: "S4H", devclass: "ZFI" },
+    // UI5 component namespace group
+    { path: "wiki/code/S4H/com-caleo-consolidation.md", name: "com-caleo-consolidation.md", type: "code", topic: "code/S4H", system: "S4H", component: "com.caleo.consolidation" },
+    // DDIC page WITHOUT a devclass → stays directly under code/<system>/
+    { path: "wiki/code/S4H/mara.md", name: "mara.md", type: "code", topic: "code/S4H", system: "S4H" },
+    // non-code page with identical topic stays as-is
+    { path: "wiki/code/S4H/note.md", name: "note.md", type: "concept", topic: "code/S4H" },
+  ];
+
+  it("adds a devclass/component folder level under code/<system>/ for code pages", () => {
+    const tree = buildViewTree(codePages, "topic");
+    const code = tree.find((n) => n.name === "code")!;
+    const system = code.children!.find((n) => n.name === "S4H")!;
+
+    const folderNames = new Set(system.children!.map((n) => n.name));
+    expect(folderNames).toEqual(
+      new Set(["ZFI", "com.caleo.consolidation", "mara.md", "note.md"]),
+    );
+
+    const devclass = system.children!.find((n) => n.name === "ZFI")!;
+    expect(devclass.isDir).toBe(true);
+    expect(devclass.children!.map((n) => n.path)).toEqual([
+      "wiki/code/S4H/zcl_fi_delivery.md",
+      "wiki/code/S4H/zcl_fi_post.md",
+    ]);
+
+    const component = system.children!.find((n) => n.name === "com.caleo.consolidation")!;
+    expect(component.isDir).toBe(true);
+    expect(component.children!.map((n) => n.path)).toEqual([
+      "wiki/code/S4H/com-caleo-consolidation.md",
+    ]);
+
+    // pages without devclass stay directly under code/<system>/; non-code pages unaffected
+    expect(system.children!.find((n) => n.name === "mara.md")!.isDir).toBe(false);
+    expect(system.children!.find((n) => n.name === "note.md")!.isDir).toBe(false);
+  });
+
+  it("devclass takes precedence over component when both present", () => {
+    const pages: WikiPage[] = [
+      { path: "wiki/code/S4H/a.md", name: "a.md", type: "code", topic: "code/S4H", system: "S4H", devclass: "ZFI", component: "com.x" },
+    ];
+    const tree = buildViewTree(pages, "topic");
+    const system = tree.find((n) => n.name === "code")!.children![0]!;
+    expect(system.children!.map((n) => n.name)).toEqual(["ZFI"]);
+    expect(system.children![0]!.children![0]!.path).toBe("wiki/code/S4H/a.md");
+  });
+
+  it("code pages without a devclass/component gain no folder level", () => {
+    const pages: WikiPage[] = [
+      { path: "wiki/code/S4H/mara.md", name: "mara.md", type: "code", topic: "code/S4H", system: "S4H" },
+      { path: "wiki/code/unknown/x.md", name: "x.md", type: "code", topic: "code/unknown" },
+    ];
+    const tree = buildViewTree(pages, "topic");
+    const system = tree.find((n) => n.name === "code")!.children![0]!;
+    expect(system.children!.map((n) => n.name)).toEqual(["mara.md"]);
+    // topic "code/unknown" → single code/ folder, page under it
+    const unknown = tree.find((n) => n.name === "code")!.children!.find((n) => n.name === "unknown")!;
+    expect(unknown.children!.map((n) => n.name)).toEqual(["x.md"]);
+  });
+});
+
 describe("attachHeadings (G3.S5.T6)", () => {
   const base = () => buildViewTree(flat, "topic");
 

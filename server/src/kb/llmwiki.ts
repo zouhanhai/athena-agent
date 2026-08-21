@@ -49,6 +49,13 @@ export interface LlmWikiFileNode {
   type?: string;
   /** Frontmatter `topic` of a wiki page (may be a slash path, e.g. "sap/fiori"). */
   topic?: string;
+  /** Code lineage (G4.S8.T11): `system`/`devclass`/`transport`/`component`
+   *  parsed from a code page's embedded frontmatter. Lets the topic tree
+   *  group code pages under `code/<system>/<devclass|component>/`. */
+  system?: string;
+  devclass?: string;
+  transport?: string;
+  component?: string;
   children?: LlmWikiFileNode[];
 }
 
@@ -307,12 +314,15 @@ export class LlmWikiClient {
 
   /**
    * Flatten all wiki pages of a project into their frontmatter metadata
-   * (path, type, topic). Used to attach metadata to the tree for the frontend
-   * view switcher and to collect existing topics for stable ingest grouping.
+   * (path, type, topic + code lineage). Used to attach metadata to the tree for
+   * the frontend view switcher and to collect existing topics for stable ingest
+   * grouping.
    */
-  async listWikiPages(projectId: string): Promise<{ path: string; type?: string; topic?: string }[]> {
+  async listWikiPages(
+    projectId: string,
+  ): Promise<{ path: string; type?: string; topic?: string; system?: string; devclass?: string; transport?: string; component?: string }[]> {
     const { files } = await this.getFileTree(projectId, { root: "wiki", recursive: true });
-    const pages: { path: string; type?: string; topic?: string }[] = [];
+    const pages: { path: string; type?: string; topic?: string; system?: string; devclass?: string; transport?: string; component?: string }[] = [];
     const walk = async (nodes: LlmWikiFileNode[]): Promise<void> => {
       for (const node of nodes) {
         if (node.isDir) {
@@ -325,7 +335,15 @@ export class LlmWikiClient {
           try {
             const { content } = await this.readFile(projectId, node.path);
             const fm = parseFrontmatter(content);
-            pages.push({ path: node.path, type: fm.type || undefined, topic: fm.topic || undefined });
+            pages.push({
+              path: node.path,
+              type: fm.type || undefined,
+              topic: fm.topic || undefined,
+              system: fm.system || undefined,
+              devclass: fm.devclass || undefined,
+              transport: fm.transport || undefined,
+              component: fm.component || undefined,
+            });
           } catch {
             // skip files llm_wiki refuses to return (e.g. > its API limit)
           }

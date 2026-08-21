@@ -29,6 +29,10 @@ export interface CodeProvenance {
   system?: string;
   devclass?: string;
   transport?: string;
+  /** UI5 app component namespace (e.g. `com.caleo.consolidation`) — carried
+   *  into the UI5 wiki frontmatter so the topic tree groups UI5 pages by
+   *  component (G4.S8.T11). */
+  component?: string;
 }
 
 /** A CDS view rendered as a chunk, extending the standard RefinementChunk shape
@@ -42,6 +46,9 @@ export interface CdsCodeChunk extends RefinementChunk {
   sourceTables: string[];
   /** Association clauses declared on the view. */
   associations: Array<{ name: string; target: string }>;
+  /** Select-body field/expression lines (G4.S8.T11) — the parser's rawMembers,
+   *  exposed to the renderer as the HANA-Studio-style Elements outline. */
+  members: string[];
 }
 
 export interface CodeStoreOptions {
@@ -216,6 +223,7 @@ export function cdsViewsToChunks(views: CdsView[]): CdsCodeChunk[] {
     dataCategory: v.dataCategory,
     sourceTables: v.sourceTables,
     associations: v.associations,
+    members: v.rawMembers,
   }));
 }
 
@@ -448,6 +456,7 @@ export function renderUi5Markdown(units: Ui5Unit[], provenance?: CodeProvenance)
     ...(provenance?.system ? [`system: ${provenance.system}`] : []),
     ...(provenance?.devclass ? [`devclass: ${provenance.devclass}`] : []),
     ...(provenance?.transport ? [`transport: ${provenance.transport}`] : []),
+    ...(provenance?.component ? [`component: ${provenance.component}`] : []),
     "---",
   ];
   const body = units.map((u) => `## ${u.file}\n\n${u.text.trim()}`).join("\n\n");

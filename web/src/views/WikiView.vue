@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch, watchEffect } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import type { TreeNodeModel } from "tdesign-vue-next/es/tree/type";
 
-import { deleteWikiDoc, getWikiTree, readWikiPage, saveWikiPage } from "@/api/kb";
-import type { WikiTreeNode } from "@/api/kb";
+import { deleteWikiDoc, getWikiCodeMeta, getWikiTree, readWikiPage, saveWikiPage, searchKnowledge } from "@/api/kb";
+import type { KnowledgeSearchResult, WikiCodeMeta, WikiTreeNode } from "@/api/kb";
 import { extractWikiHeadings, hasWikiHeadings, renderMarkdown } from "@/kb/markdown";
+import WikiCodeRenderer from "@/components/wiki/WikiCodeRenderer.vue";
+import { detectCodeChannel } from "@/kb/code-links";
 import { attachHeadings, buildViewTree, flattenPages } from "@/kb/wiki-tree";
 import type { WikiView } from "@/kb/wiki-tree";
 import { useThemeStore } from "@/stores/theme";
@@ -32,6 +34,17 @@ const contentError = ref("");
 const deleteVisible = ref(false);
 const deleting = ref(false);
 const deleteError = ref("");
+
+// G4.S8.T11: structured code metadata for type: code pages, resolved from the
+// page's stored chunks_ref. When it resolves, WikiView dispatches the matching
+// per-DocType renderer; otherwise it falls back to today's markdown rendering.
+const structuredMeta = ref<WikiCodeMeta | null>(null);
+const structuredLoading = ref(false);
+// Cross-link fallback: clicking a FK/chip whose target page does not exist
+// triggers a wiki search whose results are surfaced here (no dead links).
+const searchResults = ref<KnowledgeSearchResult[]>([]);
+const searchResultsFor = ref("");
+const searchResultError = ref("");
 
 // G4.S3.T10: wiki editing is permission-gated behind `kb.edit` — admin by
 // default, grantable to a member. Everyone else sees the wiki read-only.
@@ -106,6 +119,55 @@ const codeMeta = computed(() => {
   };
 });
 
+/** G4.S8.T11: the detected renderer channel from the loaded code-meta, or null
+ *  when the page has no structured metadata (fall back to markdown). */
+const codeChannel = computed(() =>
+  pageFrontmatter.value.type === "code" ? detectCodeChannel(structuredMeta.value) : null,
+);
+
+const codeRendererActive = computed(() => codeChannel.value !== null);
+
+/** All wiki page paths (for cross-link existence checks — no dead links). */
+const existingPaths = computed(() => flattenPages(tree.value).map((p) => p.path));
+
+async function loadCodeMeta(path: string): Promise<void> {
+  structuredMeta.value = null;
+  searchResults.value = [];
+  searchResultsFor.value = "";
+  if (pageFrontmatter.value.type !== "code") return;
+  structuredLoading.value = true;
+  try {
+    structuredMeta.value = await getWikiCodeMeta(path);
+  } catch {
+    // code-meta unavailable (404/non-code/network) → markdown fallback
+    structuredMeta.value = null;
+  } finally {
+    structuredLoading.value = false;
+  }
+}
+
+/** Cross-link navigation: open the resolved page directly. */
+function onCodeNavigate(path: string): void {
+  void openPage(path);
+}
+
+/** Cross-link fallback: the target page does not exist → wiki search. */
+async function onCodeSearch(target: string): Promise<void> {
+  searchResults.value = [];
+  searchResultsFor.value = target;
+  searchResultError.value = "";
+  try {
+    const results = await searchKnowledge(target);
+    searchResults.value = Array.isArray(results) ? results : [];
+  } catch (err) {
+    searchResultError.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
+function openSearchResult(path: string | undefined): void {
+  if (path) void openPage(path);
+}
+
 /** The active page's internal heading outline (h1/h2/h3) for the left tree. */
 const headings = computed(() => extractWikiHeadings(content.value));
 
@@ -162,6 +224,9 @@ function walkTocLevel(ul: Element, depth: number): void {
     if (!(child instanceof HTMLElement)) continue;
     const childList = child.querySelector(":scope > ul");
     if (!childList) continue;
+    // Idempotent: a previous pass (e.g. a re-arm after `contentLoading` flips)
+    // may already have injected the toggle into this li.
+    if (child.querySelector(":scope > .wiki-toc-toggle")) continue;
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "wiki-toc-toggle";
@@ -176,8 +241,20 @@ function walkTocLevel(ul: Element, depth: number): void {
   }
 }
 
-/** Re-arm the TOC accordion once the freshly-rendered content is in the DOM. */
-watch(renderedContent, () => {
+/**
+ * Re-arm the TOC accordion once the freshly-rendered content is in the DOM
+ * (G3.S5.T6). Re-reads BOTH the rendered markdown AND the content-loading flag:
+ * `content.value` changes while `contentLoading` is still true (openPage sets
+ * content, resolves code-meta, THEN flips the flag), and the content pane
+ * (`contentPane` ref) is only mounted once `contentLoading` drops. Skipping the
+ * arm while loading + re-arming on the flag flip guarantees the walk sees the
+ * rendered `.wiki-toc` DOM. Idempotent — v-html wipes injected toggles, and
+ * duplicate arms are skipped inside walkTocLevel.
+ */
+watchEffect(() => {
+  void renderedContent.value;
+  void contentLoading.value;
+  if (contentLoading.value) return;
   void nextTick(initTocAccordion);
 });
 
@@ -260,11 +337,14 @@ async function openPage(path: string) {
   saveNotice.value = "";
   contentLoading.value = true;
   contentError.value = "";
+  searchResults.value = [];
+  searchResultsFor.value = "";
   try {
     content.value = await readWikiPage(path);
     if (route.query.path !== path) {
       await router.replace({ query: { ...route.query, path } });
     }
+    await loadCodeMeta(path);
   } catch (err) {
     contentError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -502,13 +582,65 @@ watch(
               <code>{{ codeMeta.transport }}</code>
             </span>
           </div>
-          <div
-            ref="contentPane"
-            class="wiki-content"
-            data-testid="wiki-content"
-            v-html="renderedContent"
-            @click="onContentClick"
-          />
+          <p v-if="structuredLoading" class="wiki-status">Loading structured code metadata...</p>
+            <!-- G4.S8.T11: per-DocType renderer when code-meta resolves; the
+                 markdown rendering is the fallback for everything else. The
+                 markdown node stays ALWAYS-MOUNTED (v-show, hidden behind an
+                 active renderer) so the TOC-accordion watcher finds
+                 `contentPane` no matter the branch. -->
+            <WikiCodeRenderer
+              v-if="codeRendererActive"
+              :meta="structuredMeta!"
+              :system="codeMeta?.system"
+              :existing-paths="existingPaths"
+              data-testid="wiki-code-renderer"
+              @navigate="onCodeNavigate"
+              @search="onCodeSearch"
+            />
+            <div
+              v-show="!codeRendererActive && !structuredLoading"
+              ref="contentPane"
+              class="wiki-content"
+              data-testid="wiki-content"
+              v-html="renderedContent"
+              @click="onContentClick"
+            />
+          <div v-if="searchResultsFor" class="wiki-search-results" data-testid="wiki-search-results">
+            <div class="wiki-search-results-header">
+              <span class="wiki-search-results-title">
+                Wiki search for <code>{{ searchResultsFor }}</code>
+              </span>
+              <button
+                type="button"
+                class="wiki-search-results-close"
+                aria-label="Close search results"
+                @click="searchResultsFor = ''; searchResults = []; searchResultError = ''"
+              >
+                ×
+              </button>
+            </div>
+            <p v-if="searchResultError" class="wiki-error">{{ searchResultError }}</p>
+            <ul v-else-if="searchResults.length" class="wiki-search-result-list">
+              <li v-for="(r, i) in searchResults" :key="i">
+                <button
+                  type="button"
+                  class="wiki-search-result"
+                  data-testid="wiki-search-result"
+                  @click="openSearchResult(r.path ?? r.wikiPath)"
+                >
+                  <span class="wiki-search-result-title">{{ r.title }}</span>
+                  <code v-if="r.path ?? r.wikiPath" class="wiki-search-result-path">
+                    {{ r.path ?? r.wikiPath }}
+                  </code>
+                  <span class="wiki-search-result-snippet">{{ r.snippet }}</span>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="wiki-status">
+              No wiki page named "{{ searchResultsFor }}" exists; the wiki search returned no
+              matches either.
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -729,6 +861,92 @@ watch(
   background: var(--caleo-surface);
   border: 1px solid var(--caleo-border);
   color: var(--caleo-text);
+}
+
+/* G4.S8.T11: cross-link search results panel (no-dead-link fallback). */
+.wiki-search-results {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  background: var(--caleo-surface-hover);
+}
+
+.wiki-search-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wiki-search-results-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.wiki-search-results-title code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--caleo-surface);
+  color: var(--caleo-primary);
+}
+
+.wiki-search-results-close {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--caleo-text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.wiki-search-results-close:hover {
+  color: var(--caleo-primary);
+}
+
+.wiki-search-result-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wiki-search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: var(--caleo-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wiki-search-result:hover {
+  border-color: var(--caleo-primary);
+}
+
+.wiki-search-result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.wiki-search-result-path {
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
+}
+
+.wiki-search-result-snippet {
+  font-size: 12px;
+  color: var(--caleo-text-secondary);
 }
 
 /* G4.S3.T10: inline markdown editor for a corrected wiki page. */

@@ -20,6 +20,12 @@ export interface WikiPage {
   name: string;
   type?: string;
   topic?: string;
+  /** Code lineage (G4.S8.T11) parsed from a code page's embedded frontmatter;
+   *  the topic tree gains a `code/<system>/<devclass|component>/` level. */
+  system?: string;
+  devclass?: string;
+  transport?: string;
+  component?: string;
 }
 
 /** Flatten the physical wiki tree into a list of content pages. */
@@ -32,7 +38,16 @@ export function flattenPages(tree: WikiTreeNode[]): WikiPage[] {
       } else if (node.path.endsWith(".md")) {
         const stem = node.path.split("/").pop()?.replace(/\.md$/i, "").toLowerCase() ?? "";
         if (["index", "overview", "log"].includes(stem)) continue;
-        pages.push({ path: node.path, name: node.name, type: node.type, topic: node.topic });
+        pages.push({
+          path: node.path,
+          name: node.name,
+          type: node.type,
+          topic: node.topic,
+          system: node.system,
+          devclass: node.devclass,
+          transport: node.transport,
+          component: node.component,
+        });
       }
     }
   };
@@ -46,6 +61,26 @@ function pageNode(page: WikiPage): WikiTreeNode {
 
 type Level = Map<string, Level | WikiPage[]>;
 const PAGES_KEY = "__pages";
+
+/**
+ * The topic segments a page inserts under. G4.S8.T11: `type: code` pages gain a
+ * `code/<system>/<devclass|component>/` folder level (ABAP → devclass, UI5 →
+ * component namespace, whichever the page carries) so the tree is hierarchical
+ * instead of one flat layer of ABAP methods/units; pages without a devclass/
+ * component stay directly under `code/<system>/`. Non-code pages are unchanged.
+ */
+function topicInsertSegments(page: WikiPage): string[] {
+  const base = page.topic?.split("/") ?? [];
+  if (page.type !== "code") return base;
+  const folder = (page.devclass ?? page.component ?? "")
+    .trim()
+    .replace(/[/\\]/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (folder && base.length >= 2) {
+    return [...base, folder];
+  }
+  return base;
+}
 
 /** Build the Topic view tree: nested folders from slash-path topic keys. */
 function buildTopicTree(pages: WikiPage[]): WikiTreeNode[] {
@@ -70,7 +105,7 @@ function buildTopicTree(pages: WikiPage[]): WikiTreeNode[] {
   };
 
   for (const page of pages) {
-    if (page.topic && page.topic.length > 0) insert(page.topic.split("/"), page);
+    if (page.topic && page.topic.length > 0) insert(topicInsertSegments(page), page);
     else untagged.push(page);
   }
 

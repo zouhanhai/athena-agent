@@ -351,3 +351,61 @@ test("LlmWikiClient.classify tells the agent to reuse existing topics", async ()
   assert.deepEqual(result, { category: "concept", topic: "sommerseminar", pagePath: "wiki/sommerseminar/sommerseminar-4.md" });
 });
 
+test("listWikiPages returns code lineage merged from the embedded code frontmatter (G4.S8.T11)", async () => {
+  const embedded = [
+    "---",
+    "type: code",
+    "title: MARA",
+    "topic: code/S4H",
+    "created: 2026-08-21",
+    "updated: 2026-08-21",
+    "read_count: 0",
+    "confidence: 1",
+    "---",
+    "---",
+    "type: code",
+    "topic: code/S4H",
+    "system: S4H",
+    "devclass: ZFI",
+    "transport: K900123",
+    "component: com.caleo.consolidation",
+    "---",
+    "",
+    "# DDIC Tables",
+  ].join("\n");
+  const { fetchImpl, calls } = makeFetchMock((url) => {
+    if (url.includes("/files") && !url.includes("/files/content")) {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          files: [
+            { isDir: false, name: "mara.md", path: "wiki/code/S4H/mara.md" },
+            { isDir: false, name: "note.md", path: "wiki/concepts/note.md" },
+          ],
+          truncated: false,
+        },
+      };
+    }
+    if (url.includes("/files/content")) {
+      if (url.includes("mara.md")) return { status: 200, body: { ok: true, path: "wiki/code/S4H/mara.md", content: embedded } };
+      return { status: 200, body: { ok: true, path: "wiki/concepts/note.md", content: "# Note" } };
+    }
+    return { status: 200, body: { ok: true } };
+  });
+  const client = new LlmWikiClient({ baseUrl: "http://wiki:19828", fetchImpl });
+  const pages = await client.listWikiPages("athena-wiki");
+  const mara = pages.find((p) => p.path === "wiki/code/S4H/mara.md")!;
+  assert.ok(mara);
+  assert.equal(mara.type, "code");
+  assert.equal(mara.topic, "code/S4H");
+  assert.equal(mara.system, "S4H");
+  assert.equal(mara.devclass, "ZFI");
+  assert.equal(mara.transport, "K900123");
+  assert.equal(mara.component, "com.caleo.consolidation");
+  const note = pages.find((p) => p.path === "wiki/concepts/note.md")!;
+  assert.ok(note);
+  assert.equal(note.system, undefined);
+  assert.equal(note.devclass, undefined);
+});
+

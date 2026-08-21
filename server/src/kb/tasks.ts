@@ -1484,6 +1484,9 @@ export class IngestTaskQueue {
       system: input.system,
       devclass: input.devclass,
       transport: input.transport,
+      // G4.S8.T11: UI5 pages group in the topic tree by their app component
+      // namespace — carry it into the wiki frontmatter.
+      component: input.component,
     };
 
     // --- parsing: local UI5 parse (the code channel; NOT docling) ---

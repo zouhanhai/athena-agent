@@ -34,6 +34,13 @@ export interface WikiTreeNode {
   type?: string;
   /** Frontmatter `topic` of a wiki page (may be a slash path, e.g. "sap/fiori"). */
   topic?: string;
+  /** Code lineage (G4.S8.T11): `system`/`devclass`/`transport`/`component`
+   *  parsed from a code page's embedded frontmatter — the topic tree groups
+   *  code pages under `code/<system>/<devclass|component>/`. */
+  system?: string;
+  devclass?: string;
+  transport?: string;
+  component?: string;
   /** True for heading-outline entries under a selected wiki file (G3.S5.T6). */
   isHeading?: boolean;
   /** Heading level (1..3) of a heading-outline entry (G3.S5.T6). */
@@ -206,6 +213,41 @@ export async function readWikiPage(path: string): Promise<string> {
     `${KB_BASE}/wiki/page?path=${encodeURIComponent(path)}`,
   );
   return data.content;
+}
+
+/** One chunk of a code page's structured metadata (G4.S8.T11). */
+export interface WikiCodeMetaChunk {
+  /** Chunk id from the stored RefinementChunk (e.g. `ddic-1`, `cds-1`). */
+  id: string;
+  /** The chunk's location path — its `heading_path` (<TABLE>/_header, ...). */
+  path: string;
+  heading_path?: string;
+  /** The chunk's raw text (DDL source for cds, unit/field text otherwise). */
+  text?: string;
+  /** Channel-specific parsed metadata — `fields` (ddic), `sourceTables` /
+   *  `associations` / `members` (cds), `dependencies` (abap), `references`
+   *  (ui5). The frontend detects the DocType channel from these keys. */
+  metadata: Record<string, unknown>;
+}
+
+/** Structured code metadata for a `type: code` wiki page (G4.S8.T11). */
+export interface WikiCodeMeta {
+  type: string;
+  topic?: string;
+  system?: string;
+  devclass?: string;
+  transport?: string;
+  component?: string;
+  chunks: WikiCodeMetaChunk[];
+}
+
+/** GET /api/kb/wiki/code-meta?path= → the page's structured code metadata
+ *  resolved from its stored chunks_ref. Throws 404 when the page is missing or
+ *  not a code page. */
+export async function getWikiCodeMeta(path: string): Promise<WikiCodeMeta> {
+  return request<WikiCodeMeta>(
+    `${KB_BASE}/wiki/code-meta?path=${encodeURIComponent(path)}`,
+  );
 }
 
 /** PUT /api/kb/wiki/page { path, content } → save a corrected wiki page

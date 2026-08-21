@@ -14,6 +14,7 @@ vi.mock("@/api/kb", () => ({
   getGraph: vi.fn(),
   getWikiTree: vi.fn(),
   readWikiPage: vi.fn(),
+  getWikiCodeMeta: vi.fn(),
   searchKnowledge: vi.fn(),
   deleteWikiDoc: vi.fn(),
   saveWikiPage: vi.fn(),

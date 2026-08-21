@@ -219,6 +219,134 @@ test("readWikiImage uses the configured wikiDir and rejects traversal paths", as
   );
 });
 
+// G4.S8.T11: structured code metadata (code-meta API backing).
+
+const CODE_PAGE = [
+  "---",
+  "type: code",
+  "title: MARA",
+  "topic: code/S4H",
+  "created: 2026-08-21",
+  "updated: 2026-08-21",
+  "read_count: 0",
+  "confidence: 1",
+  "---",
+  "---",
+  "type: code",
+  "topic: code/S4H",
+  "system: S4H",
+  "devclass: ZFI",
+  "transport: K900123",
+  "component: com.caleo.consolidation",
+  "---",
+  "",
+  "# DDIC Tables",
+].join("\n");
+
+const MARA_CHUNKS = [
+  { id: "ddic-1", text: "# MARA", heading_path: "MARA/_header", kind: "header", tableName: "MARA", fields: [{ name: "MATNR", key: true, dataType: "CHAR", length: 18, description: "Material Number" }], foreignKeys: [{ field: "MTART", table: "T134" }] },
+  { id: "ddic-2", text: "## MARA fields", heading_path: "MARA/fields/1", kind: "fields", tableName: "MARA", fields: [{ name: "MTART", key: false, dataType: "CHAR", length: 4, description: "Material type" }], groupIndex: 1 },
+];
+
+function codeMetaService(overrides: {
+  pageContent?: string;
+  codeOutputDir?: string;
+  readFileImpl?: (path: string) => Promise<Buffer>;
+  projectId?: string;
+  pageReadThrows?: boolean;
+}) {
+  return new KnowledgeRetrievalService({
+    llmwiki: stubLlmwiki({
+      readFile: async (_projectId, path) => {
+        if (overrides.pageReadThrows) throw new Error("page missing");
+        return { path, content: overrides.pageContent ?? CODE_PAGE };
+      },
+    }),
+    projectId: overrides.projectId ?? "proj1",
+    codeOutputDir: overrides.codeOutputDir ?? "/data/code",
+    readFile:
+      overrides.readFileImpl ??
+      (async (path) => {
+        if (path.endsWith("chunks.json")) return Buffer.from(JSON.stringify(MARA_CHUNKS));
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      }),
+  });
+}
+
+test("getWikiCodeMeta returns type/topic + lineage + structured chunks from chunks.json (G4.S8.T11)", async () => {
+  const service = codeMetaService({});
+  const meta = await service.getWikiCodeMeta("wiki/code/S4H/mara.md");
+  assert.ok(meta);
+  assert.equal(meta.type, "code");
+  assert.equal(meta.topic, "code/S4H");
+  assert.equal(meta.system, "S4H");
+  assert.equal(meta.devclass, "ZFI");
+  assert.equal(meta.transport, "K900123");
+  assert.equal(meta.component, "com.caleo.consolidation");
+  assert.equal(meta.chunks.length, 2);
+  const header = meta.chunks[0]!;
+  assert.equal(header.id, "ddic-1");
+  assert.equal(header.path, "MARA/_header");
+  assert.equal(header.heading_path, "MARA/_header");
+  // channel metadata (fields / foreignKeys) is preserved; base keys stripped.
+  assert.equal(header.metadata.tableName, "MARA");
+  assert.ok(Array.isArray(header.metadata.fields));
+  assert.ok(Array.isArray(header.metadata.foreignKeys));
+  assert.ok(!("text" in header.metadata));
+  assert.equal(header.text, "# MARA");
+});
+
+test("getWikiCodeMeta resolves chunks via <codeOutputDir>/<pageStem>/chunks.json (the documented convention)", async () => {
+  const seen: string[] = [];
+  const service = codeMetaService({
+    codeOutputDir: "/tmp/code-out",
+    readFileImpl: async (path) => {
+      seen.push(path);
+      return Buffer.from(JSON.stringify(MARA_CHUNKS));
+    },
+  });
+  const meta = await service.getWikiCodeMeta("wiki/code/S4H/mara.md");
+  assert.ok(meta);
+  assert.equal(seen[0], "/tmp/code-out/mara/chunks.json");
+  // The page stem comes from the wiki FILE stem (not the system dir).
+  const altSeen: string[] = [];
+  const service2 = codeMetaService({
+    readFileImpl: async (path) => {
+      altSeen.push(path);
+      return Buffer.from(JSON.stringify(MARA_CHUNKS));
+    },
+  });
+  const meta2 = await service2.getWikiCodeMeta("wiki/code/S4H/zcl-fi-delivery.md");
+  assert.ok(meta2);
+  assert.equal(altSeen[0], "/data/code/zcl-fi-delivery/chunks.json");
+});
+
+test("getWikiCodeMeta returns null for a non-code page", async () => {
+  const service = codeMetaService({
+    pageContent: "---\ntype: concept\ntitle: X\n---\n# Concept",
+  });
+  const meta = await service.getWikiCodeMeta("wiki/concepts/x.md");
+  assert.equal(meta, null);
+});
+
+test("getWikiCodeMeta returns null when the page does not exist (llm_wiki read throws)", async () => {
+  const service = codeMetaService({ pageReadThrows: true });
+  const meta = await service.getWikiCodeMeta("wiki/code/S4H/missing.md");
+  assert.equal(meta, null);
+});
+
+test("getWikiCodeMeta keeps meta with empty chunks when chunks.json is missing (markdown fallback)", async () => {
+  const service = codeMetaService({
+    readFileImpl: async () => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    },
+  });
+  const meta = await service.getWikiCodeMeta("wiki/code/S4H/mara.md");
+  assert.ok(meta);
+  assert.equal(meta.type, "code");
+  assert.equal(meta.chunks.length, 0);
+});
+
 test("search returns keyword hits from llm_wiki when no Neo4j store is wired", async () => {
   const llmwiki = stubLlmwiki({
     search: async () => ({

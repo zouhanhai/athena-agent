@@ -14,6 +14,12 @@ function stubRetrieval(
     }),
     getWikiTree: async () => [{ name: "runbook.md", path: "runbook.md", isDir: false }],
     readWikiPage: async (path: string) => ({ path, content: "# Runbook\nbody" }),
+    getWikiCodeMeta: async () => ({
+      type: "code",
+      system: "S4H",
+      devclass: "ZFI",
+      chunks: [],
+    }),
     readWikiImage: async (path: string) => ({
       data: Buffer.from(`bytes-of:${path}`),
       contentType: "image/png",
@@ -177,6 +183,116 @@ test("GET /api/kb/wiki/image returns 404 when the image file is missing", async 
     });
     assert.equal(res.statusCode, 404);
     assert.match(res.json().error ?? "", /not found/);
+  } finally {
+    await app.close();
+  }
+});
+
+// G4.S8.T11: code-meta API.
+
+test("GET /api/kb/wiki/code-meta requires a path", async () => {
+  const app = await appWith(stubRetrieval());
+  try {
+    const res = await app.inject({ method: "GET", url: "/api/kb/wiki/code-meta" });
+    assert.equal(res.statusCode, 400);
+    assert.match(res.json().error ?? "", /path is required/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/wiki/code-meta returns the structured code metadata", async () => {
+  let seenPath: string | undefined;
+  const app = await appWith(
+    stubRetrieval({
+      getWikiCodeMeta: async (path: string) => {
+        seenPath = path;
+        return {
+          type: "code",
+          topic: "code/S4H",
+          system: "S4H",
+          devclass: "ZFI",
+          transport: "K900123",
+          chunks: [
+            { id: "ddic-1", path: "MARA/_header", heading_path: "MARA/_header", metadata: { tableName: "MARA", fields: [] } },
+          ],
+        };
+      },
+    }),
+  );
+  try {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/kb/wiki/code-meta?path=wiki%2Fcode%2FS4H%2Fmara.md",
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.type, "code");
+    assert.equal(body.system, "S4H");
+    assert.equal(body.devclass, "ZFI");
+    assert.equal(body.transport, "K900123");
+    assert.equal(body.chunks.length, 1);
+    assert.equal(body.chunks[0].path, "MARA/_header");
+    assert.equal(body.chunks[0].metadata.tableName, "MARA");
+    assert.equal(seenPath, "wiki/code/S4H/mara.md");
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/wiki/code-meta returns 404 for a missing or non-code page", async () => {
+  let calls = 0;
+  const nullApp = await appWith(
+    stubRetrieval({
+      getWikiCodeMeta: async () => {
+        calls += 1;
+        return null;
+      },
+    }),
+  );
+  try {
+    const res = await nullApp.inject({
+      method: "GET",
+      url: "/api/kb/wiki/code-meta?path=wiki%2Fconcepts%2Fnote.md",
+    });
+    assert.equal(res.statusCode, 404);
+    assert.match(res.json().error ?? "", /not found/);
+    assert.equal(calls, 1);
+  } finally {
+    await nullApp.close();
+  }
+});
+
+test("GET /api/kb/wiki/code-meta maps service errors to 500", async () => {
+  const app = await appWith(
+    stubRetrieval({
+      getWikiCodeMeta: async () => {
+        throw new Error("store down");
+      },
+    }),
+  );
+  try {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/kb/wiki/code-meta?path=wiki%2Fcode%2FS4H%2Fmara.md",
+    });
+    assert.equal(res.statusCode, 500);
+    assert.match(res.json().error ?? "", /store down/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/kb/wiki/code-meta succeeds with a valid employee session token (read path like other KB GET routes)", async () => {
+  const app = await appWith(stubRetrieval());
+  try {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/kb/wiki/code-meta?path=wiki%2Fcode%2FS4H%2Fmara.md",
+      headers: { authorization: "Bearer employee-session-token" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().type, "code");
   } finally {
     await app.close();
   }

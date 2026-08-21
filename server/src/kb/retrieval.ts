@@ -12,6 +12,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { LlmWikiClient, LlmWikiFileNode, LlmWikiSearchResult } from "./llmwiki.js";
+import { parseFrontmatter } from "./frontmatter.js";
+import { defaultCodeOutputDir } from "./store/code.js";
 import type { WikiFrontmatterSyncer } from "./wiki-frontmatter.js";
 import type { SemanticMappingStore } from "./semantic-mappings.js";
 import { expandTerms } from "./semantic-mappings.js";
@@ -36,6 +38,9 @@ export interface KnowledgeRetrievalOptions {
   wikiDir?: string;
   /** Override reading image bytes from disk (tests). */
   readFile?: (path: string) => Promise<Buffer>;
+  /** Code-store output dir holding `<stem>/chunks.json` for code pages
+   *  (G4.S8.T11 code-meta). Default: `defaultCodeOutputDir()`. */
+  codeOutputDir?: string;
   /** Canonical wiki-frontmatter syncer (G4.S3.T1). Tracks read_count on BOTH
    *  the wiki frontmatter and the Neo4j Document node (write-through) whenever
    *  the retrieval service surfaces a page. Best-effort. */
@@ -124,12 +129,63 @@ interface ResolvedProject {
   wikiDir?: string;
 }
 
+/** One chunk of a code page's structured metadata (G4.S8.T11). */
+export interface WikiCodeMetaChunk {
+  /** Chunk id from the stored RefinementChunk (e.g. `ddic-1`, `cds-1`). */
+  id: string;
+  /** The chunk's location path — its `heading_path` (<TABLE>/_header, ...). */
+  path: string;
+  heading_path?: string;
+  /** The chunk's raw text (DDL source for cds, unit/field text otherwise). */
+  text?: string;
+  /** The channel-specific parsed metadata — `fields` (ddic), `sourceTables` /
+   *  `associations` / `members` (cds), `dependencies` (abap), `references`
+   *  (ui5). The frontend detects the DocType channel from these keys. */
+  metadata: Record<string, unknown>;
+}
+
+/** Structured code metadata for a `type: code` wiki page (G4.S8.T11). Empty
+ *  `chunks` means the page's chunks.json was not resolvable (fall back to the
+ *  markdown renderer). */
+export interface WikiCodeMeta {
+  type: string;
+  topic?: string;
+  system?: string;
+  devclass?: string;
+  transport?: string;
+  component?: string;
+  chunks: WikiCodeMetaChunk[];
+}
+
+/** Keys carried by every RefinementChunk that are NOT code-channel metadata —
+ *  stripped from a chunk's `metadata` object so it stays channel-specific. */
+const CHUNK_BASE_KEYS = new Set(["id", "text", "heading_path", "path"]);
+
+/** Map one stored RefinementChunk to the code-meta API shape: `metadata` holds
+ *  the channel fields (everything except the base RefinementChunk keys). */
+function mapCodeMetaChunk(raw: Record<string, unknown>): WikiCodeMetaChunk {
+  const headingPath = typeof raw.heading_path === "string" ? raw.heading_path : "";
+  const metadata: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (CHUNK_BASE_KEYS.has(key)) continue;
+    metadata[key] = value;
+  }
+  return {
+    id: typeof raw.id === "string" ? raw.id : "",
+    path: headingPath,
+    heading_path: headingPath,
+    ...(typeof raw.text === "string" ? { text: raw.text } : {}),
+    metadata,
+  };
+}
+
 export class KnowledgeRetrievalService {
   private readonly llmwiki: LlmWikiClient;
   private readonly neo4j?: Neo4jRetrievalService;
   private readonly projectId?: string;
   private readonly wikiDir?: string;
   private readonly readFile: (path: string) => Promise<Buffer>;
+  private readonly codeOutputDir: string;
   private readonly frontmatter?: WikiFrontmatterSyncer;
   private readonly mappings?: SemanticMappingStore;
   private readonly qa?: QaReferenceProvider;
@@ -141,6 +197,7 @@ export class KnowledgeRetrievalService {
     this.projectId = options.projectId;
     this.wikiDir = options.wikiDir;
     this.readFile = options.readFile ?? readFile;
+    this.codeOutputDir = options.codeOutputDir ?? defaultCodeOutputDir();
     this.frontmatter = options.frontmatter;
     this.mappings = options.mappings;
     this.qa = options.qa;
@@ -191,6 +248,60 @@ export class KnowledgeRetrievalService {
     const page = await this.llmwiki.readFile(id, path);
     await this.trackReadCount(path);
     return page;
+  }
+
+  /**
+   * G4.S8.T11 `GET /api/kb/wiki/code-meta?path=` → the page's structured code
+   * metadata resolved from its stored `chunks_ref`.
+   *
+   * Chunks-ref resolution (documented, the approach the route uses): the code
+   * store façades write `<CODE_OUTPUT_DIR>/<stem>/chunks.json` next to
+   * `markdown.md`, where `stem` is the source object's slugified name — which
+   * is exactly the wiki page FILE stem (the ingest runner builds both
+   * `fileName = <stem>.md` and the storage `stem` from the same slugify). So a
+   * wiki page `wiki/code/<system>/mara.md` maps to
+   * `<CODE_OUTPUT_DIR>/mara/chunks.json`. We use this convention (no Neo4j
+   * lookup needed) and read the file through the injected `readFile`.
+   *
+   * Returns `null` when the page does not exist or is not a `type: code` page
+   * (route → 404). A code page whose `chunks.json` is unreadable reports empty
+   * `chunks` so the frontend falls back to markdown rendering.
+   */
+  async getWikiCodeMeta(path: string): Promise<WikiCodeMeta | null> {
+    const { id } = await this.resolveProject();
+    let page: { path: string; content: string };
+    try {
+      page = await this.llmwiki.readFile(id, path);
+    } catch {
+      // missing page / llm_wiki refuse → 404
+      return null;
+    }
+    const fm = parseFrontmatter(page.content);
+    if (fm.type !== "code") return null;
+
+    const stem = path.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+    let chunks: WikiCodeMetaChunk[] = [];
+    if (stem) {
+      try {
+        const raw = JSON.parse((await this.readFile(join(this.codeOutputDir, stem, "chunks.json"))).toString("utf8"));
+        if (Array.isArray(raw)) {
+          chunks = raw
+            .filter((c): c is Record<string, unknown> => typeof c === "object" && c !== null)
+            .map(mapCodeMetaChunk);
+        }
+      } catch {
+        // chunks.json missing/unreadable → empty chunks (markdown fallback)
+      }
+    }
+    return {
+      type: "code",
+      ...(fm.topic ? { topic: fm.topic } : {}),
+      ...(fm.system ? { system: fm.system } : {}),
+      ...(fm.devclass ? { devclass: fm.devclass } : {}),
+      ...(fm.transport ? { transport: fm.transport } : {}),
+      ...(fm.component ? { component: fm.component } : {}),
+      chunks,
+    };
   }
 
   /** GET /api/kb/wiki/image?path= → the wiki page's source image bytes.
@@ -407,10 +518,10 @@ function mapNeo4jHit(hit: Neo4jSearchHit): KnowledgeSearchResult {
   };
 }
 
-/** Attach frontmatter type/topic metadata to each file node in the tree. */
+/** Attach frontmatter type/topic metadata + code lineage to each file node. */
 function attachWikiMetadata(
   nodes: LlmWikiFileNode[],
-  meta: Map<string, { type?: string; topic?: string }>,
+  meta: Map<string, { type?: string; topic?: string; system?: string; devclass?: string; transport?: string; component?: string }>,
 ): LlmWikiFileNode[] {
   return nodes.map((node) => {
     if (node.isDir) {
@@ -422,6 +533,10 @@ function attachWikiMetadata(
       ...node,
       ...(page.type ? { type: page.type } : {}),
       ...(page.topic ? { topic: page.topic } : {}),
+      ...(page.system ? { system: page.system } : {}),
+      ...(page.devclass ? { devclass: page.devclass } : {}),
+      ...(page.transport ? { transport: page.transport } : {}),
+      ...(page.component ? { component: page.component } : {}),
     };
   });
 }
