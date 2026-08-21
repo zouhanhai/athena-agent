@@ -4,7 +4,7 @@ title: "G4.S2: RAG self-build — replace LightRAG with Athena-driven Neo4j stor
 layer: S
 parent: G4
 owner: consultant
-status: done
+status: approved
 milestone: M4
 acceptance_criteria:
   - "Decision made: self-build (Neo4j lean) vs keep LightRAG — spike validates Neo4j 2026 Community (vector index + SEARCH + filters)"

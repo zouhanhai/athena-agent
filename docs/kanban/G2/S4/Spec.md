@@ -4,7 +4,7 @@ title: "G2.S4: Frontend Knowledge Panels"
 layer: S
 parent: G2
 owner: eng-director
-status: done
+status: approved
 milestone: M2
 acceptance_criteria:
   - "Knowledge panel displays LightRAG knowledge graph (iframe embed built-in UI or custom rendered)"

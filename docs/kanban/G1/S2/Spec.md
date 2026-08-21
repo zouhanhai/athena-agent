@@ -4,7 +4,7 @@ title: "G1.S2: Frontend Web Portal Skeleton (Vue3 + TDesign)"
 layer: S
 parent: G1
 owner: hermes
-status: done
+status: approved
 milestone: M1
 acceptance_criteria:
   - "Vue3 + Vite + TS project can start, TDesign imported"

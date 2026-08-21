@@ -4,7 +4,7 @@ title: "G3.S8: Knowledge Graph UX (remove Add Data from Knowledge, topic/localiz
 layer: S
 parent: G3
 owner: pm
-status: done
+status: approved
 milestone: M3
 acceptance_criteria:
   - "Add Data panel removed from Knowledge page (ingestion already lives in Uploads)"

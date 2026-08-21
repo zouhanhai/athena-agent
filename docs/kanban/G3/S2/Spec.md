@@ -4,7 +4,7 @@ title: "G3.S2: Employee Identity + RBAC + GitHub Credentials"
 layer: S
 parent: G3
 owner: pm
-status: done
+status: approved
 milestone: M3
 acceptance_criteria:
   - "Employee table in PG: email login, display name, logo, role"

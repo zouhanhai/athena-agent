@@ -4,7 +4,7 @@ title: "G3.S7: Frontend Polish (Theme Toggle Animation + Design Audit)"
 layer: S
 parent: G3
 owner: pm
-status: done
+status: approved
 milestone: M3
 acceptance_criteria:
   - "Theme toggle with animation: deep (dark) theme shows stars + moon, light theme shows sun + cloud, animated on switch, slider placed under the settings button"

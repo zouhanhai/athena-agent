@@ -4,7 +4,7 @@ title: "G3.S6: Git-Driven Development (Platform Protocol + GitHub Integration)"
 layer: S
 parent: G3
 owner: pm
-status: done
+status: approved
 milestone: M3
 acceptance_criteria:
   - "Worker-agnostic protocol: any code-capable agent (Pi/OpenCode/other) can join; platform standardizes md files + git coordination"

@@ -4,7 +4,7 @@ title: "G3.S5: Uploads Page (Per-System Ingest Detail)"
 layer: S
 parent: G3
 owner: pm
-status: done
+status: approved
 milestone: M3
 acceptance_criteria:
   - "Uploads is an independent sidebar tab (knowledge-base platform: ingest is core)"

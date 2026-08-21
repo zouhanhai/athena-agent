@@ -4,7 +4,7 @@ title: "G4.S4: Worker progress tracking + auto-claim via OpenCode plugin"
 layer: S
 parent: G4
 owner: pm
-status: done
+status: approved
 acceptance_criteria:
   - "OpenCode plugin appends a Progress Log row to the ticket md file on a real change (tool ran / status moved), with a REAL wall-clock UTC timestamp"
   - "OpenCode plugin auto-claims a ticket on the first tool call (status=in_progress + assignee + session_id + git commit/push) so the git push is the mutual-exclusion lock; ClaimConflictError surfaces on a lost race"

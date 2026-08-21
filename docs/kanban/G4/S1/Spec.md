@@ -4,7 +4,7 @@ title: "G4.S1: Post-docling Athena document refinement step"
 layer: S
 parent: G4
 owner: consultant
-status: done
+status: approved
 milestone: M4
 acceptance_criteria:
   - "An LLM pass runs between docling parse and the LightRAG/llm_wiki parallel stages"

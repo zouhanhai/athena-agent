@@ -4,7 +4,7 @@ title: "G2.S2: llm_wiki Service Deployment"
 layer: S
 parent: G2
 owner: eng-director
-status: done
+status: approved
 milestone: M2
 acceptance_criteria:
   - "llm_wiki (nashsu/llm_wiki) running headless on 6900XT"

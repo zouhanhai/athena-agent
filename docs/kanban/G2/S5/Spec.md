@@ -4,7 +4,7 @@ title: "G2.S5: Data/Document Input Interface (docling Parsing + Progress Bar)"
 layer: S
 parent: G2
 owner: eng-director
-status: done
+status: approved
 milestone: M2
 acceptance_criteria:
   - "Frontend 'Add Data' area INSIDE Knowledge panel (no new tab, keep 4 tabs)"
