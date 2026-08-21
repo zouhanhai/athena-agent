@@ -1021,9 +1021,10 @@ test("runDdic derives preclassified from the stored code ref frontmatter (catego
     assert.equal(preclassified.topic, "code/prd");
     assert.equal(preclassified.pagePath, `wiki/code/prd/${task.fileName}`);
 
-    // Table + external FK target entities reach the Neo4j ref (graph contract).
+    // table + external FK target entities reach the Neo4j ref (graph contract);
+    // lowercase `table` type aligns with the other code emitters (G4.S8.T12).
     const ref = (queue.getTask(taskId)!.refinement as unknown as { entities: Array<{ name: string; type: string }> });
-    assert.ok(ref.entities.some((e) => e.name === "MARA" && e.type === "Table"));
+    assert.ok(ref.entities.some((e) => e.name === "MARA" && e.type === "table"));
     assert.ok(ref.entities.some((e) => e.name === "T134"), "external FK target emitted");
   } finally {
     if (prevEnv === undefined) delete process.env.CODE_OUTPUT_DIR;

@@ -383,3 +383,60 @@ export async function retryTask(taskId: string): Promise<IngestTask> {
     body: JSON.stringify({ taskId }),
   });
 }
+
+// --- G4.S8.T12: code-object browser graph queries -----------------------------
+
+/** One entity in the code browser's left list (GET /api/kb/graph/entities). */
+export interface CodeObjectEntity {
+  name: string;
+  type?: string;
+  description?: string;
+}
+
+/** One Uses / Used-by relation entry (GET /api/kb/graph/entities/:name). */
+export interface CodeObjectRelation {
+  /** The relationship keyword(s) (e.g. READS_FROM / CALLS / BINDS_TO). */
+  keywords: string[];
+  description?: string;
+  /** The counterpart entity name (target for Uses, source for Used by). */
+  entity: string;
+  type?: string;
+  /** Wiki page path(s) whose chunks mention the counterpart — deep-link targets.
+   *  Empty when none resolve (render without a link). */
+  wikiPaths: string[];
+}
+
+/** Full detail for one selected code object (GET /api/kb/graph/entities/:name). */
+export interface CodeObjectDetail {
+  name: string;
+  type?: string;
+  description?: string;
+  /** Edges where this entity is the source: what it USES. */
+  outgoing: CodeObjectRelation[];
+  /** Edges where this entity is the target: what USES it (WHERE-USED). */
+  incoming: CodeObjectRelation[];
+}
+
+/** GET /api/kb/graph/entities?type=&q=&limit= → code objects filtered by type
+ *  and a case-insensitive name substring (SE80-style browser, G4.S8.T12). */
+export async function listCodeObjects(options: {
+  type?: string;
+  q?: string;
+  limit?: number;
+} = {}): Promise<CodeObjectEntity[]> {
+  const params = new URLSearchParams();
+  if (options.type) params.set("type", options.type);
+  if (options.q) params.set("q", options.q);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  const data = await request<{ entities: CodeObjectEntity[] }>(
+    `${KB_BASE}/graph/entities${query ? `?${query}` : ""}`,
+  );
+  return data.entities;
+}
+
+/** GET /api/kb/graph/entities/:name → one object + its Uses/Used-by relation
+ *  lists with wiki-page deep links (G4.S8.T12). Throws 404 when unknown. */
+export async function getCodeObject(name: string): Promise<CodeObjectDetail> {
+  return request<CodeObjectDetail>(`${KB_BASE}/graph/entities/${encodeURIComponent(name)}`);
+}

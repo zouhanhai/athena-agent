@@ -725,6 +725,70 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
 
   if (!options.retrieval) return;
 
+  /** G4.S8.T12: the code-object browser's graph-query endpoints require an
+   *  authenticated employee session (the multi-employee portal's read posture).
+   *  The non-graph KB GET routes above skip this because the frontend route
+   *  guard already authorizes those views, but the browser view is an internal
+   *  tooling surface — require an employee. */
+  const requireEmployee = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<boolean> => {
+    if (options.auth) {
+      const employee = await currentEmployee(request, options.auth);
+      if (employee) return true;
+    }
+    return reply.code(401).send({ error: "unauthorized" }) === reply;
+  };
+
+  /** GET /api/kb/graph/entities?type=&q=&limit= → the entity list for the
+   *  SE80-style code browser, filtered by type + case-insensitive name substring
+   *  (G4.S8.T12). Empty when Neo4j is not configured. */
+  app.get("/api/kb/graph/entities", async (request, reply) => {
+    if (!(await requireEmployee(request, reply))) return;
+    try {
+      const { type, q, limit } = request.query as {
+        type?: unknown;
+        q?: unknown;
+        limit?: unknown;
+      };
+      const entities = await options.retrieval!.listEntities({
+        ...(typeof type === "string" && type.trim() ? { type: type.trim() } : {}),
+        ...(typeof q === "string" && q.trim() ? { q: q.trim() } : {}),
+        ...(Number.isFinite(Number(limit)) && Number(limit) > 0
+          ? { limit: Number(limit) }
+          : {}),
+      });
+      return { entities };
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** GET /api/kb/graph/entities/:name → one entity + its Uses (outgoing) and
+   *  Used-by (incoming, WHERE-USED) relation lists with wiki-page deep links
+   *  (G4.S8.T12). 404 when the entity is unknown. */
+  app.get("/api/kb/graph/entities/:name", async (request, reply) => {
+    if (!(await requireEmployee(request, reply))) return;
+    const { name } = request.params as { name?: string };
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return reply.code(400).send({ error: "name is required" });
+    }
+    try {
+      const detail = await options.retrieval!.getEntity(name.trim());
+      if (!detail) {
+        return reply.code(404).send({ error: `entity not found: ${name}` });
+      }
+      return detail;
+    } catch (err) {
+      return reply
+        .code(500)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get("/api/kb/graph", async (request, reply) => {
     try {
       const graph = await options.retrieval!.getGraph();

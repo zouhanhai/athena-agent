@@ -75,6 +75,7 @@ import { LlmWikiClient } from "./kb/llmwiki.js";
 import { OpenRouterEmbedder } from "./kb/embedding.js";
 import { Neo4jIngestService } from "./kb/store/ingest.js";
 import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
+import { EntityGraphService } from "./kb/store/graph.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
 import type { Neo4jDriverLike } from "./kb/store/schema.js";
@@ -144,6 +145,9 @@ export function defaultRetrievalService(): KnowledgeRetrievalService {
           reranker: createDefaultReranker(),
         })
       : undefined,
+    // G4.S8.T12: the SE80-style code-object browser graph-query service, built
+    // from the same driver.
+    entityGraph: driver ? new EntityGraphService({ driver }) : undefined,
     projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
     // Match the ingest side (defaultIngestService) so wiki image reads resolve
     // against the same on-disk wiki dir (G3.S5.T5).
@@ -406,6 +410,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
               reranker: createDefaultReranker(),
             })
           : undefined,
+        entityGraph: driver ? new EntityGraphService({ driver }) : undefined,
         projectId: process.env.LLM_WIKI_PROJECT_ID ?? undefined,
         wikiDir,
         frontmatter: new WikiFrontmatterSyncer({ wikiDir, driver }),

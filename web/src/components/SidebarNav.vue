@@ -11,6 +11,7 @@ import {
   SettingIcon,
   ChatBubbleHelpIcon,
   UserSafetyIcon,
+  CodeIcon,
 } from "tdesign-icons-vue-next";
 import type { Component } from "vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
@@ -39,6 +40,7 @@ const navItems = computed<NavItem[]>(() => {
   const items: NavItem[] = [
     { label: "Knowledge", path: "/knowledge", icon: BookIcon },
     { label: "Wiki", path: "/wiki", icon: FolderOpenIcon },
+    { label: "Code Browser", path: "/code-browser", icon: CodeIcon },
     { label: "Workbench", path: "/workbench", icon: TerminalIcon },
     { label: "Output", path: "/output", icon: FileIcon },
     { label: "Uploads", path: "/uploads", icon: UploadIcon },

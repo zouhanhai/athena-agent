@@ -23,6 +23,13 @@ import type {
   Neo4jSearchResponse,
   RetrieverName,
 } from "./store/retrieval.js";
+import type {
+  EntityDetail,
+  EntityGraphService,
+  EntityListEntry,
+} from "./store/graph.js";
+
+export type { EntityDetail, EntityListEntry } from "./store/graph.js";
 
 export interface KnowledgeRetrievalOptions {
   llmwiki: LlmWikiClient;
@@ -31,6 +38,10 @@ export interface KnowledgeRetrievalOptions {
    *  stays the BM25 keyword source. When omitted, search returns keyword hits
    *  only and the graph is empty. */
   neo4j?: Neo4jRetrievalService;
+  /** Neo4j entity-graph query service (G4.S8.T12): SE80-style code-object browser
+   *  (listEntities + getEntity with wiki-page deep links). Built from the same
+   *  driver when omitted and the store is wired. */
+  entityGraph?: EntityGraphService;
   /** llm_wiki project id. When omitted, current/first project is used. */
   projectId?: string;
   /** llm_wiki wiki pages directory (project.path/wiki). When omitted, it is
@@ -182,6 +193,7 @@ function mapCodeMetaChunk(raw: Record<string, unknown>): WikiCodeMetaChunk {
 export class KnowledgeRetrievalService {
   private readonly llmwiki: LlmWikiClient;
   private readonly neo4j?: Neo4jRetrievalService;
+  private readonly entityGraph?: EntityGraphService;
   private readonly projectId?: string;
   private readonly wikiDir?: string;
   private readonly readFile: (path: string) => Promise<Buffer>;
@@ -194,6 +206,7 @@ export class KnowledgeRetrievalService {
   constructor(options: KnowledgeRetrievalOptions) {
     this.llmwiki = options.llmwiki;
     this.neo4j = options.neo4j;
+    this.entityGraph = options.entityGraph;
     this.projectId = options.projectId;
     this.wikiDir = options.wikiDir;
     this.readFile = options.readFile ?? readFile;
@@ -216,6 +229,24 @@ export class KnowledgeRetrievalService {
       })),
       edges: raw.edges.map((e) => ({ source: e.source, target: e.target })),
     };
+  }
+
+  /** GET /api/kb/graph/entities?type=&q=&limit= → the code-object browsable
+   *  entity list (G4.S8.T12). Empty when the graph query service is not wired
+   *  (Neo4j not configured / not indexed). */
+  async listEntities(
+    options: { type?: string; q?: string; limit?: number } = {},
+  ): Promise<EntityListEntry[]> {
+    if (!this.entityGraph) return [];
+    return this.entityGraph.listEntities(options);
+  }
+
+  /** GET /api/kb/graph/entities/:name → the entity + its Uses/Used-by relation
+   *  lists with wiki-page deep links (G4.S8.T12). Null when the store is not
+   *  wired, or the entity does not exist. */
+  async getEntity(name: string): Promise<EntityDetail | null> {
+    if (!this.entityGraph) return null;
+    return this.entityGraph.getEntity(name);
   }
 
   /** GET /api/kb/graph/topics → distinct topics seen in wiki pages, sorted. */

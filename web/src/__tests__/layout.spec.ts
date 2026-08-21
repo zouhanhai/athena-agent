@@ -53,12 +53,13 @@ function navItemByText(wrapper: AppWrapper, label: string) {
 }
 
 describe("portal sidebar navigation", () => {
-  it("renders the 7 nav items in exact order and no Chat / Agents", async () => {
+  it("renders the 8 nav items in exact order and no Chat / Agents", async () => {
     const wrapper = await mountApp();
     const labels = navItems(wrapper).map((item) => item.text().trim());
     expect(labels).toEqual([
       "Knowledge",
       "Wiki",
+      "Code Browser",
       "Workbench",
       "Output",
       "Uploads",

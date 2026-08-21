@@ -39,6 +39,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/WikiView.vue"),
   },
   {
+    path: "/code-browser",
+    name: "code-browser",
+    component: () => import("../views/CodeBrowserView.vue"),
+  },
+  {
     path: "/workbench",
     name: "workbench",
     component: () => import("../views/WorkbenchView.vue"),

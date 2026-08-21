@@ -164,15 +164,20 @@ function addDdicRelation(
   acc.relations.push({ source: src, target: tgt, keywords, description });
 }
 
-/** Build the DDIC knowledge-graph slice: one `Table` entity per submitted table
+/** The canonical lowercase `type` for table entities (G4.S8.T12 normalization:
+ *  T9 emitted `Table` while T8 emitters use lowercase kinds — align on the T8
+ *  lowercase set so the code browser groups every table under one type). */
+export const TABLE_ENTITY_TYPE = "table";
+
+/** Build the DDIC knowledge-graph slice: one `table` entity per submitted table
  *  + one per foreign-key target (external included), with `REFERENCES` edges.
  *  Local + deterministic; no LLM. */
 export function ddicTablesToGraph(tables: DdicTable[]): { entities: RefinementEntity[]; relations: RefinementRelation[] } {
   const acc = newDdicGraph();
   for (const table of tables) {
-    addDdicEntity(acc, table.name, "Table", `SAP table ${table.name}`);
+    addDdicEntity(acc, table.name, TABLE_ENTITY_TYPE, `SAP table ${table.name}`);
     for (const fk of table.foreignKeys ?? []) {
-      addDdicEntity(acc, fk.table, "Table", `SAP table ${fk.table}`);
+      addDdicEntity(acc, fk.table, TABLE_ENTITY_TYPE, `SAP table ${fk.table}`);
       addDdicRelation(acc, table.name, fk.table, ["REFERENCES"], `${table.name} REFERENCES ${fk.table}`);
     }
   }

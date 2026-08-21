@@ -166,7 +166,7 @@ test("storeDdicOutput: topic defaults to code/unknown when no system is reported
   });
 });
 
-test("storeDdicOutput: ref carries Table entities + REFERENCES edges incl. external FK targets", async () => {
+test("storeDdicOutput: ref carries table entities + REFERENCES edges incl. external FK targets", async () => {
   const raw = await readFile(FIXTURE, "utf8");
   const tables = parseDdicTables(raw);
   const mara = tables.find((t) => t.name === "MARA")!;
@@ -175,9 +175,10 @@ test("storeDdicOutput: ref carries Table entities + REFERENCES edges incl. exter
     const result = await storeDdicOutput(tables, { storageDir: dir });
     const { entities, relations } = result.ref;
 
-    // Table entity for every submitted table, canonical uppercase.
-    assert.ok(entities.some((e) => e.name === "MARA" && e.type === "Table"));
-    assert.ok(entities.some((e) => e.name === "T001" && e.type === "Table"));
+    // table entity for every submitted table, canonical uppercase (G4.S8.T12:
+    // lowercase `table` type, aligned with the other code emitters).
+    assert.ok(entities.some((e) => e.name === "MARA" && e.type === "table"));
+    assert.ok(entities.some((e) => e.name === "T001" && e.type === "table"));
     assert.ok(entities.every((e) => e.name === e.name.toUpperCase()), "canonical uppercase");
 
     // External foreign-key targets (T134/T023/T006) are emitted as entities too.
