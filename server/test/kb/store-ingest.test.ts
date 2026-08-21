@@ -25,11 +25,24 @@ interface RecordedCall {
 function makeDriver(): { driver: Neo4jDriverLike; calls: RecordedCall[]; closed: boolean } {
   const calls: RecordedCall[] = [];
   const state = { closed: false };
+  // G4.S8.T16: the consistency layer resolves endpoint nameUppers against the graph — simulate
+  // the real DB state (declared entities exist once their MERGE ran).
+  const knownUpper = new Set<string>();
   const driver: Neo4jDriverLike = {
     session() {
       return {
         run: async (query: string, params?: Record<string, unknown>) => {
           calls.push({ query, params });
+          if (query.includes("UNWIND $names") && query.includes("nameUpper")) {
+            const names = ((params!.names as string[]) ?? []).filter((n) => knownUpper.has(n));
+            return { records: names.map((n) => ({ get: (key: string) => (key === "name" ? n : null) })) };
+          }
+          if (query.startsWith(`MERGE (e:${ENTITY_LABEL} {nameUpper`) && !query.includes("ON CREATE")) {
+            knownUpper.add(String(params!.nameUpper));
+          }
+          if (query.startsWith("MERGE") && query.includes("{name: $name}") && params?.name) {
+            knownUpper.add(String(params.name).toUpperCase());
+          }
           return { records: [] };
         },
         close: async () => {

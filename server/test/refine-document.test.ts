@@ -16,7 +16,10 @@ const sampleRefined: RefinedDocument = {
   sections: [{ title: "Sommerseminar", summary: "The annual CALEO event with workshops and talks." }],
   frontmatter: { type: "event", topic: "internal/events" },
   chunks: [{ id: "c1", text: "Details about the workshops.", heading_path: "Sommerseminar / Workshops" }],
-  entities: [{ name: "CALEO", type: "org", description: "An organization" }],
+  entities: [
+    { name: "CALEO", type: "org", description: "An organization" },
+    { name: "Sommerseminar", type: "event", description: "The annual CALEO event" },
+  ],
   relations: [
     {
       source: "CALEO",

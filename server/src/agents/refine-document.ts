@@ -31,16 +31,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT } from "../kb/taxonomy.js";
+import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT, DOC_TYPES } from "../kb/taxonomy.js";
 import { callOpenRouter, resolveRefineModel, type OpenRouterCallParams } from "./llm-direct.js";
+import { refineReasoningFor } from "./refine-reasoning.js";
 import {
   HEADER_RELEVEL_BATCH_SIZE,
   applyPatches,
+  applyPatchesWithReport,
   batchHeaderBlocks,
   clampHeaderLevel,
   deriveStem,
   enforceSectionSize,
   hasImageRefs,
+  isFlatHeaderMarkdown,
   isLargeMarkdown,
   mergeRefinements,
   rebuildMarkdown,
@@ -52,6 +55,7 @@ import {
   syncRefinedHeadersToSource,
   type HeaderBlock,
   type MarkdownSection,
+  type PatchApplyReport,
   type RefineOutputRef,
   type RefinementMode,
 } from "./refine-output.js";
@@ -81,6 +85,12 @@ export type RefineLlmCaller = (
     maxTokens?: number;
     /** Model id sent to OpenRouter (default: env ATHENA_REFINE_MODEL / deepseek default). */
     model?: string;
+    /**
+     * G4.S8.T16 unified reasoning strategy: task-class effort from refineReasoningFor()
+     * ("extraction" → none by default, "analysis" → thinking). Both transports derive it
+     * from the SAME strategy function.
+     */
+    reasoningEffort?: "none" | "low" | "medium" | "high";
   },
 ) => Promise<{ message: AssistantMessageLike; usage?: unknown }>;
 
@@ -102,6 +112,7 @@ function toCallParams(params: Parameters<RefineLlmCaller>[0]): OpenRouterCallPar
     schema: params.schema,
     maxTokens: params.maxTokens,
     model: params.model,
+    reasoningEffort: params.reasoningEffort,
   };
 }
 
@@ -135,11 +146,18 @@ export interface RefinementFrontmatter {
   topic: string;
 }
 
-/** Paragraph-semantic chunk (~1200 tokens), carrying its re-leveled heading path. */
+/**
+ * Paragraph-semantic chunk (~1200 tokens), carrying its re-leveled heading path.
+ * G4.S8.T16 contextual enrichment: `context` is a ONE-LINE retrieval sentence composed
+ * LOCALLY from the document summary + heading path ("<summary>; this section covers <path>")
+ * — zero additional LLM calls — stored in chunks.json AND as a Chunk node property; the RAG
+ * embed path prepends it to the embedded text.
+ */
 export interface RefinementChunk {
   id: string;
   text: string;
   heading_path: string;
+  context?: string;
 }
 
 /**
@@ -168,6 +186,13 @@ export interface RefinementQuality {
   confidence: number;
   issues: string[];
   action: "auto_accept" | "review_required";
+  /**
+   * G4.S8.T16 anchored issues (T17 review-UX contract): each issue that references document
+   * content carries the EXACT quoted passage — validated to be present (whitespace-normalized)
+   * in the source markdown by `validateRefineDelta`, and highlighted in-place by T17's
+   * WikiView annotations.
+   */
+  issue_anchors?: Array<{ message: string; quote: string }>;
 }
 
 /** One summary per top-level H1 section (G4.S2.T13 — layered/hierarchical summary). */
@@ -190,6 +215,8 @@ export interface RefinedDocument {
   relations: RefinementRelation[];
   keywords: string[];
   quality: RefinementQuality;
+  /** G4.S8.T16 instrumentation of the local patch cycle (absent when no patches were emitted). */
+  patchReport?: PatchApplyReport;
 }
 
 /**
@@ -198,27 +225,51 @@ export interface RefinedDocument {
  * order). Heading ops target heading blocks; paragraph ops target paragraph blocks. Patches are the
  * ONLY text the model emits — Athena applies them LOCALLY to rebuild the final markdown, so the model
  * never re-emits the document text it already read.
+ *
+ * G4.S8.T16: heading ops additionally accept an optional `anchor` — the heading's CURRENT text. When
+ * the ordinal index drifts (the Mallorca flat-header failure), Athena locates the target heading by
+ * normalized anchor text; text anchors survive block-count drift, ordinals do not.
  */
 export type RefinementPatch =
-  | { op: "retitle_heading"; index: number; text: string }
-  | { op: "refactor_heading"; index: number; level: number }
+  | { op: "retitle_heading"; index: number; text: string; anchor?: string }
+  | { op: "refactor_heading"; index: number; level: number; anchor?: string }
   | { op: "replace_paragraph"; index: number; text: string }
   | { op: "insert_paragraph"; index: number; text: string }
   | { op: "delete_paragraph"; index: number };
 
 const PATCH_ONE_OF = Type.Union([
-  Type.Object({ op: Type.Literal("retitle_heading"), index: Type.Number(), text: Type.String() }),
-  Type.Object({ op: Type.Literal("refactor_heading"), index: Type.Number(), level: Type.Number() }),
+  Type.Object({
+    op: Type.Literal("retitle_heading"),
+    index: Type.Number(),
+    text: Type.String(),
+    anchor: Type.Optional(Type.String()),
+  }),
+  Type.Object({
+    op: Type.Literal("refactor_heading"),
+    index: Type.Number(),
+    level: Type.Number(),
+    anchor: Type.Optional(Type.String()),
+  }),
   Type.Object({ op: Type.Literal("replace_paragraph"), index: Type.Number(), text: Type.String() }),
   Type.Object({ op: Type.Literal("insert_paragraph"), index: Type.Number(), text: Type.String() }),
   Type.Object({ op: Type.Literal("delete_paragraph"), index: Type.Number() }),
 ]);
 
-/**
- * The DELTA/extraction refinement contract (G4.S8.T1): the LLM output for the per-section (stage-2)
- * and single-pass paths is EXTRACTION FIELDS ONLY + an optional `patches` array. `markdown` and
- * `chunks` are deliberately ABSENT — Athena rebuilds them locally (applyPatches + splitParagraphSemantic).
- */
+/** Shared quality sub-schema (G4.S8.T16: optional anchored issues for T17). */
+const QUALITY_SCHEMA = Type.Object({
+  complete: Type.Boolean(),
+  confidence: Type.Number(),
+  issues: Type.Array(Type.String()),
+  action: Type.Union([Type.Literal("auto_accept"), Type.Literal("review_required")]),
+  issue_anchors: Type.Optional(
+    Type.Array(
+      Type.Object({
+        message: Type.String(),
+        quote: Type.String(),
+      }),
+    ),
+  ),
+});
 export const REFINED_DOCUMENT_DELTA_SCHEMA = Type.Object({
   summary: Type.String(),
   sections: Type.Array(
@@ -248,12 +299,7 @@ export const REFINED_DOCUMENT_DELTA_SCHEMA = Type.Object({
     }),
   ),
   keywords: Type.Array(Type.String()),
-  quality: Type.Object({
-    complete: Type.Boolean(),
-    confidence: Type.Number(),
-    issues: Type.Array(Type.String()),
-    action: Type.Union([Type.Literal("auto_accept"), Type.Literal("review_required")]),
-  }),
+  quality: QUALITY_SCHEMA,
   patches: Type.Optional(Type.Array(PATCH_ONE_OF)),
 });
 
@@ -312,12 +358,7 @@ export const GLOBAL_MERGE_SCHEMA = Type.Object({
     }),
   ),
   keywords: Type.Array(Type.String()),
-  quality: Type.Object({
-    complete: Type.Boolean(),
-    confidence: Type.Number(),
-    issues: Type.Array(Type.String()),
-    action: Type.Union([Type.Literal("auto_accept"), Type.Literal("review_required")]),
-  }),
+  quality: QUALITY_SCHEMA,
 });
 
 /** The global-view slice of the contract emitted by the two-stage global merge pass (T3). */
@@ -400,10 +441,16 @@ Restore a semantic # / ## / ### hierarchy from document structure, not the raw d
 docling often emits FLAT headers (e.g. everything is h2 — a Sommerseminar doc came out with 16x h2).
 Decide levels by section meaning: exactly one # title, ## major sections, ### subsections. Promote or
 demote so the tree is coherent. Your corrections are expressed as patches:
-- refactor_heading { index, level } — change the block's heading level.
-- retitle_heading { index, text } — change the heading text (only to fix a typo/OCR artifact).
-Patch index (0-based) is the grid position of the block (headings AND paragraphs counted in document
-order). Do NOT invent heading levels the document does not imply. Do NOT re-emit text to fix content —
+- refactor_heading { index, level, anchor } — change the block's heading level.
+- retitle_heading { index, text, anchor } — change the heading text (only to fix a typo/OCR artifact).
+Patch index (0-based) is the grid position of the block counting BOTH headings AND paragraphs in
+document order. ALWAYS also set "anchor" to the heading's CURRENT text exactly as it appears in the
+document: if your index drifts by even one paragraph, Athena locates the heading by its anchor text
+instead — indices are unreliable, anchors are not.
+Examples (grid = # T(0), intro para(1), ## A(2), body(3), ## B(4)):
+  {"op":"refactor_heading","index":2,"level":3,"anchor":"A"}
+  {"op":"refactor_heading","index":4,"level":1,"anchor":"B"}
+Do NOT invent heading levels the document does not imply. Do NOT re-emit text to fix content —
 the original text is preserved; you only PROPOSE edits by location.
 
 ## 2. Classification (type + topic) — from docs/taxonomy.md
@@ -455,10 +502,17 @@ You already read the whole document, so summarize it in the same pass at two lev
 
 ## 8. Quality checklist
 - completeness: did the refined markdown capture the whole source (all sections, tables, figures)?
-- tables/figures: note any table split across pages or figure caption dropped.
+- tables/figures: note any table split across pages or figure caption dropped. IMPORTANT: small or
+  decorative images (logos, icons, emojis, separators) are intentionally UNDESCRIBED in this pipeline —
+  they are below the description threshold and their HTML-comment placeholders were removed before
+  you saw the text. NEVER list them as missing captions or undescribed images; only flag REAL content
+  figures whose caption/description was actually lost.
 - garbled text: flag OCR/layout garbage, encoding issues.
 - confidence: 0..1 how sure you are.
-- issues: concrete list (e.g. "table on p3 split", "image caption missing").
+- issues: concrete list (e.g. "table on p3 split", "image caption missing"). When an issue quotes
+  document content, ALSO add an entry to quality.issue_anchors with the EXACT verbatim quote from the
+  markdown ({message, quote}) so review annotations can highlight it in-place; quotes must be copied
+  character-for-character from the document.
 - action: auto_accept (clean) or review_required (any doubt).
 
 ## Output
@@ -587,15 +641,7 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
   const entities = normalizeEntityList(args.entities);
   const relations = normalizeRelationList(args.relations);
   const keywords = asStringArray(args.keywords) ?? [];
-  const quality =
-    isRecord(args.quality) && typeof args.quality.complete === "boolean" && typeof args.quality.confidence === "number"
-      ? {
-          complete: args.quality.complete,
-          confidence: args.quality.confidence,
-          issues: asStringArray(args.quality.issues) ?? [],
-          action: args.quality.action === "review_required" ? ("review_required" as const) : ("auto_accept" as const),
-        }
-      : undefined;
+  const quality = normalizeQuality(args.quality);
 
   if (!markdown || !frontmatter || !quality) {
     throw new Error("refine_document: output does not match the refinement contract (markdown/frontmatter/quality)");
@@ -634,7 +680,7 @@ export function normalizeRelationList(raw: unknown): RefinementRelation[] {
     : [];
 }
 
-/** Coerce a parsed patches array into the refinement contract (unknown ops dropped). */
+/** Coerce a parsed patches array into the refinement contract (unknown ops dropped; anchors kept). */
 export function normalizePatchList(raw: unknown): RefinementPatch[] {
   if (!Array.isArray(raw)) return [];
   const out: RefinementPatch[] = [];
@@ -642,13 +688,32 @@ export function normalizePatchList(raw: unknown): RefinementPatch[] {
     if (!isRecord(p) || typeof p.index !== "number" || !Number.isFinite(p.index)) continue;
     const op = p.op;
     const index = p.index;
-    if (op === "retitle_heading" && typeof p.text === "string") out.push({ op, index, text: p.text });
-    else if (op === "refactor_heading" && typeof p.level === "number") out.push({ op, index, level: p.level });
+    const anchor = typeof p.anchor === "string" && p.anchor.trim().length > 0 ? { anchor: p.anchor } : {};
+    if (op === "retitle_heading" && typeof p.text === "string") out.push({ op, index, text: p.text, ...anchor });
+    else if (op === "refactor_heading" && typeof p.level === "number") out.push({ op, index, level: p.level, ...anchor });
     else if (op === "replace_paragraph" && typeof p.text === "string") out.push({ op, index, text: p.text });
     else if (op === "insert_paragraph" && typeof p.text === "string") out.push({ op, index, text: p.text });
     else if (op === "delete_paragraph") out.push({ op, index });
   }
   return out;
+}
+
+/** Coerce a parsed quality object into the contract (G4.S8.T16: issue_anchors carried through). */
+export function normalizeQuality(raw: unknown): RefinementQuality | undefined {
+  if (!isRecord(raw) || typeof raw.complete !== "boolean" || typeof raw.confidence !== "number") return undefined;
+  const issueAnchors = Array.isArray(raw.issue_anchors)
+    ? raw.issue_anchors
+        .filter(isRecord)
+        .map((a) => ({ message: String(a.message ?? ""), quote: String(a.quote ?? "") }))
+        .filter((a) => a.message.length > 0 && a.quote.length > 0)
+    : undefined;
+  return {
+    complete: raw.complete,
+    confidence: raw.confidence,
+    issues: asStringArray(raw.issues) ?? [],
+    action: raw.action === "review_required" ? ("review_required" as const) : ("auto_accept" as const),
+    ...(issueAnchors && issueAnchors.length > 0 ? { issue_anchors: issueAnchors } : {}),
+  };
 }
 
 /**
@@ -670,15 +735,7 @@ export function normalizeRefinementDelta(raw: unknown): RefinedDocumentDelta {
     isRecord(args.frontmatter) && typeof args.frontmatter.type === "string" && typeof args.frontmatter.topic === "string"
       ? { type: args.frontmatter.type, topic: args.frontmatter.topic }
       : undefined;
-  const quality =
-    isRecord(args.quality) && typeof args.quality.complete === "boolean" && typeof args.quality.confidence === "number"
-      ? {
-          complete: args.quality.complete,
-          confidence: args.quality.confidence,
-          issues: asStringArray(args.quality.issues) ?? [],
-          action: args.quality.action === "review_required" ? ("review_required" as const) : ("auto_accept" as const),
-        }
-      : undefined;
+  const quality = normalizeQuality(args.quality);
 
   if (!frontmatter || !quality) {
     throw new Error("refine_document: output does not match the delta contract (frontmatter/quality missing)");
@@ -696,25 +753,115 @@ export function normalizeRefinementDelta(raw: unknown): RefinedDocumentDelta {
   };
 }
 
+// --- G4.S8.T16: cross-field delta validation + bounded repair loop ---
+
+/** Whitespace-collapse + case-fold normalization — the closed-world name key shared with Neo4j's nameUpper fold. */
+const normalizedEntityName = (name: string): string => name.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Valid top-level topic prefixes of the CALEO hierarchical topic tree (docs/taxonomy.md §2). */
+const TOPIC_ROOTS = ["sap", "finance", "it", "client", "corporate", "internal", "code"];
+
+/**
+ * Cross-field validation of a refinement DELTA against its source markdown (G4.S8.T16).
+ *
+ * The JSON schema constrains SHAPE only; these checks constrain CROSS-FIELD semantics:
+ *   1. every relation source/target must reference an emitted entity name exactly
+ *      (whitespace-normalized; case-insensitive to mirror the ingest nameUpper closed world)
+ *   2. entities must be non-empty when relations exist (the Lüsen failure)
+ *   3. every issue-anchor quote (T17 contract) must be present in the markdown
+ *   4. frontmatter type/topic must be valid per the CALEO taxonomy
+ *
+ * Returns a list of CONCRETE error strings (fed back to the model verbatim by the repair loop).
+ * Empty list = valid.
+ */
+export function validateRefineDelta(delta: RefinedDocumentDelta, sourceMarkdown: string): string[] {
+  const errors: string[] = [];
+  const declaredNames = new Set(delta.entities.map((e) => normalizedEntityName(e.name)));
+
+  if ((delta.relations ?? []).length > 0 && delta.entities.length === 0) {
+    errors.push(
+      `entities array is EMPTY but ${delta.relations.length} relation(s) are declared — relations MUST reference emitted entities; either declare the endpoint entities or drop the relations`,
+    );
+  }
+
+  for (const [i, relation] of (delta.relations ?? []).entries()) {
+    for (const side of ["source", "target"] as const) {
+      const raw = (relation[side] ?? "").trim();
+      const key = normalizedEntityName(raw);
+      if (!key) {
+        errors.push(`relation ${i + 1} has an EMPTY ${side} — every relation needs a non-empty ${side} entity name`);
+        continue;
+      }
+      if (!declaredNames.has(key)) {
+        errors.push(
+          `relation ${i + 1} ${side} "${raw}" does not reference any emitted entity — relation endpoints MUST equal one of: ${(delta.entities ?? [])
+            .map((e) => e.name)
+            .slice(0, 12)
+            .join(", ")} (or emit that entity first)`,
+        );
+      }
+    }
+  }
+
+  // T17 anchor contract: quoted passages must exist in the source (whitespace-normalized).
+  const haystack = normalizedEntityName(sourceMarkdown);
+  for (const anchor of delta.quality?.issue_anchors ?? []) {
+    if (!normalizedEntityName(anchor.quote)) continue;
+    if (!haystack.includes(normalizedEntityName(anchor.quote))) {
+      errors.push(
+        `issue-anchor quote not found in the document: "${anchor.quote.slice(0, 120)}" — quotes MUST be copied VERBATIM from the markdown so review annotations can highlight them`,
+      );
+    }
+  }
+
+  const fmType = (delta.frontmatter?.type ?? "").trim();
+  if (!fmType || !(DOC_TYPES as readonly string[]).includes(fmType)) {
+    errors.push(`frontmatter.type "${fmType}" is not a valid CALEO type — pick exactly ONE of: ${DOC_TYPES.join(", ")}`);
+  }
+  const fmTopic = (delta.frontmatter?.topic ?? "").trim();
+  const root = fmTopic.split("/")[0]?.trim() ?? "";
+  if (!fmTopic || !TOPIC_ROOTS.includes(root)) {
+    errors.push(
+      `frontmatter.topic "${fmTopic}" is not a valid CALEO topic path — use a slash path rooted at one of: ${TOPIC_ROOTS.join(", ")}`,
+    );
+  }
+
+  return errors;
+}
+
+/** Validation-repair budget (G4.S8.T16): re-invocations carrying the SPECIFIC error list. */
+export const MAX_VALIDATION_RETRIES = 2;
+
+/** Build the retry user-content: original markdown + the concrete validation error list. */
+export function buildValidationRetryContent(markdown: string, attempt: number, errors: string[]): string {
+  return `${markdown}\n\n[validation retry ${attempt}] Your previous output violated these cross-field constraints:\n${errors
+    .map((e) => `- ${e}`)
+    .join("\n")}\nFix EXACTLY these problems and return the COMPLETE corrected JSON object again (same contract).`;
+}
+
 /**
  * Assemble the full `RefinedDocument` from the ORIGINAL markdown + the LLM delta (G4.S8.T1). Athena
  * rebuilds `markdown` LOCALLY by applying the (optional) patches to the original text — zero LLM
  * information re-generation — and builds the `chunks` LOCALLY via `splitParagraphSemantic`. The
  * original already carries the stage-1 header re-level (two-stage) or is the untouched full doc whose
  * header corrections arrive as refactor_heading patches (single-pass).
+ *
+ * G4.S8.T16: the patch cycle is instrumented (`patchReport`), chunks are min-size merged, and every
+ * chunk carries a locally-composed one-line `context` sentence derived from the delta summary.
  */
 export function buildRefinedDocument(markdown: string, delta: RefinedDocumentDelta): RefinedDocument {
-  const mdFinal = applyPatches(markdown, delta.patches ?? []);
+  const { markdown: mdFinal, report } = applyPatchesWithReport(markdown, delta.patches ?? []);
   return {
     markdown: mdFinal,
     summary: delta.summary,
     sections: delta.sections,
     frontmatter: delta.frontmatter,
-    chunks: splitParagraphSemantic(mdFinal),
+    chunks: splitParagraphSemantic(mdFinal, { summary: delta.summary }),
     entities: delta.entities,
     relations: delta.relations,
     keywords: delta.keywords,
     quality: delta.quality,
+    ...(report.emitted > 0 ? { patchReport: report } : {}),
   };
 }
 
@@ -936,15 +1083,7 @@ export function extractGlobalMerge(message: AssistantMessageLike): GlobalRefinem
         summary: String(s.summary ?? ""),
       }))
     : [];
-  const quality =
-    isRecord(args.quality) && typeof args.quality.complete === "boolean" && typeof args.quality.confidence === "number"
-      ? {
-          complete: args.quality.complete,
-          confidence: args.quality.confidence,
-          issues: asStringArray(args.quality.issues) ?? [],
-          action: args.quality.action === "review_required" ? ("review_required" as const) : ("auto_accept" as const),
-        }
-      : undefined;
+  const quality = normalizeQuality(args.quality);
   if (
     !frontmatter &&
     entities.length === 0 &&
@@ -976,6 +1115,8 @@ export async function judgeHeaderLevelsLLM(
         userContent: buildHeaderJudgePrompt(batch),
         schema: HEADER_LEVELS_SCHEMA,
         model: options.modelId,
+        // G4.S8.T16 unified strategy: header judging = structured extraction class.
+        reasoningEffort: refineReasoningFor("extraction").effort,
       });
       levels = extractHeaderLevels(message);
     } catch {
@@ -1031,40 +1172,81 @@ export interface LargeRefineResult {
  *
  * G4.S8.T1 delta contract: the LLM emits EXTRACTION fields + optional `patches` only (never the full
  * re-leveled markdown or chunk texts). Athena rebuilds `markdown` and `chunks` LOCALLY via
- * `buildRefinedDocument` (applyPatches + splitParagraphSemantic), so output budget stays ~1-5K tokens
- * per call even on the largest docs — no truncation class of failure.
+ * `buildRefinedDocument` (applyPatchesWithReport + splitParagraphSemantic), so output budget stays
+ * ~1-5K tokens per call even on the largest docs — no truncation class of failure.
  *
- * G4.S2.T8: re-prompts up to 3 times (default) before giving up — a transient "no structured
- * output" on a long/image-heavy doc usually succeeds on an early retry, avoiding the fallback.
- * The retry nudge re-asserts the raw-JSON output contract (no tool calls on the direct path).
+ * G4.S2.T8: re-prompts up to `retries` times (default 3) on UNPARSEABLE output before giving up —
+ * a transient "no structured output" on a long/image-heavy doc usually succeeds on an early retry.
+ *
+ * G4.S8.T16 validation/repair loop: after every parseable pass, `validateRefineDelta` checks the
+ * delta's cross-field semantics (closed-world relation endpoints, entities-vs-relations, anchor
+ * quotes, taxonomy). Violations re-invoke the model with the SPECIFIC error list attached, bounded
+ * to MAX_VALIDATION_RETRIES (2); exhaustion throws → the caller's deterministic fallbackRefinement.
+ * Every repair retry is logged ({attempt, errors[]}).
  */
 async function runRefinePass(
   caller: RefineLlmCaller,
   markdown: string,
   topicHint: string | undefined,
   options: Pick<RefineDocumentOptions, "systemPrompt" | "retries" | "modelId">,
-): Promise<{ document: RefinedDocument; assistant: AssistantMessageLike; usage?: unknown; retries: number }> {
+): Promise<{
+  document: RefinedDocument;
+  assistant: AssistantMessageLike;
+  usage?: unknown;
+  retries: number;
+  /** G4.S8.T16: one entry per validation-repair retry, with the exact errors fed back. */
+  validationRetries: Array<{ attempt: number; errors: string[] }>;
+}> {
   const retries = options.retries ?? 3;
+  const reasoning = refineReasoningFor("extraction").effort;
   let lastError: unknown;
   let usage: unknown;
+  let genericRetries = 0;
+  const validationRetries: Array<{ attempt: number; errors: string[] }> = [];
+
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    let userContent =
+      attempt === 1 ? markdown : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Return ONLY a JSON object carrying the extraction fields + optional patches (no tool calls, no prose). Do NOT re-emit the markdown.`;
+    if (validationRetries.length > 0) {
+      userContent = buildValidationRetryContent(markdown, validationRetries.length, validationRetries[validationRetries.length - 1]!.errors);
+    }
     try {
-      const userContent =
-        attempt === 1
-          ? markdown
-          : `${markdown}\n\n[retry ${attempt - 1}] Your previous response was not usable. Return ONLY a JSON object carrying the extraction fields + optional patches (no tool calls, no prose). Do NOT re-emit the markdown.`;
       const resp = await caller({
         systemPrompt: options.systemPrompt ?? buildRefineSystemPrompt(topicHint),
         userContent,
         schema: REFINED_DOCUMENT_SCHEMA,
         model: options.modelId,
+        reasoningEffort: reasoning,
       });
       const message = resp.message;
       usage = resp.usage;
       const delta = extractRefinementDelta(message);
-      return { document: buildRefinedDocument(markdown, delta), assistant: message, usage, retries: attempt - 1 };
+
+      // G4.S8.T16: cross-field validation BEFORE accepting — schema shape is not semantics.
+      const errors = validateRefineDelta(delta, markdown);
+      if (errors.length > 0) {
+        if (validationRetries.length >= MAX_VALIDATION_RETRIES) {
+          throw new Error(
+            `refine_document: delta failed cross-field validation after ${validationRetries.length} repair retries — remaining errors: ${errors.join(" | ")}`,
+          );
+        }
+        console.warn(`[refine_document] validation retry ${validationRetries.length + 1}/${MAX_VALIDATION_RETRIES}: ${JSON.stringify(errors)}`);
+        validationRetries.push({ attempt, errors });
+        continue;
+      }
+
+      return {
+        document: buildRefinedDocument(markdown, delta),
+        assistant: message,
+        usage,
+        retries: genericRetries,
+        validationRetries,
+      };
     } catch (err) {
+      // A thrown VALIDATION-exhaustion error must NOT be retried generically.
+      if (err instanceof Error && err.message.includes("cross-field validation")) throw err;
       lastError = err;
+      genericRetries += 1;
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
@@ -1084,10 +1266,12 @@ async function runGlobalMerge(
       userContent: buildGlobalMergePrompt(merged, topicHint, refinements.length),
       schema: GLOBAL_MERGE_SCHEMA,
       model,
+      // G4.S8.T16 unified strategy: summary/sections/quality synthesis = ANALYSIS class (thinking).
+      reasoningEffort: refineReasoningFor("analysis").effort,
     });
     const global = extractGlobalMerge(message);
     if (!global) return merged;
-    return {
+    const candidate: RefinedDocument = {
       ...merged,
       summary: global.summary ?? merged.summary,
       sections: global.sections && global.sections.length > 0 ? global.sections : merged.sections,
@@ -1097,6 +1281,25 @@ async function runGlobalMerge(
       keywords: global.keywords && global.keywords.length > 0 ? global.keywords : merged.keywords,
       quality: global.quality ?? merged.quality,
     };
+    // G4.S8.T16 closed-world guard: a merge view whose relations reference undeclared entities is
+    // rejected in favor of the mechanical merge — never worse, never silently inconsistent.
+    const validationErrors = validateRefineDelta(
+      {
+        summary: candidate.summary,
+        sections: candidate.sections ?? [],
+        frontmatter: candidate.frontmatter ?? { type: "document", topic: "unclassified" },
+        entities: candidate.entities,
+        relations: candidate.relations,
+        keywords: candidate.keywords,
+        quality: candidate.quality,
+      },
+      "",
+    ).filter((e) => /relation/i.test(e));
+    if (validationErrors.length > 0) {
+      console.warn(`[refine_document] global merge view rejected (${validationErrors.length} cross-field errors) — keeping mechanical merge`);
+      return merged;
+    }
+    return candidate;
   } catch {
     // never worse: keep the mechanically merged result
     return merged;
@@ -1159,10 +1362,12 @@ export function createRefineDocumentTool(
       const emitDetails = { model: options.modelId ?? resolveRefineModel(), mode, imageRefsStripped };
       let usage: unknown;
       let retries = 0;
+      let validationRetries: Array<{ attempt: number; errors: string[] }> = [];
 
       try {
         let document: RefinedDocument;
         let sectionPaths: string[] = [];
+        let headerRelevelFallback = false;
         if (mode === "two-stage") {
           const result = await refineLargeDocument(
             textMarkdown,
@@ -1184,8 +1389,25 @@ export function createRefineDocumentTool(
         } else {
           const single = await runRefinePass(httpCaller, textMarkdown, params.topic_hint, options);
           document = single.document;
+
+          // G4.S8.T16 deterministic recovery: the model applied ZERO heading patches to a FLAT
+          // document (>3 same-level headings) → run the batched HEADER_RELEVEL stage as a fallback.
+          const report = document.patchReport ?? { emitted: 0, applied: 0, dropped: [] };
+          if (report.applied === 0 && isFlatHeaderMarkdown(document.markdown)) {
+            console.warn("[refine_document] flat headers + zero patches applied — running batched HEADER_RELEVEL recovery");
+            const split = splitByHeaders(document.markdown);
+            const releveled = await judgeHeaderLevelsLLM(httpCaller, split.blocks, options);
+            const recovered = rebuildMarkdown(split.preamble, releveled);
+            document = {
+              ...document,
+              markdown: recovered,
+              chunks: splitParagraphSemantic(recovered, { summary: document.summary }),
+            };
+            headerRelevelFallback = true;
+          }
           usage = single.usage;
           retries = single.retries;
+          validationRetries = single.validationRetries;
         }
         // File B = refined text-only markdown (RAG working copy). Sync the header re-level back
         // onto File A (keeping its image refs) → File A′ (durable, llm_wiki).
@@ -1199,7 +1421,15 @@ export function createRefineDocumentTool(
         });
         return {
           content: [{ type: "text", text: JSON.stringify(ref) }],
-          details: { ...emitDetails, usage, retries },
+          details: {
+            ...emitDetails,
+            usage,
+            retries,
+            // G4.S8.T16 patch-cycle + repair-loop instrumentation, per run.
+            patches: document.patchReport ?? { emitted: 0, applied: 0, dropped: [] },
+            validationRetries,
+            ...(headerRelevelFallback ? { headerRelevelFallback } : {}),
+          },
         };
       } catch (err) {
         const fallback = fallbackRefinement(originalMarkdown, params.topic_hint, err);
@@ -1312,12 +1542,7 @@ export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
     }),
   ),
   rechunked: Type.Boolean(),
-  quality: Type.Object({
-    complete: Type.Boolean(),
-    confidence: Type.Number(),
-    issues: Type.Array(Type.String()),
-    action: Type.Union([Type.Literal("auto_accept"), Type.Literal("review_required")]),
-  }),
+  quality: QUALITY_SCHEMA,
 });
 
 /** The incremental wiki-edit refine system prompt (G4.S3.T10). */
@@ -1464,58 +1689,78 @@ export function fallbackWikiEditRefinement(
   };
 }
 
-function emitWikiEditRefinementTool() {
-  return {
-    name: EMIT_WIKI_EDIT_REFINE_TOOL,
-    description:
-      "Emit the incremental wiki-edit refinement as a single structured JSON value matching the wiki-edit refine contract.",
-    parameters: WIKI_EDIT_REFINE_SCHEMA,
-    constrainedSampling: { type: "json_schema" as const, strict: "require" as const },
-  };
-}
-
 export interface WikiEditRefineOptions {
-  /** Reasoning level for the incremental pass (default "high"). */
+  /**
+   * G4.S8.T16: reasoning now follows the unified strategy function
+   * (wiki-edit = structured extraction class → default no thinking), NOT a
+   * per-path accident. An explicit override still wins.
+   */
   thinkingLevel?: AthenaThinkingLevel;
   /** Override the wiki-edit refine system prompt. */
   systemPrompt?: string;
   /** Retries before giving up (default 3 — up to 4 attempts). */
   retries?: number;
+  /**
+   * G4.S8.T16: inject the direct-OpenRouter caller (tests stub the HTTP layer).
+   * Default: the SAME direct transport the upload path uses — the Pi
+   * ModelRuntime dependency is GONE (timeout/retry/provider.ignore for free).
+   */
+  httpCaller?: RefineLlmCaller;
+  /** Model id sent to OpenRouter (default: env ATHENA_REFINE_MODEL / deepseek default). */
+  modelId?: string;
 }
 
 /**
  * Run the incremental wiki-edit refine LLM pass: input = corrected markdown +
- * the diff. Preserves the corrected text (contract-enforced via the emit tool),
+ * the diff. Preserves the corrected text (contract-enforced constrained output),
  * re-derives the full structure and flags new entities/relations. Retries on a
  * transient non-structured output; throws on persistent failure (caller falls
  * back to `fallbackWikiEditRefinement`).
+ *
+ * G4.S8.T16: this pass previously ran on Pi `ModelRuntime.completeSimple` with an
+ * accidental `reasoning: "max"` while every other refinement call went direct with
+ * effort none. It NOW uses the same direct-OpenRouter transport as the upload path
+ * (hard timeout, retry/backoff, provider.ignore) and derives its reasoning level
+ * from `refineReasoningFor("extraction")` — one strategy function for both paths.
+ * The emit contract is UNCHANGED.
  */
 export async function runWikiEditRefine(
-  modelRuntime: ModelRuntime,
-  model: RefineModel,
   input: WikiEditRefineInput,
   existing?: { type?: string; topic?: string },
   options: WikiEditRefineOptions = {},
 ): Promise<{ document: WikiEditRefinement; retries: number }> {
+  const httpCaller = options.httpCaller ?? defaultRefineLlmCaller();
+  const policy = refineReasoningFor("extraction");
+  const reasoningEffort = options.thinkingLevel ? normalizeThinkingLevelToEffort(options.thinkingLevel) : policy.effort;
   const retries = options.retries ?? 3;
   let lastError: unknown;
   for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
     try {
-      const assistant = await modelRuntime.completeSimple(
-        model,
-        {
-          systemPrompt: options.systemPrompt ?? WIKI_EDIT_REFINE_SYSTEM_PROMPT,
-          messages: [
-            { role: "user", content: buildWikiEditRefinePrompt(input, existing, attempt), timestamp: Date.now() },
-          ],
-          tools: [emitWikiEditRefinementTool()],
-        },
-        { reasoning: options.thinkingLevel ?? "max" },
-      );
-      return { document: extractWikiEditRefinement(assistant), retries: attempt - 1 };
+      const { message } = await httpCaller({
+        systemPrompt: options.systemPrompt ?? WIKI_EDIT_REFINE_SYSTEM_PROMPT,
+        userContent: buildWikiEditRefinePrompt(input, existing, attempt),
+        schema: WIKI_EDIT_REFINE_SCHEMA,
+        model: options.modelId,
+        reasoningEffort,
+      });
+      return { document: extractWikiEditRefinement(message), retries: attempt - 1 };
     } catch (err) {
       lastError = err;
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/** Map a Pi-style thinking level onto the canonical OpenRouter effort set. */
+function normalizeThinkingLevelToEffort(level: AthenaThinkingLevel): "none" | "low" | "medium" | "high" {
+  switch (level) {
+    case "minimal":
+      return "none";
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    default:
+      return "high";
+  }
 }

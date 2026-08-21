@@ -81,11 +81,16 @@ test("relation contract: source/target/keywords/description (binary)", () => {
   assert.equal(relProps.keywords?.type, "array");
 });
 
-test("quality contract: complete/confidence/issues/action (auto_accept|review_required)", () => {
+test("quality contract: complete/confidence/issues/action (auto_accept|review_required) + optional anchored issues (G4.S8.T16)", () => {
   const q = schemaJson(REFINED_DOCUMENT_SCHEMA).properties.quality.properties ?? {};
-  assert.deepEqual(Object.keys(q).sort(), ["action", "complete", "confidence", "issues"]);
+  assert.deepEqual(Object.keys(q).sort(), ["action", "complete", "confidence", "issue_anchors", "issues"]);
   const action = q.action as { anyOf?: Array<{ const?: string }> };
   assert.deepEqual(action.anyOf?.map((x) => x.const), ["auto_accept", "review_required"]);
+  // G4.S8.T16: issue_anchors is OPTIONAL (T17 anchor contract) with message+quote strings.
+  assert.deepEqual(Object.keys((q.issue_anchors as { items?: { properties?: unknown } }).items?.properties ?? {}).sort(), [
+    "message",
+    "quote",
+  ]);
 });
 
 test("normalizeRefinedDocument maps heading_path + source/target/keywords/description + summary + sections", () => {

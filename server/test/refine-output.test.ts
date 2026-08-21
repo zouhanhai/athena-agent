@@ -316,13 +316,19 @@ Alpha paragraph two.
 
 Beta paragraph.`;
   const chunks = splitParagraphSemantic(md);
-  assert.deepEqual(chunks.map((c) => c.id), ["c1", "c2", "c3"], "stable sequential ids");
-  assert.deepEqual(chunks.map((c) => c.heading_path), ["Title / A", "Title / A", "Title / B"]);
-  const joined = chunks.map((c) => c.text).join("\n\n");
-  assert.ok(joined.includes("Alpha paragraph one."));
-  assert.ok(joined.includes("Alpha paragraph two."));
-  assert.ok(joined.includes("Beta paragraph."));
+  // G4.S8.T16 min-size merge: the two short alpha paragraphs share a heading path and merge
+  // into ONE chunk; beta is the final block of its section (exempt) and stays its own chunk.
+  assert.deepEqual(chunks.map((c) => c.id), ["c1", "c2"], "stable sequential ids");
+  assert.deepEqual(chunks.map((c) => c.heading_path), ["Title / A", "Title / B"]);
+  assert.match(chunks[0]!.text, /^Alpha paragraph one\.\n\nAlpha paragraph two\.$/, "consecutive small blocks merged under one heading path");
+  assert.ok(joinedIncludes(chunks, "Alpha paragraph one."));
+  assert.ok(joinedIncludes(chunks, "Alpha paragraph two."));
+  assert.ok(joinedIncludes(chunks, "Beta paragraph."));
 });
+
+function joinedIncludes(chunks: Array<{ text: string }>, fragment: string): boolean {
+  return chunks.some((c) => c.text.includes(fragment));
+}
 
 test("splitParagraphSemantic keeps one chunk per oversized paragraph (paragraph-semantic block count)", () => {
   // Each paragraph exceeds the ~1200-token target, so each paragraph is its own semantic chunk.

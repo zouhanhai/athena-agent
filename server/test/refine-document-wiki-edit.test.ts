@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { RefineLlmCaller } from "../src/agents/refine-document.js";
 import {
-  EMIT_WIKI_EDIT_REFINE_TOOL,
   WIKI_EDIT_REFINE_SYSTEM_PROMPT,
   buildWikiEditRefinePrompt,
   extractWikiEditRefinement,
@@ -38,40 +37,25 @@ const sampleWikiEdit: WikiEditRefinement = {
   quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
 };
 
-function makeRuntime(opts: {
-  completeThrows?: Error;
-  toolCallArgs?: Record<string, unknown>;
+function makeCaller(opts: {
+  throws?: Error;
+  payload?: Record<string, unknown>;
   contentText?: string;
-} = {}): { runtime: ModelRuntime; prompts: string[] } {
+} = {}): { caller: RefineLlmCaller; prompts: string[]; efforts: Array<string | undefined> } {
   const prompts: string[] = [];
-  const runtime = {
-    async completeSimple(
-      model: { provider: string; id: string },
-      context: { systemPrompt?: string; messages: unknown[]; tools: unknown[] },
-      options: unknown,
-    ) {
-      prompts.push((context.messages[0] as { content: string }).content);
-      if (opts.completeThrows) throw opts.completeThrows;
-      const content = opts.contentText ?? JSON.stringify(opts.toolCallArgs ?? sampleWikiEdit);
-      return {
-        role: "assistant",
-        content: opts.contentText
-          ? [{ type: "text", text: content }]
-          : [
-              {
-                type: "toolCall",
-                id: "t1",
-                name: EMIT_WIKI_EDIT_REFINE_TOOL,
-                arguments: opts.toolCallArgs ?? sampleWikiEdit,
-              },
-            ],
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
-        stopReason: "stop",
-        timestamp: 1,
-      };
-    },
-  } as unknown as ModelRuntime;
-  return { runtime, prompts };
+  const efforts: Array<string | undefined> = [];
+  // G4.S8.T16: wiki-edit runs on the DIRECT transport — a plain JSON text response.
+  const caller: RefineLlmCaller = async (ctx) => {
+    prompts.push(ctx.userContent);
+    efforts.push(ctx.reasoningEffort);
+    if (opts.throws) throw opts.throws;
+    const content = opts.contentText ?? JSON.stringify(opts.payload ?? sampleWikiEdit);
+    return {
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
+      message: { role: "assistant", content: [{ type: "text", text: content }] },
+    };
+  };
+  return { caller, prompts, efforts };
 }
 
 const input: WikiEditRefineInput = {
@@ -81,11 +65,9 @@ const input: WikiEditRefineInput = {
   structural: false,
 };
 
-const model = { provider: "athena", id: "~deepseek/deepseek-v4-flash-latest" } as never;
-
 test("runWikiEditRefine sends the corrected text + diff and preserves the corrected markdown verbatim", async () => {
-  const { runtime, prompts } = makeRuntime();
-  const { document } = await runWikiEditRefine(runtime, model, input, { type: "concept", topic: "ops" });
+  const { caller, prompts } = makeCaller();
+  const { document } = await runWikiEditRefine(input, { type: "concept", topic: "ops" }, { httpCaller: caller });
 
   const prompt = prompts[0]!;
   assert.ok(prompt.includes("# Runbook\n\nThe image shows a dark sky."), "corrected text present");
@@ -100,8 +82,8 @@ test("runWikiEditRefine sends the corrected text + diff and preserves the correc
 });
 
 test("runWikiEditRefine surfaces the flagged NEW entities/relations + the re-chunk decision", async () => {
-  const { runtime } = makeRuntime();
-  const { document } = await runWikiEditRefine(runtime, model, input);
+  const { caller } = makeCaller();
+  const { document } = await runWikiEditRefine(input, undefined, { httpCaller: caller });
   assert.deepEqual(document.new_entities.map((e) => e.name), ["ZOB München"]);
   assert.deepEqual(document.new_relations.map((r) => [r.source, r.target]), [["CALEO", "ZOB München"]]);
   assert.equal(document.rechunked, false);
@@ -135,8 +117,13 @@ test("extractWikiEditRefinement throws when there is no structured output", () =
 });
 
 test("runWikiEditRefine retries before giving up and throws on persistent failure", async () => {
-  const { runtime } = makeRuntime({ completeThrows: new Error("boom") });
-  await assert.rejects(runWikiEditRefine(runtime, model, input), /boom/);
+  let calls = 0;
+  const caller: RefineLlmCaller = async () => {
+    calls += 1;
+    throw new Error("boom");
+  };
+  await assert.rejects(runWikiEditRefine(input, undefined, { httpCaller: caller }), /boom/);
+  assert.equal(calls, 4, "default retries=3 → up to 4 attempts");
 });
 
 test("buildWikiEditRefinePrompt includes the retry nudge after the first attempt", () => {

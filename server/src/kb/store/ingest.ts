@@ -31,6 +31,7 @@ import {
   WIKIPAGE_LABEL,
   applyNeo4jSchema,
   entityNodeProps,
+  foldName,
   relationEdgeProps,
   type Neo4jDriverLike,
   type Neo4jSessionLike,
@@ -77,7 +78,14 @@ export interface Neo4jIngestInput {
 export interface Neo4jIngestResult {
   chunksStored: number;
   entitiesStored: number;
+  /**
+   * G4.S8.T16 truthful counters: relations INPUT vs relations that ACTUALLY landed in the
+   * graph vs endpoint entities MERGE-created because a relation referenced an undeclared
+   * entity (the consistency layer — edges are never silently dropped).
+   */
+  relationsInput: number;
   relationsStored: number;
+  endpointEntitiesCreated: number;
 }
 
 export interface Neo4jOverwriteResult extends Neo4jIngestResult {
@@ -156,6 +164,37 @@ export function sectionChain(documentId: string, headingPath: string): Array<{ i
     accumulated = accumulated ? `${accumulated} / ${segment}` : segment;
     return { id: `${documentId}:${accumulated}`, title: segment, path: accumulated, documentId };
   });
+}
+
+/**
+ * G4.S8.T16 keyword heuristic for MERGE-created relation endpoints: guess the entity type from the
+ * RELATION keywords (event-organizing / person-participating verbs), defaulting to "unknown".
+ * Deliberately conservative — a wrong guess only colors a node, a missing edge loses knowledge.
+ */
+const EVENT_KEYWORDS = [
+  "findet statt", "takes place", "hosted", "hosts", "veranstaltet", "organized",
+  "organisiert", "schedule", "agenda", "venue",
+];
+const PERSON_KEYWORDS = [
+  "teilnahm", "teilnehmen", "participated", "participates", "attended", "spoke",
+  "presented", "vortrag", "speaker", "joined", "mitglied", "member of", "employee of", "angestellt",
+];
+
+export function inferEndpointTypeFromKeywords(keywords: string[] | undefined): string {
+  const joined = (keywords ?? []).join(" ").toLowerCase();
+  if (!joined) return "unknown";
+  if (EVENT_KEYWORDS.some((k) => joined.includes(k))) return "event";
+  if (PERSON_KEYWORDS.some((k) => joined.includes(k))) return "person";
+  return "unknown";
+}
+
+/**
+ * G4.S8.T16 contextual enrichment on the embed path: a chunk's one-line `context` sentence is
+ * PREPENDED to the embedded text (Anthropic-validated retrieval lever); chunks without context
+ * embed their bare text.
+ */
+function embedText(chunk: RefinementChunk): string {
+  return chunk.context ? `${chunk.context}\n${chunk.text}` : chunk.text;
 }
 
 export class Neo4jIngestService {
@@ -240,7 +279,7 @@ export class Neo4jIngestService {
       for (let start = 0; start < chunks.length; start += this.batchSize) {
         const slice = chunks.slice(start, start + this.batchSize);
         const embeddings =
-          slice.length > 0 ? await this.embedder.embed(slice.map((c) => c.text)) : [];
+          slice.length > 0 ? await this.embedder.embed(slice.map(embedText)) : [];
 
         for (let i = 0; i < slice.length; i += 1) {
           const chunk = slice[i]!;
@@ -248,7 +287,7 @@ export class Neo4jIngestService {
           await session.run(
             `MERGE (c:${CHUNK_LABEL} {id: $id})
              SET c.text = $text, c.embedding = $embedding, c.topic = $topic, c.heading_path = $heading_path,
-                 c.documentId = $documentId`,
+                 c.documentId = $documentId, c.context = $context`,
             {
               id: chunkId,
               text: chunk.text,
@@ -256,6 +295,7 @@ export class Neo4jIngestService {
               topic: input.ref.frontmatter?.topic ?? "",
               heading_path: chunk.heading_path,
               documentId: input.documentId,
+              context: chunk.context ?? null,
             },
           );
 
@@ -311,11 +351,20 @@ export class Neo4jIngestService {
         );
       }
 
+      // G4.S8.T16 consistency layer: missing endpoints MERGE-created, edges never silently
+      // dropped, landed count read back from the DB (see writeRelations).
+      const relationOutcome = await this.writeRelations(session, input.ref.relations ?? []);
+
       // Entity → Chunk mention links (G4.S2.T14): each Entity is MERGE'd to every Chunk
       // whose text mentions its name/alias, so the graph retriever can fall through from
       // a matched entity to the chunks that actually answer a query. Skipped when no
-      // entity is mentioned in any chunk.
-      const mentions = mentionPairs(input.ref.entities ?? [], chunks, input.documentId);
+      // entity is mentioned in any chunk. Runs AFTER the consistency creates so the
+      // created endpoints can link too.
+      const mentions = mentionPairs(
+        [...(input.ref.entities ?? []), ...relationOutcome.createdEndpoints],
+        chunks,
+        input.documentId,
+      );
       if (mentions.length > 0) {
         await session.run(
           `UNWIND $mentions AS m
@@ -326,24 +375,16 @@ export class Neo4jIngestService {
         );
       }
 
-      for (const relation of input.ref.relations ?? []) {
-        await session.run(
-          `MATCH (a:${ENTITY_LABEL} {nameUpper: $sourceUpper})
-           MATCH (b:${ENTITY_LABEL} {nameUpper: $targetUpper})
-           MERGE (a)-[r:${ENTITY_RELATION_TYPE}]->(b)
-           SET r.keywords = $keywords, r.description = $description`,
-          relationEdgeProps(relation),
-        );
-      }
+      return {
+        chunksStored: chunks.length,
+        entitiesStored: (input.ref.entities ?? []).length,
+        relationsInput: (input.ref.relations ?? []).length,
+        relationsStored: relationOutcome.relationsStored,
+        endpointEntitiesCreated: relationOutcome.endpointEntitiesCreated,
+      };
     } finally {
       await session.close();
     }
-
-    return {
-      chunksStored: chunks.length,
-      entitiesStored: (input.ref.entities ?? []).length,
-      relationsStored: (input.ref.relations ?? []).length,
-    };
   }
 
   /**
@@ -420,14 +461,14 @@ export class Neo4jIngestService {
         { documentId },
       );
 
-      // Classify chunks: unchanged (same text + existing embedding) keep their
+      // Classify chunks: unchanged (same text + same context + existing embedding) keep their
       // embedding; changed/new chunks are embedded (batched) + written.
       const changed: Array<{ index: number; chunk: RefinementChunk; id: string }> = [];
       for (let i = 0; i < chunks.length; i += 1) {
         const chunk = chunks[i]!;
         const id = `${documentId}:${chunk.id}`;
         const prev = existing.get(id);
-        if (!prev || prev.text !== chunk.text || !prev.hasEmbedding) {
+        if (!prev || prev.text !== chunk.text || prev.context !== (chunk.context ?? null) || !prev.hasEmbedding) {
           changed.push({ index: i, chunk, id });
         }
       }
@@ -435,7 +476,7 @@ export class Neo4jIngestService {
       for (let start = 0; start < changed.length; start += this.batchSize) {
         const slice = changed.slice(start, start + this.batchSize);
         if (slice.length === 0) continue;
-        const embeddings = await this.embedder.embed(slice.map((c) => c.chunk.text));
+        const embeddings = await this.embedder.embed(slice.map((c) => embedText(c.chunk)));
         slice.forEach((entry, k) => embeddingsByIndex.set(entry.index, embeddings[k] ?? []));
       }
 
@@ -456,10 +497,10 @@ export class Neo4jIngestService {
           write
             ? `MERGE (c:${CHUNK_LABEL} {id: $id})
                SET c.text = $text, c.embedding = $embedding, c.topic = $topic,
-                   c.heading_path = $heading_path, c.documentId = $documentId`
+                   c.heading_path = $heading_path, c.documentId = $documentId, c.context = $context`
             : `MERGE (c:${CHUNK_LABEL} {id: $id})
                SET c.text = $text, c.topic = $topic, c.heading_path = $heading_path,
-                   c.documentId = $documentId`,
+                   c.documentId = $documentId, c.context = $context`,
           {
             id,
             text: chunk.text,
@@ -467,6 +508,7 @@ export class Neo4jIngestService {
             topic: input.ref.frontmatter?.topic ?? "",
             heading_path: chunk.heading_path,
             documentId,
+            context: chunk.context ?? null,
           },
         );
 
@@ -512,7 +554,12 @@ export class Neo4jIngestService {
         );
       }
 
-      const mentions = mentionPairs(input.ref.entities ?? [], chunks, documentId);
+      // G4.S8.T16 consistency layer (same as ingest): MERGE-create missing endpoints, truthful
+      // landed counts. Created endpoints join the mention pass; the T14 cascade cleanup below
+      // still runs AFTER these creates.
+      const relationOutcome = await this.writeRelations(session, input.ref.relations ?? []);
+
+      const mentions = mentionPairs([...(input.ref.entities ?? []), ...relationOutcome.createdEndpoints], chunks, documentId);
       if (mentions.length > 0) {
         await session.run(
           `UNWIND $mentions AS m
@@ -520,16 +567,6 @@ export class Neo4jIngestService {
            MATCH (c:${CHUNK_LABEL} {id: m.chunkId})
            MERGE (e)-[:${MENTIONED_IN_TYPE}]->(c)`,
           { mentions },
-        );
-      }
-
-      for (const relation of input.ref.relations ?? []) {
-        await session.run(
-          `MATCH (a:${ENTITY_LABEL} {nameUpper: $sourceUpper})
-           MATCH (b:${ENTITY_LABEL} {nameUpper: $targetUpper})
-           MERGE (a)-[r:${ENTITY_RELATION_TYPE}]->(b)
-           SET r.keywords = $keywords, r.description = $description`,
-          relationEdgeProps(relation),
         );
       }
 
@@ -548,7 +585,9 @@ export class Neo4jIngestService {
       return {
         chunksStored: chunks.length,
         entitiesStored: (input.ref.entities ?? []).length,
-        relationsStored: (input.ref.relations ?? []).length,
+        relationsInput: (input.ref.relations ?? []).length,
+        relationsStored: relationOutcome.relationsStored,
+        endpointEntitiesCreated: relationOutcome.endpointEntitiesCreated,
         documentId,
       };
     } finally {
@@ -713,6 +752,92 @@ export class Neo4jIngestService {
     }
   }
 
+  /**
+   * G4.S8.T16 consistency layer: write RELATION edges WITHOUT silent drops.
+   *
+   * 1. Resolve every endpoint's folded name (nameUpper) against the graph; endpoints with no
+   *    exact Entity match are MERGE-created first — type inferred from the relation keywords
+   *    or "unknown", description from the relation. A closed-world validation failure upstream
+   *    must never cost an edge here.
+   * 2. MERGE each edge and read back the DB's count so `relationsStored` is what ACTUALLY
+   *    landed, not the input length (the old code dropped nameUpper mismatches silently and
+   *    reported the input count).
+   *
+   * Returns {relationsInput, relationsStored, endpointEntitiesCreated}.
+   */
+  private async writeRelations(
+    session: Neo4jSessionLike,
+    relations: RefineOutputRef["relations"],
+  ): Promise<{ relationsStored: number; endpointEntitiesCreated: number; createdEndpoints: RefinementEntity[] }> {
+    const usable = relations.filter((r) => r.source?.trim() && r.target?.trim());
+    if (usable.length === 0) return { relationsStored: 0, endpointEntitiesCreated: 0, createdEndpoints: [] };
+
+    // 1a. Collect unique folded endpoint names (display form = first-seen casing).
+    const endpoints = new Map<string, { name: string }>();
+    for (const relation of usable) {
+      for (const name of [relation.source.trim(), relation.target.trim()]) {
+        const key = foldName(name);
+        if (!endpoints.has(key)) endpoints.set(key, { name });
+      }
+    }
+
+    // 1b. Which of them already exist?
+    const found = (await session.run(
+      `UNWIND $names AS name
+       MATCH (e:${ENTITY_LABEL} {nameUpper: name})
+       RETURN DISTINCT e.nameUpper AS name`,
+      { names: [...endpoints.keys()] },
+    )) as { records?: Array<{ get(key: string): unknown }> };
+    const existingNames = new Set<string>(
+      (found?.records ?? []).map((r) => String(r.get?.("name") ?? "")).filter(Boolean),
+    );
+
+    // 1c. MERGE-create the missing endpoints (ON CREATE keeps existing entities untouched).
+    let endpointEntitiesCreated = 0;
+    const createdEndpoints: RefinementEntity[] = [];
+    for (const [key, endpoint] of endpoints) {
+      if (existingNames.has(key)) continue;
+      const owningRelation = usable.find(
+        (r) => foldName(r.source.trim()) === key || foldName(r.target.trim()) === key,
+      );
+      const type = inferEndpointTypeFromKeywords(owningRelation?.keywords);
+      await session.run(
+        `MERGE (e:${ENTITY_LABEL} {nameUpper: $nameUpper})
+         ON CREATE SET e.name = $name, e.type = $type, e.description = $description,
+                       e.aliases = [], e.source = 'relation-endpoint'`,
+        {
+          nameUpper: key,
+          name: endpoint.name,
+          type,
+          description: owningRelation?.description ?? "",
+        },
+      );
+      endpointEntitiesCreated += 1;
+      createdEndpoints.push({
+        name: endpoint.name,
+        type,
+        description: owningRelation?.description ?? "",
+        aliases: [],
+      });
+    }
+
+    // 2. Write edges + truthful landed count (the DB confirms each MERGE).
+    let relationsStored = 0;
+    for (const relation of usable) {
+      const result = (await session.run(
+        `MATCH (a:${ENTITY_LABEL} {nameUpper: $sourceUpper})
+         MATCH (b:${ENTITY_LABEL} {nameUpper: $targetUpper})
+         MERGE (a)-[r:${ENTITY_RELATION_TYPE}]->(b)
+         SET r.keywords = $keywords, r.description = $description
+         RETURN count(r) AS n`,
+        relationEdgeProps(relation),
+      )) as { records?: Array<{ get(key: string): unknown }> };
+      const n = result?.records?.[0]?.get?.("n");
+      relationsStored += n === undefined || n === null ? 1 : Number(n);
+    }
+    return { relationsStored, endpointEntitiesCreated, createdEndpoints };
+  }
+
   /** Run a counting DETACH DELETE and return the removed-node count as a number. */
   private async deleteCounting(
     session: Neo4jSessionLike,
@@ -741,22 +866,23 @@ export class Neo4jIngestService {
     return id === undefined || id === null ? fallback : String(id);
   }
 
-  /** Load the current chunk texts + embedding presence for a document (id → {text, hasEmbedding}). */
+  /** Load the current chunk texts + context + embedding presence for a document. */
   private async loadExistingChunks(
     session: Neo4jSessionLike,
     documentId: string,
-  ): Promise<Map<string, { text: string; hasEmbedding: boolean }>> {
+  ): Promise<Map<string, { text: string; context: string | null; hasEmbedding: boolean }>> {
     const result = (await session.run(
       `MATCH (c:${CHUNK_LABEL} {documentId: $documentId})
-       RETURN c.id AS id, c.text AS text, c.embedding IS NOT NULL AS hasEmbedding`,
+       RETURN c.id AS id, c.text AS text, c.context AS context, c.embedding IS NOT NULL AS hasEmbedding`,
       { documentId },
     )) as { records?: Array<{ get(key: string): unknown }> };
-    const out = new Map<string, { text: string; hasEmbedding: boolean }>();
+    const out = new Map<string, { text: string; context: string | null; hasEmbedding: boolean }>();
     for (const record of result?.records ?? []) {
       const id = record.get?.("id");
       if (id === undefined || id === null) continue;
       out.set(String(id), {
         text: String(record.get?.("text") ?? ""),
+        context: record.get?.("context") === undefined || record.get?.("context") === null ? null : String(record.get("context")),
         hasEmbedding: record.get?.("hasEmbedding") === true,
       });
     }

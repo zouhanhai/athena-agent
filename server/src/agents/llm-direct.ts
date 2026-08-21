@@ -1,20 +1,24 @@
 /**
  * Direct OpenRouter HTTP helper for the Athena refinement calls (G4.S8.T2).
  *
- * Replaces Pi `ModelRuntime.completeSimple` for the three single-shot constrained-output refinement
- * passes (stage-1 header re-level, stage-2 per-section, global merge). These are deterministic
- * classification/extraction calls with NO agent loop — Pi's silent-hang risk (no timeout, stalled
- * provider leaves the await pending forever) outweighs its cost. A direct `fetch` to OpenRouter with
- * `reasoning.effort = none` returns identical JSON ~22x faster and ~40x cheaper, with a hard timeout
- * and retry/backoff so a dead provider can never hang the ingest task queue again.
+ * Replaces Pi `ModelRuntime.completeSimple` for ALL refinement LLM passes (stage-1
+ * header re-level, stage-2 per-section, global merge, wiki-edit diff-refine — G4.S8.T16
+ * migrated the last Pi consumer). These are single-shot constrained-output calls with NO
+ * agent loop — Pi's silent-hang risk (no timeout, stalled provider leaves the await pending
+ * forever) outweighs its cost. A direct `fetch` to OpenRouter returns identical JSON much
+ * faster and cheaper, with a hard timeout and retry/backoff so a dead provider can never
+ * hang the ingest task queue again.
  *
- * Key separation is preserved: the refinement pipeline reads the DEDICATED `athena` OpenRouter key
- * (independent from chat), from `~/.pi/agent/auth.json` → `athena.key` (or env `ATHENA_OPENROUTER_KEY`
- * / `ATHENA_OPENAI_API_KEY`). The model defaults to `~deepseek/deepseek-v4-flash-latest` (maxTokens
- * 65536, output $0.28/M), overridable via env `ATHENA_REFINE_MODEL`.
- *
- * reasoning MUST be disabled via `reasoning: { effort: "none" }`, which suppresses thinking tokens.
+ * Key separation: the refinement pipeline reads a DEDICATED key chain (G4.S8.T16):
+ * env ATHENA_OPENROUTER_KEY → auth.json["athenaingest"] → auth.json["athena"].
+ * The model defaults to `~deepseek/deepseek-v4-flash-latest` (maxTokens 65536, output
+ * $0.28/M), overridable via env `ATHENA_REFINE_MODEL`; unreliable providers are excluded
+ * via env ATHENA_REFINE_PROVIDER_IGNORE (default ["Alibaba"], routes ~deepseek stably
+ * to Relace).
  */
+
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -33,6 +37,13 @@ export interface OpenRouterCallParams {
   schema?: unknown;
   /** Max output tokens. Default 65536 (deepseek ceiling). */
   maxTokens?: number;
+  /**
+   * G4.S8.T16 unified reasoning strategy: the task-class effort from
+   * refineReasoningFor() ("none" | "low" | "medium" | "high"). Default "none"
+   * (extraction class) — qwen ignores enable_thinking, so reasoning.effort=none
+   * is the ONLY reliable way to suppress thinking tokens.
+   */
+  reasoningEffort?: "none" | "low" | "medium" | "high";
 }
 
 export interface OpenRouterResult {
@@ -55,28 +66,56 @@ export class OpenRouterError extends Error {
   }
 }
 
-/** Read the athena OpenRouter key: env ATHENA_OPENROUTER_KEY/ATHENA_OPENAI_API_KEY, else auth.json. */
-export async function readAthenaOpenRouterKey(env: NodeJS.ProcessEnv = process.env): Promise<string> {
+/**
+ * Read the athena OpenRouter key for the refinement pipeline (G4.S8.T16 three-level
+ * chain, ingest-dedicated key first):
+ *   1. env ATHENA_OPENROUTER_KEY (or legacy ATHENA_OPENAI_API_KEY)
+ *   2. ~/.pi/agent/auth.json → "athenaingest" (the dedicated INGEST key)
+ *   3. ~/.pi/agent/auth.json → "athena" (chat provider fallback)
+ */
+export async function readAthenaOpenRouterKey(
+  env: NodeJS.ProcessEnv = process.env,
+  authPath = join(homedir(), ".pi", "agent", "auth.json"),
+): Promise<string> {
   const envKey = env.ATHENA_OPENROUTER_KEY ?? env.ATHENA_OPENAI_API_KEY;
   if (envKey && envKey.trim().length > 0) return envKey.trim();
   const { readFile } = await import("node:fs/promises");
-  const { homedir } = await import("node:os");
-  const { join } = await import("node:path");
   try {
-    const raw = await readFile(join(homedir(), ".pi", "agent", "auth.json"), "utf8");
+    const raw = await readFile(authPath, "utf8");
     const auth = JSON.parse(raw) as Record<string, { type?: string; key?: string }>;
+    const ingest = auth["athenaingest"];
+    if (ingest?.key && ingest.key.trim().length > 0) return ingest.key.trim();
     const athena = auth["athena"];
     if (athena?.key && athena.key.trim().length > 0) return athena.key.trim();
-    throw new OpenRouterError("refine: no athena OpenRouter key in ~/.pi/agent/auth.json");
+    throw new OpenRouterError("refine: no athenaingest/athena OpenRouter key in ~/.pi/agent/auth.json");
   } catch (err) {
     if (err instanceof OpenRouterError) throw err;
-    throw new OpenRouterError(`refine: cannot read OpenRouter key (env ATHENA_OPENROUTER_KEY or ~/.pi/agent/auth.json): ${String(err)}`);
+    throw new OpenRouterError(`refine: cannot read OpenRouter key (env ATHENA_OPENROUTER_KEY or ${authPath}): ${String(err)}`);
   }
 }
 
 /** Default model resolution: env ATHENA_REFINE_MODEL, falling back to the deepseek default. */
 export function resolveRefineModel(env: NodeJS.ProcessEnv = process.env): string {
   return env.ATHENA_REFINE_MODEL?.trim().length ? env.ATHENA_REFINE_MODEL.trim() : ATHENA_REFINE_MODEL;
+}
+
+/**
+ * G4.S8.T16: OpenRouter provider exclusion for the refinement calls. Returns the
+ * parsed ATHENA_REFINE_PROVIDER_IGNORE env value (comma-separated provider names)
+ * or the measured default ["Alibaba"] when unset. Verified in production: model
+ * "~deepseek/deepseek-v4-flash-latest" (the "~" prefix is REQUIRED — the bare id
+ * is not a valid OpenRouter model) with Alibaba ignored routes stably to Relace.
+ */
+export const REFINE_PROVIDER_IGNORE_DEFAULT = ["Alibaba"];
+
+export function resolveRefineProviderIgnore(env: NodeJS.ProcessEnv = process.env): string[] {
+  const raw = env.ATHENA_REFINE_PROVIDER_IGNORE;
+  if (raw === undefined || raw.trim().length === 0) return [...REFINE_PROVIDER_IGNORE_DEFAULT];
+  const parsed = raw
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+  return parsed.length > 0 ? parsed : [...REFINE_PROVIDER_IGNORE_DEFAULT];
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -113,10 +152,19 @@ export async function callOpenRouter(
         messages,
         max_tokens: attemptMaxTokens,
         response_format: { type: "json_object" },
-        // ALWAYS off — these three tasks need no reasoning; qwen ignores enable_thinking,
-        // so reasoning.effort=none is the ONLY reliable way to suppress thinking tokens.
-        reasoning: { effort: "none" },
+        // G4.S8.T16 unified reasoning strategy: task-class effort from
+        // refineReasoningFor() — "none" for extraction calls (default; qwen ignores
+        // enable_thinking, so effort=none is the only reliable suppression),
+        // thinking allowed for analysis-class calls via REFINE_REASONING_ANALYSIS.
+        reasoning: { effort: params.reasoningEffort ?? "none" },
       };
+      // G4.S8.T16 provider exclusion: route away from unreliable providers
+      // (~deepseek + ignore Alibaba → stably Relace). Value from env
+      // ATHENA_REFINE_PROVIDER_IGNORE, default ["Alibaba"].
+      const providerIgnore = resolveRefineProviderIgnore();
+      if (providerIgnore.length > 0) {
+        body.provider = { ignore: providerIgnore };
+      }
       if (params.schema !== undefined) {
         // G4.S8.T6 (P0): a TypeBox schema carries `type: "object"` — spreading it onto response_format
         // produced `{ type: "object", required, properties }` which OpenRouter rejected with HTTP 400

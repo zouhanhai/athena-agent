@@ -67,6 +67,7 @@ Die Workshops finden im Hörsaal statt.`,
     { name: "CALEO", type: "org", description: "The department hosting the event" },
     { name: "John", type: "person", description: "Workshop lecturer" },
     { name: "SAP Group Reporting", type: "product", description: "Workshop topic" },
+    { name: "Sommerseminar", type: "event", description: "The annual CALEO summer seminar" },
   ],
   relations: [
     {
@@ -224,10 +225,11 @@ test("refine_document returns structured output (not fallback) on image-heavy md
   assert.equal(details.fallback, undefined);
   assert.equal(ref.frontmatter.type, "event");
   assert.equal(ref.frontmatter.topic, "internal/events");
-  assert.equal(ref.entities.length, 3);
+  assert.equal(ref.entities.length, 4);
   assert.equal(ref.keywords.length, 3);
-  // G4.S8.T1: chunks are built LOCALLY from the (rebuilt) markdown — one per paragraph (6 paragraphs).
-  assert.equal(ref.chunk_count, 6);
+  // G4.S8.T1 + T16: chunks are built LOCALLY from the (rebuilt) markdown — the two short
+  // paragraphs under each h2 are MIN-SIZE MERGED into one chunk per section (3 total).
+  assert.equal(ref.chunk_count, 3);
   assert.equal(ref.quality.action, "auto_accept");
   assert.equal(details.imageRefsStripped, true, "reports image refs were stripped");
 
@@ -301,7 +303,7 @@ test("extractRefinedDocument accepts a JSON object nested inside assistant text"
     ],
   });
   assert.equal(fromFence.frontmatter.type, "event");
-  assert.equal(fromFence.entities.length, 3);
+  assert.equal(fromFence.entities.length, 4);
 
   const fromProse = extractRefinedDocument({
     role: "assistant",
@@ -351,7 +353,7 @@ test("runRefinePass retries up to the default of 3 before giving up (T8)", async
   assert.equal(details.retries, 3, "details.retries reflects the new default");
   assert.equal(details.fallback, undefined, "the final retry produced structured output, no fallback");
   assert.equal(ref.frontmatter.type, "event");
-  assert.equal(ref.entities.length, 3);
+  assert.equal(ref.entities.length, 4);
 });
 
 test("explicit retries option still overrides the default (0 gives up after the first pass)", async () => {

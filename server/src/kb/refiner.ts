@@ -19,9 +19,7 @@
  * File A′ and RAG File B, then delete File B once RAG ingestion is done.
  */
 import { readFile } from "node:fs/promises";
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
-  ATHENA_PROVIDER,
   createRefineDocumentTool,
   defaultRefinementOutputDir,
   runWikiEditRefine,
@@ -71,12 +69,16 @@ export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refine
  * verbatim and re-derives structure. The full corrected markdown + chunks are
  * stored (pi-docparser big-output pattern) and the SMALL ref returned, exactly
  * like `createAthenaRefiner` for the normal ingest path.
+ *
+ * G4.S8.T16: this runner previously lazily created a Pi `ModelRuntime` for
+ * `completeSimple` (accidental reasoning:max, no timeout). The pass now goes
+ * through `runWikiEditRefine`'s DIRECT OpenRouter transport — same as the
+ * upload path — gaining the unified reasoning strategy, timeout/retry and
+ * provider.ignore; NO Pi runtime is created at all.
  */
 export function createAthenaWikiEditRefiner(
-  options: { storageDir?: string; thinkingLevel?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max"; retries?: number } = {},
+  options: { storageDir?: string; retries?: number } = {},
 ): WikiEditRefiner {
-  let runtimePromise: Promise<ModelRuntime> | undefined;
-
   return async (input: {
     markdown: string;
     before: string;
@@ -85,24 +87,14 @@ export function createAthenaWikiEditRefiner(
     type?: string;
     topic?: string;
   }) => {
-    runtimePromise ??= import("@earendil-works/pi-coding-agent").then((m) =>
-      m.ModelRuntime.create(),
-    );
-    const runtime = await runtimePromise;
-    const model = runtime.getModel(ATHENA_PROVIDER, "~deepseek/deepseek-v4-flash-latest");
-    if (!model) {
-      throw new Error("wiki edit refine: athena model not found");
-    }
     const existing = {
       ...(input.type ? { type: input.type } : {}),
       ...(input.topic ? { topic: input.topic } : {}),
     };
     const { document } = await runWikiEditRefine(
-      runtime,
-      model,
       { markdown: input.markdown, before: input.before, diff: input.diff, structural: input.structural },
       existing,
-      { thinkingLevel: options.thinkingLevel, retries: options.retries },
+      { retries: options.retries },
     );
     const ref = await storeRefinementOutput(
       document,

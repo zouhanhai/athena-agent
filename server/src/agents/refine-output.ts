@@ -44,6 +44,20 @@ export const REFINE_PREVIEW_MAX_CHARS = 2000;
  */
 export const REFINE_CHUNK_TARGET_TOKENS = 1200;
 
+/**
+ * Minimum size of one paragraph-semantic chunk (G4.S8.T16): consecutive non-heading blocks sharing a
+ * heading path are merged until a chunk reaches this many characters — kills the "WER"-style sub-10-char
+ * fragments docling emits. Env-tunable via REFINE_MIN_CHUNK_CHARS; oversized blocks stay intact and the
+ * final block of a section may stay below the minimum.
+ */
+export const REFINE_MIN_CHUNK_CHARS = 400;
+
+/** Read the effective minimum chunk size (env REFINE_MIN_CHUNK_CHARS overrides the 400 default). */
+export function refineMinChunkChars(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number.parseInt(env.REFINE_MIN_CHUNK_CHARS ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : REFINE_MIN_CHUNK_CHARS;
+}
+
 export type RefinementMode = "single" | "two-stage";
 
 /** A markdown block that starts at a heading line (used by the stage-1 header judge). */
@@ -152,7 +166,11 @@ const IMAGE_REF_INLINE = /!\[[^\]]*\]\([^)]*\)/g;
 
 /** True when the markdown contains at least one `![...](...)` image reference. */
 export function hasImageRefs(markdown: string): boolean {
-  return IMAGE_REF_INLINE.test(markdown);
+  // /g regex .test() is stateful — reset so repeated calls never resume a stale scan position.
+  IMAGE_REF_INLINE.lastIndex = 0;
+  const found = IMAGE_REF_INLINE.test(markdown);
+  IMAGE_REF_INLINE.lastIndex = 0;
+  return found;
 }
 
 /**
@@ -162,8 +180,13 @@ export function hasImageRefs(markdown: string): boolean {
  * without image refs is returned unchanged.
  */
 export function stripImageRefs(markdown: string): string {
-  const lines = markdown.split(/\r?\n/).map((line) => {
+  // G4.S8.T16: HTML-comment image placeholders (`<!-- image -->`) are removed too — they used to
+  // survive into File B where the refinement LLM saw them and misreported "undescribed images".
+  const noComments = markdown.replace(/<!--[\s\S]*?-->/g, "");
+  const lines = noComments.split(/\r?\n/).map((line) => {
     if (IMAGE_REF_LINE.test(line)) return "";
+    // NOTE: IMAGE_REF_INLINE is /g — reset lastIndex so .test() never resumes a stale scan position.
+    IMAGE_REF_INLINE.lastIndex = 0;
     if (!IMAGE_REF_INLINE.test(line)) return line;
     return line.replace(IMAGE_REF_INLINE, "").trim();
   });
@@ -375,7 +398,13 @@ export function mergeRefinements(sections: RefinedDocument[]): RefinedDocument {
   let n = 1;
   for (const section of sections) {
     for (const chunk of section.chunks ?? []) {
-      chunks.push({ id: `c${n++}`, text: chunk.text, heading_path: chunk.heading_path });
+      // context preserved across the merge (G4.S8.T16 contextual enrichment)
+      chunks.push({
+        id: `c${n++}`,
+        text: chunk.text,
+        heading_path: chunk.heading_path,
+        ...(chunk.context ? { context: chunk.context } : {}),
+      });
     }
   }
   const entities = dedupeBy(sections.flatMap((s) => s.entities ?? []), (e) => e.name.toLowerCase());
@@ -483,58 +512,227 @@ function blocksToMarkdown(blocks: PatchBlock[]): string {
  * markdown. Patch indices refer to the 0-based block grid of `markdown` (headings + paragraphs in
  * document order). Heading ops only affect heading blocks; paragraph ops only affect paragraph blocks;
  * out-of-range or wrong-kind patches are ignored (fidelity-first: no information re-generation).
+ * Convenience wrapper over `applyPatchesWithReport` (G4.S8.T16 instrumentation).
  */
 export function applyPatches(markdown: string, patches: readonly RefinementPatch[]): string {
-  const original = parseMarkdownBlocks(markdown);
-  const result: PatchBlock[] = [...original];
-  for (const patch of patches ?? []) {
-    const target = original[patch.index];
-    if (!target) continue;
-    const pos = result.findIndex((b) => b === target);
-    if (pos === -1) continue; // already removed
-    const block = result[pos];
-    if (patch.op === "retitle_heading" && block.kind === "heading") {
-      block.text = patch.text;
-    } else if (patch.op === "refactor_heading" && block.kind === "heading") {
-      block.level = clampHeaderLevel(patch.level);
-    } else if (patch.op === "replace_paragraph" && block.kind === "paragraph") {
-      block.text = patch.text;
-    } else if (patch.op === "insert_paragraph" && block.kind === "paragraph") {
-      result.splice(pos + 1, 0, { kind: "paragraph", text: patch.text });
-    } else if (patch.op === "delete_paragraph" && block.kind === "paragraph") {
-      result.splice(pos, 1);
-    }
-  }
-  return blocksToMarkdown(result);
+  return applyPatchesWithReport(markdown, patches).markdown;
+}
+
+/** Per-run patch-cycle instrumentation (G4.S8.T16) — makes silent drops IMPOSSIBLE to miss. */
+export interface PatchApplyReport {
+  /** Number of patches the LLM emitted (input length). */
+  emitted: number;
+  /** Number actually applied to the block grid. */
+  applied: number;
+  /** Each ignored patch with its concrete reason: out_of_range | kind_mismatch | unresolved | already_removed. */
+  dropped: Array<{ index: number; reason: string }>;
 }
 
 /**
- * Locally segment a (rebuilt) markdown into paragraph-semantic chunks. Each chunk is ONE semantic
- * block (a paragraph plus its heading path), carrying a stable id c1..cN (G4.S8.T1). Paragraphs are
- * targeted at ~1200 tokens (REFINE_CHUNK_TARGET_TOKENS); a block larger than the target stays intact
- * (paragraph-semantic fidelity over fixed token windows). The LLM never emits chunk text — this runs
- * on the LOCAL rebuild, so chunk count == paragraph-semantic block count.
+ * Apply patches WITH the per-run {patchesEmitted, patchesApplied, patchesDropped} report.
+ *
+ * G4.S8.T16 heading-text anchoring: heading ops may carry an `anchor` (the heading's CURRENT text).
+ * When the ordinal index misses (block-count drift, headings-only misnumbering — the Mallorca
+ * failure), the target is located by normalized anchor text instead; text anchors survive drift,
+ * ordinals do not. Unresolvable patches are REPORTED as dropped, never silently ignored.
  */
-export function splitParagraphSemantic(markdown: string): RefinementChunk[] {
+export function applyPatchesWithReport(
+  markdown: string,
+  patches: readonly RefinementPatch[],
+): { markdown: string; report: PatchApplyReport } {
+  const original = parseMarkdownBlocks(markdown);
+  const result: PatchBlock[] = [...original];
+  const report: PatchApplyReport = { emitted: (patches ?? []).length, applied: 0, dropped: [] };
+  const normalizedAnchor = (text: string | undefined): string =>
+    (text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  const isHeadingOp = (p: RefinementPatch): p is RefinementHeadingPatch =>
+    p.op === "refactor_heading" || p.op === "retitle_heading";
+
+  const findHeadingByAnchor = (anchor: string | undefined): number => {
+    const key = normalizedAnchor(anchor);
+    if (!key) return -1;
+    return result.findIndex((b) => b.kind === "heading" && normalizedAnchor(b.text) === key);
+  };
+
+  for (const patch of patches ?? []) {
+    const inRange = Number.isInteger(patch.index) && patch.index >= 0 && patch.index < original.length;
+    const pos = inRange ? result.indexOf(original[patch.index]!) : -1;
+    const target = pos !== -1 ? result[pos]! : undefined;
+
+    const applyAt = (at: number): void => {
+      const block = result[at]!;
+      switch (patch.op) {
+        case "retitle_heading":
+          if (block.kind === "heading") block.text = patch.text;
+          break;
+        case "refactor_heading":
+          if (block.kind === "heading") block.level = clampHeaderLevel(patch.level);
+          break;
+        case "replace_paragraph":
+          if (block.kind === "paragraph") block.text = patch.text;
+          break;
+        case "insert_paragraph":
+          if (block.kind === "paragraph") result.splice(at + 1, 0, { kind: "paragraph", text: patch.text });
+          break;
+        case "delete_paragraph":
+          if (block.kind === "paragraph") result.splice(at, 1);
+          break;
+      }
+      report.applied += 1;
+    };
+
+    if (!target) {
+      // index missed (out of range or already removed) — try the heading-text anchor before giving up
+      if (isHeadingOp(patch)) {
+        const byAnchor = findHeadingByAnchor(patch.anchor);
+        if (byAnchor !== -1) {
+          applyAt(byAnchor);
+          continue;
+        }
+        report.dropped.push({ index: patch.index, reason: patch.anchor ? "unresolved" : "out_of_range" });
+      } else {
+        report.dropped.push({ index: patch.index, reason: "out_of_range" });
+      }
+      continue;
+    }
+
+    if (isHeadingOp(patch)) {
+      if (target.kind === "heading") {
+        applyAt(pos);
+      } else {
+        const byAnchor = findHeadingByAnchor(patch.anchor);
+        if (byAnchor !== -1) {
+          applyAt(byAnchor);
+        } else {
+          report.dropped.push({ index: patch.index, reason: "kind_mismatch" });
+        }
+      }
+      continue;
+    }
+
+    if (target.kind !== "paragraph") {
+      report.dropped.push({ index: patch.index, reason: "kind_mismatch" });
+      continue;
+    }
+    applyAt(pos);
+  }
+
+  return { markdown: blocksToMarkdown(result), report };
+}
+
+/** Heading ops extended with an optional heading-text anchor (G4.S8.T16). */
+type RefinementHeadingPatch =
+  | ({ op: "retitle_heading"; index: number; text: string } & { anchor?: string })
+  | ({ op: "refactor_heading"; index: number; level: number } & { anchor?: string });
+
+/**
+ * Locally segment a (rebuilt) markdown into paragraph-semantic chunks. Each chunk carries a stable
+ * id c1..cN and its heading path (G4.S8.T1). The LLM never emits chunk text — this runs on the LOCAL
+ * rebuild, so chunk count == paragraph-semantic block count after merging.
+ *
+ * G4.S8.T16 minimum-size merge: consecutive non-heading blocks sharing the same heading path merge
+ * until the chunk reaches REFINE_MIN_CHUNK_CHARS (default 400, env-tunable) — eliminating the
+ * sub-10-char fragments docling produces. Oversized blocks stay intact; the final block of a section
+ * may stay below the minimum.
+ *
+ * G4.S8.T16 zero-LLM contextual enrichment: when `summary` is provided, every chunk gets a one-line
+ * `context` sentence ("<first summary sentence>; this section covers <heading path>") — the refine
+ * pass already read the whole document, so this costs ZERO additional LLM calls.
+ */
+export interface SplitParagraphOptions {
+  /** File-level document summary — feeds the per-chunk context sentence. */
+  summary?: string;
+  /** Minimum merged-chunk size in chars. Default: REFINE_MIN_CHUNK_CHARS / env. */
+  minChars?: number;
+}
+
+/** First sentence of a text (up to ". " / "!" / "?" boundary), whitespace-collapsed, capped. */
+function firstSentence(text: string, maxChars = 240): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  const m = /^(.+?[.!?])(?:\s|$)/.exec(collapsed);
+  return (m?.[1] ?? collapsed).slice(0, maxChars);
+}
+
+/**
+ * Compose the one-line chunk context sentence (G4.S8.T16): "<doc summary>; this section covers
+ * <heading path>". Degrades to whichever piece exists; undefined only when BOTH are absent.
+ */
+export function composeChunkContext(summary: string | undefined, headingPath: string): string | undefined {
+  const s = firstSentence(summary ?? "");
+  const parts: string[] = [];
+  if (s) parts.push(s);
+  if (headingPath) parts.push(`this section covers ${headingPath}`);
+  if (parts.length === 0) return undefined;
+  const joined = parts.join("; ");
+  const line = /[.!?]$/.test(joined) ? joined : `${joined}.`;
+  // Sentence-case the composed line when it starts fresh (no summary prefix).
+  return s ? line : `${line.charAt(0).toUpperCase()}${line.slice(1)}`;
+}
+
+export function splitParagraphSemantic(markdown: string, options: SplitParagraphOptions = {}): RefinementChunk[] {
   const blocks = parseMarkdownBlocks(markdown);
   const chunks: RefinementChunk[] = [];
   let id = 1;
   const headingStack: Array<{ level: number; text: string }> = [];
-  for (const block of blocks) {
+  const headingPath = (): string => headingStack.map((h) => h.text).join(" / ");
+  const minChars = options.minChars ?? refineMinChunkChars();
+
+  for (let i = 0; i < blocks.length; ) {
+    const block = blocks[i]!;
     if (block.kind === "heading") {
       while (headingStack.length && headingStack[headingStack.length - 1].level >= block.level) {
         headingStack.pop();
       }
       headingStack.push({ level: block.level, text: block.text });
-    } else if (block.text) {
-      chunks.push({
-        id: `c${id++}`,
-        text: block.text,
-        heading_path: headingStack.map((h) => h.text).join(" / "),
-      });
+      i += 1;
+      continue;
     }
+    if (!block.text) {
+      i += 1;
+      continue;
+    }
+
+    // Merge consecutive non-heading blocks under the SAME heading path until the minimum size is
+    // reached; whatever remains before the next heading is the exempt final group.
+    const mergedTexts: string[] = [block.text];
+    let size = block.text.length;
+    let j = i + 1;
+    while (size < minChars && j < blocks.length) {
+      const next = blocks[j]!;
+      if (next.kind === "heading" || !next.text) break;
+      mergedTexts.push(next.text);
+      size += next.text.length;
+      j += 1;
+    }
+    const context = composeChunkContext(options.summary, headingPath());
+    chunks.push({
+      id: `c${id++}`,
+      text: mergedTexts.join("\n\n"),
+      heading_path: headingPath(),
+      ...(context ? { context } : {}),
+    });
+    i = j;
   }
   return chunks;
+}
+
+/**
+ * Detect the docling FLAT-header failure shape (G4.S8.T16 Mallorca repro): more than 3 headings
+ * sharing ONE level that covers all but at most one outlier (e.g. 16 × h2, or title + 15 × h2).
+ * Used by the deterministic HEADER_RELEVEL recovery in the single-pass refine path.
+ */
+export function isFlatHeaderMarkdown(markdown: string): boolean {
+  const levels = new Map<number, number>();
+  let total = 0;
+  for (const line of markdown.split(/\r?\n/)) {
+    const m = /^(#{1,6})\s+/.exec(line);
+    if (!m) continue;
+    total += 1;
+    levels.set(m[1].length, (levels.get(m[1].length) ?? 0) + 1);
+  }
+  if (total <= 3) return false;
+  const dominant = Math.max(...levels.values());
+  return dominant > 3 && dominant >= total - 1;
 }
 
 
