@@ -63,4 +63,21 @@ describe("auditWikiEditDocument (G4.S8.T19 extension)", () => {
     const out = await auditWikiEditDocument(caller as never, doc.markdown, doc, undefined);
     assert.equal(out, doc);
   });
+
+  it("keeps original relations when the audit returns an EMPTY relation list", async () => {
+    // Audit canonicalizes entities but returns relations: [] — the empty array
+    // must not wipe the extraction's relations (live regression: graph lost
+    // all relations after a wiki-edit with an audit that returned no relations).
+    const caller = fakeCallerWith({
+      entities: [
+        { name: "Hotel Palma Bellver Affiliated by Melia", type: "location", description: "" },
+        { name: "CALLE", type: "org", description: "" },
+      ],
+      relations: [],
+    });
+    const out = await auditWikiEditDocument(caller as never, doc.markdown, doc, undefined);
+    assert.notEqual(out, doc, "audit adopted the entity rewrite");
+    assert.equal(out.relations.length, 1, "original relation must survive");
+    assert.equal(out.relations[0]?.source, "CALLE");
+  });
 });

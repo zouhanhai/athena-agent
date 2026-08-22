@@ -2231,8 +2231,12 @@ export async function auditWikiEditDocument(
   );
   return {
     ...doc,
-    entities: audited.entities ?? doc.entities ?? [],
-    relations: audited.relations ?? doc.relations ?? [],
+    entities: (audited.entities?.length ?? 0) > 0 ? audited.entities : doc.entities ?? [],
+    // An EMPTY relation array from the audit must NOT wipe the extraction's
+    // relations ([] is truthy — `??` does not protect it). Observed live:
+    // wiki-edit audit returned entities but no relations; the graph lost all
+    // relations even though the task log said overwrite ok.
+    relations: (audited.relations?.length ?? 0) > 0 ? audited.relations : doc.relations ?? [],
     new_entities: newEntities,
     new_relations: doc.new_relations ?? [],
     rechunked: doc.rechunked,
