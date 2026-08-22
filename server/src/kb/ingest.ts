@@ -698,8 +698,16 @@ export class KnowledgeIngestService {
       });
       const refinementDirsRemoved = await this.removeRefinementDirs(cascade.mdRefs);
       // Purge content-dedup entries so the same file can be re-ingested after
-      // deletion (source = wiki fileName, mirroring the queue's record() call).
-      this.dedup?.removeBySource(basename(path).replace(/\.md$/i, ""));
+      // deletion. The queue has recorded under BOTH the bare wiki fileName
+      // (current key, mirroring this purge) and — for records written before
+      // the source alignment — the raw fileName `${stem}.md` (which keeps the
+      // original extension, e.g. "Sommerseminar-Mallorca-2023.pdf.md").
+      // Clear both so a delete always un-does whichever a previous process
+      // recorded; otherwise a re-upload of the same content is
+      // short-circuited as a duplicate (observed repeatedly).
+      const bare = basename(path).replace(/\.md$/i, "");
+      this.dedup?.removeBySource(bare);
+      if (!bare.endsWith(".md")) this.dedup?.removeBySource(bare + ".md");
       result.graph = {
         documentsRemoved: cascade.documentsRemoved,
         chunksRemoved: cascade.chunksRemoved,
