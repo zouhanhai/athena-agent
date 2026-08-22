@@ -190,7 +190,12 @@ export class WikiReviewStateService {
     return {
       path,
       ...(isReviewState(fm.review) ? { review: fm.review } : {}),
-      review_count: Number.isFinite(fmCount) && fmCount > 0 ? fmCount : unresolved,
+      // The ACTUAL unresolved count is authoritative — stale frontmatter
+      // (e.g. from an earlier ingest whose quality.json was replaced by a
+      // wiki-edit run with an empty issues list) must not inflate the badge.
+      review_count: issues.length === 0
+        ? (Number.isFinite(fmCount) && fmCount > 0 && fm.review === "required" ? fmCount : 0)
+        : unresolved,
       issues,
     };
   }
