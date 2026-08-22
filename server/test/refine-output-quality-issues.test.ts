@@ -106,7 +106,9 @@ test("storeRefinementOutput writes quality.json with the structured issues array
     // every issue has a stable unique id
     const ids = new Set(raw.issues.map((i) => i.id));
     assert.equal(ids.size, raw.issues.length);
-    void ref;
+    // the small ref carries the same structured list for the operator UX
+    assert.equal(ref.refinement_issues?.length, raw.issues.length);
+    assert.equal(ref.refinement_issues?.[0]!.anchor?.heading_path, "Lüsen / Anreise");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

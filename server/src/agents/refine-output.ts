@@ -115,6 +115,13 @@ export interface RefineOutputRef {
   relations: RefinementRelation[];
   keywords: string[];
   quality: RefinementQuality;
+  /**
+   * G4.S8.T17: the structured per-issue review list (mirror of quality.json)
+   * carried on the small ref so the operator UX (Uploads issue details) shows
+   * message + heading path without re-reading the big outputs. Absent when
+   * the quality view has no issues.
+   */
+  refinement_issues?: RefinementQualityIssue[];
   /** File-level document summary (~2-3 sentences), emitted by the single full-doc read. */
   summary: string;
   /** One summary per top-level H1 section — the layered/hierarchical summary (G4.S2.T13). */
@@ -859,9 +866,10 @@ export async function storeRefinementOutput(
   await writeFileImpl(chunksPath, JSON.stringify(doc.chunks ?? [], null, 2));
   // G4.S8.T17: the structured per-issue review state lives NEXT TO the big
   // outputs — POST /api/kb/wiki/review-state flips `resolved` in this exact file.
+  const qualityIssues = deriveQualityIssues(doc.quality, doc.markdown);
   await writeFileImpl(
     join(dir, "quality.json"),
-    JSON.stringify({ action: doc.quality.action, issues: deriveQualityIssues(doc.quality, doc.markdown) }, null, 2),
+    JSON.stringify({ action: doc.quality.action, issues: qualityIssues }, null, 2),
   );
 
   const separateRag = options.ragMarkdown !== undefined && options.ragMarkdown !== doc.markdown;
@@ -883,6 +891,7 @@ export async function storeRefinementOutput(
     relations: doc.relations ?? [],
     keywords: doc.keywords ?? [],
     quality: doc.quality,
+    ...(qualityIssues.length > 0 ? { refinement_issues: qualityIssues } : {}),
     summary: doc.summary ?? "",
     sections: doc.sections ?? [],
     mode: options.mode ?? "single",

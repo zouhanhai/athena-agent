@@ -4,8 +4,8 @@ import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import type { TreeNodeModel } from "tdesign-vue-next/es/tree/type";
 
-import { deleteWikiDoc, getWikiCodeMeta, getWikiTree, readWikiPage, saveWikiPage, searchKnowledge } from "@/api/kb";
-import type { KnowledgeSearchResult, WikiCodeMeta, WikiTreeNode } from "@/api/kb";
+import { deleteWikiDoc, getWikiCodeMeta, getWikiReviewState, getWikiTree, readWikiPage, saveWikiPage, searchKnowledge, updateWikiReviewState } from "@/api/kb";
+import type { KnowledgeSearchResult, WikiCodeMeta, WikiReviewIssueView, WikiReviewStateView, WikiTreeNode } from "@/api/kb";
 import { extractWikiHeadings, hasWikiHeadings, renderMarkdown } from "@/kb/markdown";
 import WikiCodeRenderer from "@/components/wiki/WikiCodeRenderer.vue";
 import { detectCodeChannel } from "@/kb/code-links";
@@ -45,6 +45,17 @@ const structuredLoading = ref(false);
 const searchResults = ref<KnowledgeSearchResult[]>([]);
 const searchResultsFor = ref("");
 const searchResultError = ref("");
+
+// G4.S8.T17: per-page review workflow. Pages whose frontmatter carries
+// `review: required` render a banner ("本页有 N 处需要复核") + inline anchored
+// annotations; each highlight opens a popover with 确认无误 / 需要修改.
+const reviewState = ref<WikiReviewStateView | null>(null);
+const reviewListExpanded = ref(true);
+const popoverIssueId = ref<string | null>(null);
+const popoverAnchorStyle = ref<{ top: string; left: string }>({ top: "0px", left: "0px" });
+const popoverNote = ref("");
+const reviewActionBusy = ref(false);
+const reviewActionError = ref("");
 
 // G4.S3.T10: wiki editing is permission-gated behind `kb.edit` — admin by
 // default, grantable to a member. Everyone else sees the wiki read-only.
@@ -146,6 +157,193 @@ async function loadCodeMeta(path: string): Promise<void> {
   }
 }
 
+// --- G4.S8.T17: review banner + inline anchored annotations ---
+
+/** All issues of the active page (resolved ones included, for the popover). */
+const reviewIssues = computed(() => reviewState.value?.issues ?? []);
+
+/** Issues still awaiting the user's confirm/modify decision. */
+const unresolvedReviewIssues = computed(() => reviewIssues.value.filter((i) => !i.resolved));
+
+/** Banner shows while the page's gate is `required` (or issues remain). */
+const reviewBannerVisible = computed(
+  () => reviewState.value?.review === "required" || unresolvedReviewIssues.value.length > 0,
+);
+
+/** Unresolved count for the banner title (server view is authoritative). */
+const unresolvedReviewCount = computed(() => {
+  if (reviewState.value && reviewState.value.review === "clear") return 0;
+  const fromServer = reviewState.value?.review_count ?? 0;
+  return Math.max(fromServer, unresolvedReviewIssues.value.length);
+});
+
+/** The issue object behind the open annotation popover. */
+const activePopoverIssue = computed(
+  () => reviewIssues.value.find((i) => i.id === popoverIssueId.value) ?? null,
+);
+
+/** Review actions need a signed-in employee (the API is employee-gated). */
+const canReview = computed(() => auth.employee !== null);
+
+async function loadReviewState(path: string): Promise<void> {
+  reviewState.value = null;
+  closeReviewPopover();
+  try {
+    reviewState.value = await getWikiReviewState(path);
+  } catch {
+    // no review data (page predates the gate / network) → no banner
+    reviewState.value = null;
+  }
+}
+
+function closeReviewPopover(): void {
+  popoverIssueId.value = null;
+  popoverNote.value = "";
+  reviewActionError.value = "";
+}
+
+/** Open the annotation popover pinned to a clicked highlight (fixed-position anchor).
+ *  Stops propagation so TDesign's document-level outside-click closer (trigger
+ *  "click") does not see THIS click and instantly re-close the popup. */
+function openReviewPopover(el: HTMLElement): void {
+  const id = el.getAttribute("data-issue-id");
+  const issue = reviewIssues.value.find((i) => i.id === id);
+  if (!issue) return;
+  const rect = el.getBoundingClientRect();
+  popoverAnchorStyle.value = {
+    top: `${Math.round(rect.bottom + window.scrollY + 6)}px`,
+    left: `${Math.max(8, Math.round(rect.left + window.scrollX))}px`,
+  };
+  popoverNote.value = issue.note ?? "";
+  popoverIssueId.value = issue.id;
+  reviewActionError.value = "";
+}
+
+/** 确认无误 / 需要修改 — persist per-issue state; response replaces the local view. */
+async function actOnActiveIssue(action: "resolve" | "reopen"): Promise<void> {
+  const path = activePath.value;
+  const id = popoverIssueId.value;
+  if (!path || !id || reviewActionBusy.value) return;
+  reviewActionBusy.value = true;
+  reviewActionError.value = "";
+  try {
+    const note = action === "reopen" ? popoverNote.value.trim() : undefined;
+    const next = await updateWikiReviewState(path, id, action, note || undefined);
+    reviewState.value = next;
+    if (action === "resolve") closeReviewPopover();
+  } catch (err) {
+    reviewActionError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    reviewActionBusy.value = false;
+  }
+}
+
+/** Banner item → scroll the content pane to that issue's inline highlight. */
+function jumpToHighlight(issueId: string): void {
+  const el = contentPane.value?.querySelector(`mark[data-issue-id="${issueId}"]`);
+  if (el && typeof el.scrollIntoView === "function") {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+/**
+ * Close ONLY on genuine user-dismiss signals (outside click / Esc). This
+ * TDesign build additionally emits spurious visible-change(false) events from
+ * its internal trigger plumbing while the popup is fully controlled — those
+ * must NOT close the annotation card.
+ */
+function onReviewPopoverVisibleChange(
+  visible: boolean,
+  context?: { trigger?: string },
+): void {
+  if (!visible && (context?.trigger === "document" || context?.trigger === "keydown-esc")) {
+    closeReviewPopover();
+  }
+}
+
+/**
+ * mark.js-style highlight injection: whitespace-normalized search of the
+ * issue's anchor quote across the rendered text nodes, wrapped in a clickable
+ * <mark>. Re-applied after every content render (v-html wipes injected DOM).
+ */
+function unwrapReviewHighlights(root: ParentNode): void {
+  root.querySelectorAll("mark.wiki-review-highlight").forEach((mark) => {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+    parent.removeChild(mark);
+    parent.normalize();
+  });
+}
+
+function findAndWrapQuote(root: HTMLElement, issue: WikiReviewIssueView): boolean {
+  const quote = issue.anchor?.quote;
+  if (!quote) return false;
+  const needle = quote.replace(/\s+/g, " ").trim();
+  if (!needle) return false;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const value = node.nodeValue ?? "";
+      if (!value.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = (node as Text).parentElement;
+      if (parent?.closest("script,style,mark.wiki-review-highlight")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  // Provenance map: every whitespace-normalized char remembers its (node, offset).
+  const chars: string[] = [];
+  const starts: Array<{ node: Text; offset: number }> = [];
+  let current: Node | null;
+  while ((current = walker.nextNode())) {
+    const textNode = current as Text;
+    const value = textNode.nodeValue ?? "";
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value[i]!;
+      if (/\s/.test(ch)) {
+        if (chars.length > 0 && chars[chars.length - 1] !== " ") {
+          chars.push(" ");
+          starts.push({ node: textNode, offset: i });
+        }
+      } else {
+        chars.push(ch);
+        starts.push({ node: textNode, offset: i });
+      }
+    }
+  }
+  const idx = chars.join("").indexOf(needle);
+  if (idx === -1) return false;
+  const startProv = starts[idx]!;
+  const endProv = starts[idx + needle.length - 1]!;
+  const range = document.createRange();
+  range.setStart(startProv.node, startProv.offset);
+  range.setEnd(endProv.node, endProv.offset + 1);
+  const mark = document.createElement("mark");
+  mark.className = "wiki-review-highlight";
+  mark.setAttribute("data-issue-id", issue.id);
+  mark.setAttribute("data-testid", "wiki-review-highlight");
+  try {
+    range.surroundContents(mark);
+  } catch {
+    // cross-node match: extract-then-wrap handles ranges spanning elements
+    const frag = range.extractContents();
+    mark.appendChild(frag);
+    range.insertNode(mark);
+  }
+  return true;
+}
+
+/** Wrap every unresolved+anchored issue's quote in the rendered content.
+ *  Code-renderer pages and edit mode have no markdown DOM to annotate. */
+function applyReviewHighlights(): void {
+  const root = contentPane.value;
+  if (!root || editing.value) return;
+  unwrapReviewHighlights(root);
+  if (codeRendererActive.value) return;
+  for (const issue of unresolvedReviewIssues.value) {
+    if (issue.anchored) findAndWrapQuote(root, issue);
+  }
+}
+
 /** Cross-link navigation: open the resolved page directly. */
 function onCodeNavigate(path: string): void {
   void openPage(path);
@@ -182,6 +380,15 @@ const headings = computed(() => extractWikiHeadings(content.value));
  */
 function onContentClick(event: MouseEvent): void {
   const rawTarget = event.target as HTMLElement | null;
+  // G4.S8.T17: a review highlight click opens the annotation popover. The
+  // stopPropagation is REQUIRED — the same bubbling click reaches TDesign's
+  // document-level outside-click listener and would instantly re-close it.
+  const highlight = rawTarget?.closest?.(".wiki-review-highlight");
+  if (highlight instanceof HTMLElement) {
+    event.stopPropagation();
+    openReviewPopover(highlight);
+    return;
+  }
   const toggle = rawTarget?.closest?.(".wiki-toc-toggle");
   if (toggle instanceof HTMLButtonElement) {
     const li = toggle.closest("li");
@@ -256,6 +463,20 @@ watchEffect(() => {
   void contentLoading.value;
   if (contentLoading.value) return;
   void nextTick(initTocAccordion);
+});
+
+/**
+ * G4.S8.T17: re-inject the review highlights once the freshly-rendered content
+ * is in the DOM (same re-arm pattern as the TOC accordion — v-html wipes the
+ * injected <mark> nodes on every re-render). Also depends on reviewState so a
+ * resolve/reopen immediately re-styles (or removes) highlights.
+ */
+watchEffect(() => {
+  void renderedContent.value;
+  void contentLoading.value;
+  void reviewState.value;
+  if (contentLoading.value) return;
+  void nextTick(applyReviewHighlights);
 });
 
 /** Tree shown in the sidebar for the active view (no file duplication),
@@ -345,6 +566,8 @@ async function openPage(path: string) {
       await router.replace({ query: { ...route.query, path } });
     }
     await loadCodeMeta(path);
+    // G4.S8.T17: load the review gate state with the page (anchors re-validated).
+    await loadReviewState(path);
   } catch (err) {
     contentError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -398,6 +621,9 @@ async function confirmSave(): Promise<void> {
     content.value = editingContent.value;
     editing.value = false;
     saveNotice.value = "Saved. Athena is re-ingesting the corrected page into retrieval...";
+    // G4.S8.T17: review state survives edits — re-fetch to re-validate anchors
+    // against the NEW content (stale anchors degrade to banner items).
+    await loadReviewState(path);
   } catch (err) {
     saveError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -567,6 +793,53 @@ watch(
           </div>
         </div>
         <div v-else class="wiki-view-content">
+          <!-- G4.S8.T17: review banner — anchored issues jump to their inline
+               highlight; unanchored ones (quote no longer matches the edited
+               page) stay listed here so nothing is silently lost. -->
+          <div
+            v-if="reviewBannerVisible"
+            class="wiki-review-banner"
+            data-testid="wiki-review-banner"
+          >
+            <div class="wiki-review-banner-header">
+              <span class="wiki-review-banner-title">
+                本页有 {{ unresolvedReviewCount }} 处需要复核
+              </span>
+              <button
+                type="button"
+                class="wiki-review-banner-toggle"
+                data-testid="wiki-review-banner-toggle"
+                :aria-expanded="reviewListExpanded"
+                @click="reviewListExpanded = !reviewListExpanded"
+              >
+                {{ reviewListExpanded ? "收起" : "展开" }}
+              </button>
+            </div>
+            <ul v-if="reviewListExpanded" class="wiki-review-issue-list">
+              <li
+                v-for="issue in unresolvedReviewIssues"
+                :key="issue.id"
+                class="wiki-review-issue-item"
+                data-testid="wiki-review-issue-item"
+              >
+                <button
+                  v-if="issue.anchored"
+                  type="button"
+                  class="wiki-review-issue-jump"
+                  data-testid="wiki-review-issue-jump"
+                  aria-label="定位到该位置"
+                  @click="jumpToHighlight(issue.id)"
+                >
+                  ⌖
+                </button>
+                <span v-else class="wiki-review-issue-unanchored" title="页面已编辑，原文位置未找到">位置已变化</span>
+                <span class="wiki-review-issue-message">{{ issue.message }}</span>
+                <code v-if="issue.anchor?.heading_path" class="wiki-review-issue-path">
+                  {{ issue.anchor.heading_path }}
+                </code>
+              </li>
+            </ul>
+          </div>
           <div v-if="codeMeta" class="wiki-code-meta" data-testid="wiki-code-meta">
             <span class="wiki-code-meta-title">Code</span>
             <span v-if="codeMeta.system" class="wiki-code-tag">
@@ -644,6 +917,62 @@ watch(
         </div>
       </div>
     </div>
+
+    <!-- G4.S8.T17: annotation popover, pinned to the clicked highlight via a
+         zero-size fixed-position trigger span. TDesign's Popover is a thin
+         wrapper over Popup — this build ships the Popup primitive directly. -->
+    <t-popup
+      :visible="popoverIssueId !== null"
+      trigger="click"
+      placement="bottom-left"
+      :show-arrow="true"
+      :destroy-on-close="false"
+      class="wiki-review-popover"
+      @visible-change="onReviewPopoverVisibleChange"
+    >
+      <span
+        class="wiki-review-popover-anchor"
+        :style="popoverIssueId !== null ? popoverAnchorStyle : { top: '-100px', left: '-100px' }"
+      />
+      <template #content>
+        <div v-if="activePopoverIssue" class="wiki-review-popover-body" data-testid="wiki-review-popover">
+          <p class="wiki-review-popover-message">{{ activePopoverIssue.message }}</p>
+          <code v-if="activePopoverIssue.anchor?.heading_path" class="wiki-review-popover-path">
+            {{ activePopoverIssue.anchor.heading_path }}
+          </code>
+          <textarea
+            v-model="popoverNote"
+            class="wiki-review-popover-note"
+            data-testid="wiki-review-note-input"
+            rows="2"
+            placeholder="修改说明（可选）"
+            aria-label="修改说明"
+          />
+          <p v-if="reviewActionError" class="wiki-error wiki-review-action-error">{{ reviewActionError }}</p>
+          <div v-if="canReview" class="wiki-review-popover-actions">
+            <t-button
+              size="small"
+              theme="primary"
+              variant="outline"
+              data-testid="wiki-review-reopen"
+              :disabled="reviewActionBusy"
+              @click="actOnActiveIssue('reopen')"
+            >
+              需要修改
+            </t-button>
+            <t-button
+              size="small"
+              theme="primary"
+              data-testid="wiki-review-resolve"
+              :loading="reviewActionBusy"
+              @click="actOnActiveIssue('resolve')"
+            >
+              确认无误
+            </t-button>
+          </div>
+        </div>
+      </template>
+    </t-popup>
   </section>
 </template>
 
@@ -1091,6 +1420,176 @@ watch(
   border: none;
   border-top: 1px solid var(--caleo-border);
   margin: 1.5em 0;
+}
+
+/* G4.S8.T17: review banner + inline anchored annotations */
+.wiki-review-banner {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #d97706 45%, var(--caleo-border));
+  border-left: 3px solid #d97706;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d97706 10%, var(--caleo-surface));
+}
+
+.wiki-review-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wiki-review-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.wiki-review-banner-toggle {
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--caleo-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wiki-review-banner-toggle:hover {
+  color: var(--caleo-text);
+  background: var(--caleo-surface-hover);
+}
+
+.wiki-review-issue-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wiki-review-issue-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--caleo-text);
+}
+
+.wiki-review-issue-jump {
+  padding: 0 6px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 4px;
+  background: var(--caleo-surface);
+  color: var(--caleo-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.wiki-review-issue-jump:hover {
+  border-color: var(--caleo-primary);
+}
+
+.wiki-review-issue-unanchored {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px dashed color-mix(in srgb, #d97706 55%, transparent);
+  border-radius: 4px;
+  color: #b45309;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.wiki-review-issue-message {
+  flex: 1;
+  min-width: 0;
+}
+
+.wiki-review-issue-path {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--caleo-surface-hover);
+  color: var(--caleo-text-secondary);
+}
+
+/* The inline annotation itself (injected into v-html content → needs :deep). */
+.wiki-content :deep(mark.wiki-review-highlight) {
+  background: color-mix(in srgb, #fbbf24 55%, transparent);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #d97706 35%, transparent);
+}
+
+.wiki-content :deep(mark.wiki-review-highlight:hover) {
+  background: color-mix(in srgb, #fbbf24 80%, transparent);
+}
+
+.wiki-review-popover-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+}
+
+.wiki-review-popover-body {
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wiki-review-popover-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--caleo-text);
+}
+
+.wiki-review-popover-path {
+  align-self: flex-start;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--caleo-surface-hover);
+  color: var(--caleo-text-secondary);
+}
+
+.wiki-review-popover-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: var(--caleo-surface);
+  color: var(--caleo-text);
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.wiki-review-popover-note:focus {
+  outline: none;
+  border-color: var(--caleo-primary);
+}
+
+.wiki-review-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wiki-review-action-error {
+  margin: 0;
+  padding: 0;
 }
 
 /* GitHub-style task lists (markdown-it-task-lists): - [ ] / - [x] */

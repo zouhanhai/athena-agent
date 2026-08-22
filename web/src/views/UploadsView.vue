@@ -160,6 +160,39 @@ function reviewRequired(task: IngestTaskItem): boolean {
   return task.refinement?.quality?.action === "review_required";
 }
 
+// --- G4.S8.T17: expandable quality-issue details per task ---
+
+interface UploadsQualityIssue {
+  id: string;
+  message: string;
+  heading_path?: string;
+}
+
+/** The structured review issues of a task's refinement (message + heading path). */
+function qualityIssues(task: IngestTaskItem): UploadsQualityIssue[] {
+  return (task.refinement?.refinement_issues ?? []).map((issue) => ({
+    id: issue.id,
+    message: issue.message,
+    ...(issue.anchor?.heading_path ? { heading_path: issue.anchor.heading_path } : {}),
+  }));
+}
+
+const expandedIssues = ref<Set<string>>(new Set());
+
+function toggleIssues(taskId: string): void {
+  const next = new Set(expandedIssues.value);
+  if (next.has(taskId)) {
+    next.delete(taskId);
+  } else {
+    next.add(taskId);
+  }
+  expandedIssues.value = next;
+}
+
+function issuesExpanded(taskId: string): boolean {
+  return expandedIssues.value.has(taskId);
+}
+
 /** Human-readable elapsed time since `from` (ms). */
 function stepMark(status: string): string {
   switch (status) {
@@ -265,6 +298,29 @@ function stepMark(status: string): string {
           <p v-if="refinementText(task) || task.createdAt" class="task-refinement-note">
             <template v-if="refinementText(task)">{{ refinementText(task) }} · </template>{{ elapsed(task) }}<template v-if="ragEta(task)"> · {{ ragEta(task) }}</template>
           </p>
+          <!-- G4.S8.T17: the review issues themselves, visible without leaving the page. -->
+          <div v-if="qualityIssues(task).length" class="task-quality" data-testid="task-quality-issues">
+            <button
+              type="button"
+              class="task-quality-toggle"
+              data-testid="task-quality-toggle"
+              :aria-expanded="issuesExpanded(task.id)"
+              @click="toggleIssues(task.id)"
+            >
+              {{ issuesExpanded(task.id) ? "▾ Hide review issues" : `▸ Show ${qualityIssues(task).length} review issues` }}
+            </button>
+            <ul v-if="issuesExpanded(task.id)" class="task-quality-list">
+              <li
+                v-for="issue in qualityIssues(task)"
+                :key="issue.id"
+                class="task-quality-issue"
+                data-testid="task-quality-issue"
+              >
+                <span class="task-quality-message">{{ issue.message }}</span>
+                <code v-if="issue.heading_path" class="task-quality-path">{{ issue.heading_path }}</code>
+              </li>
+            </ul>
+          </div>
           <t-progress
             :percentage="task.progress"
             :status="taskProgressStatus(task)"
@@ -523,6 +579,62 @@ function stepMark(status: string): string {
   color: var(--caleo-warning, #b5851d);
   background: rgba(217, 155, 32, 0.14);
   border: 1px solid rgba(217, 155, 32, 0.35);
+}
+
+/* G4.S8.T17: expandable quality-issue details */
+.task-quality {
+  margin-top: 6px;
+}
+
+.task-quality-toggle {
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--caleo-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.task-quality-toggle:hover {
+  color: var(--caleo-warning, #b5851d);
+}
+
+.task-quality-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid rgba(217, 155, 32, 0.3);
+  border-radius: 6px;
+  background: rgba(217, 155, 32, 0.07);
+}
+
+.task-quality-issue {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--caleo-text);
+}
+
+.task-quality-message {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-quality-path {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--caleo-text-secondary);
+  background: var(--caleo-surface-hover);
 }
 
 .task-stages {

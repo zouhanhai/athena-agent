@@ -157,6 +157,9 @@ export interface IngestTask {
     entities?: { name: string; type: string; description: string }[];
     keywords?: string[];
     quality?: { complete: boolean; confidence: number; issues: string[]; action: "auto_accept" | "review_required" };
+    /** G4.S8.T17: structured review issues (quality.json mirror) — message +
+     *  heading path per issue, shown in the Uploads task detail. */
+    refinement_issues?: WikiReviewIssue[];
     mode?: "single" | "two-stage";
   };
   /** Operator-review flag (G4.S1.T5): set when Athena refinement emitted
@@ -248,6 +251,52 @@ export async function getWikiCodeMeta(path: string): Promise<WikiCodeMeta> {
   return request<WikiCodeMeta>(
     `${KB_BASE}/wiki/code-meta?path=${encodeURIComponent(path)}`,
   );
+}
+
+// --- G4.S8.T17: per-page review workflow (quality gate issues) ---
+
+/** One structured review issue (mirror of the server's quality.json entry). */
+export interface WikiReviewIssue {
+  id: string;
+  message: string;
+  anchor?: { quote: string; heading_path?: string };
+  resolved: boolean;
+  note?: string;
+}
+
+/** A review issue plus the server-side anchor validation verdict for this fetch:
+ *  unanchored issues no longer match the page content (likely edited since) and
+ *  are surfaced in the banner only — never dropped. */
+export type WikiReviewIssueView = WikiReviewIssue & { anchored: boolean };
+
+export interface WikiReviewStateView {
+  path: string;
+  review?: "required" | "clear";
+  review_count: number;
+  issues: WikiReviewIssueView[];
+}
+
+/** GET /api/kb/wiki/review-state?path= → the page's review gate state with
+ *  anchors re-validated against the CURRENT content. */
+export async function getWikiReviewState(path: string): Promise<WikiReviewStateView> {
+  return request<WikiReviewStateView>(
+    `${KB_BASE}/wiki/review-state?path=${encodeURIComponent(path)}`,
+  );
+}
+
+/** POST /api/kb/wiki/review-state { path, issueId, action, note? } → flip one
+ *  issue's resolved state; persists quality.json + frontmatter review fields. */
+export async function updateWikiReviewState(
+  path: string,
+  issueId: string,
+  action: "resolve" | "reopen",
+  note?: string,
+): Promise<WikiReviewStateView> {
+  return request<WikiReviewStateView>(`${KB_BASE}/wiki/review-state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, issueId, action, ...(note ? { note } : {}) }),
+  });
 }
 
 /** PUT /api/kb/wiki/page { path, content } → save a corrected wiki page

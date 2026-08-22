@@ -495,3 +495,86 @@ describe("uploads page", () => {
     wrapper.unmount();
   });
 });
+
+// --- G4.S8.T17: expandable quality-issue details in the task card ---
+
+describe("uploads review issue details (G4.S8.T17)", () => {
+  it("shows the expandable issue list with message + heading path for a review-required refinement", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "done",
+        progress: 100,
+        reviewRequired: true,
+        refinement: {
+          md_ref: "storage/doc.md",
+          frontmatter: { type: "report", topic: "sap/consolidation/group-reporting" },
+          quality: {
+            complete: false,
+            confidence: 0.4,
+            issues: [],
+            action: "review_required",
+          },
+          refinement_issues: [
+            {
+              id: "qi-1",
+              message: "Placeholder 'Zustieg am ?????' left in the source",
+              anchor: { quote: "Der Zustieg am ????? ist unklar.", heading_path: "Lüsen / Anreise" },
+              resolved: false,
+            },
+            {
+              id: "qi-2",
+              message: "2 image captions missing",
+              resolved: false,
+            },
+          ],
+        },
+      }),
+    );
+    const wrapper = await mountApp();
+    await submitFile(wrapper);
+
+    expect(wrapper.find('[data-testid="task-quality-issues"]').exists()).toBe(true);
+    // collapsed by default
+    expect(wrapper.findAll('[data-testid="task-quality-issue"]')).toHaveLength(0);
+
+    const toggle = wrapper.find('[data-testid="task-quality-toggle"]');
+    expect(toggle.text()).toContain("Show 2 review issues");
+    await toggle.trigger("click");
+    await flushPromises();
+
+    const items = wrapper.findAll('[data-testid="task-quality-issue"]');
+    expect(items).toHaveLength(2);
+    expect(items[0].text()).toContain("Placeholder 'Zustieg am ?????' left in the source");
+    // heading path is shown per issue; the unanchored one has none
+    expect(items[0].text()).toContain("Lüsen / Anreise");
+    expect(items[1].text()).toContain("2 image captions missing");
+    expect(items[1].find(".task-quality-path").exists()).toBe(false);
+
+    // collapses again
+    await toggle.trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="task-quality-issue"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("shows no issue section when the refinement carries no structured issues", async () => {
+    ingestFileMock.mockResolvedValue("t-1");
+    getTaskMock.mockResolvedValue(
+      makeTask({
+        status: "done",
+        progress: 100,
+        refinement: {
+          md_ref: "storage/doc.md",
+          frontmatter: { type: "event", topic: "internal/events" },
+          quality: { complete: true, confidence: 0.95, issues: [], action: "auto_accept" },
+        },
+      }),
+    );
+    const wrapper = await mountApp();
+    await submitFile(wrapper);
+
+    expect(wrapper.find('[data-testid="task-quality-issues"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
