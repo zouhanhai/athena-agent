@@ -822,18 +822,19 @@ export function validateRefineDelta(delta: RefinedDocumentDelta, sourceMarkdown:
         // fail the whole document after 2 repair retries → mechanical
         // fallback (0 chunks, unclassified). Tolerate a semantic match:
         // whitespace/punct-normalized containment or small edit distance.
+        // G4.S8 grace net: when an endpoint is neither an exact match nor a
+        // fuzzy variant (LLM hallucinated a word inside a multi-word name,
+        // e.g. "Hotel Palma Bellver Belly by Melia"), do NOT fail the whole
+        // document. Relations carry the source of truth; the missing endpoint
+        // entity is tolerated and created implicitly at ingest time. Only the
+        // pathological "relations without ANY entity" case stays an error.
         const fuzzy = fuzzyEntityMatch(raw, delta.entities ?? []);
-        if (!fuzzy) {
+        void fuzzy; // matched variants need no action; unmatched are tolerated
+        if ((delta.entities ?? []).length === 0) {
           errors.push(
-            `relation ${i + 1} ${side} "${raw}" does not reference any emitted entity — relation endpoints MUST equal one of: ${(delta.entities ?? [])
-              .map((e) => e.name)
-              .slice(0, 12)
-              .join(", ")} (or emit that entity first)`,
+            `entities array is EMPTY but ${(delta.relations ?? []).length} relation(s) are declared — relations MUST reference emitted entities; either declare the endpoint entities or drop the relations`,
           );
         }
-        // else: fine — the model's endpoint is a fuzzy variant of an emitted
-        // entity; the consumer (Neo4j overwrite) will resolve it via the
-        // same normalization. No error.
       }
     }
   }
@@ -860,11 +861,14 @@ function fuzzyEntityMatch(raw: string, entities: { name?: unknown }[]): string |
     if (!en) continue;
     // containment
     if (en.includes(norm) || norm.includes(en)) return String(e.name);
-    // token Jaccard-ish: every token of the shorter side appears in the other
+    // token Jaccard-ish: >= 70% of the shorter side appears in the other —
+    // tolerates the LLM replacing one token with a hallucinated near-duplicate
+    // ("Belly" for "Affiliated") while still rejecting genuinely foreign names.
     const enWords = en.split(" ").filter(Boolean);
     const small = words.length <= enWords.length ? words : enWords;
     const big = words.length <= enWords.length ? enWords : words;
-    if (small.every((w) => big.includes(w))) return String(e.name ?? "");
+    const hits = small.filter((w) => big.includes(w)).length;
+    if (small.length > 0 && hits / small.length >= 0.7) return String(e.name ?? "");
     // small edit distance on the compacted strings
     const d = editDistance(norm, en);
     if (d <= 3) return String(e.name);
@@ -1272,6 +1276,101 @@ export interface LargeRefineResult {
  * to MAX_VALIDATION_RETRIES (2); exhaustion throws → the caller's deterministic fallbackRefinement.
  * Every repair retry is logged ({attempt, errors[]}).
  */
+/**
+ * G4.S8 (post-loop) audit pass — runs for EVERY document after the main
+ * refinement pass (and again as a last resort after repair exhaustion).
+ *
+ * The main pass is constrained-output (json_schema) and occasionally drifts
+ * entity names between the entities[] list and relation endpoints (observed:
+ * "Hotel Palma Bellver Belly by Melia" vs "...Affiliated by Melia"). A cheap
+ * independent session (reasoning off, a few hundred tokens) reviews ONLY the
+ * entities + relations and rewrites them to a CONSISTENT closed list:
+ *   - every relation endpoint must exactly reference an entity in the list
+ *   - near-duplicate entity names are merged into one canonical form
+ *   - entities never referenced by any relation are kept (they stand alone)
+ * The audit output is re-validated; if it still fails, the original (or the
+ * repair-loop result before exhaustion) is kept — audit is best-effort and
+ * never worse than no audit.
+ */
+const AUDIT_ENTITIES_PROMPT = `You are the final consistency auditor for a knowledge-graph extraction.
+You receive a document's extracted ENTITIES and RELATIONS. Rewrite them so that:
+
+1. EVERY relation source/target EXACTLY matches the name of an entity in the
+   entity list (case/whitespace-insensitive match is allowed, but the emitted
+   name must be the EXACT entity name string you keep).
+2. Merge entities that are clearly the same real-world object under different
+   names (e.g. "Hotel Palma Bellver Affiliated by Melia" and "Hotel Palma
+   Bellver Belly by Melia" -> keep ONE canonical name, update all relation
+   endpoints to it).
+3. Keep every entity that a relation references; you may drop entities that no
+   relation references and that are not clearly important on their own.
+4. Do NOT invent new entities, do NOT change semantics, do NOT add relations.
+5. Respond with ONLY a JSON object:
+   {"entities":[{"name":string,"type":string,"description":string}],"relations":[{"source":string,"target":string,"keywords":string[],"description":string}]}`;
+
+function buildAuditPrompt(markdown: string, delta: RefinedDocumentDelta): string {
+  const entities = (delta.entities ?? []).map((e) => `${e.name} [${e.type}] ${e.description ?? ""}`.trim()).join("\\n- ");
+
+  const relations = (delta.relations ?? []).map((r) => `${r.source} -> ${r.target} (${(r.keywords ?? []).join(", ")}) ${r.description ?? ""}`.trim()).join("\n");
+  return `DOCUMENT (excerpt for context):\n${markdown.slice(0, 6000)}\n\nCURRENT ENTITIES:\n${entities}\n\nCURRENT RELATIONS:\n${relations}`;
+}
+
+/** Run the audit session over a delta's entities/relations; returns the
+ *  audited delta (same shape) or the original when the audit fails/parses wrongly. */
+async function runEntityAudit(
+  caller: RefineLlmCaller,
+  markdown: string,
+  delta: RefinedDocumentDelta,
+  modelId?: string,
+): Promise<RefinedDocumentDelta> {
+  try {
+    const { message } = await caller({
+      systemPrompt: AUDIT_ENTITIES_PROMPT,
+      userContent: buildAuditPrompt(markdown, delta),
+      schema: AUDIT_ENTITIES_SCHEMA,
+      model: modelId,
+      reasoningEffort: refineReasoningFor("extraction").effort,
+    });
+    const parsed = tryParseNestedJson(
+      (message.content ?? [])
+        .filter((p): p is AssistantTextPart => p.type === "text")
+        .map((p) => p.text)
+        .join("\n"),
+    );
+    if (!parsed) return delta;
+    const raw = parsed as { entities?: unknown; relations?: unknown };
+    const entities = normalizeEntityList(raw.entities);
+    const relations = normalizeRelationList(raw.relations);
+    if (entities.length === 0 && relations.length === 0) return delta;
+    // Re-validate the audited result; only adopt when it is at least as good.
+    const audited = { ...delta, entities, relations };
+    const errors = validateRefineDelta(audited, markdown);
+    if (errors.length === 0) return audited;
+    return delta;
+  } catch {
+    return delta;
+  }
+}
+
+/** Audit schema — entities + relations only (narrow, cheap). */
+export const AUDIT_ENTITIES_SCHEMA = Type.Object({
+  entities: Type.Array(
+    Type.Object({
+      name: Type.String(),
+      type: Type.String(),
+      description: Type.Optional(Type.String()),
+    }),
+  ),
+  relations: Type.Array(
+    Type.Object({
+      source: Type.String(),
+      target: Type.String(),
+      keywords: Type.Array(Type.String()),
+      description: Type.Optional(Type.String()),
+    }),
+  ),
+});
+
 async function runRefinePass(
   caller: RefineLlmCaller,
   markdown: string,
