@@ -133,10 +133,10 @@ test("buildWikiEditRefinePrompt includes the retry nudge after the first attempt
   assert.ok(retry.includes("[retry 1]"));
 });
 
-test("the incremental prompt instructs preserving the manual edit verbatim", () => {
-  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /PRESERVE THE USER'S EDIT/i);
-  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /NEVER rewrite/i);
-  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /rechunked=false/);
+test("the incremental prompt now uses DELTA mode: no full-markdown dump, extraction only", () => {
+  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /DO NOT re-emit the corrected markdown/i);
+  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /source of truth/i);
+  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /Output ONLY the EXTRACTION fields/i);
   assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /new_entities \/ new_relations/);
 });
 

@@ -100,7 +100,13 @@ export function createAthenaWikiEditRefiner(
     );
     // G4.S8.T18: the wiki-edit path runs the SAME deterministic placeholder scan
     // over its rebuilt markdown — objective defects force review_required here too.
-    const merged = mergeObjectiveDefectsIntoQuality(document.quality, document.markdown);
+    // G4.8 delta contract: the CORRECTED markdown lives in input.markdown (the
+    // user's edit is the source of truth). The LLM does not re-emit it; force
+    // the document to carry it so downstream store/output use the real text.
+    const correctedMarkdown = document.markdown && document.markdown.trim().length > 0
+      ? document.markdown
+      : input.markdown;
+    const merged = mergeObjectiveDefectsIntoQuality(document.quality, correctedMarkdown);
     const finalDocument = merged.quality === document.quality ? document : { ...document, quality: merged.quality };
     const ref = await storeRefinementOutput(
       finalDocument,

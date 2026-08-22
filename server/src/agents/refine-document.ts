@@ -1926,7 +1926,11 @@ export interface WikiEditRefinement extends RefinedDocument {
 
 /** JSON schema (TypeBox) of the wiki-edit refine output — constrained emit tool params. */
 export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
-  markdown: Type.String(),
+  // G4.S8 delta mode: the corrected markdown is the SOURCE OF TRUTH and is
+  // re-pinned from the caller (refiner.ts) — the LLM must NOT re-emit the full
+  // document (that was the #1 wiki-edit failure: truncation / missing fields
+  // on long docs). It emits only the extraction delta + changed chunks.
+  markdown: Type.Optional(Type.String()),
   summary: Type.String(),
   sections: Type.Array(
     Type.Object({
@@ -1938,12 +1942,14 @@ export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
     type: Type.String(),
     topic: Type.String(),
   }),
-  chunks: Type.Array(
-    Type.Object({
-      id: Type.String(),
-      text: Type.String(),
-      heading_path: Type.String(),
-    }),
+  chunks: Type.Optional(
+    Type.Array(
+      Type.Object({
+        id: Type.String(),
+        text: Type.String(),
+        heading_path: Type.String(),
+      }),
+    ),
   ),
   entities: Type.Array(
     Type.Object({
@@ -1996,21 +2002,20 @@ You receive (in the user message):
   - whether the change was STRUCTURAL (headings added/removed/renamed).
 
 RULES:
-1. PRESERVE THE USER'S EDIT. Emit the corrected markdown VERBATIM. NEVER rewrite, rephrase,
-   reformat, "improve" or "correct" the user's corrected text — not a single word.
+1. DO NOT re-emit the corrected markdown — the caller already HAS it verbatim and uses it as the
+   source of truth. Output ONLY the EXTRACTION fields below. Never dump the document text.
 2. The correction is INTENTIONAL. Do NOT "fix it back" to the previous version.
 3. Compare before vs after using the DIFF. Detect every NEW entity and NEW relation the correction
    introduces and list them in new_entities / new_relations (each must ALSO appear in the full
-   entities / relations list of the corrected document).
-4. Re-derive the corrected document's FULL entities, relations, keywords and chunks.
-   - A LOCALIZED edit inside one section: keep the existing chunk boundaries, re-emit the chunks with
-     the corrected text substituted, and set rechunked=false.
-   - A STRUCTURAL change (heading added/removed/renamed) or a large rewrite: re-chunk the affected
-     region(s) and set rechunked=true.
+   entities / relations list).
+4. Re-derive the corrected document's FULL entities, relations, keywords. For chunks: only when the
+   edit was STRUCTURAL (heading added/removed/renamed) or a large rewrite set rechunked=true; a
+   localized edit inside one section sets rechunked=false (the caller reuses its chunk boundaries).
 5. Reuse the existing type/topic when the edit did not change the document's classification.
 6. Quality-check the corrected document as usual (completeness, confidence, issues, action).
 
-Emit the COMPLETE corrected document via the emit_wiki_edit_refinement tool — do not truncate.`;
+Emit ONLY the JSON object with the extraction fields (summary, sections, frontmatter, entities,
+relations, keywords, new_entities, new_relations, rechunked, quality) — do not include the markdown.`;
 
 /** Build the user prompt for the incremental wiki-edit refine pass. */
 export function buildWikiEditRefinePrompt(
