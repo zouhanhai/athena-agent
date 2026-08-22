@@ -553,8 +553,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerGithubRoutes(app, { employees, auth, github, ops });
   registerKanbanRoutes(app, { auth, employees, github });
   registerInvitationRoutes(app, { invitations, auth });
+  // Shared graph-wired ingest instance: the delete cascade (T14) AND the
+  // review-state syncer's wiki-dir resolution (T17) both need Neo4j access.
+  const kbIngest = options.ingest ?? defaultIngestService(defaultNeo4jIngest());
   registerKbRoutes(app, {
-    ingest: options.ingest ?? defaultIngestService(defaultNeo4jIngest()),
+    ingest: kbIngest,
     retrieval,
     review: options.review ?? defaultReviewService(),
     recurator: options.recurator ?? defaultReCurator(),
@@ -579,7 +582,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         readPage: (path) => retrieval.readWikiPageRaw(path),
         refinementRoots: [defaultRefinementOutputDir(), defaultCodeOutputDir()],
         syncer: new WikiFrontmatterSyncer({
-          wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
+          // LLM_WIKI_WIKI_DIR is not set in deployments — resolve the wiki dir
+          // lazily through the ingest project lookup instead (same source the
+          // ingest pipeline uses). Without this, syncer.update throws
+          // "wiki dir could not be resolved" → review actions 500.
+          resolveWikiDir: async () => (await kbIngest.resolveProject()).wikiDir,
           driver: defaultNeo4jDriver(),
         }),
       }),

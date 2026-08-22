@@ -517,7 +517,9 @@ export class KnowledgeIngestService {
    * API for the current/first project (headless has none open) and derive the
    * wiki dir from its path.
    */
-  private async resolveProject(): Promise<ResolvedProject> {
+  /** Resolve the llm_wiki project id + local wiki dir (public: the delete
+   *  cascade and review-state syncer both resolve through this). */
+  async resolveProject(): Promise<ResolvedProject> {
     if (this.resolved) return this.resolved;
     const { projects, currentProject } = await this.llmwiki.listProjects();
     const project =
