@@ -88,6 +88,13 @@ export interface IngestResult {
 export interface KnowledgeIngestOptions {
   llmwiki: LlmWikiClient;
   /**
+   * Content-dedup store hook (G4.S8.T14 follow-up): when wired, deleteDocument
+   * purges the deleted page's dedup entries so the same file can be re-ingested
+   * after a delete. Source matching mirrors the queue's record() convention:
+   * the wiki fileName (basename minus .md).
+   */
+  dedup?: { removeBySource(source: string): void };
+  /**
    * llm_wiki wiki pages directory to write into. When omitted, it is resolved
    * from the project path returned by listProjects() as `<project.path>/wiki`.
    */
@@ -469,6 +476,7 @@ export class KnowledgeIngestService {
   private readonly classify: (input: { title: string; content: string }) => Promise<WikiClassification>;
   private readonly rebuildIndex: (wikiDir: string) => Promise<void>;
   private readonly graph?: KnowledgeIngestOptions["graph"];
+  private dedup?: KnowledgeIngestOptions["dedup"];
   private readonly refinementOutputDir: string;
   private readonly rmDir: (path: string) => Promise<void>;
   private resolved?: ResolvedProject;
@@ -490,8 +498,18 @@ export class KnowledgeIngestService {
     this.classify = options.classify ?? ((input) => this.classifyWithAgent(input));
     this.rebuildIndex = options.rebuildIndex ?? ((dir: string) => this.rebuildIndexDefault(dir));
     this.graph = options.graph;
+    this.dedup = options.dedup;
     this.refinementOutputDir = resolve(options.refinementOutputDir ?? defaultRefinementOutputDir());
     this.rmDir = options.rmDir ?? ((path: string) => rm(path, { recursive: true, force: true }));
+  }
+
+  /**
+   * Late-wire the content-dedup store (delete-cascade hook). The queue builds
+   * the dedup store after this service because its seed closure needs
+   * `existingWikiContent()` — see app.ts defaultTaskQueue.
+   */
+  attachDedupStore(dedup: NonNullable<KnowledgeIngestOptions["dedup"]>): void {
+    this.dedup = dedup;
   }
 
   /**
@@ -677,6 +695,9 @@ export class KnowledgeIngestService {
         stem: basename(path).replace(/\.md$/i, ""),
       });
       const refinementDirsRemoved = await this.removeRefinementDirs(cascade.mdRefs);
+      // Purge content-dedup entries so the same file can be re-ingested after
+      // deletion (source = wiki fileName, mirroring the queue's record() call).
+      this.dedup?.removeBySource(basename(path).replace(/\.md$/i, ""));
       result.graph = {
         documentsRemoved: cascade.documentsRemoved,
         chunksRemoved: cascade.chunksRemoved,

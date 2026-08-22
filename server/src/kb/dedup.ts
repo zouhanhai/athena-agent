@@ -177,6 +177,24 @@ export class ContentDedupStore {
     this.recordInternal(content, source);
   }
 
+  /**
+   * Purge every entry recorded for `source` (the wiki fileName). Called by the
+   * delete cascade (G4.S8.T14 follow-up): without this, a deleted document's
+   * hashes stay in the store and re-uploading the same file is silently
+   * skipped as a duplicate.
+   */
+  removeBySource(source: string): void {
+    const victims = this.docs.filter((doc) => doc.source === source);
+    if (victims.length === 0) return;
+    this.docs = this.docs.filter((doc) => doc.source !== source);
+    for (const doc of victims) {
+      this.byFullHash.delete(doc.fullHash);
+      if (doc.chunkHashes.length > 1) {
+        this.byChunkSeq.delete(doc.chunkHashes.join(","));
+      }
+    }
+  }
+
   /** Number of indexed documents (for diagnostics). */
   size(): number {
     return this.docs.length;

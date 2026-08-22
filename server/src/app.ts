@@ -291,15 +291,19 @@ export function defaultTaskQueue(): IngestTaskQueue {
   // the delete cascade (undefined when NEO4J_PASSWORD is unset → both no-op).
   const neo4j = defaultNeo4jIngest();
   const ingest = defaultIngestService(neo4j);
+  const dedup = new ContentDedupStore({
+    loadExisting: async () => ingest.existingWikiContent(),
+  });
+  // Delete-cascade hook (G4.S8.T14 follow-up): purge dedup entries when a page
+  // is deleted so the same file can be re-ingested afterwards.
+  ingest.attachDedupStore(dedup);
   return new IngestTaskQueue({
     parser: new DoclingParser(),
     ingest,
     refiner: createAthenaRefiner(),
     // G4.S3.T10: wiki-edit diff-refine (corrected markdown + diff → RAG overwrite).
     wikiRefiner: createAthenaWikiEditRefiner(),
-    dedup: new ContentDedupStore({
-      loadExisting: async () => ingest.existingWikiContent(),
-    }),
+    dedup,
     // G4.S2.T4: the lean Neo4j RAG store is wired only when NEO4J_PASSWORD is
     // set (see .env.local / deployment). When absent the ingesting_neo4j stage
     // is a no-op and ingestion continues unchanged.
