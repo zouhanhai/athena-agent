@@ -513,7 +513,6 @@ function stepMark(status: string): string {
 .task-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -526,6 +525,7 @@ function stepMark(status: string): string {
 }
 
 .task-source {
+  flex: 1 1 auto;
   font-size: 13px;
   color: var(--caleo-text);
   overflow: hidden;
