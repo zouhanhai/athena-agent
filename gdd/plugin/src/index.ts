@@ -23,6 +23,11 @@ import { parseTicketRef } from "./ticket-ref.js";
 import { claimTicketWithIndex, ClaimConflictError } from "./claim.js";
 import { ProgressAppender } from "./progress-log.js";
 import {
+  DoneRequiresPushError,
+  verifyHeadPushed,
+  type VerifyHeadPushedOptions,
+} from "./push-guard.js";
+import {
   specRefFromTicketRef,
   syncSpecOnDone,
   type SyncSpecOnDoneOptions,
@@ -78,6 +83,11 @@ export interface WorkerState {
   claimPromise?: Promise<void>;
   /** callIDs already appended to the Progress Log — one row per tool call. */
   appended?: Set<string>;
+  /**
+   * G4.S8.T18 done-requires-push: set once HEAD is verified reachable on the
+   * remote for a done ticket — skips re-fetching on every later tool call.
+   */
+  pushVerified?: boolean;
 }
 
 export interface WorkerPluginOptions {
@@ -95,6 +105,10 @@ export interface WorkerPluginOptions {
    * assert the invocation and simulate best-effort failures.
    */
   syncSpecOnDone?: (options: SyncSpecOnDoneOptions) => Promise<unknown>;
+  /** Remote ref a DONE ticket's commit must be reachable on. Default: caleo/master (G4.S8.T18). */
+  remoteRef?: string;
+  /** Push-guard override for tests; defaults to verifyHeadPushed (G4.S8.T18). */
+  verifyPushed?: (options: VerifyHeadPushedOptions) => Promise<void>;
 }
 
 const DEFAULT_ASSIGNEE = "opencode";
@@ -154,6 +168,7 @@ export function createWorkerHooks(
   const boardRoot = path.join(repoDir, "docs", "kanban");
   const minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
   const syncSpec = options.syncSpecOnDone ?? syncSpecOnDone;
+  const verifyPushed = options.verifyPushed ?? verifyHeadPushed;
 
   const appender = appenderFor(boardRoot, { minIntervalMs, now: options.now });
 
@@ -182,6 +197,36 @@ export function createWorkerHooks(
         message: `claimed ${ref} (session ${sessionID})`,
       },
     });
+  }
+
+  /**
+   * G4.S8.T18 done-requires-push guard: when the claimed ticket reads `done`,
+   * hard-verify HEAD is reachable on the remote (caleo/master) BEFORE accepting
+   * the state. An unpushed/unverifiable HEAD THROWS — surfacing an error to the
+   * worker and blocking further progress until it pushes. Verified once per
+   * session; pushing heals the block on the next check.
+   */
+  async function assertDoneTicketIsPushed(sessionID: string): Promise<void> {
+    const s = state(sessionID);
+    if (!s.ref || !s.claimed || s.pushVerified) return;
+    if (!(await isAthenaRepo(repoDir))) return;
+    let ticketStatus = "";
+    try {
+      ticketStatus = (await readTicketFile(boardRoot, s.ref)).ticket.status;
+    } catch {
+      return; // unreadable ticket file — nothing to guard
+    }
+    if (ticketStatus !== "done") return;
+    try {
+      await verifyPushed({ repoDir, remoteRef: options.remoteRef });
+      s.pushVerified = true;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : String(err);
+      throw new DoneRequiresPushError(
+        `${s.ref} is marked done but its commit is NOT verified on ${options.remoteRef ?? "caleo/master"} — PUSH first, then mark done. (${message})`,
+      );
+    }
   }
 
   return {
@@ -222,6 +267,8 @@ export function createWorkerHooks(
     "tool.execute.after": async (input) => {
       const s = state(input.sessionID);
       if (!s.ref || !s.claimed) return;
+      // G4.S8.T18: a done ticket MUST be pushed — verify before anything else.
+      await assertDoneTicketIsPushed(input.sessionID);
       if (s.appended!.has(input.callID)) return;
       s.appended!.add(input.callID);
       if (s.appended!.size > 1024) s.appended!.clear();
@@ -248,6 +295,21 @@ export function createWorkerHooks(
         return;
       }
       if (ticketStatus !== "done") return;
+      // G4.S8.T18: never auto-sync a "done" that is not actually pushed.
+      try {
+        await verifyPushed({ repoDir, remoteRef: options.remoteRef });
+      } catch (err) {
+        await ctx.client.app.log({
+          body: {
+            service: "athena.worker",
+            level: "error",
+            message: `done-requires-push: ${s.ref} is marked done but NOT pushed — md→GitHub sync skipped (${
+              err instanceof Error ? err.message : String(err)
+            })`,
+          },
+        });
+        return;
+      }
       const specRef = specRefFromTicketRef(s.ref);
       if (!specRef) return;
       try {

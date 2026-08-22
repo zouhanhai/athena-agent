@@ -16,7 +16,7 @@ import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTit
 import type { WikiClassification, WikiCategory } from "./llmwiki.js";
 import { isValidTopic, WIKI_CATEGORIES } from "./llmwiki.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
-import { countQualityIssues, deriveStem, storeRefinementOutput } from "../agents/refine-output.js";
+import { countQualityIssues, deriveStemWithFileName, storeRefinementOutput } from "../agents/refine-output.js";
 import {
   defaultRefinementOutputDir,
   fallbackWikiEditRefinement,
@@ -37,7 +37,12 @@ import { storeDdicOutput, renderDdicMarkdown } from "./store/ddic.js";
  *  Injected so tests can fake the LLM pass; the default uses refine_document.
  *  `markdown` is File A′ (refined headers + image refs — llm_wiki); `ragMarkdown`
  *  is File B (refined text-only — the RAG working copy, G4.S1.T6). */
-export type Refiner = (markdown: string, topicHint?: string) => Promise<{
+export type Refiner = (
+  markdown: string,
+  topicHint?: string,
+  /** G4.S8.T18: upload file name — keeps the refine storage stem name-derived. */
+  fileName?: string,
+) => Promise<{
   ref: RefineOutputRef;
   markdown: string;
   ragMarkdown: string;
@@ -749,7 +754,7 @@ export class IngestTaskQueue {
         this.setStep(id, "refinement", "refine_document", "running");
         try {
           console.log(`[tasks:${id}] refinement start`);
-          const result = await this.refiner(markdown!);
+          const result = await this.refiner(markdown!, undefined, fileName);
           refinedMarkdown = result.markdown;
           ragMarkdown = result.ragMarkdown;
           refinementRef = result.ref;
@@ -1848,7 +1853,7 @@ export class IngestTaskQueue {
       error,
     );
     const ref = await storeRefinementOutput(fallback, this.wikiRefineStorageDir, {
-      stem: deriveStem(save.afterRag),
+      stem: deriveStemWithFileName(save.afterRag, save.path),
     });
     this.patch(id, (t) => {
       t.refinedMarkdown = fallback.markdown;

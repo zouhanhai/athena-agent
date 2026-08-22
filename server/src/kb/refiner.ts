@@ -25,7 +25,7 @@ import {
   runWikiEditRefine,
   type RefineDocumentOptions,
 } from "../agents/refine-document.js";
-import { deriveStem, storeRefinementOutput } from "../agents/refine-output.js";
+import { deriveStemWithFileName, mergeObjectiveDefectsIntoQuality, storeRefinementOutput } from "../agents/refine-output.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { Refiner, WikiEditRefiner } from "./tasks.js";
 
@@ -41,11 +41,11 @@ async function readStored(path: string | undefined, fallback: string): Promise<s
 
 /** Build the default Athena refiner for the ingest pipeline. */
 export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refiner {
-  return async (markdown: string, topicHint?: string) => {
+  return async (markdown: string, topicHint?: string, fileName?: string) => {
     const tool = createRefineDocumentTool({} as never, options);
     const result = await tool.execute(
       "refine_document",
-      { markdown, ...(topicHint ? { topic_hint: topicHint } : {}) },
+      { markdown, ...(topicHint ? { topic_hint: topicHint } : {}), ...(fileName ? { file_name: fileName } : {}) },
       undefined,
       undefined,
       {} as never,
@@ -86,6 +86,8 @@ export function createAthenaWikiEditRefiner(
     structural: boolean;
     type?: string;
     topic?: string;
+    /** Upload/page file name for stem derivation when the body has no h1 (G4.S8.T18). */
+    fileName?: string;
   }) => {
     const existing = {
       ...(input.type ? { type: input.type } : {}),
@@ -96,19 +98,23 @@ export function createAthenaWikiEditRefiner(
       existing,
       { retries: options.retries },
     );
+    // G4.S8.T18: the wiki-edit path runs the SAME deterministic placeholder scan
+    // over its rebuilt markdown — objective defects force review_required here too.
+    const merged = mergeObjectiveDefectsIntoQuality(document.quality, document.markdown);
+    const finalDocument = merged.quality === document.quality ? document : { ...document, quality: merged.quality };
     const ref = await storeRefinementOutput(
-      document,
+      finalDocument,
       options.storageDir ?? defaultRefinementOutputDir(),
       {
-        stem: `wiki-edit-${deriveStem(input.markdown)}`,
+        stem: `wiki-edit-${deriveStemWithFileName(input.markdown, input.fileName)}`,
       },
     );
     return {
       ref,
-      markdown: document.markdown,
-      newEntities: document.new_entities,
-      newRelations: document.new_relations,
-      rechunked: document.rechunked,
+      markdown: finalDocument.markdown,
+      newEntities: finalDocument.new_entities,
+      newRelations: finalDocument.new_relations,
+      rechunked: finalDocument.rechunked,
     };
   };
 }

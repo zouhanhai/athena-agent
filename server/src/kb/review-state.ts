@@ -11,7 +11,7 @@
  * gate state through the canonical WikiFrontmatterSyncer (wiki md + Neo4j
  * Document mirror).
  */
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
 import { WikiFrontmatterSyncer, type WikiReviewState } from "./wiki-frontmatter.js";
 
@@ -90,6 +90,12 @@ export interface WikiReviewStateServiceOptions {
   writeFile?: (path: string, content: string) => Promise<void>;
   /** The canonical frontmatter channel (wiki md + Neo4j Document mirror). */
   syncer: Pick<WikiFrontmatterSyncer, "update">;
+  /**
+   * G4.S8.T18 resolution unification: resolve the page's Neo4j Document.md_ref
+   * (T16 persists it) so quality.json is looked up NEXT TO the exact refinement
+   * dir FIRST; basename matching stays as the fallback for legacy pages.
+   */
+  resolveMdRef?: (wikiPath: string) => Promise<string | null>;
 }
 
 interface LoadedQuality {
@@ -114,6 +120,7 @@ export class WikiReviewStateService {
   private readonly readFile: (path: string) => Promise<string>;
   private readonly writeFile: (path: string, content: string) => Promise<void>;
   private readonly syncer: Pick<WikiFrontmatterSyncer, "update">;
+  private readonly resolveMdRef?: (wikiPath: string) => Promise<string | null>;
 
   constructor(options: WikiReviewStateServiceOptions) {
     this.readPage = options.readPage;
@@ -121,21 +128,41 @@ export class WikiReviewStateService {
     this.readFile = options.readFile ?? readFileDefault;
     this.writeFile = options.writeFile ?? writeFileDefault;
     this.syncer = options.syncer;
+    this.resolveMdRef = options.resolveMdRef;
+  }
+
+  /** Parse a candidate quality.json; null when missing/unreadable/malformed. */
+  private async tryLoad(file: string): Promise<LoadedQuality | null> {
+    try {
+      const raw = JSON.parse(await this.readFile(file)) as Record<string, unknown>;
+      const list = Array.isArray(raw.issues) ? raw.issues : [];
+      return { file, raw, issues: list.filter(isQualityIssue) };
+    } catch {
+      return null;
+    }
   }
 
   /** Resolve + parse `<root>/<stem>/quality.json`; null when absent everywhere. */
   private async loadQuality(wikiPath: string): Promise<LoadedQuality | null> {
+    // G4.S8.T18: the EXACT refinement dir recorded on the Neo4j Document node
+    // (md_ref) wins — basename matching diverges when refine-dir naming differs
+    // from the wiki page stem.
+    if (this.resolveMdRef) {
+      try {
+        const mdRef = await this.resolveMdRef(wikiPath);
+        if (mdRef) {
+          const loaded = await this.tryLoad(join(dirname(mdRef), "quality.json"));
+          if (loaded) return loaded;
+        }
+      } catch {
+        // graph lookup failed — fall through to basename matching
+      }
+    }
     const stem = wikiPath.split("/").pop()?.replace(/\.md$/i, "") ?? "";
     if (!stem) return null;
     for (const root of this.roots) {
-      const file = join(root, stem, "quality.json");
-      try {
-        const raw = JSON.parse(await this.readFile(file)) as Record<string, unknown>;
-        const list = Array.isArray(raw.issues) ? raw.issues : [];
-        return { file, raw, issues: list.filter(isQualityIssue) };
-      } catch {
-        // missing/unreadable in this root — try the next one
-      }
+      const loaded = await this.tryLoad(join(root, stem, "quality.json"));
+      if (loaded) return loaded;
     }
     return null;
   }

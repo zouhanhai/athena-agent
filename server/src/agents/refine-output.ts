@@ -401,11 +401,108 @@ export function rebuildMarkdown(preamble: string, blocks: HeaderBlock[]): string
 export function deriveStem(markdown: string): string {
   const m = /^#\s+(.+)$/m.exec(markdown);
   const base = m?.[1]?.trim() ?? "document";
-  const slug = base
+  const slug = slugifyStem(base);
+  return slug || "document";
+}
+
+/** Lowercase slug of arbitrary text (non-alphanumerics → dashes). */
+function slugifyStem(base: string): string {
+  return base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return slug || "document";
+}
+
+/**
+ * Slugify an upload file name into a storage stem ("Sommerseminar-Mallorca-2023.pdf.md"
+ * → "sommerseminar-mallorca-2023"). Strips ALL trailing extensions; empty when
+ * nothing usable remains.
+ */
+export function deriveStemFromFileName(fileName: string): string {
+  let base = fileName.trim();
+  while (/\.[a-z0-9]{1,5}$/i.test(base)) base = base.replace(/\.[a-z0-9]{1,5}$/i, "");
+  return slugifyStem(base);
+}
+
+const GENERIC_STEM = "document";
+
+/**
+ * G4.S8.T18 stem hardening: NEVER fall back to the generic "document" stem when
+ * a file name is available. Preference order: h1-derived slug → file-name-derived
+ * slug → generic fallback (only when neither source exists).
+ */
+export function deriveStemWithFileName(markdown: string, fileName?: string): string {
+  const fromMarkdown = deriveStem(markdown);
+  if (fromMarkdown !== GENERIC_STEM) return fromMarkdown;
+  const trimmed = fileName?.trim();
+  if (trimmed) {
+    const fromName = deriveStemFromFileName(trimmed);
+    if (fromName) return fromName;
+  }
+  return fromMarkdown;
+}
+
+// --- G4.S8.T18: single-h1 post-condition + deterministic hierarchy completion ---
+
+/** Count level-1 headings (the document title slots). */
+export function countH1(markdown: string): number {
+  return markdown.split(/\r?\n/).filter((line) => /^#\s+\S/.test(line)).length;
+}
+
+/** True when the markdown carries EXACTLY ONE h1 title (the refinement contract). */
+export function hasSingleH1(markdown: string): boolean {
+  return countH1(markdown) === 1;
+}
+
+/** Post-condition assertion: exactly ONE h1 title — used by tests AND the refine pipeline. */
+export function assertSingleH1(markdown: string): void {
+  const n = countH1(markdown);
+  if (n !== 1) {
+    throw new Error(`assertSingleH1: expected exactly one h1 document title, found ${n}`);
+  }
+}
+
+export interface HeaderHierarchyCompletion {
+  markdown: string;
+  changed: boolean;
+  /** Headings raised to h1 (0 or 1 — the missing title case). */
+  promoted: number;
+  /** Surplus h1s demoted to h2 (all but the first). */
+  demoted: number;
+}
+
+/**
+ * Deterministic single-h1 completion (G4.S8.T18 Mallorca root cause): partial
+ * patch application can re-level ##/### yet never promote a title — leaving a
+ * coherent-looking tree with ZERO h1. Enforce the contract locally: zero h1 →
+ * promote the FIRST heading to the title slot; several h1s → demote every h1
+ * after the first to h2. Pure/local — zero additional LLM calls.
+ *
+ * `options.demoteSurplus: false` keeps EXISTING h1s intact (the TWO-STAGE path's
+ * multi-h1 section layout is by design — `section_paths` keys on h1 sections);
+ * the missing-title promotion still applies.
+ */
+export function completeHeaderHierarchy(
+  markdown: string,
+  options: { demoteSurplus?: boolean } = {},
+): HeaderHierarchyCompletion {
+  const lines = markdown.split(/\r?\n/);
+  const h1Lines = lines.map((l, i) => (/^#\s+\S/.test(l) ? i : -1)).filter((i) => i >= 0);
+  let promoted = 0;
+  let demoted = 0;
+  if (h1Lines.length === 0) {
+    const firstHeading = lines.findIndex((l) => /^#{1,6}\s+\S/.test(l));
+    if (firstHeading !== -1) {
+      lines[firstHeading] = `# ${lines[firstHeading]!.replace(/^#{1,6}\s+/, "")}`;
+      promoted = 1;
+    }
+  } else if (h1Lines.length > 1 && options.demoteSurplus !== false) {
+    for (const i of h1Lines.slice(1)) {
+      lines[i] = `## ${lines[i]!.replace(/^#\s+/, "")}`;
+      demoted += 1;
+    }
+  }
+  return { markdown: lines.join("\n"), changed: promoted + demoted > 0, promoted, demoted };
 }
 
 /** Short preview of the re-leveled markdown — the big-output pattern keeps ONLY this in context. */
@@ -896,5 +993,136 @@ export async function storeRefinementOutput(
     sections: doc.sections ?? [],
     mode: options.mode ?? "single",
     section_paths: options.section_paths ?? [],
+  };
+}
+
+// --- G4.S8.T18: deterministic placeholder pre-check ---
+
+/** A single objective defect hit: the matching line excerpt + its resolved heading path. */
+export interface ObjectiveDefect {
+  quote: string;
+  heading_path: string;
+  pattern: string;
+}
+
+/** Default objective-defect patterns (JS regex sources, case-insensitive). */
+export const DEFAULT_PLACEHOLDER_PATTERNS = ["\\?{3,}", "\\bTODO\\b", "\\bFIXME\\b", "\\bXXX\\b", "lorem ipsum"];
+
+/**
+ * The active placeholder patterns. Override with REFINE_PLACEHOLDER_PATTERNS
+ * ("::"-separated JS regex sources, e.g. "?{3,}::TODO::WIP"); a bad regex is
+ * skipped rather than crashing the pipeline.
+ */
+export function placeholderPatterns(env: string = process.env.REFINE_PLACEHOLDER_PATTERNS ?? ""): RegExp[] {
+  const sources = env.trim()
+    ? env.split("::").map((s) => s.trim()).filter(Boolean)
+    : DEFAULT_PLACEHOLDER_PATTERNS;
+  const out: RegExp[] = [];
+  for (const source of sources) {
+    try {
+      out.push(new RegExp(source, "i"));
+    } catch {
+      // skip an invalid override pattern — never crash refinement on config
+    }
+  }
+  return out;
+}
+
+const DEFECT_QUOTE_MAX = 240;
+
+/**
+ * Scan rebuilt markdown for OBJECTIVE defect patterns — ????? (3+ consecutive ?),
+ * TODO/FIXME/XXX markers, lorem ipsum — provider-independently (G4.S8.T18). Each
+ * hit carries its matching line excerpt as `quote` and the enclosing/own heading
+ * path so review annotations can anchor in place. Deduped per line+pattern.
+ */
+export function scanObjectiveDefects(markdown: string): ObjectiveDefect[] {
+  const patterns = placeholderPatterns();
+  if (patterns.length === 0) return [];
+  const defects: ObjectiveDefect[] = [];
+  const seen = new Set<string>();
+  const stack: Array<{ level: number; text: string }> = [];
+  for (const line of markdown.split(/\r?\n/)) {
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      const level = heading[1]!.length;
+      while (stack.length > 0 && stack[stack.length - 1]!.level >= level) stack.pop();
+      stack.push({ level, text: normalizeWs(heading[2]!) });
+    }
+    for (const pattern of patterns) {
+      if (!pattern.test(line)) continue;
+      const quote = normalizeWs(line).slice(0, DEFECT_QUOTE_MAX);
+      if (!quote) continue;
+      const key = `${pattern.source}|${quote.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      defects.push({
+        quote,
+        heading_path: stack.map((s) => s.text).join(" / "),
+        pattern: pattern.source,
+      });
+    }
+  }
+  return defects;
+}
+
+/** The structured issue shape shared with T17's quality.json issues. */
+interface QualityIssueLike {
+  id: string;
+  message: string;
+  anchor?: { quote: string; heading_path?: string };
+}
+
+/** Whitespace-fold a quote so an LLM anchor and a scanner hit for the SAME text collide. */
+function normalizedQuoteKey(quote: string | undefined): string {
+  return normalizeWs(quote ?? "").toLowerCase();
+}
+
+/**
+ * Merge deterministic scanner hits INTO the LLM's quality view (G4.S8.T18):
+ * each unmatched hit becomes one anchored issue; ANY hit forces
+ * action=review_required + complete=false regardless of the LLM verdict.
+ * Dedupe against LLM-raised anchors by normalized-quote overlap.
+ * Returns the (possibly replaced) quality view and the appended issue ids.
+ */
+export function mergeObjectiveDefectsIntoQuality(
+  quality: RefinementQuality,
+  markdown: string,
+): { quality: RefinementQuality; appended: QualityIssueLike[] } {
+  const defects = scanObjectiveDefects(markdown);
+  if (defects.length === 0) return { quality, appended: [] };
+  const existingAnchors = new Set(
+    (quality.issue_anchors ?? []).map((a) => normalizedQuoteKey(a.quote)).filter(Boolean),
+  );
+  const appended: Array<{ message: string; quote: string }> = [];
+  for (const defect of defects) {
+    const key = normalizedQuoteKey(defect.quote);
+    if (key && existingAnchors.has(key)) continue;
+    existingAnchors.add(key);
+    appended.push({
+      message: `[placeholder:${defect.pattern}] objective defect detected${defect.heading_path ? ` under "${defect.heading_path}"` : ""}`,
+      quote: defect.quote,
+    });
+  }
+  if (appended.length === 0) {
+    // Every defect was already flagged by the LLM for the same quote — still
+    // enforce the gate deterministically (never trust the verdict over facts).
+    return {
+      quality: { ...quality, complete: false, action: "review_required" },
+      appended: [],
+    };
+  }
+  return {
+    quality: {
+      ...quality,
+      complete: false,
+      action: "review_required",
+      issue_anchors: [...(quality.issue_anchors ?? []), ...appended],
+    },
+    appended: appended.map((a, i) => ({
+      id: `qi-obj-${i + 1}`,
+      message: a.message,
+      anchor: { quote: a.quote },
+    })),
   };
 }

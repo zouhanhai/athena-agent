@@ -40,11 +40,14 @@ import {
   applyPatchesWithReport,
   batchHeaderBlocks,
   clampHeaderLevel,
-  deriveStem,
+  completeHeaderHierarchy,
+  deriveStemWithFileName,
   enforceSectionSize,
   hasImageRefs,
+  hasSingleH1,
   isFlatHeaderMarkdown,
   isLargeMarkdown,
+  mergeObjectiveDefectsIntoQuality,
   mergeRefinements,
   rebuildMarkdown,
   splitByHeaders,
@@ -377,6 +380,12 @@ export interface RefineDocumentParams {
   markdown: string;
   /** Optional operator-provided topic hint folded into the refinement prompt. */
   topic_hint?: string;
+  /**
+   * G4.S8.T18 stem hardening: the upload file name. When the refined markdown
+   * has no h1-derived slug, the storage stem derives from THIS name instead of
+   * the generic "document" fallback — on every store path.
+   */
+  file_name?: string;
 }
 
 export interface RefineDocumentOptions {
@@ -1340,6 +1349,7 @@ export function createRefineDocumentTool(
     parameters: Type.Object({
       markdown: Type.String(),
       topic_hint: Type.Optional(Type.String()),
+      file_name: Type.Optional(Type.String()),
     }),
     executionMode: "sequential",
     async execute(
@@ -1409,12 +1419,42 @@ export function createRefineDocumentTool(
           retries = single.retries;
           validationRetries = single.validationRetries;
         }
+        // G4.S8.T18 single-h1 post-condition (Mallorca root cause): partial patch
+        // application can re-level ##/### yet never promote a title — a coherent
+        // tree with ZERO h1 escaped both the T16 flat-recovery trigger and the
+        // contract. Enforce deterministically, keeping counters truthful. The
+        // TWO-STAGE layout keeps its by-design h1 sections (only a MISSING title
+        // is promoted there); the single pass enforces exactly one h1.
+        let headerCompletion: { promoted: number; demoted: number } | undefined;
+        const completion = completeHeaderHierarchy(document.markdown, {
+          ...(mode === "two-stage" ? { demoteSurplus: false } : {}),
+        });
+        if (completion.changed) {
+          console.warn(
+            `[refine_document] header hierarchy completion: +${completion.promoted} h1 title, -${completion.demoted} surplus h1`,
+          );
+          document = {
+            ...document,
+            markdown: completion.markdown,
+            chunks: splitParagraphSemantic(completion.markdown, { summary: document.summary }),
+          };
+          headerCompletion = { promoted: completion.promoted, demoted: completion.demoted };
+        }
+        if (!hasSingleH1(document.markdown) && mode !== "two-stage") {
+          console.error("[refine_document] single-h1 contract STILL violated after completion — flagging for review");
+        }
+        // G4.S8.T18 deterministic placeholder pre-check: objective defects force
+        // review_required + complete=false regardless of the LLM's own verdict.
+        const merged = mergeObjectiveDefectsIntoQuality(document.quality, document.markdown);
+        if (merged.appended.length > 0 || merged.quality !== document.quality) {
+          document = { ...document, quality: merged.quality };
+        }
         // File B = refined text-only markdown (RAG working copy). Sync the header re-level back
         // onto File A (keeping its image refs) → File A′ (durable, llm_wiki).
         const ragMarkdown = document.markdown;
         const fileAPrime = syncRefinedHeadersToSource(originalMarkdown, ragMarkdown);
         const ref = await store({ ...document, markdown: fileAPrime }, storageDir, {
-          stem: deriveStem(fileAPrime),
+          stem: deriveStemWithFileName(fileAPrime, params.file_name),
           mode,
           section_paths: sectionPaths,
           ...(imageRefsStripped ? { ragMarkdown } : {}),
@@ -1429,15 +1469,23 @@ export function createRefineDocumentTool(
             patches: document.patchReport ?? { emitted: 0, applied: 0, dropped: [] },
             validationRetries,
             ...(headerRelevelFallback ? { headerRelevelFallback } : {}),
+            ...(headerCompletion ? { headerCompletion } : {}),
           },
         };
       } catch (err) {
         const fallback = fallbackRefinement(originalMarkdown, params.topic_hint, err);
+        // G4.S8.T18: even the deterministic fallback satisfies the single-h1 contract.
+        const completedFallback = completeHeaderHierarchy(fallback.markdown, {
+          ...(mode === "two-stage" ? { demoteSurplus: false } : {}),
+        });
+        const finalFallback = completedFallback.changed
+          ? { ...fallback, markdown: completedFallback.markdown }
+          : fallback;
         const fallbackRag = stripImageRefs(originalMarkdown);
-        const ref = await store(fallback, storageDir, {
-          stem: deriveStem(fallback.markdown),
+        const ref = await store(finalFallback, storageDir, {
+          stem: deriveStemWithFileName(finalFallback.markdown, params.file_name),
           mode,
-          ...(fallbackRag !== fallback.markdown ? { ragMarkdown: fallbackRag } : {}),
+          ...(fallbackRag !== finalFallback.markdown ? { ragMarkdown: fallbackRag } : {}),
         });
         return {
           content: [{ type: "text", text: JSON.stringify(ref) }],

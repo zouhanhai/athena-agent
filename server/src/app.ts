@@ -86,7 +86,7 @@ import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { EntityGraphService } from "./kb/store/graph.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
-import type { Neo4jDriverLike } from "./kb/store/schema.js";
+import { DOCUMENT_LABEL, IS_DOCUMENT_TYPE, WIKIPAGE_LABEL, type Neo4jDriverLike } from "./kb/store/schema.js";
 import { AgentWsGateway } from "./ws/agent.js";
 import {
   createSharedAthenaSummarizer,
@@ -581,6 +581,26 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       new WikiReviewStateService({
         readPage: (path) => retrieval.readWikiPageRaw(path),
         refinementRoots: [defaultRefinementOutputDir(), defaultCodeOutputDir()],
+        // G4.S8.T18: resolve quality.json via the page's Neo4j Document.md_ref
+        // FIRST (exact refinement dir); basename matching stays as fallback.
+        resolveMdRef: async (wikiPath) => {
+          const driver = defaultNeo4jDriver();
+          if (!driver) return null;
+          const session = driver.session();
+          try {
+            const result = (await session.run(
+              `MATCH (wp:${WIKIPAGE_LABEL} {id: $wikiPath})<-[:${IS_DOCUMENT_TYPE}]-(d:${DOCUMENT_LABEL})
+               RETURN d.md_ref AS mdRef LIMIT 1`,
+              { wikiPath },
+            )) as { records: Array<{ get(key: string): unknown }> };
+            const mdRef = result.records[0]?.get("mdRef");
+            return typeof mdRef === "string" && mdRef.length > 0 ? mdRef : null;
+          } catch {
+            return null;
+          } finally {
+            await session.close();
+          }
+        },
         syncer: new WikiFrontmatterSyncer({
           // LLM_WIKI_WIKI_DIR is not set in deployments — resolve the wiki dir
           // lazily through the ingest project lookup instead (same source the
