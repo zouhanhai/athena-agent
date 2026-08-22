@@ -550,7 +550,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerKanbanRoutes(app, { auth, employees, github });
   registerInvitationRoutes(app, { invitations, auth });
   registerKbRoutes(app, {
-    ingest: options.ingest ?? defaultIngestService(),
+    ingest: options.ingest ?? defaultIngestService(defaultNeo4jIngest()),
     retrieval,
     review: options.review ?? defaultReviewService(),
     recurator: options.recurator ?? defaultReCurator(),
