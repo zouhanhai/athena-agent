@@ -14,6 +14,7 @@ import type { WikiReCurator } from "../kb/recurate.js";
 import type { FeedbackService } from "../kb/feedback.js";
 import type { ManualQaMode } from "../kb/feedback.js";
 import type { SemanticMappingStore } from "../kb/semantic-mappings.js";
+import type { WikiReviewStateService } from "../kb/review-state.js";
 import { isFeedbackDirection, toSources } from "../kb/qa-pairs.js";
 import { computeWikiDiff } from "../kb/diff.js";
 import { PermissionDeniedError, assertEmployeePermission } from "../employees/rbac.js";
@@ -63,6 +64,8 @@ export interface KbRouteOptions {
   mappings?: SemanticMappingStore;
   /** Auth service for the RBAC-gated wiki-edit save (G4.S3.T10): PUT /api/kb/wiki/page. */
   auth?: AuthService;
+  /** Per-page review workflow (G4.S8.T17): GET/POST /api/kb/wiki/review-state. */
+  reviewState?: WikiReviewStateService;
   /** Agent registry (G4.S8.T10): code-intake channels accept agent invitation
    *  tokens (the same credential the WS `register` frame validates) as an
    *  alternative to an employee session token. Optional — when absent only the
@@ -793,6 +796,82 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     }
   };
   app.put("/api/kb/wiki/page", saveWikiPageHandler);
+
+  /**
+   * G4.S8.T17: the per-page review workflow. GET serves the page's quality
+   * issues (anchors re-validated against the current content — stale anchors
+   * degrade to unanchored banner items, never dropped); POST flips one issue's
+   * resolved state and writes review/review_count through the canonical
+   * frontmatter syncer (wiki md + Neo4j Document mirror). Employee-session
+   * auth — this is the per-page user workflow, independent of the admin audit.
+   */
+  const requireReviewEmployee = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<boolean> => {
+    if (!options.auth) {
+      reply.code(500).send({ error: "review-state endpoints require the auth service" });
+      return false;
+    }
+    const employee = await currentEmployee(request, options.auth);
+    if (!employee) {
+      reply.code(401).send({ error: "unauthorized" });
+      return false;
+    }
+    return true;
+  };
+
+  app.get("/api/kb/wiki/review-state", async (request, reply) => {
+    if (!options.reviewState) {
+      return reply.code(500).send({ error: "review-state service not configured" });
+    }
+    if (!(await requireReviewEmployee(request, reply))) return;
+    const { path } = request.query as { path?: unknown };
+    if (typeof path !== "string" || !isSafeWikiPath(path.trim())) {
+      return reply.code(400).send({ error: "a valid wiki page path (wiki/**/*.md) is required" });
+    }
+    try {
+      return await options.reviewState.get(path.trim());
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  const REVIEW_ACTIONS = new Set(["resolve", "reopen"]);
+  app.post("/api/kb/wiki/review-state", async (request, reply) => {
+    if (!options.reviewState) {
+      return reply.code(500).send({ error: "review-state service not configured" });
+    }
+    if (!(await requireReviewEmployee(request, reply))) return;
+    const body = (request.body ?? {}) as {
+      path?: unknown;
+      issueId?: unknown;
+      action?: unknown;
+      note?: unknown;
+    };
+    if (typeof body.path !== "string" || !isSafeWikiPath(body.path.trim())) {
+      return reply.code(400).send({ error: "a valid wiki page path (wiki/**/*.md) is required" });
+    }
+    if (typeof body.issueId !== "string" || body.issueId.trim().length === 0) {
+      return reply.code(400).send({ error: "issueId is required" });
+    }
+    if (typeof body.action !== "string" || !REVIEW_ACTIONS.has(body.action)) {
+      return reply.code(400).send({ error: "action must be 'resolve' or 'reopen'" });
+    }
+    const path = body.path.trim();
+    const issueId = body.issueId.trim();
+    const action = body.action as "resolve" | "reopen";
+    const note = typeof body.note === "string" ? body.note : undefined;
+    try {
+      return await options.reviewState.apply(path, issueId, action, note);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/unknown issue|no quality\.json/i.test(message)) {
+        return reply.code(404).send({ error: message });
+      }
+      return reply.code(500).send({ error: message });
+    }
+  });
 
   if (!options.retrieval) return;
 

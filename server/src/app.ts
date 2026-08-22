@@ -52,6 +52,9 @@ import {
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
+import { WikiReviewStateService } from "./kb/review-state.js";
+import { defaultRefinementOutputDir } from "./agents/refine-document.js";
+import { defaultCodeOutputDir } from "./kb/store/code.js";
 import { KbReviewService, scheduleKbReview } from "./kb/review.js";
 import { KbAuditScheduler, KbAuditService } from "./kb/audit.js";
 import {
@@ -121,6 +124,9 @@ export interface BuildAppOptions {
    *  defaultChatHistoryStore() (Postgres when DATABASE_URL is set). */
   historyStore?: ChatHistoryStore;
   taskQueue?: IngestTaskQueue;
+  /** G4.S8.T17: per-page wiki review workflow (GET/POST review-state).
+   *  Default: built from the retrieval service + the canonical syncer. */
+  reviewState?: WikiReviewStateService;
   registry?: AgentRegistry;
   logos?: LogoStore;
   employees?: EmployeeRegistry;
@@ -560,6 +566,19 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     // G4.S8.T10: code-intake channels authenticate agent invitation tokens
     // against the same registry the WS `register` frame uses.
     registry,
+    // G4.S8.T17: per-page review workflow — quality.json under the refinement
+    // AND code output roots (both write `<stem>/quality.json`), gate state
+    // written through the canonical syncer (wiki md + Neo4j Document mirror).
+    reviewState:
+      options.reviewState ??
+      new WikiReviewStateService({
+        readPage: (path) => retrieval.readWikiPageRaw(path),
+        refinementRoots: [defaultRefinementOutputDir(), defaultCodeOutputDir()],
+        syncer: new WikiFrontmatterSyncer({
+          wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
+          driver: defaultNeo4jDriver(),
+        }),
+      }),
   });
 
   // G4.S7.T3: KB-as-MCP — wrap KnowledgeRetrievalService into the 5 retrieval

@@ -282,6 +282,17 @@ export class KnowledgeRetrievalService {
   }
 
   /**
+   * G4.S8.T17: raw page markdown WITHOUT the read_count side effect — the
+   * review-state service re-reads the page on every fetch/apply and must not
+   * inflate the popularity counter as a side effect of a review action.
+   */
+  async readWikiPageRaw(path: string): Promise<string> {
+    const { id } = await this.resolveProject();
+    const page = await this.llmwiki.readFile(id, path);
+    return page.content;
+  }
+
+  /**
    * G4.S8.T11 `GET /api/kb/wiki/code-meta?path=` → the page's structured code
    * metadata resolved from its stored `chunks_ref`.
    *

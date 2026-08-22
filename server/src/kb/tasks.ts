@@ -16,7 +16,7 @@ import { documentIdFrom, classificationFromRefinement, extractPageTitle, stemTit
 import type { WikiClassification, WikiCategory } from "./llmwiki.js";
 import { isValidTopic, WIKI_CATEGORIES } from "./llmwiki.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
-import { deriveStem, storeRefinementOutput } from "../agents/refine-output.js";
+import { countQualityIssues, deriveStem, storeRefinementOutput } from "../agents/refine-output.js";
 import {
   defaultRefinementOutputDir,
   fallbackWikiEditRefinement,
@@ -815,10 +815,17 @@ export class IngestTaskQueue {
           t.stages.ingesting_llmwiki = { name: "ingesting_llmwiki", status: "running", steps: t.stages.ingesting_llmwiki.steps };
           t.progress = 85;
         });
+        // G4.S8.T17: a review_required refinement stamps the wiki page's
+        // frontmatter gate (review: required + review_count) so WikiView can
+        // render the review banner + inline annotations for the fresh page.
+        const reviewGate =
+          refinementRef && refinementRef.quality.action === "review_required"
+            ? { state: "required" as const, count: countQualityIssues(refinementRef.quality) }
+            : undefined;
         const res = await this.safeIngest(() =>
           this.ingest.ingestLlmWiki(fileName!, refinedMarkdown ?? markdown!, (step, status) => {
             this.setStep(id, "ingesting_llmwiki", step, status);
-          }, preclassified, task.images, refinementRef?.summary),
+          }, preclassified, task.images, refinementRef?.summary, reviewGate),
         );
         console.log(`[tasks:${id}] llm_wiki ingest: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}`);
         this.patch(id, (t) => {

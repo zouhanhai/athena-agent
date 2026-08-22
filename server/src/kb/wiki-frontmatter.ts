@@ -39,7 +39,14 @@ export interface WikiFrontmatterPatch {
   topic?: string;
   /** Re-classify: the document type (one of DOC_TYPES, G4.S3.T2). */
   type?: string;
+  /** Refine quality gate (G4.S8.T17): "required" while unresolved issues remain. */
+  review?: WikiReviewState;
+  /** Refine quality gate (G4.S8.T17): number of UNRESOLVED review issues. */
+  review_count?: number;
 }
+
+/** The refine quality-gate state carried by a wiki page (G4.S8.T17). */
+export type WikiReviewState = "required" | "clear";
 
 /** The full lifecycle state carried by a wiki page (mirrored on the Document node). */
 export interface WikiLifecycleState {
@@ -47,6 +54,10 @@ export interface WikiLifecycleState {
   last_reviewed?: string;
   confidence: number;
   topic_history: string[];
+  /** Refine quality gate (G4.S8.T17): present when the page carries the field. */
+  review?: WikiReviewState;
+  /** Unresolved review issue count; 0 when absent. */
+  review_count: number;
 }
 
 export interface WikiFrontmatterSyncerOptions {
@@ -95,11 +106,14 @@ export function parseTopicHistory(raw: string | undefined): string[] {
 export function parseWikiLifecycle(fm: Record<string, string>): WikiLifecycleState {
   const readCount = Number.parseInt(fm.read_count ?? "", 10);
   const confidence = Number.parseFloat(fm.confidence ?? "");
+  const reviewCount = Number.parseInt(fm.review_count ?? "", 10);
   return {
     read_count: Number.isFinite(readCount) ? readCount : 0,
     ...(fm.last_reviewed ? { last_reviewed: fm.last_reviewed } : {}),
     confidence: Number.isFinite(confidence) ? confidence : 1,
     topic_history: parseTopicHistory(fm.topic_history),
+    ...(fm.review === "required" || fm.review === "clear" ? { review: fm.review } : {}),
+    review_count: Number.isFinite(reviewCount) ? reviewCount : 0,
   };
 }
 
@@ -158,6 +172,9 @@ export function patchFrontmatter(content: string, patch: WikiFrontmatterPatch): 
   if (patch.topic_history !== undefined) upsert("topic_history", serializeTopicHistory(patch.topic_history));
   if (patch.topic !== undefined) upsert("topic", patch.topic);
   if (patch.type !== undefined) upsert("type", patch.type);
+  // G4.S8.T17: the refine quality gate rides the same canonical channel.
+  if (patch.review !== undefined) upsert("review", patch.review);
+  if (patch.review_count !== undefined) upsert("review_count", String(patch.review_count));
   upsert("updated", today());
 
   return renderFrontmatter(pairs, body);
@@ -238,13 +255,16 @@ export class WikiFrontmatterSyncer {
       await session.run(
         `MATCH (wp:${WIKIPAGE_LABEL} {id: $wikiPath})<-[:${IS_DOCUMENT_TYPE}]-(d:${DOCUMENT_LABEL})
          SET d.read_count = $readCount, d.last_reviewed = $lastReviewed,
-             d.confidence = $confidence, d.topic_history = $topicHistory`,
+             d.confidence = $confidence, d.topic_history = $topicHistory,
+             d.review = $review, d.review_count = $reviewCount`,
         {
           wikiPath: path,
           readCount: state.read_count,
           lastReviewed: state.last_reviewed ?? null,
           confidence: state.confidence,
           topicHistory: state.topic_history,
+          review: state.review ?? null,
+          reviewCount: state.review_count,
         },
       );
     } catch {

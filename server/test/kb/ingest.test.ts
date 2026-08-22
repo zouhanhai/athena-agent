@@ -910,3 +910,65 @@ test("saveWikiPage surfaces a missing page as an error (ENOENT)", async () => {
   });
   await assert.rejects(service.saveWikiPage("wiki/missing.md", "body"), /ENOENT/);
 });
+
+// --- G4.S8.T17: the refine quality gate stamps review/review_count frontmatter ---
+
+test("withFrontmatter carries review + review_count when the gate flags review_required", () => {
+  const page = withFrontmatter(
+    "document",
+    "Lüsen",
+    "# Lüsen\n\nbody",
+    "hiking",
+    undefined,
+    undefined,
+    { state: "required", count: 2 },
+  );
+  assert.match(page, /^---\ntype: document\ntitle: Lüsen\ntopic: hiking\n[\s\S]*review: required\nreview_count: 2\n/);
+});
+
+test("ingestLlmWiki stamps review frontmatter when the refinement emitted review_required", async () => {
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  const result = await service.ingestLlmWiki(
+    "lusen.md",
+    "# Lüsen\n\nbody",
+    undefined,
+    { category: "document", pagePath: "wiki/hiking/lusen.md", topic: "hiking" },
+    undefined,
+    undefined,
+    { state: "required", count: 2 },
+  );
+
+  assert.equal(result.ok, true);
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  assert.match(write?.args[1] as string, /review: required/);
+  assert.match(write?.args[1] as string, /review_count: 2/);
+});
+
+test("ingestLlmWiki writes no review fields when the page passed the quality gate", async () => {
+  const fakes = makeFakes();
+  const service = new KnowledgeIngestService({
+    llmwiki: fakes.llmwiki,
+    wikiDir: "/data/wiki",
+    projectId: "athena-wiki",
+    rebuildIndex: fakes.rebuildIndex,
+    ...fakes.fs,
+  });
+
+  await service.ingestLlmWiki(
+    "clean.md",
+    "# Clean\n\nbody",
+    undefined,
+    { category: "document", pagePath: "wiki/hiking/clean.md", topic: "hiking" },
+  );
+
+  const write = fakes.calls.find((c) => c.kind === "fs.writeFile");
+  assert.doesNotMatch(write?.args[1] as string, /review:/);
+});

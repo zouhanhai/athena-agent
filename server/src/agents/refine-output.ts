@@ -143,6 +143,93 @@ export interface StoreRefinementOptions {
   writeFile?: (path: string, content: string) => Promise<void>;
 }
 
+/**
+ * One structured review issue persisted in `<refinement dir>/quality.json` (G4.S8.T17).
+ * Anchored issues carry the verbatim quote (+ the enclosing heading path derived at
+ * store time) so WikiView can highlight them in place; `resolved` is the per-issue
+ * user workflow state flipped by POST /api/kb/wiki/review-state.
+ */
+export interface RefinementQualityIssue {
+  id: string;
+  message: string;
+  anchor?: { quote: string; heading_path?: string };
+  resolved: boolean;
+}
+
+/** Whitespace-normalize text so anchor quotes match across line wraps (T16 validation semantics). */
+function normalizeWs(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Locate a quote (whitespace-normalized) in the markdown and return its enclosing
+ * heading path ("H1 / H2 / H3"). Undefined when the quote is absent — e.g. an
+ * anchor that failed validation and degraded to an unanchored issue.
+ */
+export function headingPathForQuote(markdown: string, quote: string): string | undefined {
+  const needle = normalizeWs(quote);
+  if (!needle) return undefined;
+  const stack: Array<{ level: number; text: string }> = [];
+  let buffer = "";
+  const bufferMatches = (): boolean =>
+    stack.length > 0 && normalizeWs(buffer).includes(needle);
+  for (const line of markdown.split(/\r?\n/)) {
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      if (bufferMatches()) return stack.map((s) => s.text).join(" / ");
+      const level = heading[1]!.length;
+      while (stack.length > 0 && stack[stack.length - 1]!.level >= level) stack.pop();
+      stack.push({ level, text: normalizeWs(heading[2]!) });
+      buffer = "";
+    } else {
+      buffer += `${line}\n`;
+    }
+  }
+  return bufferMatches() ? stack.map((s) => s.text).join(" / ") : undefined;
+}
+
+/**
+ * Derive the structured, per-issue review list (G4.S8.T17) from the refinement
+ * quality view: anchored issues first (each with its verbatim quote + derived
+ * heading path), then the plain issues. All start unresolved.
+ */
+export function deriveQualityIssues(
+  quality: RefinementQuality,
+  markdown: string,
+): RefinementQualityIssue[] {
+  const issues: RefinementQualityIssue[] = [];
+  let n = 0;
+  for (const anchor of quality.issue_anchors ?? []) {
+    if (!anchor.message.trim() && !anchor.quote.trim()) continue;
+    const headingPath = anchor.quote.trim() ? headingPathForQuote(markdown, anchor.quote) : undefined;
+    issues.push({
+      id: `qi-${++n}`,
+      message: anchor.message.trim() || normalizeWs(anchor.quote).slice(0, 140),
+      ...(anchor.quote.trim()
+        ? { anchor: { quote: anchor.quote, ...(headingPath ? { heading_path: headingPath } : {}) } }
+        : {}),
+      resolved: false,
+    });
+  }
+  for (const message of quality.issues) {
+    if (!message.trim()) continue;
+    issues.push({ id: `qi-${++n}`, message, resolved: false });
+  }
+  return issues;
+}
+
+/**
+ * Number of structured review issues the quality view yields (G4.S8.T17) —
+ * the ingest stamps this as the page's initial `review_count`.
+ */
+export function countQualityIssues(quality: RefinementQuality): number {
+  const anchors = (quality.issue_anchors ?? []).filter(
+    (a) => a.message.trim() || a.quote.trim(),
+  ).length;
+  const plain = quality.issues.filter((m) => m.trim()).length;
+  return anchors + plain;
+}
+
 /** Clamp a heading level to the valid 1-6 range. */
 export function clampHeaderLevel(level: number): number {
   if (Number.isFinite(level)) return Math.min(6, Math.max(1, Math.round(level)));
@@ -415,6 +502,12 @@ export function mergeRefinements(sections: RefinedDocument[]): RefinedDocument {
   const keywords = dedupeBy(sections.flatMap((s) => s.keywords ?? []), (k) => k);
   const qualities = sections.map((s) => s.quality).filter((q): q is RefinementQuality => Boolean(q));
   const issues = dedupeBy(qualities.flatMap((q) => q.issues ?? []), (i) => i);
+  // G4.S8.T17: anchored issues survive the two-stage merge (deduped by message+quote)
+  // so the review annotations cover large docs too.
+  const issueAnchors = dedupeBy(
+    qualities.flatMap((q) => q.issue_anchors ?? []),
+    (a) => `${a.message}|${a.quote}`,
+  );
   const complete = qualities.every((q) => q.complete);
   const confidence =
     qualities.length > 0 ? qualities.reduce((sum, q) => sum + q.confidence, 0) / qualities.length : 0;
@@ -443,7 +536,13 @@ export function mergeRefinements(sections: RefinedDocument[]): RefinedDocument {
     entities,
     relations,
     keywords,
-    quality: { complete, confidence, issues, action },
+    quality: {
+      complete,
+      confidence,
+      issues,
+      action,
+      ...(issueAnchors.length > 0 ? { issue_anchors: issueAnchors } : {}),
+    },
   };
 }
 
@@ -758,6 +857,12 @@ export async function storeRefinementOutput(
   await mkdirImpl(dir);
   await writeFileImpl(mdPath, doc.markdown);
   await writeFileImpl(chunksPath, JSON.stringify(doc.chunks ?? [], null, 2));
+  // G4.S8.T17: the structured per-issue review state lives NEXT TO the big
+  // outputs — POST /api/kb/wiki/review-state flips `resolved` in this exact file.
+  await writeFileImpl(
+    join(dir, "quality.json"),
+    JSON.stringify({ action: doc.quality.action, issues: deriveQualityIssues(doc.quality, doc.markdown) }, null, 2),
+  );
 
   const separateRag = options.ragMarkdown !== undefined && options.ragMarkdown !== doc.markdown;
   if (separateRag) {

@@ -97,12 +97,13 @@ test("parseWikiLifecycle reads the lifecycle fields from a frontmatter map", () 
     confidence: 0.42,
     last_reviewed: "2026-08-11",
     topic_history: ["sommerseminar", "internal/events"],
+    review_count: 0,
   });
 });
 
 test("parseWikiLifecycle falls back to safe defaults on missing/invalid values", () => {
   const state = parseWikiLifecycle({});
-  assert.deepEqual(state, { read_count: 0, confidence: 1, topic_history: [] });
+  assert.deepEqual(state, { read_count: 0, confidence: 1, topic_history: [], review_count: 0 });
   const invalid = parseWikiLifecycle({ read_count: "abc", confidence: "oops" });
   assert.equal(invalid.read_count, 0);
   assert.equal(invalid.confidence, 1);
@@ -157,6 +158,8 @@ test("update writes through the lifecycle fields to the linked Document node (IS
     lastReviewed: "2026-08-11",
     confidence: 0.8,
     topicHistory: ["internal/events"],
+    review: null,
+    reviewCount: 0,
   });
 });
 
@@ -205,7 +208,7 @@ test("readLifecycle reads the current lifecycle state of a wiki page", async () 
   });
 
   const state = await syncer.readLifecycle("wiki/concepts/chain-of-thought.md");
-  assert.deepEqual(state, { read_count: 2, confidence: 1, topic_history: [] });
+  assert.deepEqual(state, { read_count: 2, confidence: 1, topic_history: [], review_count: 0 });
 });
 
 test("incrementReadCount bumps read_count on the wiki md and the Document node (shared canonical path)", async () => {

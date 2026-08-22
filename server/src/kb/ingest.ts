@@ -303,9 +303,17 @@ function serializeTopicHistory(topics: string[]): string {
   return `[${topics.map((t) => `"${t}"`).join(", ")}]`;
 }
 
+/** The refine quality-gate fields stamped on a page at ingest time (G4.S8.T17). */
+export interface WikiReviewGate {
+  /** "required" while unresolved issues remain. */
+  state: "required" | "clear";
+  /** Number of UNRESOLVED issues. */
+  count: number;
+}
+
 /** Wrap parsed markdown with the llm_wiki frontmatter schema (type + title +
  *  topic + summary + created/updated + lifecycle fields read_count / confidence
- *  / last_reviewed / topic_history). */
+ *  / last_reviewed / topic_history, plus the G4.S8.T17 review gate when flagged). */
 export function withFrontmatter(
   category: WikiCategory,
   title: string,
@@ -313,6 +321,7 @@ export function withFrontmatter(
   topic?: string,
   summary?: string,
   lifecycle?: WikiFrontmatterLifecycle,
+  review?: WikiReviewGate,
 ): string {
   const today = new Date().toISOString().slice(0, 10);
   const topicLine = topic && isValidTopic(topic) ? `topic: ${topic}\n` : "";
@@ -324,7 +333,8 @@ export function withFrontmatter(
   const topicHistoryLine = lifecycle?.topic_history?.length
     ? `topic_history: ${serializeTopicHistory(lifecycle.topic_history)}\n`
     : "";
-  return `---\ntype: ${category}\ntitle: ${title}\n${topicLine}${summaryLine}created: ${today}\nupdated: ${today}\n${readCountLine}${confidenceLine}${lastReviewedLine}${topicHistoryLine}---\n\n${content}`;
+  const reviewLine = review ? `review: ${review.state}\nreview_count: ${review.count}\n` : "";
+  return `---\ntype: ${category}\ntitle: ${title}\n${topicLine}${summaryLine}created: ${today}\nupdated: ${today}\n${readCountLine}${confidenceLine}${lastReviewedLine}${topicHistoryLine}${reviewLine}---\n\n${content}`;
 }
 
 export interface WikiIndexPage {
@@ -575,6 +585,7 @@ export class KnowledgeIngestService {
     preclassified?: WikiClassification,
     images?: { sourceDir: string; relativeDir: string },
     summary?: string,
+    review?: WikiReviewGate,
   ): Promise<SystemIngestStatus> {
     try {
       const { id, wikiDir } = await this.resolveProject();
@@ -590,7 +601,10 @@ export class KnowledgeIngestService {
       const targetDir = join(wikiDir, subDir);
       onStep?.("write_page", "running");
       await this.mkdir(targetDir);
-      await this.writeFile(join(targetDir, fileName), withFrontmatter(category, title, content, topic, summary));
+      await this.writeFile(
+        join(targetDir, fileName),
+        withFrontmatter(category, title, content, topic, summary, undefined, review),
+      );
       if (images) {
         await this.copyPageImages(images.sourceDir, join(targetDir, images.relativeDir));
       }
