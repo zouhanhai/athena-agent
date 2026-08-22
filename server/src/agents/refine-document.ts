@@ -646,7 +646,7 @@ export function tryParseNestedJson(text: string): unknown {
 }
 
 /** Coerce a parsed tool-call payload into the refinement contract (JSON-string args accepted). */
-export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
+export function normalizeRefinedDocument(raw: unknown, options: { allowMissingMarkdown?: boolean } = {}): RefinedDocument {
   const args: Record<string, unknown> =
     typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
 
@@ -674,11 +674,15 @@ export function normalizeRefinedDocument(raw: unknown): RefinedDocument {
   const keywords = asStringArray(args.keywords) ?? [];
   const quality = normalizeQuality(args.quality);
 
-  if (!markdown || !frontmatter || !quality) {
-    throw new Error("refine_document: output does not match the refinement contract (markdown/frontmatter/quality)");
+  if ((!markdown && !options.allowMissingMarkdown) || !frontmatter || !quality) {
+    throw new Error(
+      options.allowMissingMarkdown
+        ? "refine_document: output does not match the refinement contract (frontmatter/quality)"
+        : "refine_document: output does not match the refinement contract (markdown/frontmatter/quality)",
+    );
   }
 
-  return { markdown, summary, sections, frontmatter, chunks, entities, relations, keywords, quality };
+  return { markdown: markdown ?? "", summary, sections, frontmatter, chunks, entities, relations, keywords, quality };
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -2080,7 +2084,9 @@ function unionRelations(
 export function normalizeWikiEditRefinement(raw: unknown): WikiEditRefinement {
   const args: Record<string, unknown> =
     typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
-  const base = normalizeRefinedDocument(args);
+  // DELTA mode (G4.8): the model emits extraction fields only; the corrected
+  // markdown is re-pinned by the caller (refiner.ts) from input.markdown.
+  const base = normalizeRefinedDocument(args, { allowMissingMarkdown: true });
   const newEntities = normalizeEntityList(args.new_entities);
   const newRelations = normalizeRelationList(args.new_relations);
   return {
