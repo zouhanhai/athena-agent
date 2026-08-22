@@ -1655,14 +1655,51 @@ required (rechunked), and the quality check.${retryNudge}`;
 }
 
 /** Coerce a parsed wiki-edit refine payload into the contract (JSON-string args accepted). */
+
+/** Union two entity lists by name (new wins for fields, keyed on normalized name). */
+function unionEntities(
+  base: RefinementEntity[],
+  extra: RefinementEntity[],
+): RefinementEntity[] {
+  const seen = new Map<string, RefinementEntity>();
+  for (const e of [...base, ...extra]) {
+    const key = (e.name ?? "").trim().toLowerCase();
+    if (key) seen.set(key, e);
+  }
+  return [...seen.values()];
+}
+
+/** Union two relation lists by (source,target) key (new wins). */
+function unionRelations(
+  base: RefinementRelation[],
+  extra: RefinementRelation[],
+): RefinementRelation[] {
+  const seen = new Map<string, RefinementRelation>();
+  for (const r of [...base, ...extra]) {
+    const key = `${(r.source ?? "").trim().toLowerCase()}|${(r.target ?? "").trim().toLowerCase()}`;
+    if (key.endsWith("|")) continue; // drop dangling endpoints
+    seen.set(key, r);
+  }
+  return [...seen.values()];
+}
+
 export function normalizeWikiEditRefinement(raw: unknown): WikiEditRefinement {
   const args: Record<string, unknown> =
     typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
   const base = normalizeRefinedDocument(args);
+  const newEntities = normalizeEntityList(args.new_entities);
+  const newRelations = normalizeRelationList(args.new_relations);
   return {
     ...base,
-    new_entities: normalizeEntityList(args.new_entities),
-    new_relations: normalizeRelationList(args.new_relations),
+    // G4.S8.T18 hardening: insist the "new" items are ALSO part of the full
+    // lists. The prompt demands it, but a lenient model can write them only
+    // under new_* -- without this union the overwrite would silently drop the
+    // correction's entities/relations from the graph (observed: CALEO Office
+    // was returned in new_entities only and never landed in Neo4j).
+    entities: unionEntities(base.entities, newEntities),
+    relations: unionRelations(base.relations, newRelations),
+    new_entities: newEntities,
+    new_relations: newRelations,
     rechunked: args.rechunked === true,
   };
 }
