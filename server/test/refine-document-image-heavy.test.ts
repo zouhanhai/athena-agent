@@ -349,7 +349,8 @@ test("runRefinePass retries up to the default of 3 before giving up (T8)", async
   const ref = parseResult<RefineOutputRef>(result);
   const details = result.details as { retries?: number; fallback?: boolean };
 
-  assert.equal(calls.length, 4, "re-prompted 3 times after the failed passes (default retries = 3)");
+  // G4.S8.T19: 4 main-pass attempts + ONE mandatory audit session on the accepted pass.
+  assert.equal(calls.length, 5, "re-prompted 3 times after the failed passes + the audit pass");
   assert.equal(details.retries, 3, "details.retries reflects the new default");
   assert.equal(details.fallback, undefined, "the final retry produced structured output, no fallback");
   assert.equal(ref.frontmatter.type, "event");
@@ -402,6 +403,6 @@ test("retry does not add calls when the first pass already returns structured ou
   const result = await tool.execute("c", { markdown: IMAGE_HEAVY_MD }, undefined, undefined, {} as never);
   const details = result.details as { retries?: number };
 
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2, "one main pass + the mandatory G4.S8.T19 audit session");
   assert.equal(details.retries, 0);
 });

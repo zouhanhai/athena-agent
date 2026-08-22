@@ -165,7 +165,8 @@ test("single-pass refine calls the direct OpenRouter caller (reasoning is handle
 
   await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
 
-  assert.equal(calls.length, 1);
+  // G4.S8.T19: one MAIN pass + ONE mandatory audit session per document.
+  assert.equal(calls.length, 2);
 });
 
 test("sends the delta schema to the caller for the single-pass refine", async () => {
@@ -198,7 +199,8 @@ test("an injected httpCaller is used for the refine pass", async () => {
   });
 
   await tool.execute("c", { markdown: "# Doc" }, undefined, undefined, {} as never);
-  assert.equal(used, 1);
+  // G4.S8.T19: main pass + mandatory audit session both ride the injected caller.
+  assert.equal(used, 2);
 });
 
 test("parses plain-text JSON output when the model does not emit a tool call", async () => {

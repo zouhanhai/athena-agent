@@ -168,12 +168,17 @@ export interface RefinementChunk {
  * `aliases` are bilingual (DE+EN) variants of the SAME node (e.g. name "ZOB München" → aliases
  * ["Zentraler Omnibusbahnhof", "Munich central bus station"]) so RAG finds one node in both
  * languages. `name` is the document-language canonical form.
+ *
+ * G4.S8.T19: `occurrences` are 1-3 SHORT verbatim quotes (≤80 chars) from the source markdown
+ * where the entity appears — emitted by the main refinement pass at extraction time so the
+ * audit session can anchor each name to its real textual context without a blind re-read.
  */
 export interface RefinementEntity {
   name: string;
   type: string;
   description: string;
   aliases?: string[];
+  occurrences?: string[];
 }
 
 /** Binary knowledge-graph edge (source -> target). `keywords` = relationship keywords. */
@@ -291,6 +296,7 @@ export const REFINED_DOCUMENT_DELTA_SCHEMA = Type.Object({
       type: Type.String(),
       description: Type.String(),
       aliases: Type.Optional(Type.Array(Type.String())),
+      occurrences: Type.Optional(Type.Array(Type.String())),
     }),
   ),
   relations: Type.Array(
@@ -486,6 +492,9 @@ Extract the entities that are actually named in the document. For each:
   other-language (and alternate) terms for the same entity, e.g. name "ZOB München" → aliases
   ["Zentraler Omnibusbahnhof", "Munich central bus station"]; name "Lüsen" → aliases ["Lüsen"].
   Omit aliases only when no useful variant exists.
+- occurrences: 1-3 SHORT VERBATIM quotes (each ≤80 characters, copied character-for-character from
+  the markdown) showing where this entity appears in THIS document. Copy exact substrings — never
+  paraphrase or normalize them.
 Only direct, clearly-stated entities. Do not invent.
 
 ## 5. Relation extraction (binary edges)
@@ -678,7 +687,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const asStringArray = (v: unknown): string[] | undefined =>
   Array.isArray(v) && v.every((item) => typeof item === "string") ? v : undefined;
 
-/** Coerce a parsed entities array into the refinement contract. */
+/** Coerce a parsed entities array into the refinement contract (occurrences carried through, T19). */
 export function normalizeEntityList(raw: unknown): RefinementEntity[] {
   return Array.isArray(raw)
     ? raw.filter(isRecord).map((e) => ({
@@ -686,6 +695,7 @@ export function normalizeEntityList(raw: unknown): RefinementEntity[] {
         type: String(e.type ?? "other"),
         description: String(e.description ?? ""),
         aliases: asStringArray(e.aliases) ?? [],
+        occurrences: asStringArray(e.occurrences) ?? [],
       }))
     : [];
 }
@@ -815,29 +825,49 @@ export function validateRefineDelta(delta: RefinedDocumentDelta, sourceMarkdown:
         continue;
       }
       if (!declaredNames.has(key)) {
-        // G4.S8 follow-up leniency: the LLM frequently writes a slightly
-        // different form of an emitted entity ("Hotel Palma Bellver By
-        // Affiliated by Melia" vs "Hotel Palma Bellver Affiliated by Melia",
-        // or "München" vs "ZOB München"). A strict exact-set mismatch used to
-        // fail the whole document after 2 repair retries → mechanical
-        // fallback (0 chunks, unclassified). Tolerate a semantic match:
-        // whitespace/punct-normalized containment or small edit distance.
-        // G4.S8 grace net: when an endpoint is neither an exact match nor a
-        // fuzzy variant (LLM hallucinated a word inside a multi-word name,
-        // e.g. "Hotel Palma Bellver Belly by Melia"), do NOT fail the whole
-        // document. Relations carry the source of truth; the missing endpoint
-        // entity is tolerated and created implicitly at ingest time. Only the
-        // pathological "relations without ANY entity" case stays an error.
+        // G4.S8 dd65c95 tolerance: a slightly different form of an emitted entity ("Hotel Palma
+        // Bellver By Affiliated by Melia", "München" vs "ZOB München") is NOT an error — the
+        // fuzzy matcher accepts containment/token-overlap/small-edit-distance variants (the
+        // ingest folds names via nameUpper anyway).
         const fuzzy = fuzzyEntityMatch(raw, delta.entities ?? []);
-        void fuzzy; // matched variants need no action; unmatched are tolerated
-        if ((delta.entities ?? []).length === 0) {
+        if (!fuzzy) {
+          // G4.S8.T19: genuinely foreign endpoints ARE validation errors again (T16 contract).
+          // Name drift no longer nukes documents: the repair loop gets this SPECIFIC error, and
+          // when repairs are exhausted the mandatory audit session rescues the delta by merging
+          // drifted names into their canonical forms BEFORE any mechanical fallback runs.
           errors.push(
-            `entities array is EMPTY but ${(delta.relations ?? []).length} relation(s) are declared — relations MUST reference emitted entities; either declare the endpoint entities or drop the relations`,
+            `relation ${i + 1} references ${side} "${raw}" which does not match ANY declared entity — every endpoint MUST be one of: ${(delta.entities ?? []).map((e) => e.name).join("; ") || "(no entities emitted)"}`,
           );
         }
       }
     }
   }
+
+  // T17 anchor contract: quoted passages must exist in the source (whitespace-normalized).
+  const haystack = normalizedEntityName(sourceMarkdown);
+  for (const anchor of delta.quality?.issue_anchors ?? []) {
+    if (!normalizedEntityName(anchor.quote)) continue;
+    if (!haystack.includes(normalizedEntityName(anchor.quote))) {
+      errors.push(
+        `issue-anchor quote not found in the document: "${anchor.quote.slice(0, 120)}" — quotes MUST be copied VERBATIM from the markdown so review annotations can highlight them`,
+      );
+    }
+  }
+
+  const fmType = (delta.frontmatter?.type ?? "").trim();
+  if (!fmType || !(DOC_TYPES as readonly string[]).includes(fmType)) {
+    errors.push(`frontmatter.type "${fmType}" is not a valid CALEO type — pick exactly ONE of: ${DOC_TYPES.join(", ")}`);
+  }
+  const fmTopic = (delta.frontmatter?.topic ?? "").trim();
+  const root = fmTopic.split("/")[0]?.trim() ?? "";
+  if (!fmTopic || !TOPIC_ROOTS.includes(root)) {
+    errors.push(
+      `frontmatter.topic "${fmTopic}" is not a valid CALEO topic path — use a slash path rooted at one of: ${TOPIC_ROOTS.join(", ")}`,
+    );
+  }
+
+  return errors;
+}
 
 /**
  * Lenient endpoint-vs-entity match used by the T16 cross-field validator:
@@ -891,34 +921,6 @@ function editDistance(a: string, b: string): number {
     }
   }
   return dp[n];
-}
-
-function tEntity(t: string): string { return t; }
-
-  // T17 anchor contract: quoted passages must exist in the source (whitespace-normalized).
-  const haystack = normalizedEntityName(sourceMarkdown);
-  for (const anchor of delta.quality?.issue_anchors ?? []) {
-    if (!normalizedEntityName(anchor.quote)) continue;
-    if (!haystack.includes(normalizedEntityName(anchor.quote))) {
-      errors.push(
-        `issue-anchor quote not found in the document: "${anchor.quote.slice(0, 120)}" — quotes MUST be copied VERBATIM from the markdown so review annotations can highlight them`,
-      );
-    }
-  }
-
-  const fmType = (delta.frontmatter?.type ?? "").trim();
-  if (!fmType || !(DOC_TYPES as readonly string[]).includes(fmType)) {
-    errors.push(`frontmatter.type "${fmType}" is not a valid CALEO type — pick exactly ONE of: ${DOC_TYPES.join(", ")}`);
-  }
-  const fmTopic = (delta.frontmatter?.topic ?? "").trim();
-  const root = fmTopic.split("/")[0]?.trim() ?? "";
-  if (!fmTopic || !TOPIC_ROOTS.includes(root)) {
-    errors.push(
-      `frontmatter.topic "${fmTopic}" is not a valid CALEO topic path — use a slash path rooted at one of: ${TOPIC_ROOTS.join(", ")}`,
-    );
-  }
-
-  return errors;
 }
 
 /** Validation-repair budget (G4.S8.T16): re-invocations carrying the SPECIFIC error list. */
@@ -1284,51 +1286,165 @@ export interface LargeRefineResult {
  * entity names between the entities[] list and relation endpoints (observed:
  * "Hotel Palma Bellver Belly by Melia" vs "...Affiliated by Melia"). A cheap
  * independent session (reasoning off, a few hundred tokens) reviews ONLY the
- * entities + relations and rewrites them to a CONSISTENT closed list:
+ * entities + relations against occurrence-anchored excerpts of the source
+ * markdown and rewrites them to a CONSISTENT closed list:
  *   - every relation endpoint must exactly reference an entity in the list
  *   - near-duplicate entity names are merged into one canonical form
- *   - entities never referenced by any relation are kept (they stand alone)
- * The audit output is re-validated; if it still fails, the original (or the
- * repair-loop result before exhaustion) is kept — audit is best-effort and
- * never worse than no audit.
+ *   - no new entities, no semantic changes, no invented relations
+ * The audit output is re-validated; if it still fails, the original delta is
+ * kept — audit is best-effort and never worse than no audit.
+ *
+ * G4.S8.T19 (Eng Director design update): the audit input is OCCURRENCE-
+ * ANCHORED. The main pass emits `occurrences` (1-3 verbatim ≤80-char quotes)
+ * per entity at extraction time; the prompt builder locates each quote in the
+ * markdown and embeds the ±200-char context labeled with the entity name.
+ * Entities whose quotes/name cannot be located are flagged "NO OCCURRENCE
+ * FOUND". Legacy payloads without occurrences fall back to fuzzy location via
+ * whitespace-normalized search of the name itself.
  */
 const AUDIT_ENTITIES_PROMPT = `You are the final consistency auditor for a knowledge-graph extraction.
-You receive a document's extracted ENTITIES and RELATIONS. Rewrite them so that:
+You receive a document's extracted ENTITIES and RELATIONS plus, for each name, an excerpt of the
+document text around one real occurrence (labeled [name]). Rewrite the lists so that:
 
 1. EVERY relation source/target EXACTLY matches the name of an entity in the
    entity list (case/whitespace-insensitive match is allowed, but the emitted
    name must be the EXACT entity name string you keep).
 2. Merge entities that are clearly the same real-world object under different
    names (e.g. "Hotel Palma Bellver Affiliated by Melia" and "Hotel Palma
-   Bellver Belly by Melia" -> keep ONE canonical name, update all relation
-   endpoints to it).
+   Bellver Belly by Melia" -> keep ONE canonical name — prefer the variant the
+   occurrence excerpts show is actually written in the document — and update
+   all relation endpoints to it).
 3. Keep every entity that a relation references; you may drop entities that no
    relation references and that are not clearly important on their own.
 4. Do NOT invent new entities, do NOT change semantics, do NOT add relations.
-5. Respond with ONLY a JSON object:
+5. Names flagged "NO OCCURRENCE FOUND" could not be located in the text: decide
+   from their neighbouring entities/relations whether they are variants of a
+   listed entity (merge them) or standalone (keep them).
+6. Respond with ONLY a JSON object:
    {"entities":[{"name":string,"type":string,"description":string}],"relations":[{"source":string,"target":string,"keywords":string[],"description":string}]}`;
 
-function buildAuditPrompt(markdown: string, delta: RefinedDocumentDelta): string {
-  const entities = (delta.entities ?? []).map((e) => `${e.name} [${e.type}] ${e.description ?? ""}`.trim()).join("\\n- ");
+/** Whitespace-collapse helper for occurrence anchoring (same fold as the T17 anchor validation). */
+const AUDIT_NORMALIZE_WS = (text: string): string => text.replace(/\s+/g, " ").trim();
 
-  const relations = (delta.relations ?? []).map((r) => `${r.source} -> ${r.target} (${(r.keywords ?? []).join(", ")}) ${r.description ?? ""}`.trim()).join("\n");
-  return `DOCUMENT (excerpt for context):\n${markdown.slice(0, 6000)}\n\nCURRENT ENTITIES:\n${entities}\n\nCURRENT RELATIONS:\n${relations}`;
+/**
+ * Locate `quote` in the whitespace-normalized markdown and return the ±200 char
+ * context window around the BEST hit (first hit wins; case-insensitive). Long
+ * quotes are truncated to 120 chars for matching robustness. Undefined when the
+ * quote cannot be found (caller then flags NO OCCURRENCE FOUND).
+ */
+function locateOccurrenceContext(flatMarkdown: string, quote: string): string | undefined {
+  const needle = AUDIT_NORMALIZE_WS(quote).slice(0, 120);
+  if (!needle) return undefined;
+  const hay = flatMarkdown;
+  const idx = hay.toLowerCase().indexOf(needle.toLowerCase());
+  if (idx === -1) return undefined;
+  const start = Math.max(0, idx - 200);
+  const end = Math.min(hay.length, idx + needle.length + 200);
+  return `${start > 0 ? "…" : ""}${hay.slice(start, end)}${end < hay.length ? "…" : ""}`;
 }
 
-/** Run the audit session over a delta's entities/relations; returns the
- *  audited delta (same shape) or the original when the audit fails/parses wrongly. */
-async function runEntityAudit(
+/**
+ * Build the occurrence-anchored audit prompt: one labeled ±200-char excerpt per
+ * distinct entity/endpoint name (from its occurrences quotes, falling back to
+ * fuzzy search of the bare name), then the CURRENT entities/relations lists.
+ */
+export function buildAuditPrompt(markdown: string, delta: RefinedDocumentDelta): string {
+  const flat = AUDIT_NORMALIZE_WS(markdown);
+
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  const labelFor = (name: string, quotes?: string[]): void => {
+    const key = AUDIT_NORMALIZE_WS(name).toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    let context: string | undefined;
+    for (const q of [...(quotes ?? []), name]) {
+      context = locateOccurrenceContext(flat, q);
+      if (context) break;
+    }
+    labels.push(
+      context
+        ? `[${name}] ${context}`
+        : `[${name}] NO OCCURRENCE FOUND — decide from neighbouring entities/relations only`,
+    );
+  };
+
+  for (const e of delta.entities ?? []) labelFor(e.name, e.occurrences);
+  for (const r of delta.relations ?? []) {
+    labelFor(r.source, delta.entities?.find((e) => AUDIT_NORMALIZE_WS(e.name).toLowerCase() === AUDIT_NORMALIZE_WS(r.source).toLowerCase())?.occurrences);
+    labelFor(r.target, delta.entities?.find((e) => AUDIT_NORMALIZE_WS(e.name).toLowerCase() === AUDIT_NORMALIZE_WS(r.target).toLowerCase())?.occurrences);
+  }
+
+  const entities = JSON.stringify(
+    (delta.entities ?? []).map((e) => ({
+      name: e.name,
+      type: e.type,
+      description: e.description,
+      ...(e.occurrences && e.occurrences.length > 0 ? { occurrences: e.occurrences } : {}),
+    })),
+    null,
+    2,
+  );
+  const relations = JSON.stringify(delta.relations ?? [], null, 2);
+  return [
+    "DOCUMENT CONTEXT (occurrence-anchored excerpts):",
+    ...labels,
+    "",
+    "CURRENT ENTITIES:",
+    entities,
+    "",
+    "CURRENT RELATIONS:",
+    relations,
+  ].join("\n");
+}
+
+export interface EntityAuditResult {
+  /** The audited delta when adopted, else the ORIGINAL pre-audit delta object. */
+  delta: RefinedDocumentDelta;
+  /** true when the audited rewrite passed validation and was adopted. */
+  adopted: boolean;
+  /** Entity-name set symmetric difference between pre-audit and audited lists. */
+  changedEntities: number;
+  /** Relation endpoint-pair set symmetric difference between the two lists. */
+  changedRelations: number;
+  /** Token usage of the audit session when the caller provides it. */
+  usage?: unknown;
+}
+
+/**
+ * Run ONE independent audit session over a delta's entities/relations.
+ *
+ * Injectable (`caller`) and side-effect-free apart from one console line:
+ *   - adopted + changed → "[refine_document] audit pass: changed N entities/M relations"
+ *   - adopted unchanged → "[refine_document] audit pass: no-op"
+ *   - rejected          → "[refine_document] audit pass: output invalid (...) — kept pre-audit delta"
+ *   - caller failure    → "[refine_document] audit pass: unavailable (...) — kept pre-audit delta"
+ *
+ * Aliases/occurrences of surviving entities are carried over from the pre-audit
+ * list (the narrow audit schema does not emit them; bilingual RAG lookup must
+ * not regress). The result is adopted ONLY when it passes `validateRefineDelta`.
+ */
+export async function runEntityAudit(
   caller: RefineLlmCaller,
   markdown: string,
   delta: RefinedDocumentDelta,
-  modelId?: string,
-): Promise<RefinedDocumentDelta> {
+  options: { modelId?: string } = {},
+): Promise<EntityAuditResult> {
+  const usageLine = (usage: unknown): string => {
+    if (!usage || typeof usage !== "object") return "";
+    const u = usage as { totalTokens?: unknown; cost?: { total?: unknown } };
+    const parts: string[] = [];
+    if (typeof u.totalTokens === "number") parts.push(`${u.totalTokens} tokens`);
+    if (typeof u.cost?.total === "number") parts.push(`$${u.cost.total.toFixed(6)}`);
+    return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+  };
   try {
-    const { message } = await caller({
+    const { message, usage } = await caller({
       systemPrompt: AUDIT_ENTITIES_PROMPT,
       userContent: buildAuditPrompt(markdown, delta),
       schema: AUDIT_ENTITIES_SCHEMA,
-      model: modelId,
+      model: options.modelId,
+      // Audit = cheap structured extraction: reasoning OFF, a few hundred tokens.
       reasoningEffort: refineReasoningFor("extraction").effort,
     });
     const parsed = tryParseNestedJson(
@@ -1337,18 +1453,74 @@ async function runEntityAudit(
         .map((p) => p.text)
         .join("\n"),
     );
-    if (!parsed) return delta;
+    if (!parsed) {
+      console.warn("[refine_document] audit pass: unparseable output — kept pre-audit delta");
+      return { delta, adopted: false, changedEntities: 0, changedRelations: 0, ...(usage ? { usage } : {}) };
+    }
     const raw = parsed as { entities?: unknown; relations?: unknown };
-    const entities = normalizeEntityList(raw.entities);
-    const relations = normalizeRelationList(raw.relations);
-    if (entities.length === 0 && relations.length === 0) return delta;
-    // Re-validate the audited result; only adopt when it is at least as good.
-    const audited = { ...delta, entities, relations };
+    const auditedEntities = normalizeEntityList(raw.entities);
+    const auditedRelations = normalizeRelationList(raw.relations);
+    if (auditedEntities.length === 0 && auditedRelations.length === 0) {
+      console.warn("[refine_document] audit pass: empty output — kept pre-audit delta");
+      return { delta, adopted: false, changedEntities: 0, changedRelations: 0, ...(usage ? { usage } : {}) };
+    }
+
+    // Carry aliases + occurrences over from the pre-audit entities (normalized-name join).
+    const preByName = new Map(
+      (delta.entities ?? []).map((e) => [AUDIT_NORMALIZE_WS(e.name).toLowerCase(), e]),
+    );
+    const merged: RefinementEntity[] = auditedEntities.map((e) => {
+      const prev = preByName.get(AUDIT_NORMALIZE_WS(e.name).toLowerCase());
+      return prev
+        ? {
+            ...e,
+            ...(prev.aliases && prev.aliases.length > 0 ? { aliases: prev.aliases } : {}),
+            ...(prev.occurrences && prev.occurrences.length > 0 ? { occurrences: prev.occurrences } : {}),
+          }
+        : e;
+    });
+
+    const audited: RefinedDocumentDelta = {
+      ...delta,
+      entities: merged,
+      relations: auditedRelations,
+      // Patches were already applied by buildRefinedDocument upstream semantics —
+      // the audit rewrites ONLY entities/relations; keep everything else verbatim.
+    };
     const errors = validateRefineDelta(audited, markdown);
-    if (errors.length === 0) return audited;
-    return delta;
-  } catch {
-    return delta;
+    if (errors.length > 0) {
+      console.warn(
+        `[refine_document] audit pass: output invalid (${errors.length} error(s)) — kept pre-audit delta`,
+      );
+      return { delta, adopted: false, changedEntities: 0, changedRelations: 0, ...(usage ? { usage } : {}) };
+    }
+
+    // Change counters: normalized-name set symmetric differences.
+    const normNames = (list: RefinementEntity[]): Set<string> =>
+      new Set(list.map((e) => AUDIT_NORMALIZE_WS(e.name).toLowerCase()));
+    const normPairs = (list: RefinementRelation[]): Set<string> =>
+      new Set(list.map((r) => `${AUDIT_NORMALIZE_WS(r.source).toLowerCase()}|${AUDIT_NORMALIZE_WS(r.target).toLowerCase()}`));
+    const diffCount = <T>(a: Set<T>, b: Set<T>): number => {
+      let n = 0;
+      for (const x of a) if (!b.has(x)) n += 1;
+      for (const x of b) if (!a.has(x)) n += 1;
+      return n;
+    };
+    const changedEntities = diffCount(normNames(delta.entities ?? []), normNames(merged));
+    const changedRelations = diffCount(normPairs(delta.relations ?? []), normPairs(auditedRelations));
+
+    if (changedEntities === 0 && changedRelations === 0) {
+      console.warn(`[refine_document] audit pass: no-op${usageLine(usage)}`);
+    } else {
+      console.warn(
+        `[refine_document] audit pass: changed ${changedEntities} entities/${changedRelations} relations${usageLine(usage)}`,
+      );
+    }
+    return { delta: audited, adopted: true, changedEntities, changedRelations, ...(usage ? { usage } : {}) };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[refine_document] audit pass: unavailable (${msg}) — kept pre-audit delta`);
+    return { delta, adopted: false, changedEntities: 0, changedRelations: 0 };
   }
 }
 
@@ -1383,6 +1555,8 @@ async function runRefinePass(
   retries: number;
   /** G4.S8.T16: one entry per validation-repair retry, with the exact errors fed back. */
   validationRetries: Array<{ attempt: number; errors: string[] }>;
+  /** G4.S8.T19: outcome of the mandatory post-pass audit session. */
+  audit: EntityAuditResult;
 }> {
   const retries = options.retries ?? 3;
   const reasoning = refineReasoningFor("extraction").effort;
@@ -1413,6 +1587,24 @@ async function runRefinePass(
       const errors = validateRefineDelta(delta, markdown);
       if (errors.length > 0) {
         if (validationRetries.length >= MAX_VALIDATION_RETRIES) {
+          // G4.S8.T19 audit rescue: ONE independent session rewrites entities/
+          // relations to a consistent closed set before we give up on the LLM
+          // path entirely (mechanical fallback = topic unclassified, 0 chunks).
+          const rescue = await runEntityAudit(caller, markdown, delta, { modelId: options.modelId });
+          if (rescue.adopted) {
+            console.warn(
+              `[refine_document] audit pass rescued validation-exhausted delta: changed ${rescue.changedEntities} entities/${rescue.changedRelations} relations`,
+            );
+            return {
+              document: buildRefinedDocument(markdown, rescue.delta),
+              assistant: message,
+              usage,
+              retries: genericRetries,
+              validationRetries,
+              audit: rescue,
+            };
+          }
+          console.warn("[refine_document] audit rescue failed — mechanical fallback");
           throw new Error(
             `refine_document: delta failed cross-field validation after ${validationRetries.length} repair retries — remaining errors: ${errors.join(" | ")}`,
           );
@@ -1422,12 +1614,18 @@ async function runRefinePass(
         continue;
       }
 
+      // G4.S8.T19 MANDATORY audit gate: EVERY validated document gets ONE
+      // independent consistency session over entities/relations. Adopted only
+      // when the audited rewrite itself validates; otherwise keep pre-audit.
+      const audit = await runEntityAudit(caller, markdown, delta, { modelId: options.modelId });
+
       return {
-        document: buildRefinedDocument(markdown, delta),
+        document: buildRefinedDocument(markdown, audit.delta),
         assistant: message,
         usage,
         retries: genericRetries,
         validationRetries,
+        audit,
       };
     } catch (err) {
       // A thrown VALIDATION-exhaustion error must NOT be retried generically.
@@ -1551,6 +1749,7 @@ export function createRefineDocumentTool(
       let usage: unknown;
       let retries = 0;
       let validationRetries: Array<{ attempt: number; errors: string[] }> = [];
+      let audit: EntityAuditResult | undefined;
 
       try {
         let document: RefinedDocument;
@@ -1596,6 +1795,7 @@ export function createRefineDocumentTool(
           usage = single.usage;
           retries = single.retries;
           validationRetries = single.validationRetries;
+          audit = single.audit;
         }
         // G4.S8.T18 single-h1 post-condition (Mallorca root cause): partial patch
         // application can re-level ##/### yet never promote a title — a coherent
@@ -1646,6 +1846,17 @@ export function createRefineDocumentTool(
             // G4.S8.T16 patch-cycle + repair-loop instrumentation, per run.
             patches: document.patchReport ?? { emitted: 0, applied: 0, dropped: [] },
             validationRetries,
+            ...(audit
+              ? {
+                  audit: {
+                    adopted: audit.adopted,
+                    changedEntities: audit.changedEntities,
+                    changedRelations: audit.changedRelations,
+                  },
+                  // G4.S8.T19: per-document audit cost/usage when the caller provides it.
+                  ...(audit.usage !== undefined ? { auditUsage: audit.usage } : {}),
+                }
+              : {}),
             ...(headerRelevelFallback ? { headerRelevelFallback } : {}),
             ...(headerCompletion ? { headerCompletion } : {}),
           },

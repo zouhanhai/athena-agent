@@ -169,7 +169,8 @@ test("repair loop: first delta violates cross-field constraints → model re-inv
   const details = result.details as { fallback?: boolean; validationRetries?: Array<{ attempt: number; errors: string[] }> };
 
   assert.equal(details.fallback, undefined, "repair loop recovered within bounds — no fallback");
-  assert.equal(calls.length, 2, "one re-invocation after the validation failure");
+  // G4.S8.T19: bad pass + repair + ONE mandatory audit session on the accepted delta.
+  assert.equal(calls.length, 3, "one re-invocation after the validation failure, then the audit");
   const retryPrompt = calls[1]!.userContent;
   assert.match(retryPrompt, /\[validation retry 1\]/i, "retry prompt marks the validation repair");
   assert.match(retryPrompt, /GHOST HOTEL/, "retry prompt carries the SPECIFIC validation error");
@@ -194,7 +195,8 @@ test("repair loop: bounded at 2 retries → exhaustion throws → deterministic 
 
   assert.equal(details.fallback, true, "exhausted repair loop falls back deterministically");
   assert.match(details.error ?? "", /cross-field validation/i);
-  assert.equal(calls.length, 3, "initial pass + exactly 2 validation retries");
+  // G4.S8.T19: initial pass + exactly 2 validation retries + ONE audit rescue attempt.
+  assert.equal(calls.length, 4, "initial pass + 2 validation retries + the audit rescue");
   assert.ok(recorder.stored, "fallback refinement still stored");
   assert.equal(recorder.stored!.quality.action, "review_required");
 });
@@ -265,9 +267,10 @@ test("direct path sends task-class effort: extraction calls none, global merge (
   const tool = createRefineDocumentTool({} as ModelRuntime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore() });
   await tool.execute("c", { markdown: md }, undefined, undefined, {} as never);
 
-  // single-pass path only: one delta (extraction) call
-  assert.deepEqual(seenEfforts, ["none"]);
+  // single-pass path: one delta (extraction) call + ONE mandatory audit session — both extraction-class
+  assert.deepEqual(seenEfforts, ["none", "none"]);
   assert.equal(seenEfforts[0], refineReasoningFor("extraction").effort, "delta pass uses the EXTRACTION policy");
+  assert.equal(seenEfforts[1], refineReasoningFor("extraction").effort, "audit session = cheap extraction class (reasoning off)");
 });
 
 test("global merge (summary/quality synthesis = analysis class) requests thinking effort", async () => {

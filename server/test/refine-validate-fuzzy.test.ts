@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { validateRefineDelta } from "../src/agents/refine-document.js";
 
-describe("validateRefineDelta lenient endpoint handling (G4.S8 follow-up)", () => {
+describe("validateRefineDelta endpoint handling (T16 fuzzy tolerance + T19 strictness)", () => {
   const base = {
     markdown: "# Sommerseminar Lüsen\n\nCALEO and the office.",
     frontmatter: { type: "event", topic: "internal/events" },
@@ -35,14 +35,20 @@ describe("validateRefineDelta lenient endpoint handling (G4.S8 follow-up)", () =
     assert.deepEqual(validateRefineDelta(delta as never, base.markdown), []);
   });
 
-  it("tolerates a genuinely unknown endpoint (created implicitly at ingest)", () => {
+  it("flags a genuinely unknown endpoint again (T19) — the mandatory audit session rescues instead", () => {
+    // 124b73c tolerated unknown endpoints outright, which let ghost names reach
+    // the graph. T19 restores the error and routes drift through repair retries +
+    // audit rescue BEFORE any mechanical fallback.
     const delta = {
       ...base,
       relations: [
         { source: "CALLE", target: "Totally Unknown Place Xyz", keywords: ["at"], description: "d" },
       ],
     };
-    assert.deepEqual(validateRefineDelta(delta as never, "# x\n"), []);
+    const errors = validateRefineDelta(delta as never, "# x\n");
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]!, /does not match ANY declared entity/);
+    assert.match(errors[0]!, /Totally Unknown Place Xyz/);
   });
 
   it("still flags relations with an EMPTY endpoint", () => {

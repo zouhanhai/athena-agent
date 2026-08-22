@@ -247,9 +247,9 @@ test("regression: single-pass sub-1MB path uses the SAME delta contract and stil
 // --- emit_refined_document schema no longer requires markdown/chunks ---
 
 test("emit_refined_document schema carries the delta contract (no markdown/chunks)", async () => {
-  let sentSchema: unknown;
+  const sentSchemas: unknown[] = [];
   const caller: RefineLlmCaller = async ({ schema }) => {
-    sentSchema = schema;
+    sentSchemas.push(schema);
     return {
       usage: zeroUsage,
       message: {
@@ -260,7 +260,7 @@ test("emit_refined_document schema carries the delta contract (no markdown/chunk
             text: JSON.stringify({
               summary: "",
               sections: [],
-              frontmatter: { type: "document", topic: "unclassified" },
+              frontmatter: { type: "report", topic: "internal/venues" },
               entities: [],
               relations: [],
               keywords: [],
@@ -274,8 +274,10 @@ test("emit_refined_document schema carries the delta contract (no markdown/chunk
   const tool = createRefineDocumentTool({} as ModelRuntime, { httpCaller: caller, storageDir: "storage", storeImpl: fakeStore() });
   await tool.execute("c", { markdown: "# D\n\nbody" }, undefined, undefined, {} as never);
 
-  assert.ok(sentSchema, "the delta schema is passed to the caller");
-  const schema = JSON.parse(JSON.stringify(sentSchema)) as {
+  // G4.S8.T19: call #1 is the MAIN pass; later calls are the mandatory audit session(s).
+  const mainSchema = sentSchemas[0];
+  assert.ok(mainSchema, "the delta schema is passed to the caller");
+  const schema = JSON.parse(JSON.stringify(mainSchema)) as {
     properties?: { markdown?: unknown; chunks?: unknown; patches?: unknown };
   };
   assert.equal(schema.properties?.markdown, undefined, "markdown is ABSENT from the emit contract");

@@ -69,10 +69,11 @@ test("patches contract is an optional array with oneOf header/paragraph ops", ()
   assert.deepEqual(ops, ["retitle_heading", "refactor_heading", "replace_paragraph", "insert_paragraph", "delete_paragraph"]);
 });
 
-test("entity contract: name(title-case)/type/description/aliases (bilingual DE+EN)", () => {
+test("entity contract: name(title-case)/type/description/aliases (bilingual DE+EN) + occurrences (T19 audit anchors)", () => {
   const entProps = schemaJson(REFINED_DOCUMENT_SCHEMA).properties.entities.items?.properties ?? {};
-  assert.deepEqual(Object.keys(entProps).sort(), ["aliases", "description", "name", "type"]);
+  assert.deepEqual(Object.keys(entProps).sort(), ["aliases", "description", "name", "occurrences", "type"]);
   assert.equal(entProps.aliases?.type, "array");
+  assert.equal(entProps.occurrences?.type, "array", "G4.S8.T19: verbatim occurrence quotes for the audit session");
 });
 
 test("relation contract: source/target/keywords/description (binary)", () => {
@@ -123,6 +124,7 @@ test("normalizeRefinedDocument maps heading_path + source/target/keywords/descri
     type: "location",
     description: "Munich central bus station",
     aliases: ["Zentraler Omnibusbahnhof", "München ZOB"],
+    occurrences: [],
   });
   assert.deepEqual(doc.relations[0], {
     source: "ZOB München",
