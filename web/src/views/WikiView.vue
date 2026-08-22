@@ -238,6 +238,24 @@ async function actOnActiveIssue(action: "resolve" | "reopen"): Promise<void> {
   }
 }
 
+/** Banner list item resolves directly (anchored or NOT). Unanchored issues have
+ * no highlight, so the popover path is unreachable; without this they could
+ * never be confirmed — keep them actionable inline. */
+async function resolveListedIssue(issueId: string): Promise<void> {
+  const path = activePath.value;
+  if (!path || reviewActionBusy.value) return;
+  reviewActionBusy.value = true;
+  reviewActionError.value = "";
+  try {
+    const next = await updateWikiReviewState(path, issueId, "resolve");
+    reviewState.value = next;
+  } catch (err) {
+    reviewActionError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    reviewActionBusy.value = false;
+  }
+}
+
 /** Banner item → scroll the content pane to that issue's inline highlight. */
 function jumpToHighlight(issueId: string): void {
   const el = contentPane.value?.querySelector(`mark[data-issue-id="${issueId}"]`);
@@ -834,6 +852,17 @@ watch(
                 </button>
                 <span v-else class="wiki-review-issue-unanchored" title="页面已编辑，原文位置未找到">位置已变化</span>
                 <span class="wiki-review-issue-message">{{ issue.message }}</span>
+                <button
+                  v-if="canReview"
+                  type="button"
+                  class="wiki-review-issue-resolve"
+                  data-testid="wiki-review-issue-resolve"
+                  :disabled="reviewActionBusy"
+                  :title="issue.anchored ? '标记该处为已处理' : '原文位置未找到；查看说明后标记为已处理'"
+                  @click="resolveListedIssue(issue.id)"
+                >
+                  确认无误
+                </button>
                 <code v-if="issue.anchor?.heading_path" class="wiki-review-issue-path">
                   {{ issue.anchor.heading_path }}
                 </code>
@@ -1490,6 +1519,27 @@ watch(
 
 .wiki-review-issue-jump:hover {
   border-color: var(--caleo-primary);
+}
+
+.wiki-review-issue-resolve {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--caleo-primary);
+  border-radius: 4px;
+  background: var(--caleo-surface);
+  color: var(--caleo-primary);
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wiki-review-issue-resolve:hover {
+  background: var(--caleo-primary);
+  color: #fff;
+}
+.wiki-review-issue-resolve:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .wiki-review-issue-unanchored {
