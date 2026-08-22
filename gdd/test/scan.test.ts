@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { renderBoardMd } from "../src/kanban/frontmatter.js";
 import { refToPath } from "../src/kanban/board.js";
+import { TICKET_STATUSES } from "../src/kanban/schema.js";
 import {
   scanBoard,
   defaultBoardRoot,
@@ -206,7 +207,13 @@ test("scanBoard parses the live repo board", async () => {
   assert.ok(ticketRefs.includes("G3.S6.T1"), "T1 should be scanned");
   assert.ok(ticketRefs.includes("G3.S6.T6"), "T6 should be scanned");
   const t1 = s6.tickets.find((t) => t.ref === "G3.S6.T1");
-  assert.equal(t1?.ticket.status, "done");
+  // Live-board assertion: the ticket keeps advancing through the lifecycle
+  // (done → in_review → approved as reviews land), so assert a VALID status
+  // rather than pinning one — the parse itself is what is under test.
+  assert.ok(
+    (TICKET_STATUSES as readonly string[]).includes(t1?.ticket.status ?? ""),
+    `G3.S6.T1 status ${t1?.ticket.status} must be a valid lifecycle status`,
+  );
 });
 
 test("scanBoard discovers the nested T1/T1.md ticket layout", async () => {

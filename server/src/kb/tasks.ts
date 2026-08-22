@@ -100,6 +100,24 @@ export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "in
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
 
+/**
+ * G4.S8.T19 pipeline review: WHY the Neo4j ingest stage was a no-op (marked
+ * done without writing). The production incident had the server started
+ * OUTSIDE scripts/start-all.sh — NEO4J_PASSWORD unset — so every ingest
+ * logged an indistinguishable "neo4j ingest: ok" while the graph stayed
+ * EMPTY. Returns undefined when the stage really ran.
+ */
+export function neo4jIngestSkipReason(
+  storeConfigured: boolean,
+  hasRefinementOutput: boolean,
+): string | undefined {
+  if (storeConfigured && hasRefinementOutput) return undefined;
+  if (!storeConfigured) {
+    return "Neo4j store NOT wired (NEO4J_PASSWORD unset) — start via scripts/start-all.sh (exports NEO4J_*) or set NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD; the graph stays EMPTY";
+  }
+  return "no refinement output (refine pass failed) — nothing to embed into Neo4j";
+}
+
 /** Per-system sub-step name (G3.S5.T2). Refinement (G4.S1) has ONE sub-step:
  *  the Athena full-document pass (re-level headers + classify + chunk +
  *  entities/keywords + quality, one read). */
@@ -891,8 +909,9 @@ export class IngestTaskQueue {
               }).then((r) => ({ ok: true, count: r.chunksStored }));
             })
           : { ok: true };
+        const skipReason = neo4jIngestSkipReason(Boolean(this.neo4j), Boolean(refinementRef));
         console.log(
-          `[tasks:${id}] neo4j ingest: ${res.ok ? "ok" : "FAILED " + (res.error ?? "")}` +
+          `[tasks:${id}] neo4j ingest: ${res.ok ? (skipReason ? `SKIPPED — ${skipReason}` : "ok") : "FAILED " + (res.error ?? "")}` +
             (res.ok && "count" in res ? ` (${res.count} chunks embedded)` : ""),
         );
         this.patch(id, (t) => {
