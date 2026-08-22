@@ -161,6 +161,9 @@ export interface RefinementQualityIssue {
   message: string;
   anchor?: { quote: string; heading_path?: string };
   resolved: boolean;
+  /** "action" = operator must confirm; "info" = informative note on an
+   *  auto-accepted document. Derived from the gate action at write time. */
+  kind?: "info" | "action";
 }
 
 /** Whitespace-normalize text so anchor quotes match across line wraps (T16 validation semantics). */
@@ -205,6 +208,9 @@ export function deriveQualityIssues(
   markdown: string,
 ): RefinementQualityIssue[] {
   const issues: RefinementQualityIssue[] = [];
+  // auto-accept still emits informative notes; review_required issues are
+  // real confirmations. Group them so the UI can show notes separately.
+  const kind: "info" | "action" = quality.action === "review_required" ? "action" : "info";
   let n = 0;
   for (const anchor of quality.issue_anchors ?? []) {
     if (!anchor.message.trim() && !anchor.quote.trim()) continue;
@@ -216,11 +222,12 @@ export function deriveQualityIssues(
         ? { anchor: { quote: anchor.quote, ...(headingPath ? { heading_path: headingPath } : {}) } }
         : {}),
       resolved: false,
+      kind,
     });
   }
   for (const message of quality.issues) {
     if (!message.trim()) continue;
-    issues.push({ id: `qi-${++n}`, message, resolved: false });
+    issues.push({ id: `qi-${++n}`, message, resolved: false, kind });
   }
   return issues;
 }

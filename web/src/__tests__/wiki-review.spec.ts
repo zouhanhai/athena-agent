@@ -139,7 +139,7 @@ describe("WikiView review workflow (G4.S8.T17)", () => {
     const wrapper = await mountWithPage();
     const banner = wrapper.find('[data-testid="wiki-review-banner"]');
     expect(banner.exists()).toBe(true);
-    expect(banner.text()).toContain("本页有 2 处需要复核");
+    expect(banner.text()).toContain("2 review item(s) pending");
     wrapper.unmount();
   });
 
@@ -159,7 +159,7 @@ describe("WikiView review workflow (G4.S8.T17)", () => {
     expect(items).toHaveLength(2);
     // the stale-anchor issue is flagged, not dropped
     const unanchored = items.find((i) => i.text().includes("Image caption missing"))!;
-    expect(unanchored.text()).toContain("位置已变化");
+    expect(unanchored.text()).toContain("Position changed");
     expect(unanchored.find(".wiki-review-issue-jump").exists()).toBe(false);
     // and no second highlight was injected for it
     expect(wrapper.find('[data-testid="wiki-content"]').findAll("mark.wiki-review-highlight")).toHaveLength(1);
@@ -198,7 +198,7 @@ describe("WikiView review workflow (G4.S8.T17)", () => {
     await flushPromises();
 
     expect(updateWikiReviewStateMock).toHaveBeenCalledWith(PAGE_PATH, "qi-1", "resolve", undefined);
-    expect(wrapper.find('[data-testid="wiki-review-banner"]').text()).toContain("本页有 1 处需要复核");
+    expect(wrapper.find('[data-testid="wiki-review-banner"]').text()).toContain("1 review item(s) pending");
     wrapper.unmount();
   });
 

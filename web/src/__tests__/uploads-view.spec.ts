@@ -290,7 +290,7 @@ describe("uploads page", () => {
     await submitFile(wrapper);
 
     expect(wrapper.find(".task-review-badge").exists()).toBe(true);
-    expect(wrapper.text()).toContain("review required");
+    expect(wrapper.text()).toContain("pending review");
     wrapper.unmount();
   });
 

@@ -23,6 +23,8 @@ export interface WikiReviewIssue {
   resolved: boolean;
   /** Operator note attached when keeping an issue open ("需要修改"). */
   note?: string;
+  /** "action" = operator confirmation; "info" = informative refinement note. */
+  kind?: "info" | "action";
 }
 
 /** A review issue plus the server-side anchor validation verdict for THIS fetch. */
@@ -176,7 +178,13 @@ export class WikiReviewStateService {
     const page = await this.readPage(path);
     const fm = parseFrontmatter(page);
     const quality = await this.loadQuality(path);
-    const issues = validateAnchors(quality?.issues ?? [], stripFrontmatterBody(page));
+    // Legacy quality.json has no per-issue kind: fall back to the gate action.
+    const defaultKind: "info" | "action" =
+      quality?.raw?.action === "review_required" ? "action" : "info";
+    const issues = validateAnchors(quality?.issues ?? [], stripFrontmatterBody(page)).map((i) => ({
+      ...i,
+      kind: i.kind ?? defaultKind,
+    }));
     const unresolved = issues.filter((i) => !i.resolved).length;
     const fmCount = Number.parseInt(fm.review_count ?? "", 10);
     return {

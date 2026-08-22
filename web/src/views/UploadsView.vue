@@ -277,8 +277,12 @@ function stepMark(status: string): string {
           <div class="task-head">
             <span class="task-source" :title="task.source">{{ task.source }}</span>
             <span class="task-badge" :class="task.status">{{ task.status }}</span>
-            <span v-if="reviewRequired(task)" class="task-review-badge" title="Athena refinement flagged this document for operator review">
-              review required
+            <span
+              v-if="reviewRequired(task) || qualityIssues(task).length > 0"
+              class="task-review-badge"
+              title="Refinement left review items for this document; confirm or dismiss them in the wiki page"
+            >
+              pending review
             </span>
             <div class="task-actions">
               <t-button

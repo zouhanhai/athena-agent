@@ -262,6 +262,8 @@ export interface WikiReviewIssue {
   anchor?: { quote: string; heading_path?: string };
   resolved: boolean;
   note?: string;
+  /** "action" = needs the operator's confirm; "info" = informative note. */
+  kind?: "info" | "action";
 }
 
 /** A review issue plus the server-side anchor validation verdict for this fetch:

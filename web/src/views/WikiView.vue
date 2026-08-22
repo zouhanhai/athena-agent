@@ -164,6 +164,15 @@ const reviewIssues = computed(() => reviewState.value?.issues ?? []);
 
 /** Issues still awaiting the user's confirm/modify decision. */
 const unresolvedReviewIssues = computed(() => reviewIssues.value.filter((i) => !i.resolved));
+/** Issues that genuinely need the operator's confirmation (kind "action"). */
+const actionReviewIssues = computed(() =>
+  unresolvedReviewIssues.value.filter((i) => (i.kind ?? "action") !== "info"),
+);
+/** Informative notes from the refinement (kind "info") — shown separately so
+ *  the user can dismiss them on their own judgment. */
+const infoReviewIssues = computed(() =>
+  unresolvedReviewIssues.value.filter((i) => (i.kind ?? "action") === "info"),
+);
 
 /** Banner shows while the page's gate is `required` (or issues remain). */
 const reviewBannerVisible = computed(
@@ -821,7 +830,7 @@ watch(
           >
             <div class="wiki-review-banner-header">
               <span class="wiki-review-banner-title">
-                本页有 {{ unresolvedReviewCount }} 处需要复核
+                {{ unresolvedReviewCount }} review item(s) pending
               </span>
               <button
                 type="button"
@@ -830,12 +839,15 @@ watch(
                 :aria-expanded="reviewListExpanded"
                 @click="reviewListExpanded = !reviewListExpanded"
               >
-                {{ reviewListExpanded ? "收起" : "展开" }}
+                {{ reviewListExpanded ? "Collapse" : "Expand" }}
               </button>
             </div>
-            <ul v-if="reviewListExpanded" class="wiki-review-issue-list">
+            <template v-if="reviewListExpanded">
+              <div v-if="actionReviewIssues.length" class="wiki-review-group">
+                <span class="wiki-review-group-title">Needs your confirmation</span>
+                <ul class="wiki-review-issue-list">
               <li
-                v-for="issue in unresolvedReviewIssues"
+                v-for="issue in actionReviewIssues"
                 :key="issue.id"
                 class="wiki-review-issue-item"
                 data-testid="wiki-review-issue-item"
@@ -845,12 +857,17 @@ watch(
                   type="button"
                   class="wiki-review-issue-jump"
                   data-testid="wiki-review-issue-jump"
-                  aria-label="定位到该位置"
+                  aria-label="Locate"
                   @click="jumpToHighlight(issue.id)"
                 >
                   ⌖
                 </button>
-                <span v-else class="wiki-review-issue-unanchored" title="页面已编辑，原文位置未找到">位置已变化</span>
+                <span
+                  v-else
+                  class="wiki-review-issue-unanchored"
+                  title="Page edited; original location not found"
+                  >Position changed</span
+                >
                 <span class="wiki-review-issue-message">{{ issue.message }}</span>
                 <button
                   v-if="canReview"
@@ -858,16 +875,61 @@ watch(
                   class="wiki-review-issue-resolve"
                   data-testid="wiki-review-issue-resolve"
                   :disabled="reviewActionBusy"
-                  :title="issue.anchored ? '标记该处为已处理' : '原文位置未找到；查看说明后标记为已处理'"
+                  :title="issue.anchored ? 'Mark this item resolved' : 'Original location not found; review the note, then mark resolved'"
                   @click="resolveListedIssue(issue.id)"
                 >
-                  确认无误
+                  Resolve
                 </button>
                 <code v-if="issue.anchor?.heading_path" class="wiki-review-issue-path">
                   {{ issue.anchor.heading_path }}
                 </code>
               </li>
-            </ul>
+                </ul>
+              </div>
+              <div v-if="infoReviewIssues.length" class="wiki-review-group">
+                <span class="wiki-review-group-title">Refinement notes</span>
+                <ul class="wiki-review-issue-list">
+              <li
+                v-for="issue in infoReviewIssues"
+                :key="issue.id"
+                class="wiki-review-issue-item"
+                data-testid="wiki-review-issue-item"
+              >
+                <button
+                  v-if="issue.anchored"
+                  type="button"
+                  class="wiki-review-issue-jump"
+                  data-testid="wiki-review-issue-jump"
+                  aria-label="Locate"
+                  @click="jumpToHighlight(issue.id)"
+                >
+                  ⌖
+                </button>
+                <span
+                  v-else
+                  class="wiki-review-issue-unanchored"
+                  title="Page edited; original location not found"
+                  >Position changed</span
+                >
+                <span class="wiki-review-issue-message">{{ issue.message }}</span>
+                <button
+                  v-if="canReview"
+                  type="button"
+                  class="wiki-review-issue-resolve"
+                  data-testid="wiki-review-issue-resolve"
+                  :disabled="reviewActionBusy"
+                  :title="issue.anchored ? 'Mark this item resolved' : 'Original location not found; review the note, then mark resolved'"
+                  @click="resolveListedIssue(issue.id)"
+                >
+                  Resolve
+                </button>
+                <code v-if="issue.anchor?.heading_path" class="wiki-review-issue-path">
+                  {{ issue.anchor.heading_path }}
+                </code>
+              </li>
+                </ul>
+              </div>
+            </template>
           </div>
           <div v-if="codeMeta" class="wiki-code-meta" data-testid="wiki-code-meta">
             <span class="wiki-code-meta-title">Code</span>
@@ -974,8 +1036,8 @@ watch(
             class="wiki-review-popover-note"
             data-testid="wiki-review-note-input"
             rows="2"
-            placeholder="修改说明（可选）"
-            aria-label="修改说明"
+            placeholder="Note (optional)"
+            aria-label="Note"
           />
           <p v-if="reviewActionError" class="wiki-error wiki-review-action-error">{{ reviewActionError }}</p>
           <div v-if="canReview" class="wiki-review-popover-actions">
@@ -987,7 +1049,7 @@ watch(
               :disabled="reviewActionBusy"
               @click="actOnActiveIssue('reopen')"
             >
-              需要修改
+              Needs change
             </t-button>
             <t-button
               size="small"
@@ -996,7 +1058,7 @@ watch(
               :loading="reviewActionBusy"
               @click="actOnActiveIssue('resolve')"
             >
-              确认无误
+              Resolve
             </t-button>
           </div>
         </div>
@@ -1533,6 +1595,7 @@ watch(
   cursor: pointer;
   white-space: nowrap;
 }
+/* ---------- G4.S8 split groups (action/info) ---------- */
 .wiki-review-issue-resolve:hover {
   background: var(--caleo-primary);
   color: #fff;
@@ -1796,3 +1859,33 @@ watch(
   color: #ffffff !important;
 }
 </style>
+
+
+/* G4.S8 follow-up: action/info groups inside the review banner */
+.wiki-review-group + .wiki-review-group {
+  margin-top: 10px;
+}
+.wiki-review-group-title {
+  display: block;
+  margin: 4px 2px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--caleo-text-secondary, rgba(0,0,0,0.55));
+}
+
+
+/* review banner groups: action vs notes */
+.wiki-review-group + .wiki-review-group {
+  margin-top: 10px;
+}
+.wiki-review-group-title {
+  display: block;
+  margin: 4px 2px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--caleo-text-secondary, rgba(0,0,0,0.55));
+}
