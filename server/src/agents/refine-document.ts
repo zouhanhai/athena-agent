@@ -815,15 +815,81 @@ export function validateRefineDelta(delta: RefinedDocumentDelta, sourceMarkdown:
         continue;
       }
       if (!declaredNames.has(key)) {
-        errors.push(
-          `relation ${i + 1} ${side} "${raw}" does not reference any emitted entity — relation endpoints MUST equal one of: ${(delta.entities ?? [])
-            .map((e) => e.name)
-            .slice(0, 12)
-            .join(", ")} (or emit that entity first)`,
-        );
+        // G4.S8 follow-up leniency: the LLM frequently writes a slightly
+        // different form of an emitted entity ("Hotel Palma Bellver By
+        // Affiliated by Melia" vs "Hotel Palma Bellver Affiliated by Melia",
+        // or "München" vs "ZOB München"). A strict exact-set mismatch used to
+        // fail the whole document after 2 repair retries → mechanical
+        // fallback (0 chunks, unclassified). Tolerate a semantic match:
+        // whitespace/punct-normalized containment or small edit distance.
+        const fuzzy = fuzzyEntityMatch(raw, delta.entities ?? []);
+        if (!fuzzy) {
+          errors.push(
+            `relation ${i + 1} ${side} "${raw}" does not reference any emitted entity — relation endpoints MUST equal one of: ${(delta.entities ?? [])
+              .map((e) => e.name)
+              .slice(0, 12)
+              .join(", ")} (or emit that entity first)`,
+          );
+        }
+        // else: fine — the model's endpoint is a fuzzy variant of an emitted
+        // entity; the consumer (Neo4j overwrite) will resolve it via the
+        // same normalization. No error.
       }
     }
   }
+
+/**
+ * Lenient endpoint-vs-entity match used by the T16 cross-field validator:
+ * exact normalized equality, else normalized containment (either direction),
+ * else a small Levenshtein distance (<= 3) after dropping filler tokens
+ * (by, the, of, an, a, am, and, for, in, on, zu, am, der, die, das).
+ * Returns the matched entity name (null when nothing is close).
+ */
+function fuzzyEntityMatch(raw: string, entities: { name?: unknown }[]): string | null {
+  const clean = (t: string): string =>
+    t.toLowerCase()
+      .replace(/[^a-z0-9äöüß]+/g, " ")
+      .trim();
+  const norm = clean(normalizedEntityName(raw));
+  if (!norm) return null;
+  const stop = new Set(["by", "of", "an", "a", "am", "and", "for", "in", "with", "zu", "from", "der", "das", "the", "s"]);
+  const words = norm.split(" ").filter((w) => w && !stop.has(w));
+  if (words.length === 0) return null;
+  for (const e of entities) {
+    const en = clean(normalizedEntityName(String(e.name ?? "")));
+    if (!en) continue;
+    // containment
+    if (en.includes(norm) || norm.includes(en)) return String(e.name);
+    // token Jaccard-ish: every token of the shorter side appears in the other
+    const enWords = en.split(" ").filter(Boolean);
+    const small = words.length <= enWords.length ? words : enWords;
+    const big = words.length <= enWords.length ? enWords : words;
+    if (small.every((w) => big.includes(w))) return String(e.name ?? "");
+    // small edit distance on the compacted strings
+    const d = editDistance(norm, en);
+    if (d <= 3) return String(e.name);
+  }
+  return null;
+}
+
+/** Plain Levenshtein distance (<= cap scanning, fine for short names). */
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+function tEntity(t: string): string { return t; }
 
   // T17 anchor contract: quoted passages must exist in the source (whitespace-normalized).
   const haystack = normalizedEntityName(sourceMarkdown);
