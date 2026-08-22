@@ -414,9 +414,10 @@ export class Neo4jIngestService {
       const documentId = await this.resolveDocumentId(session, input.wikiPath, input.documentId);
 
       await session.run(
+        // keep the ORIGINAL refine dir: a wiki-edit overwrite must not repoint it
         `MERGE (d:${DOCUMENT_LABEL} {id: $id})
          SET d.topic = $topic, d.type = $type,
-             d.md_ref = COALESCE(d.md_ref, $mdRef), -- keep the ORIGINAL refine dir; a wiki-edit overwrite must not repoint it
+             d.md_ref = COALESCE(d.md_ref, $mdRef),
              d.title = $title,
              d.keywords = $keywords, d.summary = $summary,
              d.read_count = COALESCE(d.read_count, 0), d.confidence = COALESCE(d.confidence, 1.0)`,
