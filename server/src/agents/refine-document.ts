@@ -2198,6 +2198,47 @@ export interface WikiEditRefineOptions {
  * from `refineReasoningFor("extraction")` — one strategy function for both paths.
  * The emit contract is UNCHANGED.
  */
+/**
+ * G4.S8.T19 extension: audit a wiki-edit refine result exactly like the
+ * upload path audits its full-document delta — one cheap independent session
+ * (reasoning off, entities/relations only) that canonicalizes entity names
+ * and closes relation endpoints against the entity list. Runs on EVERY
+ * wiki-edit save. If the audit fails or produces an invalid rewrite, the
+ * original extraction is kept (best-effort, never worse).
+ */
+export async function auditWikiEditDocument(
+  caller: RefineLlmCaller,
+  markdown: string,
+  doc: WikiEditRefinement,
+  modelId?: string,
+): Promise<WikiEditRefinement> {
+  const delta: RefinedDocumentDelta = {
+    summary: doc.summary ?? "",
+    sections: doc.sections ?? [],
+    frontmatter: doc.frontmatter ?? { type: "document", topic: "unclassified" },
+    entities: doc.entities ?? [],
+    relations: doc.relations ?? [],
+    keywords: doc.keywords ?? [],
+    quality: doc.quality ?? { complete: true, confidence: 1, issues: [], action: "auto_accept" },
+  };
+  const result = await runEntityAudit(caller, markdown, delta, { modelId });
+  if (!result.adopted || result.delta === delta) return doc; // no change / refused
+  const audited = result.delta;
+  const origNames = new Set((doc.entities ?? []).map((e) => normalizedEntityName(e.name)));
+  const newEntities = (audited.entities ?? []).filter((e) => !origNames.has(normalizedEntityName(e.name)));
+  console.warn(
+    `[refine_document] wiki-edit audit pass: changed ${result.changedEntities} entities/${result.changedRelations} relations`,
+  );
+  return {
+    ...doc,
+    entities: audited.entities ?? doc.entities ?? [],
+    relations: audited.relations ?? doc.relations ?? [],
+    new_entities: newEntities,
+    new_relations: doc.new_relations ?? [],
+    rechunked: doc.rechunked,
+  };
+}
+
 export async function runWikiEditRefine(
   input: WikiEditRefineInput,
   existing?: { type?: string; topic?: string },
@@ -2217,7 +2258,21 @@ export async function runWikiEditRefine(
         model: options.modelId,
         reasoningEffort,
       });
-      return { document: extractWikiEditRefinement(message), retries: attempt - 1 };
+      const extracted = extractWikiEditRefinement(message);
+      // Mandatory audit for wiki-edit saves (T19): canonicalize names /
+      // close endpoints with a cheap independent session. Never fatal.
+      try {
+        const audited = await auditWikiEditDocument(httpCaller, input.markdown, extracted, options.modelId);
+        if (audited !== extracted) {
+          // audit applied (logged inside auditWikiEditDocument)
+        } else {
+          console.warn(`[refine_document] wiki-edit audit pass: no-op`);
+        }
+        return { document: audited, retries: attempt - 1 };
+      } catch (auditErr) {
+        console.warn(`[refine_document] wiki-edit audit skipped (${auditErr instanceof Error ? auditErr.message : String(auditErr)}) — keeping extraction`);
+        return { document: extracted, retries: attempt - 1 };
+      }
     } catch (err) {
       lastError = err;
     }
