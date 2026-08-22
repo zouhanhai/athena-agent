@@ -8,7 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
-import { dirname, relative } from "node:path";
+import { basename, dirname, relative } from "node:path";
 import type { DoclingParser } from "./docling.js";
 import type { KnowledgeIngestService, SystemIngestStatus } from "./ingest.js";
 import type { LlmWikiStepName } from "./ingest.js";
@@ -945,7 +945,16 @@ export class IngestTaskQueue {
       const task = this.tasks.get(id);
       if (task && task.stages.ingesting_llmwiki.status === "done") {
         try {
-          await this.dedup.record(markdown, fileName);
+          // Source key MUST match the delete-cascade purge key
+          // (kb/ingest.ts deleteDocument: basename(wikiPath) minus .md).
+          // Record from the same wikiPath, not the raw fileName stem —
+          // otherwise removeBySource on delete finds nothing and a re-upload
+          // of the same file gets short-circuited as a duplicate
+          // (observed: delete → re-upload of Sommerseminar docs stopped at
+          //  parsing with stages stuck pending via markDedup).
+          const wp = wikiPathFor(fileName!, preclassified);
+          const dedupSource = wp ? basename(wp).replace(/\.md$/i, "") : fileName;
+          await this.dedup.record(markdown, dedupSource);
         } catch {
           // dedup recording is best-effort; never fail a successful ingest
         }
