@@ -617,7 +617,20 @@ export function tryParseNestedJson(text: string): unknown {
     try {
       return JSON.parse(trimmed);
     } catch {
-      // try the next candidate
+      // LLM JSON is occasionally missing the comma BETWEEN adjacent object /
+      // array elements (`}{` / `][` / `] {` / `}[`) — a classic strict-schema
+      // slip. Repair by inserting a comma at those boundaries and retry.
+      // Observed on wiki-edit refine: `"description": "..." }, { "name":
+      // "ZOB München", ...` — plain JSON.parse rejected it and the whole
+      // refinement fell back to the mechanical path.
+      const repaired = trimmed.replace(/\}(\s*)\{/g, "},$1{").replace(/\](\s*)\[/g, "],$1[");
+      if (repaired !== trimmed) {
+        try {
+          return JSON.parse(repaired);
+        } catch {
+          // fall through to the next candidate
+        }
+      }
     }
   }
   return undefined;
