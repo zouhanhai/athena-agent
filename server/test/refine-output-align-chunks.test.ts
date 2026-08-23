@@ -74,3 +74,97 @@ test("alignChunksToMarkdown keeps the old text when the section heading is gone 
     "a heading with no matching section keeps the OLD text (stale-chunk deletion is overwrite()'s job)",
   );
 });
+
+/**
+ * G4.S8.T21 ③ — sections are keyed by their FULL heading-path chain, not the
+ * last segment. Repeated tail titles ("Agenda" under Day 1 AND Day 2) must
+ * each map to their own chunk — the wrong chunk must never be refreshed.
+ */
+function dayChunks(): RefinementChunk[] {
+  return [
+    {
+      id: "d1-agenda",
+      text: "### Agenda\n\nDay 1: arrival and welcome.",
+      heading_path: "Day 1 / Agenda",
+    },
+    {
+      id: "d2-agenda",
+      text: "### Agenda\n\nDay 2: workshops unchanged.",
+      heading_path: "Day 2 / Agenda",
+    },
+  ];
+}
+
+const daysMarkdown = [
+  "# Day 1",
+  "",
+  "### Agenda",
+  "",
+  "Day 1: arrival CHANGED plus evening session.",
+  "",
+  "# Day 2",
+  "",
+  "### Agenda",
+  "",
+  "Day 2: workshops unchanged.",
+].join("\n");
+
+test("alignChunksToMarkdown maps repeated tail titles to their own chunk via the full parent chain", () => {
+  const oldChunks = dayChunks();
+
+  const aligned = alignChunksToMarkdown(oldChunks, daysMarkdown);
+
+  assert.equal(aligned.length, 2);
+  assert.equal(aligned[0]!.id, "d1-agenda");
+  assert.match(
+    aligned[0]!.text,
+    /arrival CHANGED/,
+    "the Day 1 Agenda edit refreshes the Day 1 chunk",
+  );
+  assert.ok(aligned[1] === oldChunks[1], "the Day 2 Agenda chunk is untouched (no cross-refresh)");
+  assert.equal(
+    aligned[1]!.text,
+    oldChunks[1]!.text,
+    "the identically-titled Day 2 Agenda keeps its own text",
+  );
+});
+
+test("alignChunksToMarkdown refreshes the second same-tail section when ITS text changes", () => {
+  const oldChunks = dayChunks();
+  const markdown = [
+    "# Day 1",
+    "",
+    "### Agenda",
+    "",
+    "Day 1: arrival and welcome.",
+    "",
+    "# Day 2",
+    "",
+    "### Agenda",
+    "",
+    "Day 2: workshops RESCHEDULED to afternoon.",
+  ].join("\n");
+
+  const aligned = alignChunksToMarkdown(oldChunks, markdown);
+
+  assert.ok(aligned[0] === oldChunks[0], "Day 1 Agenda is untouched");
+  assert.match(aligned[1]!.text, /RESCHEDULED/, "the Day 2 edit hits the Day 2 chunk");
+});
+
+test("alignChunksToMarkdown still matches plain top-level chains (legacy single-segment paths)", () => {
+  const oldChunks = priorChunks();
+  const markdown = [
+    "# Overview",
+    "",
+    "The Lüsen week overview.",
+    "",
+    "# Agenda",
+    "",
+    "Monday REVISED. Tuesday: workshops.",
+  ].join("\n");
+
+  const aligned = alignChunksToMarkdown(oldChunks, markdown);
+
+  assert.ok(aligned[0] === oldChunks[0]);
+  assert.match(aligned[1]!.text, /REVISED/);
+});

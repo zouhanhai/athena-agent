@@ -415,9 +415,12 @@ export class Neo4jIngestService {
 
       await session.run(
         // keep the ORIGINAL refine dir: a wiki-edit overwrite must not repoint it
+        // (T18 COALESCE). G4.S8.T21: the wiki-edit ref dir is persisted as
+        // last_edit_ref so review-state resolves the POST-edit quality.json.
         `MERGE (d:${DOCUMENT_LABEL} {id: $id})
          SET d.topic = $topic, d.type = $type,
              d.md_ref = COALESCE(d.md_ref, $mdRef),
+             d.last_edit_ref = $lastEditRef,
              d.title = $title,
              d.keywords = $keywords, d.summary = $summary,
              d.read_count = COALESCE(d.read_count, 0), d.confidence = COALESCE(d.confidence, 1.0)`,
@@ -426,6 +429,7 @@ export class Neo4jIngestService {
           topic: input.ref.frontmatter?.topic ?? "",
           type: input.ref.frontmatter?.type ?? "",
           mdRef: input.ref.md_ref,
+          lastEditRef: input.ref.md_ref,
           title: input.title,
           keywords: input.ref.keywords ?? [],
           summary: input.ref.summary ?? "",

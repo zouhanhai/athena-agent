@@ -531,24 +531,72 @@ export function splitByRefinedH1(markdown: string): MarkdownSection[] {
  * path. Because chunk ids / heading_paths stay stable, the Neo4j overwrite's
  * `prev.text !== chunk.text` check then re-embeds ONLY the chunk(s) whose
  * section really changed.
+ *
+ * G4.S8.T21: sections are keyed by their FULL heading-path chain
+ * ("Day 1 / Agenda"), not just the last segment — repeated tail titles (e.g.
+ * "Agenda" under Day 1 AND Day 2) map to their OWN chunk. A chunk whose path
+ * has no matching section keeps its old text: stale-chunk deletion remains
+ * overwrite()'s job, and a wrong-chunk refresh is never silently rewritten.
  */
 export function alignChunksToMarkdown(
   oldChunks: RefinementChunk[],
   newMarkdown: string,
 ): RefinementChunk[] {
-  const sections = splitByRefinedH1(newMarkdown);
-  const byHeading = new Map<string, string>();
-  for (const s of sections) {
-    if (s.heading_path) {
-      const key = s.heading_path.split("/").pop()?.trim() ?? "";
-      if (key && !byHeading.has(key)) byHeading.set(key, s.markdown);
-    }
+  const byPath = new Map<string, string>();
+  for (const section of splitForAlignment(newMarkdown)) {
+    const key = headingPathKey(section.heading_path);
+    if (key && !byPath.has(key)) byPath.set(key, section.markdown);
   }
   return oldChunks.map((chunk) => {
-    const key = (chunk.heading_path ?? "").split("/").pop()?.trim() ?? "";
-    const newText = key ? byHeading.get(key) : undefined;
+    const key = headingPathKey(chunk.heading_path ?? "");
+    const newText = key ? byPath.get(key) : undefined;
     return newText !== undefined && newText !== chunk.text ? { ...chunk, text: newText } : chunk;
   });
+}
+
+/** Normalized full-chain comparison key: trimmed segments, collapsed whitespace. */
+function headingPathKey(path: string): string {
+  return path
+    .split("/")
+    .map((segment) => segment.replace(/\s+/g, " ").trim())
+    .filter((segment) => segment.length > 0)
+    .join("/");
+}
+
+interface AlignSection {
+  heading_path: string;
+  markdown: string;
+}
+
+/**
+ * Split at EVERY heading into hierarchical sections: each heading starts a
+ * section spanning until the next heading AT OR ABOVE its level (true
+ * containment — a parent section still covers its subsections), and carries
+ * the FULL " / "-joined heading chain the local paragraph-semantic chunker
+ * emits, so chunk paths match section paths 1:1 including duplicates.
+ */
+function splitForAlignment(markdown: string): AlignSection[] {
+  const lines = markdown.split(/\r?\n/);
+  const sections: AlignSection[] = [];
+  const stack: Array<{ level: number; text: string }> = [];
+  const open: Array<{ level: number; chain: string; start: number }> = [];
+  const closeThrough = (level: number, endExclusive: number): void => {
+    while (open.length > 0 && open[open.length - 1]!.level >= level) {
+      const section = open.pop()!;
+      const text = lines.slice(section.start, endExclusive).join("\n").trim();
+      if (text.length > 0) sections.push({ heading_path: section.chain, markdown: text });
+    }
+  };
+  for (let i = 0; i < lines.length; i += 1) {
+    const heading = /^(#{1,6})\s+(.*)$/.exec(lines[i]!);
+    if (!heading) continue;
+    closeThrough(heading[1].length, i);
+    while (stack.length > 0 && stack[stack.length - 1]!.level >= heading[1].length) stack.pop();
+    stack.push({ level: heading[1].length, text: heading[2].trim() });
+    open.push({ level: heading[1].length, chain: stack.map((h) => h.text).join(" / "), start: i });
+  }
+  closeThrough(1, lines.length);
+  return sections;
 }
 
 /** Split by a given heading level into sections carrying their leading heading as heading_path. */

@@ -308,6 +308,13 @@ export function defaultTaskQueue(): IngestTaskQueue {
     // set (see .env.local / deployment). When absent the ingesting_neo4j stage
     // is a no-op and ingestion continues unchanged.
     neo4j,
+    // G4.S8.T21: after a wiki save, restamp the page's review gate from the
+    // wiki-edit refinement quality through the canonical syncer (wiki md +
+    // Neo4j Document mirror), mirroring the upload path's reviewGate stamp.
+    frontmatter: new WikiFrontmatterSyncer({
+      resolveWikiDir: async () => (await ingest.resolveProject()).wikiDir,
+      driver: defaultNeo4jDriver(),
+    }),
   });
 }
 
@@ -595,6 +602,27 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
             )) as { records: Array<{ get(key: string): unknown }> };
             const mdRef = result.records[0]?.get("mdRef");
             return typeof mdRef === "string" && mdRef.length > 0 ? mdRef : null;
+          } catch {
+            return null;
+          } finally {
+            await session.close();
+          }
+        },
+        // G4.S8.T21: the wiki-edit refinement dir persisted by overwrite() —
+        // its quality.json wins over the original md_ref dir so the review UI
+        // serves POST-edit issues.
+        resolveLastEditRef: async (wikiPath) => {
+          const driver = defaultNeo4jDriver();
+          if (!driver) return null;
+          const session = driver.session();
+          try {
+            const result = (await session.run(
+              `MATCH (wp:${WIKIPAGE_LABEL} {id: $wikiPath})<-[:${IS_DOCUMENT_TYPE}]-(d:${DOCUMENT_LABEL})
+               RETURN d.last_edit_ref AS lastEditRef LIMIT 1`,
+              { wikiPath },
+            )) as { records: Array<{ get(key: string): unknown }> };
+            const lastEditRef = result.records[0]?.get("lastEditRef");
+            return typeof lastEditRef === "string" && lastEditRef.length > 0 ? lastEditRef : null;
           } catch {
             return null;
           } finally {

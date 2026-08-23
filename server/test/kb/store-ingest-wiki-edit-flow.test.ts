@@ -213,6 +213,29 @@ test("overwrite embeds ONLY the changed chunk — unchanged chunks keep their em
   assert.deepEqual(changedWrite.params!.embedding, [0.1, 0.2]);
 });
 
+// --- ②b G4.S8.T21: overwrite() persists Document.last_edit_ref (wiki-edit dir) ---
+
+test("overwrite persists last_edit_ref pointing at the wiki-edit refinement dir; md_ref stays untouched", async () => {
+  const { driver, calls } = makeGraphDriver({ wikiDocId: "doc" });
+  const service = new Neo4jIngestService({
+    driver,
+    embedder: { embed: async (texts) => texts.map(() => [0.1, 0.2]) },
+    readChunks: async () => [{ id: "c1", text: "Corrected body.", heading_path: "Overview" }],
+  });
+
+  await service.overwrite({
+    ref: makeRef({ md_ref: "/storage/wiki-edit-luesen/markdown.md" }),
+    documentId: "derived-id",
+    title: "Lüsen",
+    wikiPath: "wiki/events/luesen.md",
+  });
+
+  const docMerge = calls.find((c) => c.query.startsWith(`MERGE (d:${DOCUMENT_LABEL}`))!;
+  assert.ok(docMerge.query.includes("d.last_edit_ref = $lastEditRef"), "the wiki-edit ref dir is persisted");
+  assert.equal(docMerge.params!.lastEditRef, "/storage/wiki-edit-luesen/markdown.md");
+  assert.ok(docMerge.query.includes("COALESCE(d.md_ref"), "the T18 md_ref COALESCE protection stays intact");
+});
+
 // --- ③ stale-drop cross-document safety ---
 
 test("overwrite stale-drop keeps a shared entity that another document's chunks still mention", async () => {

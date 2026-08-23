@@ -98,6 +98,14 @@ export interface WikiReviewStateServiceOptions {
    * dir FIRST; basename matching stays as the fallback for legacy pages.
    */
   resolveMdRef?: (wikiPath: string) => Promise<string | null>;
+  /**
+   * G4.S8.T21: resolve the page's Neo4j Document.last_edit_ref — the wiki-edit
+   * refinement dir persisted by overwrite(). When present it WINS over md_ref:
+   * after an edit, its quality.json is the authoritative (POST-edit) issue
+   * list; the original md_ref dir keeps serving pre-edit issues forever and
+   * would shadow the fresh ones.
+   */
+  resolveLastEditRef?: (wikiPath: string) => Promise<string | null>;
 }
 
 interface LoadedQuality {
@@ -123,6 +131,7 @@ export class WikiReviewStateService {
   private readonly writeFile: (path: string, content: string) => Promise<void>;
   private readonly syncer: Pick<WikiFrontmatterSyncer, "update">;
   private readonly resolveMdRef?: (wikiPath: string) => Promise<string | null>;
+  private readonly resolveLastEditRef?: (wikiPath: string) => Promise<string | null>;
 
   constructor(options: WikiReviewStateServiceOptions) {
     this.readPage = options.readPage;
@@ -131,6 +140,7 @@ export class WikiReviewStateService {
     this.writeFile = options.writeFile ?? writeFileDefault;
     this.syncer = options.syncer;
     this.resolveMdRef = options.resolveMdRef;
+    this.resolveLastEditRef = options.resolveLastEditRef;
   }
 
   /** Parse a candidate quality.json; null when missing/unreadable/malformed. */
@@ -146,9 +156,24 @@ export class WikiReviewStateService {
 
   /** Resolve + parse `<root>/<stem>/quality.json`; null when absent everywhere. */
   private async loadQuality(wikiPath: string): Promise<LoadedQuality | null> {
+    // G4.S8.T21: the wiki-edit refinement dir (Document.last_edit_ref, persisted
+    // by overwrite()) wins when present — after an edit its quality.json is the
+    // authoritative POST-edit issue list; the original md_ref dir would shadow
+    // it with the PRE-edit issues forever.
+    if (this.resolveLastEditRef) {
+      try {
+        const lastEditRef = await this.resolveLastEditRef(wikiPath);
+        if (lastEditRef) {
+          const loaded = await this.tryLoad(join(dirname(lastEditRef), "quality.json"));
+          if (loaded) return loaded;
+        }
+      } catch {
+        // graph lookup failed — fall through to md_ref / basename matching
+      }
+    }
     // G4.S8.T18: the EXACT refinement dir recorded on the Neo4j Document node
-    // (md_ref) wins — basename matching diverges when refine-dir naming differs
-    // from the wiki page stem.
+    // (md_ref) wins over basename matching — refine-dir naming diverges from
+    // the wiki page stem. Pages without any edit land here.
     if (this.resolveMdRef) {
       try {
         const mdRef = await this.resolveMdRef(wikiPath);

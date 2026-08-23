@@ -24,6 +24,7 @@ import {
   type RefinementRelation,
 } from "../agents/refine-document.js";
 import type { ContentDedupStore } from "./dedup.js";
+import type { WikiFrontmatterSyncer } from "./wiki-frontmatter.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
 import { parseCdsViews, type CdsView } from "./codeparse/cds.js";
 import { parseAbapUnits, type AbapUnit } from "./codeparse/abap.js";
@@ -461,6 +462,12 @@ export interface IngestTaskQueueOptions {
   /** Optional content-dedup store (G2.S5.T14). When set, identical content is
    *  skipped before the pipelines run; newly stored content is recorded. */
   dedup?: ContentDedupStore;
+  /**
+   * G4.S8.T21: the canonical frontmatter channel. When wired, runWikiSave
+   * restamps the page's review gate from the wiki-edit refinement quality —
+   * the same stamping the upload path performs via ingestLlmWiki's reviewGate.
+   */
+  frontmatter?: Pick<WikiFrontmatterSyncer, "update" | "readLifecycle">;
 }
 
 export interface IngestSubmitResult {
@@ -484,6 +491,7 @@ export class IngestTaskQueue {
   private readonly wikiRefineStorageDir: string;
   private readonly neo4j?: Neo4jIngestService;
   private readonly dedup?: ContentDedupStore;
+  private readonly frontmatter?: Pick<WikiFrontmatterSyncer, "update" | "readLifecycle">;
   private readonly tasks = new Map<string, IngestTask>();
   /** First-observed progress timestamp per task, the anchor for the rolling
    *  ms-per-chunk ETA on the ingesting_neo4j stage (G4.S3.T9). */
@@ -497,6 +505,7 @@ export class IngestTaskQueue {
     this.wikiRefineStorageDir = options.wikiRefineStorageDir ?? defaultRefinementOutputDir();
     this.neo4j = options.neo4j;
     this.dedup = options.dedup;
+    this.frontmatter = options.frontmatter;
   }
 
   /** Create + return a task without starting it. */
@@ -1141,10 +1150,48 @@ export class IngestTaskQueue {
       }
     });
 
+    // --- G4.S8.T21: restamp the review gate from the wiki-edit quality ---
+    await this.syncWikiReviewGate(id, save);
+
     const finalTask = this.tasks.get(id);
     console.log(
       `[tasks:${id}] wiki save FINAL status=${finalTask?.status} progress=${finalTask?.progress} refinement=${finalTask?.stages.refinement.status} neo4j=${finalTask?.stages.ingesting_neo4j.status}`,
     );
+  }
+
+  /**
+   * G4.S8.T21: after a wiki save completes, restamp the page's frontmatter
+   * review gate keyed on the WIKI-EDIT refinement quality — upload-path parity
+   * (the ingest path stamps via ingestLlmWiki's reviewGate, tasks.ts). Both
+   * directions so neither stale banners nor new review items go missing:
+   *   - edit quality action=review_required → review: required + unresolved
+   *     issue count (fresh items are surfaced);
+   *   - otherwise (auto_accept), a previously required gate is cleared with
+   *     count 0: the edit's own quality.json becomes the authoritative issue
+   *     list (review-state resolves it first), so keeping `required` would
+   *     serve a banner pointing at issues no longer displayed.
+   * Always through the canonical WikiFrontmatterSyncer so the Neo4j Document
+   * mirror stays consistent. Best-effort: never fails the save task.
+   */
+  private async syncWikiReviewGate(id: string, save: WikiSaveContext): Promise<void> {
+    const ref = this.tasks.get(id)?.refinement;
+    if (!ref || !this.frontmatter) return;
+    try {
+      if (ref.quality.action === "review_required") {
+        await this.frontmatter.update(save.path, {
+          review: "required",
+          review_count: countQualityIssues(ref.quality),
+        });
+        return;
+      }
+      const lifecycle = await this.frontmatter.readLifecycle(save.path);
+      if (lifecycle.review === "required") {
+        await this.frontmatter.update(save.path, { review: "clear", review_count: 0 });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[tasks:${id}] wiki-edit review-gate sync failed: ${message}`);
+    }
   }
 
   /**
