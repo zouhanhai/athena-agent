@@ -181,7 +181,9 @@ const reviewBannerVisible = computed(
 
 /** Unresolved count for the banner title (server view is authoritative). */
 const unresolvedReviewCount = computed(() => {
-  if (reviewState.value && reviewState.value.review === "clear") return 0;
+  // A clear gate with UNRESOLVED notes must still show a count (T19 info
+  // grouping): only a clear gate AND zero unresolved issues means 0.
+  if (reviewState.value && reviewState.value.review === "clear" && unresolvedReviewIssues.value.length === 0) return 0;
   const fromServer = reviewState.value?.review_count ?? 0;
   return Math.max(fromServer, unresolvedReviewIssues.value.length);
 });
