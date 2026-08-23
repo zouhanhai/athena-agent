@@ -140,6 +140,16 @@ test("the incremental prompt now uses DELTA mode: no full-markdown dump, extract
   assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /new_entities \/ new_relations/);
 });
 
+test("G4.S8.T20: the USER prompt is delta-mode too — it never asks the model to re-emit the markdown", () => {
+  const prompt = buildWikiEditRefinePrompt(input, undefined, 1);
+  assert.doesNotMatch(
+    prompt,
+    /emit the corrected markdown/i,
+    "asking for verbatim re-emission invites the pre-delta truncation failure (system prompt forbids it)",
+  );
+  assert.match(prompt, /do not re-emit/i, "user prompt carries the same extraction-only contract");
+});
+
 test("fallbackWikiEditRefinement keeps the corrected text, derives chunks from headings and flags review", () => {
   const fallback = fallbackWikiEditRefinement(
     { ...input, structural: false },

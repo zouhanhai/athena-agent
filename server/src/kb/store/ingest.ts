@@ -450,19 +450,30 @@ export class Neo4jIngestService {
       // Snapshot the current chunk texts/embeddings so unchanged chunks are NOT re-embedded.
       const existing = await this.loadExistingChunks(session, documentId);
 
-      // Delete the OLD version's chunks not in the new set (DETACH DELETE drops
-      // MENTIONED_IN edges) and its sections (DETACH DELETE drops PART_OF/HAS_SECTION).
-      const newIds = chunks.map((chunk) => `${documentId}:${chunk.id}`);
-      await session.run(
-        `MATCH (c:${CHUNK_LABEL} {documentId: $documentId})
-         WHERE NOT c.id IN $ids
-         DETACH DELETE c`,
-        { documentId, ids: newIds },
-      );
-      await session.run(
-        `MATCH (s:${SECTION_LABEL} {documentId: $documentId}) DETACH DELETE s`,
-        { documentId },
-      );
+      // G4.S8.T20 zero-chunk wipe guard: an empty refinement chunk set must NEVER
+      // clear the stored subtree. Live incident: after the delta-mode rollout the
+      // wiki-edit LLM emitted no chunks and overwrite() deleted every old chunk
+      // ("0 chunks re-embedded" — Lüsen lost its 6 chunks). Keep the old
+      // chunks/sections; only the Document/WikiPage metadata is refreshed.
+      if (chunks.length === 0) {
+        console.warn(
+          `[neo4j_ingest] overwrite(${documentId}): refinement produced 0 chunks — keeping ${existing.size} stored chunk(s) (zero-chunk wipe guard)`,
+        );
+      } else {
+        // Delete the OLD version's chunks not in the new set (DETACH DELETE drops
+        // MENTIONED_IN edges) and its sections (DETACH DELETE drops PART_OF/HAS_SECTION).
+        const newIds = chunks.map((chunk) => `${documentId}:${chunk.id}`);
+        await session.run(
+          `MATCH (c:${CHUNK_LABEL} {documentId: $documentId})
+           WHERE NOT c.id IN $ids
+           DETACH DELETE c`,
+          { documentId, ids: newIds },
+        );
+        await session.run(
+          `MATCH (s:${SECTION_LABEL} {documentId: $documentId}) DETACH DELETE s`,
+          { documentId },
+        );
+      }
 
       // Classify chunks: unchanged (same text + same context + existing embedding) keep their
       // embedding; changed/new chunks are embedded (batched) + written.
@@ -563,6 +574,18 @@ export class Neo4jIngestService {
       const relationOutcome = await this.writeRelations(session, input.ref.relations ?? []);
 
       const mentions = mentionPairs([...(input.ref.entities ?? []), ...relationOutcome.createdEndpoints], chunks, documentId);
+      // G4.S8.T20 mention-edge REBUILD: prune the MENTIONED_IN edges on this
+      // document's SURVIVING chunks before merging the fresh pairs. A section
+      // whose corrected text no longer mentions an entity must lose its old
+      // edge — otherwise the whole-graph stale-drop below treats the entity as
+      // still mentioned and keeps its relations alive forever (accumulation,
+      // not rebuild). Scoped by documentId, so other documents' mentions are
+      // untouched (cross-doc safe).
+      await session.run(
+        `MATCH (c:${CHUNK_LABEL} {documentId: $documentId})<-[r:${MENTIONED_IN_TYPE}]-()
+         DELETE r`,
+        { documentId },
+      );
       if (mentions.length > 0) {
         await session.run(
           `UNWIND $mentions AS m

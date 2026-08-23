@@ -2047,9 +2047,9 @@ ${input.diff || "(no textual change detected)"}
 ${existing?.type ? `- existing type: ${existing.type}` : ""}
 ${existing?.topic ? `- existing topic: ${existing.topic}` : ""}
 
-Emit the corrected markdown VERBATIM, the re-derived chunks/entities/relations/keywords, the NEW
-entities/relations the correction introduced (new_entities/new_relations), whether re-chunking was
-required (rechunked), and the quality check.${retryNudge}`;
+Emit ONLY the EXTRACTION fields: summary, sections, frontmatter, entities, relations, keywords,
+new_entities / new_relations (what the correction introduces), rechunked, quality. Do NOT re-emit
+the markdown — the caller already holds it verbatim and uses it as the source of truth.${retryNudge}`;
 }
 
 /** Coerce a parsed wiki-edit refine payload into the contract (JSON-string args accepted). */
