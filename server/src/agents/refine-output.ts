@@ -525,6 +525,32 @@ export function splitByRefinedH1(markdown: string): MarkdownSection[] {
   return h1Sections.length > 1 ? h1Sections : splitByHeadingLevel(markdown, 2);
 }
 
+/**
+ * G4.8 delta-alignment: keep a document's EXISTING chunk boundaries and only
+ * refresh each chunk's text from the NEW markdown section at the SAME heading
+ * path. Because chunk ids / heading_paths stay stable, the Neo4j overwrite's
+ * `prev.text !== chunk.text` check then re-embeds ONLY the chunk(s) whose
+ * section really changed.
+ */
+export function alignChunksToMarkdown(
+  oldChunks: RefinementChunk[],
+  newMarkdown: string,
+): RefinementChunk[] {
+  const sections = splitByRefinedH1(newMarkdown);
+  const byHeading = new Map<string, string>();
+  for (const s of sections) {
+    if (s.heading_path) {
+      const key = s.heading_path.split("/").pop()?.trim() ?? "";
+      if (key && !byHeading.has(key)) byHeading.set(key, s.markdown);
+    }
+  }
+  return oldChunks.map((chunk) => {
+    const key = (chunk.heading_path ?? "").split("/").pop()?.trim() ?? "";
+    const newText = key ? byHeading.get(key) : undefined;
+    return newText !== undefined && newText !== chunk.text ? { ...chunk, text: newText } : chunk;
+  });
+}
+
 /** Split by a given heading level into sections carrying their leading heading as heading_path. */
 function splitByHeadingLevel(markdown: string, level: number): MarkdownSection[] {
   const marker = `${"#".repeat(level)} `;

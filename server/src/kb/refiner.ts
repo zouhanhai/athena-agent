@@ -19,13 +19,15 @@
  * File A′ and RAG File B, then delete File B once RAG ingestion is done.
  */
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import os from "node:os";
 import {
   createRefineDocumentTool,
   defaultRefinementOutputDir,
   runWikiEditRefine,
   type RefineDocumentOptions,
 } from "../agents/refine-document.js";
-import { deriveStemWithFileName, mergeObjectiveDefectsIntoQuality, storeRefinementOutput } from "../agents/refine-output.js";
+import { alignChunksToMarkdown, deriveStemWithFileName, mergeObjectiveDefectsIntoQuality, storeRefinementOutput } from "../agents/refine-output.js";
 import { mechanicalWikiEditChunks } from "../agents/refine-document.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { Refiner, WikiEditRefiner } from "./tasks.js";
@@ -114,7 +116,12 @@ export function createAthenaWikiEditRefiner(
     // edit after delta rollout dropped Lüsen's 6 chunks, log said
     // "0 chunks re-embedded"). Rebuild mechanically from the corrected
     // markdown when the model supplied none.
-    const chunks = (document.chunks?.length ?? 0) > 0 ? document.chunks : mechanicalWikiEditChunks(correctedMarkdown);
+    const priorChunks = await readWikiEditPriorChunks(correctedMarkdown, input.fileName, options.storageDir);
+    const chunks = (document.chunks?.length ?? 0) > 0
+      ? document.chunks
+      : priorChunks.length > 0
+        ? alignChunksToMarkdown(priorChunks, correctedMarkdown)
+        : mechanicalWikiEditChunks(correctedMarkdown);
     const documentWithChunks = { ...document, chunks };
     const merged = mergeObjectiveDefectsIntoQuality(document.quality, correctedMarkdown);
     const finalDocument = merged.quality === document.quality ? documentWithChunks : { ...documentWithChunks, quality: merged.quality };
@@ -133,4 +140,23 @@ export function createAthenaWikiEditRefiner(
       rechunked: finalDocument.rechunked,
     };
   };
+}
+
+/** Read the previous refinement's chunks.json for this document (main
+ *  refinement dir, stable per-doc stem) so wiki-edit keeps chunk ids and
+ *  heading_paths across edits — only changed sections re-embed. */
+async function readWikiEditPriorChunks(
+  markdown: string,
+  fileName: string | undefined,
+  storageDirOverride: string | undefined,
+): Promise<import("../agents/refine-document.js").RefinementChunk[]> {
+  try {
+    const root = storageDirOverride ?? process.env.REFINEMENT_OUTPUT_DIR ?? join(os.homedir(), "athena-data", "refinement");
+    const stem = deriveStemWithFileName(markdown, fileName);
+    const raw = await readFile(join(root, stem, "chunks.json"), "utf8");
+    const parsed = JSON.parse(raw) as import("../agents/refine-document.js").RefinementChunk[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
