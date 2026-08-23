@@ -37,7 +37,6 @@ check_port() {
 
 echo "Athena Agent — service health @ $(date '+%Y-%m-%d %H:%M:%S')"
 echo "------------------------------------------------"
-check       "LightRAG"   "http://$HOST:9621/health"
 check_port  "llm_wiki"   "19828"
 check_port  "athena-back" "3000"
 check_port  "Vite"       "5173"

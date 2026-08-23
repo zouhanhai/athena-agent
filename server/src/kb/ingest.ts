@@ -706,8 +706,16 @@ export class KnowledgeIngestService {
       // recorded; otherwise a re-upload of the same content is
       // short-circuited as a duplicate (observed repeatedly).
       const bare = basename(path).replace(/\.md$/i, "");
+      // The dedup store seeds from llm_wiki pages with their FULL wiki path
+      // (`wiki/internal/events/X.pdf.md` — see ContentDedupStore.ensureSeeded),
+      // while the queue's record() writes basename-derived keys. Purge ALL
+      // variants so a delete truly un-does every seed/record format:
+      //   bare           "Sommerseminar-Mallorca-2023.pdf"
+      //   bare + ".md"   "Sommerseminar-Mallorca-2023.pdf.md"
+      //   full path      "wiki/internal/events/Sommerseminar-Mallorca-2023.pdf.md"
       this.dedup?.removeBySource(bare);
       if (!bare.endsWith(".md")) this.dedup?.removeBySource(bare + ".md");
+      if (path.endsWith(".md")) this.dedup?.removeBySource(path);
       result.graph = {
         documentsRemoved: cascade.documentsRemoved,
         chunksRemoved: cascade.chunksRemoved,
