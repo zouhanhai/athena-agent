@@ -26,6 +26,7 @@ import {
 import type { ContentDedupStore } from "./dedup.js";
 import type { WikiFrontmatterSyncer } from "./wiki-frontmatter.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
+import type { Neo4jCommunityService, CommunityRefreshTrigger } from "./store/community.js";
 import { parseCdsViews, type CdsView } from "./codeparse/cds.js";
 import { parseAbapUnits, type AbapUnit } from "./codeparse/abap.js";
 import { parseUi5Units, type Ui5Unit } from "./codeparse/ui5.js";
@@ -330,8 +331,22 @@ export interface IngestTask {
   updatedAt: number;
 }
 
+/**
+ * G4.S9.T1: entity names touched by a refinement write — declared entities plus
+ * every relation endpoint (the consistency layer may have created those). The
+ * community refresh uses them as local-recompute seeds.
+ */
+function touchedEntityNames(ref: RefineOutputRef | undefined): string[] {
+  if (!ref) return [];
+  return [
+    ...(ref.entities ?? []).map((e) => e.name),
+    ...(ref.relations ?? []).flatMap((r) => [r.source, r.target]),
+  ].filter((n): n is string => Boolean(n && n.trim()));
+}
+
 /** Thrown when retry() is asked to re-run an unknown task. */
 export class TaskNotFoundError extends Error {}
+
 /** Thrown when retry() is asked to re-run a task that is still running. */
 export class TaskBusyError extends Error {}
 /** Thrown when retry() finds no failed stage worth re-running. */
@@ -459,6 +474,9 @@ export interface IngestTaskQueueOptions {
   /** Neo4j lean RAG store ingest (G4.S2.T4). When unset, the ingesting_neo4j
    *  stage is a no-op marked done — the store is not wired. */
   neo4j?: Neo4jIngestService;
+  /** G4.S9.T1: community-detection refresh over the entity graph. Fire-and-
+   *  forget — never blocks or fails the ingest stages (eventual consistency). */
+  community?: Pick<Neo4jCommunityService, "refresh">;
   /** Optional content-dedup store (G2.S5.T14). When set, identical content is
    *  skipped before the pipelines run; newly stored content is recorded. */
   dedup?: ContentDedupStore;
@@ -491,6 +509,7 @@ export class IngestTaskQueue {
   private readonly wikiRefiner?: WikiEditRefiner;
   private readonly wikiRefineStorageDir: string;
   private readonly neo4j?: Neo4jIngestService;
+  private readonly community?: Pick<Neo4jCommunityService, "refresh">;
   private readonly dedup?: ContentDedupStore;
   private readonly frontmatter?: Pick<WikiFrontmatterSyncer, "update" | "readLifecycle">;
   private readonly tasks = new Map<string, IngestTask>();
@@ -505,8 +524,21 @@ export class IngestTaskQueue {
     this.wikiRefiner = options.wikiRefiner;
     this.wikiRefineStorageDir = options.wikiRefineStorageDir ?? defaultRefinementOutputDir();
     this.neo4j = options.neo4j;
+    this.community = options.community;
     this.dedup = options.dedup;
     this.frontmatter = options.frontmatter;
+  }
+
+  /**
+   * G4.S9.T1: fire-and-forget community refresh after a successful graph write.
+   * The trigger carries the touched entity names (folded inside the service) so
+   * small diffs can take the bounded local-recompute path above the size
+   * threshold; failures are logged and swallowed — retrieval is never blocked.
+   */
+  private refreshCommunities(trigger: CommunityRefreshTrigger): void {
+    this.community?.refresh(trigger).catch((err: unknown) => {
+      console.error(`[tasks] community refresh failed (${trigger.kind}):`, err);
+    });
   }
 
   /** Create + return a task without starting it. */
@@ -916,7 +948,16 @@ export class IngestTaskQueue {
                     }
                   });
                 },
-              }).then((r) => ({ ok: true, count: r.chunksStored }));
+              }).then((r) => {
+                // G4.S9.T1: graph content changed → community refresh (async, non-blocking).
+                this.refreshCommunities({
+                  kind: "ingest",
+                  entitiesStored: r.entitiesStored,
+                  relationsStored: r.relationsStored,
+                  touchedEntityNames: touchedEntityNames(refinementRef),
+                });
+                return { ok: true, count: r.chunksStored };
+              });
             })
           : { ok: true };
         const skipReason = neo4jIngestSkipReason(Boolean(this.neo4j), Boolean(refinementRef));
@@ -1105,7 +1146,20 @@ export class IngestTaskQueue {
                   }
                 });
               },
-            }).then((r) => ({ ok: true, count: r.chunksStored, documentId: r.documentId }));
+            }).then((r) => {
+              // G4.S9.T1: wiki-edit overwrite → community refresh (async, non-blocking).
+              const touched = task.wikiEdit
+                ? [
+                    ...task.wikiEdit.newEntities.map((e) => e.name),
+                    ...task.wikiEdit.newRelations.flatMap((rel) => [rel.source, rel.target]),
+                  ].filter((n) => n && n.trim())
+                : touchedEntityNames(task.refinement);
+              this.refreshCommunities({
+                kind: "wiki-edit",
+                touchedEntityNames: touched as string[],
+              });
+              return { ok: true, count: r.chunksStored, documentId: r.documentId };
+            });
           })
         : { ok: true };
       console.log(
@@ -1323,7 +1377,16 @@ export class IngestTaskQueue {
                     stage.total = p.chunksTotal;
                   });
                 },
-              }).then((r) => ({ ok: true, count: r.chunksStored }));
+              }).then((r) => {
+                // G4.S9.T1: graph content changed → community refresh (async, non-blocking).
+                this.refreshCommunities({
+                  kind: "ingest",
+                  entitiesStored: r.entitiesStored,
+                  relationsStored: r.relationsStored,
+                  touchedEntityNames: touchedEntityNames(refinementRef),
+                });
+                return { ok: true, count: r.chunksStored };
+              });
             })
           : { ok: true };
         console.log(
@@ -1504,7 +1567,16 @@ export class IngestTaskQueue {
                     stage.total = p.chunksTotal;
                   });
                 },
-              }).then((r) => ({ ok: true, count: r.chunksStored }));
+              }).then((r) => {
+                // G4.S9.T1: graph content changed → community refresh (async, non-blocking).
+                this.refreshCommunities({
+                  kind: "ingest",
+                  entitiesStored: r.entitiesStored,
+                  relationsStored: r.relationsStored,
+                  touchedEntityNames: touchedEntityNames(refinementRef),
+                });
+                return { ok: true, count: r.chunksStored };
+              });
             })
           : { ok: true };
         console.log(
@@ -1687,7 +1759,16 @@ export class IngestTaskQueue {
                     stage.total = p.chunksTotal;
                   });
                 },
-              }).then((r) => ({ ok: true, count: r.chunksStored }));
+              }).then((r) => {
+                // G4.S9.T1: graph content changed → community refresh (async, non-blocking).
+                this.refreshCommunities({
+                  kind: "ingest",
+                  entitiesStored: r.entitiesStored,
+                  relationsStored: r.relationsStored,
+                  touchedEntityNames: touchedEntityNames(refinementRef),
+                });
+                return { ok: true, count: r.chunksStored };
+              });
             })
           : { ok: true };
         console.log(
@@ -1867,7 +1948,16 @@ export class IngestTaskQueue {
                     stage.total = p.chunksTotal;
                   });
                 },
-              }).then((r) => ({ ok: true, count: r.chunksStored }));
+              }).then((r) => {
+                // G4.S9.T1: graph content changed → community refresh (async, non-blocking).
+                this.refreshCommunities({
+                  kind: "ingest",
+                  entitiesStored: r.entitiesStored,
+                  relationsStored: r.relationsStored,
+                  touchedEntityNames: touchedEntityNames(refinementRef),
+                });
+                return { ok: true, count: r.chunksStored };
+              });
             })
           : { ok: true };
         console.log(

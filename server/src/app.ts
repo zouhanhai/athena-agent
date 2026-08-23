@@ -82,6 +82,7 @@ import { ContentDedupStore } from "./kb/dedup.js";
 import { LlmWikiClient } from "./kb/llmwiki.js";
 import { OpenRouterEmbedder } from "./kb/embedding.js";
 import { Neo4jIngestService } from "./kb/store/ingest.js";
+import { Neo4jCommunityService } from "./kb/store/community.js";
 import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { EntityGraphService } from "./kb/store/graph.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
@@ -149,7 +150,10 @@ export interface BuildAppOptions {
   summarizer?: Summarizer;
 }
 
-export function defaultIngestService(neo4j?: Neo4jIngestService): KnowledgeIngestService {
+export function defaultIngestService(
+  neo4j?: Neo4jIngestService,
+  community?: Neo4jCommunityService,
+): KnowledgeIngestService {
   return new KnowledgeIngestService({
     llmwiki: new LlmWikiClient(),
     wikiDir: process.env.LLM_WIKI_WIKI_DIR ?? undefined,
@@ -157,6 +161,8 @@ export function defaultIngestService(neo4j?: Neo4jIngestService): KnowledgeInges
     // G4.S8.T14: wiki page delete → full knowledge-graph cascade (subtree +
     // orphan entities + refinement dirs). Absent when NEO4J_PASSWORD is unset.
     ...(neo4j ? { graph: neo4j } : {}),
+    // G4.S9.T1: delete cascade → async full community re-run (fire-and-forget).
+    ...(community ? { community } : {}),
   });
 }
 
@@ -290,7 +296,10 @@ export function defaultTaskQueue(): IngestTaskQueue {
   // G4.S8.T14: one shared Neo4j ingest service drives both the ingest stage and
   // the delete cascade (undefined when NEO4J_PASSWORD is unset → both no-op).
   const neo4j = defaultNeo4jIngest();
-  const ingest = defaultIngestService(neo4j);
+  // G4.S9.T1: community detection refreshes after ingest/wiki-edit/delete —
+  // same undefined-when-unwired contract as the store itself.
+  const community = defaultCommunityService();
+  const ingest = defaultIngestService(neo4j, community);
   const dedup = new ContentDedupStore({
     loadExisting: async () => ingest.existingWikiContent(),
   });
@@ -308,6 +317,8 @@ export function defaultTaskQueue(): IngestTaskQueue {
     // set (see .env.local / deployment). When absent the ingesting_neo4j stage
     // is a no-op and ingestion continues unchanged.
     neo4j,
+    // G4.S9.T1: entity-graph community refresh triggers (ingest/wiki-edit).
+    ...(community ? { community } : {}),
     // G4.S8.T21: after a wiki save, restamp the page's review gate from the
     // wiki-edit refinement quality through the canonical syncer (wiki md +
     // Neo4j Document mirror), mirroring the upload path's reviewGate stamp.
@@ -327,6 +338,17 @@ export function defaultNeo4jIngest(): Neo4jIngestService | undefined {
     driver,
     embedder: new OpenRouterEmbedder(),
   });
+}
+
+/**
+ * G4.S9.T1: Leiden-class community detection over the entity graph, in-process
+ * (the neo4j-spike container ships no GDS plugin). Returns undefined when the
+ * store is not wired — refresh triggers then no-op.
+ */
+export function defaultCommunityService(): Neo4jCommunityService | undefined {
+  const driver = defaultNeo4jDriver();
+  if (!driver) return undefined;
+  return new Neo4jCommunityService({ driver });
 }
 
 export function defaultAgentRegistry(): AgentRegistry {

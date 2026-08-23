@@ -128,6 +128,14 @@ export interface KnowledgeIngestOptions {
   graph?: {
     deleteDocumentsForWikiPage(input: { wikiPath: string; stem: string }): Promise<Neo4jDeleteDocumentsResult>;
   };
+  /**
+   * G4.S9.T1: community-detection refresh fired after a successful delete
+   * cascade (full re-run trigger). Fire-and-forget — never blocks or fails the
+   * deletion. Satisfied structurally by `Neo4jCommunityService`.
+   */
+  community?: {
+    refresh(trigger: { kind: "delete" }): Promise<unknown>;
+  };
   /** Refinement output root: md_ref directories are only removed INSIDE it
    *  (path-traversal guarded). Default: defaultRefinementOutputDir(). */
   refinementOutputDir?: string;
@@ -476,6 +484,7 @@ export class KnowledgeIngestService {
   private readonly classify: (input: { title: string; content: string }) => Promise<WikiClassification>;
   private readonly rebuildIndex: (wikiDir: string) => Promise<void>;
   private readonly graph?: KnowledgeIngestOptions["graph"];
+  private readonly community?: KnowledgeIngestOptions["community"];
   private dedup?: KnowledgeIngestOptions["dedup"];
   private readonly refinementOutputDir: string;
   private readonly rmDir: (path: string) => Promise<void>;
@@ -498,6 +507,7 @@ export class KnowledgeIngestService {
     this.classify = options.classify ?? ((input) => this.classifyWithAgent(input));
     this.rebuildIndex = options.rebuildIndex ?? ((dir: string) => this.rebuildIndexDefault(dir));
     this.graph = options.graph;
+    this.community = options.community;
     this.dedup = options.dedup;
     this.refinementOutputDir = resolve(options.refinementOutputDir ?? defaultRefinementOutputDir());
     this.rmDir = options.rmDir ?? ((path: string) => rm(path, { recursive: true, force: true }));
@@ -724,6 +734,11 @@ export class KnowledgeIngestService {
         entitiesRetained: cascade.entitiesRetained,
         refinementDirsRemoved,
       };
+      // G4.S9.T1: a delete is a full-recompute trigger. Async + best-effort —
+      // the HTTP response never waits on it and failures are logged only.
+      this.community
+        ?.refresh({ kind: "delete" })
+        .catch((err: unknown) => console.error("[kb:ingest] community refresh after delete failed:", err));
     } catch (err) {
       result.graph = {
         documentsRemoved: 0,
