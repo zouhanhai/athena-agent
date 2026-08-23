@@ -26,6 +26,7 @@ import {
   type RefineDocumentOptions,
 } from "../agents/refine-document.js";
 import { deriveStemWithFileName, mergeObjectiveDefectsIntoQuality, storeRefinementOutput } from "../agents/refine-output.js";
+import { mechanicalWikiEditChunks } from "../agents/refine-document.js";
 import type { RefineOutputRef } from "../agents/refine-output.js";
 import type { Refiner, WikiEditRefiner } from "./tasks.js";
 
@@ -106,8 +107,17 @@ export function createAthenaWikiEditRefiner(
     const correctedMarkdown = document.markdown && document.markdown.trim().length > 0
       ? document.markdown
       : input.markdown;
+    // G4.8 delta contract: the model emits extraction fields only — its
+    // `chunks` may be empty. A wiki-edit overwrite MUST NOT run with zero
+    // chunks: overwrite() deletes every old chunk not in the new id set, so an
+    // empty list would WIPE the document's chunks from the graph (observed:
+    // edit after delta rollout dropped Lüsen's 6 chunks, log said
+    // "0 chunks re-embedded"). Rebuild mechanically from the corrected
+    // markdown when the model supplied none.
+    const chunks = (document.chunks?.length ?? 0) > 0 ? document.chunks : mechanicalWikiEditChunks(correctedMarkdown);
+    const documentWithChunks = { ...document, chunks };
     const merged = mergeObjectiveDefectsIntoQuality(document.quality, correctedMarkdown);
-    const finalDocument = merged.quality === document.quality ? document : { ...document, quality: merged.quality };
+    const finalDocument = merged.quality === document.quality ? documentWithChunks : { ...documentWithChunks, quality: merged.quality };
     const ref = await storeRefinementOutput(
       finalDocument,
       options.storageDir ?? defaultRefinementOutputDir(),
