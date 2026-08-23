@@ -13,6 +13,7 @@ import { listAgents, type AgentRecord } from "@/api/agents";
 import {
   KbAuditHttpError,
   listKbAuditReports,
+  recomputeCommunities,
   runKbAudit,
   type KbAuditReport,
 } from "@/api/kb";
@@ -57,6 +58,21 @@ function triggerLabel(report: KbAuditReport): string {
   return report.trigger === "scheduled" ? "scheduled" : "manual";
 }
 
+function largestCommunityLabel(communities: NonNullable<KbAuditReport["communities"]>): string {
+  return communities.largestCommunity
+    ? `${communities.largestCommunity.id} (${communities.largestCommunity.size})`
+    : "—";
+}
+
+/** Communities count per history row; "+N changed" marks manual recomputes. */
+function communitiesCell(report: KbAuditReport): string {
+  if (!report.communities) return "—";
+  const changed = report.communities.changedSinceLast;
+  return changed === undefined
+    ? String(report.communities.communities)
+    : `${report.communities.communities} (+${changed})`;
+}
+
 function formatStartedAt(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
@@ -89,6 +105,39 @@ async function runAuditNow() {
     }
   } finally {
     auditRunning.value = false;
+  }
+}
+
+// G4.S9.T4: manual community recompute. Synchronous execution (documented in
+// the ticket): at fixture scale (~50 entities) the full clustering + summary
+// refresh is sub-second, so a fire-task + polling surface is not justified.
+const communitiesRunning = ref(false);
+const communitiesError = ref("");
+const communitiesNotice = ref("");
+
+async function recomputeCommunitiesNow() {
+  if (communitiesRunning.value) {
+    return;
+  }
+  communitiesRunning.value = true;
+  communitiesError.value = "";
+  communitiesNotice.value = "";
+  try {
+    const report = await recomputeCommunities();
+    await loadAuditReports();
+    communitiesNotice.value =
+      `Communities recomputed: ${report.communities} ` +
+      `(${report.changedSinceLast ?? 0} membership change(s), ` +
+      `${report.summariesRefreshed ?? 0} summaries refreshed).`;
+  } catch (err) {
+    if (err instanceof KbAuditHttpError && err.status === 409) {
+      communitiesError.value =
+        "A community recompute is already running — please wait for it to finish.";
+    } else {
+      communitiesError.value = err instanceof Error ? err.message : String(err);
+    }
+  } finally {
+    communitiesRunning.value = false;
   }
 }
 
@@ -349,6 +398,12 @@ onMounted(() => {
             <li>Review: {{ latestReport.review.changed }} change(s) across {{ latestReport.review.scanned }} page(s)</li>
             <li>File repairs: {{ latestReport.fileCheck.repaired }}</li>
             <li>Orphans removed: {{ latestReport.orphans.removed.length }}</li>
+            <li v-if="latestReport.communities">
+              Communities: {{ latestReport.communities.communities }} — largest
+              {{ largestCommunityLabel(latestReport.communities) }}, without community:
+              {{ latestReport.communities.entitiesWithoutCommunity }}, summaries
+              {{ latestReport.communities.summariesPresent }}/{{ latestReport.communities.summariesTotal }}
+            </li>
           </ul>
         </div>
 
@@ -360,6 +415,7 @@ onMounted(() => {
               <th>Review</th>
               <th>Repairs</th>
               <th>Orphans</th>
+              <th>Communities</th>
               <th>Duration</th>
             </tr>
           </thead>
@@ -374,11 +430,34 @@ onMounted(() => {
               <td>{{ report.review.changed }}/{{ report.review.scanned }}</td>
               <td>{{ report.fileCheck.repaired }}</td>
               <td>{{ report.orphans.removed.length }}</td>
+              <td>{{ communitiesCell(report) }}</td>
               <td>{{ (report.durationMs / 1000).toFixed(1) }}s</td>
             </tr>
           </tbody>
         </table>
         <p v-else class="audit-hint">No audit reports yet.</p>
+      </div>
+
+      <div class="admin-section">
+        <h3 class="section-title">Knowledge-graph Maintenance</h3>
+        <p class="audit-hint">
+          Recomputes communities over the whole entity graph and refreshes
+          summaries for changed communities only. Runs synchronously at current
+          corpus scale; every run lands in the audit history above (manual).
+        </p>
+        <div class="audit-actions">
+          <button
+            type="button"
+            class="audit-run-button"
+            data-testid="kb-communities-recompute"
+            :disabled="communitiesRunning"
+            @click="recomputeCommunitiesNow"
+          >
+            {{ communitiesRunning ? "Recomputing…" : "Recompute communities" }}
+          </button>
+        </div>
+        <p v-if="communitiesError" class="admin-error" data-testid="kb-communities-error">{{ communitiesError }}</p>
+        <p v-else-if="communitiesNotice" class="audit-hint" data-testid="kb-communities-notice">{{ communitiesNotice }}</p>
       </div>
 
       <div class="admin-section">

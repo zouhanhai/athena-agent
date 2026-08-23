@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import type { ReviewReport } from "./review.js";
+import type { KbCommunityQuality } from "./community-maintenance.js";
 
 /** Which path triggered an audit run. */
 export type KbAuditTrigger = "scheduled" | "manual";
@@ -35,6 +36,10 @@ export interface KbAuditRunRecord {
   fileCheck: KbAuditFileCheck;
   /** Stage 3 — orphan refinement sweep. */
   orphans: KbAuditOrphanSweep;
+  /** G4.S9.T4 community-quality block. Present when the graph source was
+   *  wired: a read-only snapshot for weekly audits, the full recompute report
+   *  (with changedSinceLast etc.) for manual recompute rows. */
+  communities?: KbCommunityQuality;
 }
 
 export interface KbAuditRunsStore {
@@ -83,9 +88,12 @@ export interface PostgresKbAuditRunsStoreOptions {
 
 const INSERT_SQL = `
   INSERT INTO kb_audit_runs
-    (id, trigger, started_at, duration_ms, review, file_check, orphans)
-  VALUES ($1, $2, $3, $4, $5, $6, $7)
+    (id, trigger, started_at, duration_ms, review, file_check, orphans, communities)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `;
+
+const SELECT_COLUMNS =
+  "id, trigger, started_at, duration_ms, review, file_check, orphans, communities";
 
 function rowToRecord(row: { get(key: string): unknown }): KbAuditRunRecord {
   return {
@@ -96,6 +104,9 @@ function rowToRecord(row: { get(key: string): unknown }): KbAuditRunRecord {
     review: row.get("review") as ReviewReport,
     fileCheck: row.get("file_check") as KbAuditFileCheck,
     orphans: row.get("orphans") as KbAuditOrphanSweep,
+    ...(row.get("communities")
+      ? { communities: row.get("communities") as KbCommunityQuality }
+      : {}),
   };
 }
 
@@ -132,6 +143,10 @@ export class PostgresKbAuditRunsStore implements KbAuditRunsStore {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    // G4.S9.T4 migration for tables created before the community block existed.
+    await this.pool.query(
+      `ALTER TABLE kb_audit_runs ADD COLUMN IF NOT EXISTS communities JSONB`,
+    );
   }
 
   async insert(record: KbAuditRunRecord): Promise<void> {
@@ -144,13 +159,14 @@ export class PostgresKbAuditRunsStore implements KbAuditRunsStore {
       JSON.stringify(record.review),
       JSON.stringify(record.fileCheck),
       JSON.stringify(record.orphans),
+      record.communities ? JSON.stringify(record.communities) : null,
     ]);
   }
 
   async latest(): Promise<KbAuditRunRecord | null> {
     await this.ensureReady();
     const result = await this.pool.query(
-      `SELECT id, trigger, started_at, duration_ms, review, file_check, orphans
+      `SELECT ${SELECT_COLUMNS}
        FROM kb_audit_runs ORDER BY started_at DESC LIMIT 1`,
     );
     const row = result.rows[0];
@@ -160,7 +176,7 @@ export class PostgresKbAuditRunsStore implements KbAuditRunsStore {
   async latestByTrigger(trigger: KbAuditTrigger): Promise<KbAuditRunRecord | null> {
     await this.ensureReady();
     const result = await this.pool.query(
-      `SELECT id, trigger, started_at, duration_ms, review, file_check, orphans
+      `SELECT ${SELECT_COLUMNS}
        FROM kb_audit_runs WHERE trigger = $1 ORDER BY started_at DESC LIMIT 1`,
       [trigger],
     );
@@ -171,7 +187,7 @@ export class PostgresKbAuditRunsStore implements KbAuditRunsStore {
   async list(limit = 50): Promise<KbAuditRunRecord[]> {
     await this.ensureReady();
     const result = await this.pool.query(
-      `SELECT id, trigger, started_at, duration_ms, review, file_check, orphans
+      `SELECT ${SELECT_COLUMNS}
        FROM kb_audit_runs ORDER BY started_at DESC LIMIT $1`,
       [Math.max(1, limit)],
     );

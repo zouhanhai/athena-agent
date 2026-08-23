@@ -9,7 +9,11 @@ import type { KnowledgeRetrievalService } from "../kb/retrieval.js";
 import type { IngestTaskQueue } from "../kb/tasks.js";
 import type { KbReviewService } from "../kb/review.js";
 import type { KbAuditService } from "../kb/audit.js";
-import type { KbAuditRunsStore } from "../kb/audit-runs.js";
+import type { KbAuditRunsStore, KbAuditRunRecord } from "../kb/audit-runs.js";
+import {
+  KbCommunityRecomputeAlreadyRunningError,
+  type KbCommunityMaintenanceService,
+} from "../kb/community-maintenance.js";
 import type { WikiReCurator } from "../kb/recurate.js";
 import type { FeedbackService } from "../kb/feedback.js";
 import type { ManualQaMode } from "../kb/feedback.js";
@@ -59,6 +63,10 @@ export interface KbRouteOptions {
   audit?: KbAuditService;
   /** Audit report persistence (G4.S8.T15): GET /api/kb/audit/reports. */
   auditRunsStore?: KbAuditRunsStore;
+  /** G4.S9.T4 admin community maintenance: POST
+   *  /api/kb/admin/communities/recompute (admin-gated, 409 on a concurrent
+   *  run). Report rows land in the SAME auditRunsStore with trigger=manual. */
+  communityMaintenance?: KbCommunityMaintenanceService;
   /** Incremental re-curation tool (G4.S3.T3): POST /api/kb/wiki/retopic. */
   recurator?: WikiReCurator;
   /** Feedback loop (G4.S3.T5): POST /api/kb/feedback + GET /api/kb/qa. */
@@ -523,6 +531,47 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       );
       return { reports };
     } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * G4.S9.T4: POST /api/kb/admin/communities/recompute → run the FULL community
+   * re-run (T1 machinery, forced via the manual trigger) + refresh summaries
+   * through T2's sync (only communities whose membership changed cost tokens),
+   * then persist one row into the SAME audit-report history with
+   * trigger=manual. Sync execution: at fixture scale (~50 entities) the whole
+   * pass is sub-second — a fire-task + polling surface is not justified yet.
+   * Concurrent invocations are rejected with 409 while one is running.
+   */
+  app.post("/api/kb/admin/communities/recompute", async (request, reply) => {
+    if (!(await requireAdmin(request, reply))) return;
+    if (!options.communityMaintenance) {
+      return reply.code(500).send({ error: "KB community maintenance not configured" });
+    }
+    if (!options.auditRunsStore) {
+      return reply.code(500).send({ error: "KB audit runs store not configured" });
+    }
+    try {
+      const report = await options.communityMaintenance.recompute();
+      const startedAt = new Date();
+      const record: KbAuditRunRecord = {
+        id: `kbcomm-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+        trigger: "manual",
+        startedAt: startedAt.toISOString(),
+        durationMs: Math.max(0, Date.now() - startedAt.getTime()),
+        // The recompute does NOT run the audit's review/file/orphan stages.
+        review: { runAt: startedAt.toISOString(), scanned: 0, changed: 0, archive: [], results: [] },
+        fileCheck: { repaired: 0, details: [] },
+        orphans: { scannedDirs: 0, removed: [], kept: [] },
+        communities: report,
+      };
+      await options.auditRunsStore.insert(record);
+      return reply.code(200).send({ report });
+    } catch (err) {
+      if (err instanceof KbCommunityRecomputeAlreadyRunningError) {
+        return reply.code(409).send({ error: err.message });
+      }
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });

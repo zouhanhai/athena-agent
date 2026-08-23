@@ -11,6 +11,7 @@ import {
 } from "node:path";
 import { defaultRefinementOutputDir } from "../agents/refine-document.js";
 import type { ReviewReport } from "./review.js";
+import type { KbCommunityQuality } from "./community-maintenance.js";
 import type {
   KbAuditFileCheck,
   KbAuditOrphanSweep,
@@ -115,6 +116,9 @@ export interface KbAuditServiceOptions {
   refinementRoot?: string;
   /** Orphan grace period in hours. Default: KB_ORPHAN_GRACE_HOURS or 48. */
   graceHours?: number;
+  /** G4.S9.T4 community-quality snapshot source (KbCommunityMaintenanceService).
+   *  Optional — without it the report simply has no communities block. */
+  communities?: { quality(): Promise<KbCommunityQuality> };
   /** Injectable clock (tests). */
   now?: () => Date;
   /** Injectable recursive-remove (tests). */
@@ -143,6 +147,7 @@ export class KbAuditService {
   private readonly review: KbAuditServiceOptions["review"];
   private readonly runsStore: KbAuditRunsStore;
   private readonly graph?: KbAuditGraphPort;
+  private readonly communities?: KbAuditServiceOptions["communities"];
   private readonly wikiDir?: string;
   private readonly refinementRoot: string;
   private readonly graceHours: number;
@@ -154,6 +159,7 @@ export class KbAuditService {
     this.review = options.review;
     this.runsStore = options.runsStore;
     this.graph = options.graph;
+    this.communities = options.communities;
     this.wikiDir = options.wikiDir;
     this.refinementRoot = resolve(
       options.refinementRoot ?? process.env.REFINEMENT_OUTPUT_DIR ?? defaultRefinementOutputDir(),
@@ -180,6 +186,18 @@ export class KbAuditService {
       const review = await this.review.reviewAll({});
       const fileCheck = await this.checkFiles();
       const orphans = await this.sweepOrphans(fileCheck.details);
+      // G4.S9.T4 stage 4 — community-quality snapshot, reported alongside the
+      // orphan checks. Read-only; a failing read degrades to a details line.
+      let communities: KbCommunityQuality | undefined;
+      if (this.communities) {
+        try {
+          communities = await this.communities.quality();
+        } catch (err) {
+          fileCheck.details.push(
+            `community-quality section skipped: ${messageOf(err)}`,
+          );
+        }
+      }
       const end = this.nowImpl();
       const record: KbAuditRunRecord = {
         id: `kbaudit-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -189,6 +207,7 @@ export class KbAuditService {
         review,
         fileCheck,
         orphans,
+        ...(communities ? { communities } : {}),
       };
       await this.runsStore.insert(record);
       return record;

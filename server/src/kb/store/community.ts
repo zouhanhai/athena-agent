@@ -56,6 +56,8 @@ export const DEFAULT_COMMUNITY_POLICY: CommunityPolicy = {
 
 export type CommunityRefreshTrigger =
   | { kind: "delete" }
+  /** G4.S9.T4: the Admin recompute endpoint — always a full re-run. */
+  | { kind: "manual" }
   | { kind: "ingest"; entitiesStored: number; relationsStored: number; touchedEntityNames?: string[] }
   | { kind: "wiki-edit"; touchedEntityNames: string[] };
 
@@ -67,7 +69,7 @@ export function resolveStrategy(
   trigger: CommunityRefreshTrigger,
   policy: CommunityPolicy = DEFAULT_COMMUNITY_POLICY,
 ): CommunityStrategy {
-  if (trigger.kind === "delete") return "full";
+  if (trigger.kind === "delete" || trigger.kind === "manual") return "full";
   if (entityCount < policy.fullRunThreshold) return "full";
   if (trigger.kind === "ingest") {
     const bigIngest =
@@ -406,7 +408,10 @@ export class Neo4jCommunityService {
       const { ids, edges } = await this.loadGraph();
       const strategy = resolveStrategy(ids.length, trigger, this.policy);
 
-      if (strategy === "local" && trigger.kind !== "delete") {
+      if (
+        strategy === "local" &&
+        (trigger.kind === "ingest" || trigger.kind === "wiki-edit")
+      ) {
         const touched = (trigger.touchedEntityNames ?? []).map((n) =>
           n.trim().toUpperCase(),
         );

@@ -509,6 +509,28 @@ export interface KbAuditOrphanSweep {
   kept: string[];
 }
 
+/**
+ * G4.S9.T4 community-quality block. Present on weekly audit rows (read-only
+ * snapshot) and on manual community-recompute rows (then carrying the extra
+ * recompute fields).
+ */
+export interface KbCommunityQuality {
+  /** Distinct communities on Entity nodes. */
+  communities: number;
+  /** Per-community member counts, largest first. */
+  entitiesPerCommunity: Array<{ id: string; size: number }>;
+  largestCommunity: { id: string; size: number } | null;
+  /** Entities with no community membership. */
+  entitiesWithoutCommunity: number;
+  /** Community nodes with / total summaries (T2). */
+  summariesPresent: number;
+  summariesTotal: number;
+  /** Recompute-only extras: entities whose membership changed in this run. */
+  changedSinceLast?: number;
+  summariesRefreshed?: number;
+  summariesUnchanged?: number;
+}
+
 export interface KbAuditReport {
   id?: string;
   trigger: KbAuditTrigger;
@@ -523,6 +545,7 @@ export interface KbAuditReport {
   };
   fileCheck: KbAuditFileCheck;
   orphans: KbAuditOrphanSweep;
+  communities?: KbCommunityQuality;
 }
 
 /** Error carrying the HTTP status so the UI can special-case 409 (a run is
@@ -564,4 +587,19 @@ export async function listKbAuditReports(limit = 20): Promise<KbAuditReport[]> {
     `${KB_BASE}/audit/reports?limit=${limit}`,
   );
   return data.reports;
+}
+
+/** POST /api/kb/admin/communities/recompute → run the FULL community re-run +
+ *  refresh summaries (G4.S9.T4, admin-gated). Rejects with
+ *  KbAuditHttpError(409) while another recompute is in progress. */
+export async function recomputeCommunities(): Promise<KbCommunityQuality> {
+  const data = await auditRequest<{ report: KbCommunityQuality }>(
+    `${KB_BASE}/admin/communities/recompute`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+  return data.report;
 }

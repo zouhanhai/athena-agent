@@ -374,3 +374,61 @@ test("rejects a concurrent second run with KbAuditAlreadyRunningError", async ()
   release();
   await first;
 });
+
+// --- community-quality section (G4.S9.T4) --------------------------------------
+
+function fakeCommunitiesPort(overrides: { quality?: () => Promise<unknown> } = {}) {
+  return {
+    quality: overrides.quality ?? (async () => qualityBlock()),
+  };
+}
+
+function qualityBlock() {
+  return {
+    communities: 2,
+    entitiesPerCommunity: [
+      { id: "c_caleo", size: 3 },
+      { id: "c_bcs", size: 1 },
+    ],
+    largestCommunity: { id: "c_caleo", size: 3 },
+    entitiesWithoutCommunity: 1,
+    summariesPresent: 1,
+    summariesTotal: 2,
+  };
+}
+
+test("the weekly audit carries a community-quality section alongside the orphan checks", async () => {
+  const runs = new MemoryKbAuditRunsStore();
+  const service = makeService({ runsStore: runs, communities: fakeCommunitiesPort() });
+  const report = await service.run("scheduled");
+
+  assert.ok(report.communities, "communities block present on the record");
+  assert.equal(report.communities!.communities, 2);
+  assert.equal(report.communities!.entitiesWithoutCommunity, 1);
+  assert.equal(report.communities!.summariesPresent, 1);
+  assert.equal(report.communities!.summariesTotal, 2);
+  // Persisted row keeps the section — the Admin history renders it later.
+  assert.equal((await runs.latestByTrigger("scheduled"))?.communities?.communities, 2);
+});
+
+test("a failing community read degrades to a details line without failing the audit", async () => {
+  const service = makeService({
+    communities: fakeCommunitiesPort({
+      quality: async () => {
+        throw new Error("neo4j down");
+      },
+    }),
+  });
+  const report = await service.run("scheduled");
+
+  assert.equal(report.communities, undefined);
+  assert.ok(
+    report.fileCheck.details.some((d) => d.includes("community") && d.includes("neo4j down")),
+  );
+});
+
+test("audits run fine without a communities port (section stays absent)", async () => {
+  const service = makeService({});
+  const report = await service.run("scheduled");
+  assert.equal(report.communities, undefined);
+});

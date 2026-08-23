@@ -61,6 +61,7 @@ import {
   defaultKbAuditRunsStore,
   type KbAuditRunsStore,
 } from "./kb/audit-runs.js";
+import { KbCommunityMaintenanceService } from "./kb/community-maintenance.js";
 import { WikiReCurator } from "./kb/recurate.js";
 import { FeedbackService } from "./kb/feedback.js";
 import { MemoryQaPairStore, PostgresQaPairStore } from "./kb/qa-pairs.js";
@@ -109,6 +110,10 @@ export interface BuildAppOptions {
   /** G4.S8.T15: audit report persistence. Default: Postgres when DATABASE_URL
    *  is set, else in-memory. */
   auditRunsStore?: KbAuditRunsStore;
+  /** G4.S9.T4 admin community maintenance (manual full recompute + weekly
+   *  community-quality snapshot). Default: wired from the Neo4j driver when
+   *  available, undefined otherwise (endpoint then reports 500). */
+  communityMaintenance?: KbCommunityMaintenanceService;
   /**
    * G4.S8.T15: start the in-server weekly audit scheduler on ready. Only the
    * real server entry opts in (default false) so the test suite's buildApp()
@@ -470,16 +475,34 @@ export function defaultLogoStore(): LogoStore {
 
 /** G4.S8.T15: the weekly knowledge-base audit — review pass (existing
  *  reviewAll) + WikiPage-vs-disk file re-check (T14 cascade repairs) + orphan
- *  refinement sweep, persisted one report row per run. */
+ *  refinement sweep + G4.S9.T4 community-quality snapshot, persisted one
+ *  report row per run. */
 export function defaultKbAuditService(
   review: KbReviewService,
   runsStore: KbAuditRunsStore,
+  communities?: KbCommunityMaintenanceService,
 ): KbAuditService {
   return new KbAuditService({
     review,
     runsStore,
     graph: defaultNeo4jIngest(),
+    ...(communities ? { communities } : {}),
     wikiDir: process.env.LLM_WIKI_WIKI_DIR || undefined,
+  });
+}
+
+/**
+ * G4.S9.T4: admin community maintenance over the SAME T1/T2 services the
+ * ingest hooks use (one clustering engine, one summarizer). Undefined when no
+ * Neo4j driver is available — the recompute endpoint then answers 500.
+ */
+export function defaultCommunityMaintenance(): KbCommunityMaintenanceService | undefined {
+  const driver = defaultNeo4jDriver();
+  if (!driver) return undefined;
+  return new KbCommunityMaintenanceService({
+    driver,
+    community: defaultCommunityService(),
+    communitySummaries: defaultCommunitySummaryService(),
   });
 }
 
@@ -536,9 +559,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   // G4.S8.T15: the weekly knowledge-base audit (3 stages, one persisted
   // report row per run) + manual trigger endpoints in registerKbRoutes.
   const auditRunsStore = options.auditRunsStore ?? defaultKbAuditRunsStore();
+  // G4.S9.T4: admin community maintenance (manual recompute endpoint + the
+  // weekly audit's community-quality section share this one instance).
+  const communityMaintenance =
+    options.communityMaintenance ?? defaultCommunityMaintenance();
   const audit =
     options.audit ??
-    defaultKbAuditService(options.review ?? review, auditRunsStore);
+    defaultKbAuditService(options.review ?? review, auditRunsStore, communityMaintenance);
   let auditScheduler: KbAuditScheduler | undefined;
 
   app.addHook("onReady", async () => {
@@ -628,6 +655,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     // G4.S8.T15: manual audit trigger + report history (admin-gated).
     audit,
     auditRunsStore,
+    // G4.S9.T4: admin community recompute endpoint (admin-gated).
+    communityMaintenance,
     // G4.S3.T10: the wiki-edit save endpoint is RBAC-gated behind `kb.edit`.
     auth,
     // G4.S8.T10: code-intake channels authenticate agent invitation tokens
