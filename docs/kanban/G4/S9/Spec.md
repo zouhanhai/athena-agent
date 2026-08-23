@@ -103,8 +103,3 @@ now as the core of global-query support.
 - Global-query retrieval path (endpoint + agent-usable).
 - CO_OCCURS edges wiring (ingest-time) + config flag.
 - Tests + docs: ADR for community store + retrieval path, fixtures on existing Sommer docs.
-
-## Progress Log
-
-| UTC timestamp | status | one-line progress |
-|---|---|---|
