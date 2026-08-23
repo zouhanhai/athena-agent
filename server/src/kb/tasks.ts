@@ -485,7 +485,8 @@ function initialStages(): IngestTask["stages"] {
 
 export class IngestTaskQueue {
   private readonly parser: DoclingParser;
-  private readonly ingest: KnowledgeIngestService;
+  /** Shared KB ingest service (same instance the delete-cascade routes use). */
+  readonly ingest: KnowledgeIngestService;
   private readonly refiner?: Refiner;
   private readonly wikiRefiner?: WikiEditRefiner;
   private readonly wikiRefineStorageDir: string;

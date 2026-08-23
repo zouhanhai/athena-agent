@@ -562,7 +562,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerInvitationRoutes(app, { invitations, auth });
   // Shared graph-wired ingest instance: the delete cascade (T14) AND the
   // review-state syncer's wiki-dir resolution (T17) both need Neo4j access.
-  const kbIngest = options.ingest ?? defaultIngestService(defaultNeo4jIngest());
+  // ONE shared ingest instance end-to-end: the task queue's ingest carries the
+  // dedup store (attachDedupStore) — a SECOND defaultIngestService() here had no
+  // dedup, so doc/delete silently skipped the dedup purge and a delete followed
+  // by re-upload short-circuited as a hash duplicate.
+  const kbQueue = options.taskQueue ?? defaultTaskQueue();
+  const kbIngest = options.ingest ?? kbQueue.ingest;
   registerKbRoutes(app, {
     ingest: kbIngest,
     retrieval,
@@ -570,7 +575,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     recurator: options.recurator ?? defaultReCurator(),
     feedback,
     mappings,
-    taskQueue: options.taskQueue ?? defaultTaskQueue(),
+    taskQueue: kbQueue,
     maxFileSize: options.maxFileSize,
     // G4.S8.T15: manual audit trigger + report history (admin-gated).
     audit,
