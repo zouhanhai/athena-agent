@@ -83,6 +83,7 @@ import { LlmWikiClient } from "./kb/llmwiki.js";
 import { OpenRouterEmbedder } from "./kb/embedding.js";
 import { Neo4jIngestService } from "./kb/store/ingest.js";
 import { Neo4jCommunityService } from "./kb/store/community.js";
+import { Neo4jCommunitySummaryService } from "./kb/store/community-summary.js";
 import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { EntityGraphService } from "./kb/store/graph.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
@@ -153,6 +154,7 @@ export interface BuildAppOptions {
 export function defaultIngestService(
   neo4j?: Neo4jIngestService,
   community?: Neo4jCommunityService,
+  communitySummaries?: Neo4jCommunitySummaryService,
 ): KnowledgeIngestService {
   return new KnowledgeIngestService({
     llmwiki: new LlmWikiClient(),
@@ -163,6 +165,8 @@ export function defaultIngestService(
     ...(neo4j ? { graph: neo4j } : {}),
     // G4.S9.T1: delete cascade → async full community re-run (fire-and-forget).
     ...(community ? { community } : {}),
+    // G4.S9.T2: summaries re-synced after the delete-triggered clustering.
+    ...(communitySummaries ? { communitySummaries } : {}),
   });
 }
 
@@ -299,7 +303,9 @@ export function defaultTaskQueue(): IngestTaskQueue {
   // G4.S9.T1: community detection refreshes after ingest/wiki-edit/delete —
   // same undefined-when-unwired contract as the store itself.
   const community = defaultCommunityService();
-  const ingest = defaultIngestService(neo4j, community);
+  // G4.S9.T2: summaries synced after each clustering refresh (same contract).
+  const communitySummaries = defaultCommunitySummaryService();
+  const ingest = defaultIngestService(neo4j, community, communitySummaries);
   const dedup = new ContentDedupStore({
     loadExisting: async () => ingest.existingWikiContent(),
   });
@@ -319,6 +325,8 @@ export function defaultTaskQueue(): IngestTaskQueue {
     neo4j,
     // G4.S9.T1: entity-graph community refresh triggers (ingest/wiki-edit).
     ...(community ? { community } : {}),
+    // G4.S9.T2: community summaries chained after each refresh (fire-and-forget).
+    ...(communitySummaries ? { communitySummaries } : {}),
     // G4.S8.T21: after a wiki save, restamp the page's review gate from the
     // wiki-edit refinement quality through the canonical syncer (wiki md +
     // Neo4j Document mirror), mirroring the upload path's reviewGate stamp.
@@ -349,6 +357,16 @@ export function defaultCommunityService(): Neo4jCommunityService | undefined {
   const driver = defaultNeo4jDriver();
   if (!driver) return undefined;
   return new Neo4jCommunityService({ driver });
+}
+
+/**
+ * G4.S9.T2: per-community LLM summaries over T1's memberships. Returns
+ * undefined when the store is not wired — the sync trigger then no-ops.
+ */
+export function defaultCommunitySummaryService(): Neo4jCommunitySummaryService | undefined {
+  const driver = defaultNeo4jDriver();
+  if (!driver) return undefined;
+  return new Neo4jCommunitySummaryService({ driver });
 }
 
 export function defaultAgentRegistry(): AgentRegistry {

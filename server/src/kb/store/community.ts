@@ -88,10 +88,14 @@ export function resolveStrategy(
   return "full";
 }
 
-/** Stable community key: sha256 over sorted, trimmed, case-folded member ids. */
+/** Canonical member-set form: sorted, trimmed, case-folded ids joined by NUL. */
+export function canonicalMembershipKey(members: string[]): string {
+  return [...members].map((m) => m.trim().toUpperCase()).sort().join("\u0000");
+}
+
+/** Stable community key: sha256 over the canonical membership key (first 12 hex). */
 export function communityIdForMembers(members: string[]): string {
-  const canonical = [...members].map((m) => m.trim().toUpperCase()).sort().join("\u0000");
-  const hash = createHash("sha256").update(canonical).digest("hex");
+  const hash = createHash("sha256").update(canonicalMembershipKey(members)).digest("hex");
   return `c_${hash.slice(0, 12)}`;
 }
 

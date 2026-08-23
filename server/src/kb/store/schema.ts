@@ -29,6 +29,10 @@ export const SECTION_LABEL = "Section";
 /** Relationship type linking Entity nodes (source -> target). */
 export const ENTITY_RELATION_TYPE = "RELATION";
 
+/** G4.S9.T2: community-summary node + membership edge (Community -[:MEMBER]-> Entity). */
+export const COMMUNITY_LABEL = "Community";
+export const MEMBER_TYPE = "MEMBER";
+
 /** RAG↔Wiki fusion relationship types (G4.S2.T11): the Document/Section/Chunk/WikiPage spine. */
 export const HAS_SECTION_TYPE = "HAS_SECTION";
 export const HAS_SUBSECTION_TYPE = "HAS_SUBSECTION";
@@ -87,6 +91,7 @@ export function storeSchemaStatements(): string[] {
     `CREATE CONSTRAINT wikipage_id_unique IF NOT EXISTS FOR (n:${WIKIPAGE_LABEL}) REQUIRE n.id IS UNIQUE`,
     `CREATE CONSTRAINT section_id_unique IF NOT EXISTS FOR (n:${SECTION_LABEL}) REQUIRE n.id IS UNIQUE`,
     `CREATE CONSTRAINT qa_pair_id_unique IF NOT EXISTS FOR (n:${QA_PAIR_LABEL}) REQUIRE n.id IS UNIQUE`,
+    `CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (n:${COMMUNITY_LABEL}) REQUIRE n.id IS UNIQUE`,
     // HNSW cosine vector index over Athena-chunk embeddings, with topic as an additional property so
     // retrieval can filter in-index via SEARCH…WHERE (ADR-0008, Neo4j 2026 Community).
     `CREATE VECTOR INDEX ${CHUNK_EMBEDDING_INDEX} IF NOT EXISTS FOR (n:${CHUNK_LABEL}) ON (n.embedding) WITH [n.topic] OPTIONS { indexConfig: { \`vector.dimensions\`: ${EMBEDDING_DIMENSIONS}, \`vector.similarity_function\`: 'cosine' } }`,

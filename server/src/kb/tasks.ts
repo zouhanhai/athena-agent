@@ -27,6 +27,7 @@ import type { ContentDedupStore } from "./dedup.js";
 import type { WikiFrontmatterSyncer } from "./wiki-frontmatter.js";
 import type { Neo4jIngestService } from "./store/ingest.js";
 import type { Neo4jCommunityService, CommunityRefreshTrigger } from "./store/community.js";
+import type { Neo4jCommunitySummaryService } from "./store/community-summary.js";
 import { parseCdsViews, type CdsView } from "./codeparse/cds.js";
 import { parseAbapUnits, type AbapUnit } from "./codeparse/abap.js";
 import { parseUi5Units, type Ui5Unit } from "./codeparse/ui5.js";
@@ -477,6 +478,10 @@ export interface IngestTaskQueueOptions {
   /** G4.S9.T1: community-detection refresh over the entity graph. Fire-and-
    *  forget — never blocks or fails the ingest stages (eventual consistency). */
   community?: Pick<Neo4jCommunityService, "refresh">;
+  /** G4.S9.T2: community-summary sync, chained AFTER `community.refresh`
+   *  resolves inside the same fire-and-forget hook — summaries only make sense
+   *  once clustering finished, so no separate trigger surface is exposed. */
+  communitySummaries?: Pick<Neo4jCommunitySummaryService, "sync">;
   /** Optional content-dedup store (G2.S5.T14). When set, identical content is
    *  skipped before the pipelines run; newly stored content is recorded. */
   dedup?: ContentDedupStore;
@@ -510,6 +515,7 @@ export class IngestTaskQueue {
   private readonly wikiRefineStorageDir: string;
   private readonly neo4j?: Neo4jIngestService;
   private readonly community?: Pick<Neo4jCommunityService, "refresh">;
+  private readonly communitySummaries?: Pick<Neo4jCommunitySummaryService, "sync">;
   private readonly dedup?: ContentDedupStore;
   private readonly frontmatter?: Pick<WikiFrontmatterSyncer, "update" | "readLifecycle">;
   private readonly tasks = new Map<string, IngestTask>();
@@ -525,6 +531,7 @@ export class IngestTaskQueue {
     this.wikiRefineStorageDir = options.wikiRefineStorageDir ?? defaultRefinementOutputDir();
     this.neo4j = options.neo4j;
     this.community = options.community;
+    this.communitySummaries = options.communitySummaries;
     this.dedup = options.dedup;
     this.frontmatter = options.frontmatter;
   }
@@ -534,11 +541,18 @@ export class IngestTaskQueue {
    * The trigger carries the touched entity names (folded inside the service) so
    * small diffs can take the bounded local-recompute path above the size
    * threshold; failures are logged and swallowed — retrieval is never blocked.
+   *
+   * G4.S9.T2: the summary sync is chained after the clustering resolves
+   * (post-finalize): it mirrors whatever memberships are persisted at that
+   * point, so it must not race the partition write. `sync` never throws.
    */
   private refreshCommunities(trigger: CommunityRefreshTrigger): void {
-    this.community?.refresh(trigger).catch((err: unknown) => {
-      console.error(`[tasks] community refresh failed (${trigger.kind}):`, err);
-    });
+    this.community
+      ?.refresh(trigger)
+      .then(() => this.communitySummaries?.sync())
+      .catch((err: unknown) => {
+        console.error(`[tasks] community refresh failed (${trigger.kind}):`, err);
+      });
   }
 
   /** Create + return a task without starting it. */

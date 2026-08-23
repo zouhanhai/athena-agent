@@ -136,6 +136,14 @@ export interface KnowledgeIngestOptions {
   community?: {
     refresh(trigger: { kind: "delete" }): Promise<unknown>;
   };
+  /**
+   * G4.S9.T2: community-summary sync chained after `community.refresh`
+   * resolves. Fire-and-forget like the refresh itself; satisfied
+   * structurally by `Neo4jCommunitySummaryService`.
+   */
+  communitySummaries?: {
+    sync(): Promise<unknown>;
+  };
   /** Refinement output root: md_ref directories are only removed INSIDE it
    *  (path-traversal guarded). Default: defaultRefinementOutputDir(). */
   refinementOutputDir?: string;
@@ -485,6 +493,7 @@ export class KnowledgeIngestService {
   private readonly rebuildIndex: (wikiDir: string) => Promise<void>;
   private readonly graph?: KnowledgeIngestOptions["graph"];
   private readonly community?: KnowledgeIngestOptions["community"];
+  private readonly communitySummaries?: KnowledgeIngestOptions["communitySummaries"];
   private dedup?: KnowledgeIngestOptions["dedup"];
   private readonly refinementOutputDir: string;
   private readonly rmDir: (path: string) => Promise<void>;
@@ -508,6 +517,7 @@ export class KnowledgeIngestService {
     this.rebuildIndex = options.rebuildIndex ?? ((dir: string) => this.rebuildIndexDefault(dir));
     this.graph = options.graph;
     this.community = options.community;
+    this.communitySummaries = options.communitySummaries;
     this.dedup = options.dedup;
     this.refinementOutputDir = resolve(options.refinementOutputDir ?? defaultRefinementOutputDir());
     this.rmDir = options.rmDir ?? ((path: string) => rm(path, { recursive: true, force: true }));
@@ -736,8 +746,10 @@ export class KnowledgeIngestService {
       };
       // G4.S9.T1: a delete is a full-recompute trigger. Async + best-effort —
       // the HTTP response never waits on it and failures are logged only.
+      // G4.S9.T2: summaries sync chained after clustering resolves.
       this.community
         ?.refresh({ kind: "delete" })
+        .then(() => this.communitySummaries?.sync())
         .catch((err: unknown) => console.error("[kb:ingest] community refresh after delete failed:", err));
     } catch (err) {
       result.graph = {
