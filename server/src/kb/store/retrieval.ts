@@ -23,11 +23,16 @@ import {
   CHUNK_EMBEDDING_INDEX,
   CHUNK_LABEL,
   CHUNK_TEXT_FTX,
+  CO_OCCURS_TYPE,
+  COMMUNITY_LABEL,
+  COMMUNITY_SUMMARY_EMBEDDING_INDEX,
+  COMMUNITY_SUMMARY_FTX,
   DOCUMENT_LABEL,
   ENTITY_LABEL,
   ENTITY_NAME_ALIASES_FTX,
   ENTITY_RELATION_TYPE,
   IS_DOCUMENT_TYPE,
+  MEMBER_TYPE,
   MENTIONED_IN_TYPE,
   PART_OF_TYPE,
   SECTION_LABEL,
@@ -62,12 +67,19 @@ export interface Neo4jSearchHit {
   sectionPath?: string;
   /** Same-section sibling chunk texts (context enrichment, G4.S2.T11). */
   siblings?: string[];
+  /** G4.S9.T3: set when this hit is a COMMUNITY SUMMARY (global scope) —
+   *  carries the community id so callers can tell summary hits from chunks. */
+  communityId?: string;
 }
 
 export interface Neo4jSearchResponse {
   query: string;
   hits: Neo4jSearchHit[];
 }
+
+/** Retrieval scope (G4.S9.T3): "local" (default) = the per-chunk fused search;
+ *  "global" = corpus-level QA over community summaries + member chunks. */
+export type SearchScope = "local" | "global";
 
 export interface Neo4jSearchOptions {
   /** Converge to a document domain: exact chunk.topic filter (case-insensitive). */
@@ -89,6 +101,12 @@ export interface Neo4jSearchOptions {
    *  fused vector+BM25+graph search. Options flow through to the chosen retriever
    *  (topic/topics/topK/enrichContext still apply). */
   retriever?: RetrieverName;
+  /** G4.S9.T3: "global" runs the community-summary path (embed query → top
+   *  summaries → best 1-3 communities → MENTIONED_IN member chunks → fusion +
+   *  rerank). Default "local" keeps the current per-chunk fused search. */
+  scope?: SearchScope;
+  /** Global scope: how many top communities to expand. Default 3. */
+  communityTopK?: number;
 }
 
 /** Tool names a ToolsRetriever picker can select. */
@@ -303,7 +321,10 @@ export class Text2CypherRetriever {
       `CALL db.index.fulltext.queryNodes('${ENTITY_NAME_ALIASES_FTX}', $queryText) YIELD node AS e, score\n` +
       `MATCH (e)-[:${MENTIONED_IN_TYPE}]->(c:${CHUNK_LABEL})\n` +
       topicFilter +
-      `OPTIONAL MATCH (e)-[r:${ENTITY_RELATION_TYPE}]-(n:${ENTITY_LABEL})\n` +
+      // G4.S9.T3 graph expansion: neighbor context traverses real RELATION edges
+      // AND the weak CO_OCCURS edges (graphs without CO_OCCURS degrade to the
+      // previous RELATION-only behavior).
+      `OPTIONAL MATCH (e)-[r:${ENTITY_RELATION_TYPE}|${CO_OCCURS_TYPE}]-(n:${ENTITY_LABEL})\n` +
       `WITH e, c, score, collect(DISTINCT n.name) AS neighbors\n` +
       CHUNK_WIKI_JOIN +
       `RETURN c.id AS id, c.text AS text, c.topic AS topic, c.documentId AS documentId,\n` +
@@ -352,8 +373,120 @@ export class HybridRetriever {
   }
 }
 
-/** Reciprocal rank fusion over ranked hit lists, deduplicating by chunk id. */
-export function rrfFuse(
+// ---------------------------------------------------------------------------
+// G4.S9.T3 — global (community-level) retrieval
+// ---------------------------------------------------------------------------
+
+/** Map a Community-summary row to a tagged search hit. */
+function mapCommunityRow(record: Neo4jRecordLike, source: "vector" | "bm25", score: number): Neo4jSearchHit {
+  const id = str(record, "id") ?? "";
+  return {
+    id,
+    text: str(record, "text") ?? "",
+    ...(str(record, "theme") !== undefined ? { topic: str(record, "theme") } : {}),
+    source,
+    score,
+    communityId: id,
+  };
+}
+
+/**
+ * Vector half of the global query path (G4.S9.T3): embeds the query and searches
+ * the HNSW index over Community.summary embeddings (written by the T2 summarizer).
+ */
+export class CommunitySummaryVectorRetriever {
+  private readonly driver: Neo4jDriverLike;
+  private readonly embedder: TextEmbedder;
+  private readonly topK: number;
+
+  constructor(options: { driver: Neo4jDriverLike; embedder: TextEmbedder; topK?: number }) {
+    this.driver = options.driver;
+    this.embedder = options.embedder;
+    this.topK = options.topK ?? 3;
+  }
+
+  async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchHit[]> {
+    const topK = options.topK ?? this.topK;
+    const [embedding] = await this.embedder.embed([query]);
+    const cypher =
+      `CYPHER 25\n` +
+      `MATCH (c:${COMMUNITY_LABEL})\n` +
+      `  SEARCH c IN (\n` +
+      `    VECTOR INDEX ${COMMUNITY_SUMMARY_EMBEDDING_INDEX}\n` +
+      `    FOR $embedding\n` +
+      `    LIMIT $topK\n` +
+      `  ) SCORE AS score\n` +
+      `RETURN c.id AS id, c.summary AS text, c.theme AS theme, score\n` +
+      `ORDER BY score DESC`;
+    const records = await runRecords(this.driver, cypher, { embedding, topK });
+    return records.map((r) => mapCommunityRow(r, "vector", num(r, "score")));
+  }
+}
+
+/** BM25 half of the global query path: fulltext over Community.summary + theme. */
+export class CommunitySummaryBm25Retriever {
+  private readonly driver: Neo4jDriverLike;
+  private readonly topK: number;
+
+  constructor(options: { driver: Neo4jDriverLike; topK?: number }) {
+    this.driver = options.driver;
+    this.topK = options.topK ?? 3;
+  }
+
+  async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchHit[]> {
+    const topK = options.topK ?? this.topK;
+    const cypher =
+      `CALL db.index.fulltext.queryNodes('${COMMUNITY_SUMMARY_FTX}', $queryText) YIELD node AS c, score\n` +
+      `RETURN c.id AS id, c.summary AS text, c.theme AS theme, score\n` +
+      `ORDER BY score DESC\n` +
+      `LIMIT $topK`;
+    const records = await runRecords(this.driver, cypher, { queryText: foldQuery(query), topK });
+    return records.map((r) => mapCommunityRow(r, "bm25", num(r, "score")));
+  }
+}
+
+/**
+ * Member-chunk walk of the global query path: for the best communities, gather
+ * every member entity's MENTIONED_IN chunks — the grounded evidence pool that
+ * fuses with (and reranks against) the community summaries themselves.
+ */
+export class CommunityMemberChunksRetriever {
+  private readonly driver: Neo4jDriverLike;
+  private readonly topK: number;
+
+  constructor(options: { driver: Neo4jDriverLike; topK?: number }) {
+    this.driver = options.driver;
+    this.topK = options.topK ?? 5;
+  }
+
+  async search(communityIds: string[], options: Neo4jSearchOptions = {}): Promise<Neo4jSearchHit[]> {
+    const topK = options.topK ?? this.topK;
+    const ids = communityIds.filter((id) => id.trim().length > 0);
+    if (ids.length === 0) return [];
+    const cypher =
+      `UNWIND $communityIds AS cid\n` +
+      `MATCH (:${COMMUNITY_LABEL} {id: cid})-[:${MEMBER_TYPE}]->(e:${ENTITY_LABEL})\n` +
+      `MATCH (e)-[:${MENTIONED_IN_TYPE}]->(c:${CHUNK_LABEL})\n` +
+      CHUNK_WIKI_JOIN +
+      `RETURN DISTINCT c.id AS id, c.text AS text, c.topic AS topic, c.documentId AS documentId,\n` +
+      `       sec.path AS sectionPath, wp.path AS wikiPath\n` +
+      `ORDER BY c.id\n` +
+      `LIMIT $topK`;
+    const records = await runRecords(this.driver, cypher, { communityIds: ids, topK });
+    return records.map((r) => ({
+      id: str(r, "id") ?? "",
+      text: str(r, "text") ?? "",
+      ...(str(r, "topic") !== undefined ? { topic: str(r, "topic") } : {}),
+      ...(str(r, "documentId") !== undefined ? { documentId: str(r, "documentId") } : {}),
+      ...(str(r, "sectionPath") !== undefined ? { sectionPath: str(r, "sectionPath") } : {}),
+      ...(str(r, "wikiPath") !== undefined ? { wikiPath: str(r, "wikiPath") } : {}),
+      source: "graph" as const,
+      score: 1,
+    }));
+  }
+}
+
+/** Reciprocal rank fusion over ranked hit lists, deduplicating by chunk id. */export function rrfFuse(
   lists: Neo4jSearchHit[][],
   topK: number,
   k = 60,
@@ -454,6 +587,11 @@ export class Neo4jRetrievalService {
    *  (G4.S2.T11) — best-effort, a failing enrichment never kills the search. When
    *  `options.retriever` is set (agentic picker, G4.S3.T7.3) ONLY that retriever runs. */
   async search(query: string, options: Neo4jSearchOptions = {}): Promise<Neo4jSearchResponse> {
+    // G4.S9.T3: the global scope answers corpus-level questions over community
+    // summaries instead of the per-chunk fused search.
+    if (options.scope === "global") {
+      return this.globalSearch(query, options);
+    }
     if (options.retriever) {
       const picked = await new ToolsRetriever(this.options).search(query, {
         ...options,
@@ -487,6 +625,45 @@ export class Neo4jRetrievalService {
         const siblings = await this.sameSectionTexts(hit, contextSize).catch(() => []);
         if (siblings.length > 0) hit.siblings = siblings;
       }
+    }
+
+    return { query, hits };
+  }
+
+  /**
+   * Global query path (G4.S9.T3): embed query → top community summaries (vector
+   * + BM25 over the summary indexes, RRF-fused) → pick the best 1-3 communities →
+   * gather member entities' chunks via the existing MENTIONED_IN walk → fuse
+   * summaries + chunks into ONE pool (summaries are first-class hits, so answers
+   * stay community-grounded) → optional cross-encoder rerank, as in local mode.
+   * Every stage is failure-tolerant; no communities/summaries yet → empty hits.
+   */
+  private async globalSearch(query: string, options: Neo4jSearchOptions): Promise<Neo4jSearchResponse> {
+    const topK = options.topK ?? this.topK;
+    const communityTopK = options.communityTopK ?? 3;
+
+    const [vector, bm25] = await Promise.allSettled([
+      new CommunitySummaryVectorRetriever(this.options).search(query, { topK: communityTopK }),
+      new CommunitySummaryBm25Retriever(this.options).search(query, { topK: communityTopK }),
+    ]);
+    const vectorSummaries = vector.status === "fulfilled" ? vector.value : [];
+    const bm25Summaries = bm25.status === "fulfilled" ? bm25.value : [];
+    let hits = rrfFuse([vectorSummaries, bm25Summaries], communityTopK);
+
+    const communityIds = [...new Set(hits.map((h) => h.communityId).filter((id): id is string => Boolean(id)))]
+      .slice(0, communityTopK);
+    if (communityIds.length > 0) {
+      const chunks = await new CommunityMemberChunksRetriever(this.options)
+        .search(communityIds, { topK })
+        .catch(() => []);
+      hits = rrfFuse([chunks, hits], topK);
+    }
+
+    // Same rerank contract as the fused local search: failing reranker falls back.
+    const reranker = options.reranker ?? this.options.reranker;
+    if (reranker && hits.length > 0) {
+      const rerankTopN = options.rerankTopN ?? this.options.rerankTopN ?? 20;
+      hits = await reranker.rerank(query, hits, rerankTopN).catch(() => hits);
     }
 
     return { query, hits };

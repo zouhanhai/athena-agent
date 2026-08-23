@@ -211,3 +211,26 @@ test("search_knowledge tool reports not-found + KB update suggestion + web sourc
   assert.match(text, /upload a deepseek-v4 doc under ai\/models/);
   assert.match(text, /https:\/\/example\.com/);
 });
+
+test("search_knowledge tool threads scope=global through the agentic pipeline", async () => {
+  const seen: Array<{ query: string; options?: { scope?: string } }> = [];
+  const service = new AgenticRetrievalService({
+    search: async (query: string, options?: { scope?: string }) => {
+      seen.push({ query, options });
+      return { query, results: [] };
+    },
+    judge: {
+      transformQuery: async () => ({ action: "direct" }),
+      judgeRelevance: async () => ({ relevant: true }),
+      compress: async () => "Global answer.",
+      multiHop: async () => ({ followUps: [], trace: "" }),
+      suggestKbUpdate: async () => "",
+    },
+    webSearch: { search: async () => [] },
+  });
+  const tool = createSearchKnowledgeTool(service);
+
+  await tool.execute("c", { query: "what themes span the corpus?", scope: "global" }, undefined, undefined, {} as never);
+
+  assert.equal(seen[0]?.options?.scope, "global", "scope forwarded into answer()'s search options");
+});

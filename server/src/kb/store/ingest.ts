@@ -19,6 +19,7 @@ import type { RefinementChunk, RefinementEntity } from "../../agents/refine-docu
 import type { TextEmbedder } from "../embedding.js";
 import {
   CHUNK_LABEL,
+  CO_OCCURS_TYPE,
   DOCUMENT_LABEL,
   ENTITY_LABEL,
   ENTITY_RELATION_TYPE,
@@ -47,6 +48,12 @@ export interface Neo4jIngestOptions {
   /** Chunks embedded + written per batch (G4.S3.T8). Default 64 (the embedder's
    *  internal batch size), so one batch = one embed request + write-through. */
   batchSize?: number;
+  /** G4.S9.T3: derive weak CO_OCCURS edges between entities sharing chunks
+   *  after every ingest/overwrite. Default ON (config flag can disable). */
+  coOccurs?: boolean;
+  /** G4.S9.T3 blow-up guard: at most this many co-occurrence pairs are kept per
+   *  dense chunk (alphabetically-first, deterministic). Default 8. */
+  coOccursMaxPairsPerChunk?: number;
 }
 
 export interface Neo4jIngestProgress {
@@ -114,6 +121,34 @@ const DEFAULT_READ_CHUNKS: (chunksRef: string) => Promise<RefinementChunk[]> = a
 };
 
 /**
+ * G4.S9.T3 CO_OCCURS write: for each candidate pair (per-chunk capped by the
+ * JS derivation), skip pairs a RELATION edge already covers, then MERGE one
+ * canonical weak edge whose weight is recomputed from the GLOBAL mention state
+ * (shared-chunk count across ALL documents). Recomputing — not accumulating —
+ * keeps the operation idempotent under re-ingest/overwrite and self-healing
+ * after deletes.
+ */
+const WRITE_CO_OCCURS_CYPHER =
+  `UNWIND $pairs AS p\n` +
+  `MATCH (a:${ENTITY_LABEL} {nameUpper: p.source})\n` +
+  `MATCH (b:${ENTITY_LABEL} {nameUpper: p.target})\n` +
+  `WHERE a <> b\n` +
+  `  AND NOT EXISTS { MATCH (a)-[:${ENTITY_RELATION_TYPE}]-(b) }\n` +
+  `WITH a, b\n` +
+  `MATCH (a)-[:${MENTIONED_IN_TYPE}]->(c:${CHUNK_LABEL})<-[:${MENTIONED_IN_TYPE}]-(b)\n` +
+  `WITH a, b, count(c) AS weight\n` +
+  `MERGE (a)-[r:${CO_OCCURS_TYPE}]-(b)\n` +
+  `SET r.weight = weight`;
+
+/** G4.S9.T3 CO_OCCURS cleanup: drop edges no longer backed by shared chunks or
+ *  shadowed by a RELATION edge that appeared later. */
+const CLEAN_CO_OCCURS_CYPHER =
+  `MATCH (a:${ENTITY_LABEL})-[r:${CO_OCCURS_TYPE}]-(b:${ENTITY_LABEL})\n` +
+  `WHERE EXISTS { MATCH (a)-[:${ENTITY_RELATION_TYPE}]-(b) }\n` +
+  `   OR NOT EXISTS { MATCH (a)-[:${MENTIONED_IN_TYPE}]->(:${CHUNK_LABEL})<-[:${MENTIONED_IN_TYPE}]-(b) }\n` +
+  `DELETE r`;
+
+/**
  * Parse a chunk's `heading_path` into its heading segments (G4.S2.T11). The path
  * format is the refinement's heading chain, e.g. "Sommerseminar / Workshops" (or
  * legacy "# Alpha"); each segment is trimmed and any markdown heading markers
@@ -150,6 +185,64 @@ export function mentionPairs(
     }
   }
   return pairs;
+}
+
+/** Default per-chunk cap for CO_OCCURS pair derivation (dense-chunk blow-up guard). */
+export const DEFAULT_CO_OCCURS_MAX_PAIRS_PER_CHUNK = 8;
+
+export interface CoOccurrencePair {
+  /** Folded (nameUpper) endpoint — canonical edge direction a < b. */
+  source: string;
+  target: string;
+  /** Number of (post-cap) chunks where the two entities co-occur. */
+  weight: number;
+}
+
+/**
+ * G4.S9.T3: derive the weak CO_OCCURS candidate pairs from the mention scan
+ * (`mentionPairs` output). Entities mentioned in the SAME chunk are paired;
+ * `weight` counts the chunks they share. Dense chunks are capped at
+ * `maxPairsPerChunk` alphabetically-first pairs (deterministic, bounded fan-out).
+ * Names fold by casing only — two spellings of the same Entity node (e.g. a
+ * relation-endpoint create) collapse in the store write via `WHERE a <> b`.
+ * Pure + idempotent — the actual RELATION-skip and global weighting happen in
+ * the store write (`writeCoOccurrences`).
+ */
+export function coOccurrencePairs(
+  mentions: Array<{ entityName: string; chunkId: string }>,
+  options: { maxPairsPerChunk?: number } = {},
+): CoOccurrencePair[] {
+  const maxPairs = Math.max(0, options.maxPairsPerChunk ?? DEFAULT_CO_OCCURS_MAX_PAIRS_PER_CHUNK);
+
+  // Chunk → distinct folded entity names mentioned in it.
+  const byChunk = new Map<string, Set<string>>();
+  for (const mention of mentions) {
+    const name = mention.entityName.trim().toUpperCase();
+    if (!name) continue;
+    const set = byChunk.get(mention.chunkId) ?? new Set<string>();
+    set.add(name);
+    byChunk.set(mention.chunkId, set);
+  }
+
+  const weights = new Map<string, number>();
+  for (const names of byChunk.values()) {
+    const sorted = [...names].sort();
+    const pairs: Array<[string, string]> = [];
+    for (let i = 0; i < sorted.length; i += 1) {
+      for (let j = i + 1; j < sorted.length; j += 1) pairs.push([sorted[i]!, sorted[j]!]);
+    }
+    for (const [a, b] of pairs.slice(0, maxPairs)) {
+      const key = `${a}\u0000${b}`;
+      weights.set(key, (weights.get(key) ?? 0) + 1);
+    }
+  }
+
+  return [...weights.entries()]
+    .map(([key, weight]) => {
+      const [source, target] = key.split("\u0000");
+      return { source: source!, target: target!, weight };
+    })
+    .sort((a, b) => a.source.localeCompare(b.source) || a.target.localeCompare(b.target));
 }
 
 /**
@@ -203,6 +296,9 @@ export class Neo4jIngestService {
   private readonly readChunks: (chunksRef: string) => Promise<RefinementChunk[]>;
   private readonly applySchema: boolean;
   private readonly batchSize: number;
+  /** G4.S9.T3 config flag: CO_OCCURS edge derivation (default ON). */
+  private readonly coOccurs: boolean;
+  private readonly coOccursMaxPairsPerChunk: number;
 
   constructor(options: Neo4jIngestOptions) {
     this.driver = options.driver;
@@ -210,6 +306,11 @@ export class Neo4jIngestService {
     this.readChunks = options.readChunks ?? DEFAULT_READ_CHUNKS;
     this.applySchema = options.applySchema !== false;
     this.batchSize = options.batchSize ?? 64;
+    // Co-occurrence edges default ON (G4.S9 half-orphan mitigation); deployments
+    // disable via the KB_CO_OCCURS_ENABLED env wiring in app.ts.
+    this.coOccurs = options.coOccurs !== false;
+    this.coOccursMaxPairsPerChunk =
+      options.coOccursMaxPairsPerChunk ?? DEFAULT_CO_OCCURS_MAX_PAIRS_PER_CHUNK;
   }
 
   /**
@@ -374,6 +475,9 @@ export class Neo4jIngestService {
           { mentions },
         );
       }
+
+      // G4.S9.T3 weak co-occurrence edges from the fresh mention state.
+      await this.writeCoOccurrences(session, mentions);
 
       return {
         chunksStored: chunks.length,
@@ -600,6 +704,13 @@ export class Neo4jIngestService {
         );
       }
 
+      // G4.S9.T3: rebuild weak co-occurrence edges from the corrected mention
+      // state — the write recomputes global weights, the cleanup pass drops
+      // edges whose backing mentions vanished, BEFORE the orphan-entity sweep
+      // below (a lingering CO_OCCURS edge would otherwise keep a dead entity
+      // alive via `(e)--()`).
+      await this.writeCoOccurrences(session, mentions);
+
       // Stale graph cleanup: relations between entities that the (corrected)
       // corpus no longer mentions anywhere, and fully orphaned Entity nodes.
       await session.run(
@@ -725,6 +836,9 @@ export class Neo4jIngestService {
          DETACH DELETE e RETURN count(e) AS n`,
         {},
       );
+      // G4.S9.T3: drop weak co-occurrence edges that lost their backing chunks
+      // (their MENTIONED_IN edges died with the deleted subtree above).
+      await session.run(CLEAN_CO_OCCURS_CYPHER);
       const remaining = (await session.run(
         `MATCH (e:${ENTITY_LABEL}) RETURN count(e) AS total`,
       )) as { records?: Array<{ get(key: string): unknown }> };
@@ -866,6 +980,25 @@ export class Neo4jIngestService {
       relationsStored += n === undefined || n === null ? 1 : Number(n);
     }
     return { relationsStored, endpointEntitiesCreated, createdEndpoints };
+  }
+
+  /**
+   * G4.S9.T3: derive + write weak CO_OCCURS edges from the fresh mention scan.
+   * Candidates are per-chunk capped (`coOccursMaxPairsPerChunk`); the store
+   * write recomputes each pair's weight from the GLOBAL mention state (idempotent
+   * under re-ingest/overwrite) and skips RELATION-covered pairs; the cleanup
+   * pass drops unbacked/shadowed edges. Skipped entirely when the config flag
+   * is off or nothing is mentioned.
+   */
+  private async writeCoOccurrences(
+    session: Neo4jSessionLike,
+    mentions: Array<{ entityName: string; chunkId: string }>,
+  ): Promise<void> {
+    if (!this.coOccurs || mentions.length === 0) return;
+    const pairs = coOccurrencePairs(mentions, { maxPairsPerChunk: this.coOccursMaxPairsPerChunk });
+    if (pairs.length === 0) return;
+    await session.run(WRITE_CO_OCCURS_CYPHER, { pairs });
+    await session.run(CLEAN_CO_OCCURS_CYPHER);
   }
 
   /** Run a counting DETACH DELETE and return the removed-node count as a number. */

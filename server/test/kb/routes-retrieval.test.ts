@@ -346,3 +346,39 @@ test("retrieval route errors map to 500", async () => {
     await app.close();
   }
 });
+
+test("POST /api/kb/search forwards scope=global to the retrieval service", async () => {
+  const seen: Array<{ query: string; options?: { scope?: string } }> = [];
+  const retrieval = stubRetrieval({
+    search: (async (query: string, options?: { scope?: string }) => {
+      seen.push({ query, options });
+      return { query, results: [] };
+    }) as KnowledgeRetrievalService["search"],
+  });
+  const app = await appWith(retrieval);
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/search",
+      payload: { query: "corpus question", scope: "global" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(seen[0]?.options?.scope, "global");
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/kb/search rejects an invalid scope with 400", async () => {
+  const app = await appWith(stubRetrieval());
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/kb/search",
+      payload: { query: "x", scope: "weird" },
+    });
+    assert.equal(res.statusCode, 400);
+  } finally {
+    await app.close();
+  }
+});

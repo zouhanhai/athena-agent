@@ -105,7 +105,10 @@ export interface AgenticAnswer {
 
 export interface AgenticRetrievalServiceOptions {
   /** The underlying KB search (usually KnowledgeRetrievalService.search). */
-  search: (query: string, options?: { topic?: string; retriever?: AgenticRetriever }) => Promise<KnowledgeSearchResponse>;
+  search: (
+    query: string,
+    options?: { topic?: string; retriever?: AgenticRetriever; scope?: "local" | "global" },
+  ) => Promise<KnowledgeSearchResponse>;
   /** Known topic subtrees (G4.S3.T4) for the picker to converge on. */
   topics?: () => Promise<string[]>;
   /** Entity-relation graph provider for multi-hop reasoning (G4.S3.T7.5). */
@@ -184,9 +187,15 @@ export class AgenticRetrievalService {
     return this.judge !== undefined;
   }
 
-  async answer(query: string): Promise<AgenticAnswer> {
+  /**
+   * Answer a query through the pipeline. `options.scope` = "global" (G4.S9.T3)
+   * runs every search against the community-summary corpus path instead of the
+   * per-chunk fused search.
+   */
+  async answer(query: string, options: { scope?: "local" | "global" } = {}): Promise<AgenticAnswer> {
+    const scope = options.scope;
     if (!this.judge) {
-      const response = await this.search(query);
+      const response = await this.search(query, { ...(scope ? { scope } : {}) });
       return {
         query,
         answer: plainAnswer(query, response.results),
@@ -224,6 +233,7 @@ export class AgenticRetrievalService {
     const searchOptions = {
       ...(plan.topic ? { topic: plan.topic } : {}),
       ...(retriever !== "hybrid" ? { retriever } : {}),
+      ...(scope ? { scope } : {}),
     };
 
     // Decompose → run sub-queries in parallel and fuse; otherwise a single search.
@@ -261,6 +271,7 @@ export class AgenticRetrievalService {
             multiHop.followUps.map((fq) =>
               this.search(fq, {
                 ...(plan.topic ? { topic: plan.topic } : {}),
+                ...(scope ? { scope } : {}),
                 retriever: "graph",
               }),
             ),

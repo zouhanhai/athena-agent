@@ -241,15 +241,25 @@ export function createSearchKnowledgeTool(service: AgenticRetrievalService): Too
       "does not answer, says so explicitly and falls back to web search with a KB-update suggestion.",
     promptGuidelines: [
       "Use for knowledge-base questions that need retrieval + synthesis (processes, standards, concepts, entity relations).",
+      "Corpus-level questions (themes/topics spanning MANY documents, e.g. 'what events does CALEO organize?') → pass scope=\"global\" to search over community summaries; leave scope unset for ordinary per-document questions.",
       "When the answer says 'not found in the knowledge base', read the web-fallback + KB-update suggestion and follow up.",
       "If the result is a CLARIFICATION_REQUESTED, do NOT answer yet — the user must pick one of the options (or type an answer); re-run search_knowledge with the original question plus the user's choice once they reply.",
     ],
     parameters: Type.Object({
       query: Type.String(),
       topic: Type.Optional(Type.String()),
+      scope: Type.Optional(Type.Union([Type.Literal("local"), Type.Literal("global")])),
     }),
-    async execute(_toolCallId, params: { query: string; topic?: string }, _signal?, _onUpdate?, _ctx?) {
-      const answer = await service.answer(params.query);
+    async execute(
+      _toolCallId,
+      params: { query: string; topic?: string; scope?: "local" | "global" },
+      _signal?,
+      _onUpdate?,
+      _ctx?,
+    ) {
+      const answer = await service.answer(params.query, {
+        ...(params.scope ? { scope: params.scope } : {}),
+      });
       if (answer.needsClarification) {
         const clarification = {
           question: answer.answer,

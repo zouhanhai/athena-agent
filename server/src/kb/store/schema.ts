@@ -43,6 +43,11 @@ export const IS_DOCUMENT_TYPE = "IS_DOCUMENT";
  *  Lets the graph retriever fall through to the chunks that actually answer a query. */
 export const MENTIONED_IN_TYPE = "MENTIONED_IN";
 
+/** G4.S9.T3 weak co-occurrence edge between entities sharing chunks: derived
+ *  (never LLM-refined output), weight = number of shared chunks, skipped when a
+ *  RELATION edge already exists. Feeds community detection + graph expansion. */
+export const CO_OCCURS_TYPE = "CO_OCCURS";
+
 /** Neo4j HNSW cosine vector index over Chunk.embedding (qwen3-embedding-8b emits 4096-dim vectors). */
 export const EMBEDDING_DIMENSIONS = 4096;
 
@@ -56,6 +61,10 @@ export const CHUNK_TEXT_FTX = "chunk_text_ftx";
  *  then section summary → section, then chunks. */
 export const DOCUMENT_SUMMARY_FTX = "document_summary_ftx";
 export const SECTION_SUMMARY_FTX = "section_summary_ftx";
+/** G4.S9.T3 global query path: community summaries indexed for retrieval —
+ *  HNSW vector over Community.embedding + BM25 fulltext over summary + theme. */
+export const COMMUNITY_SUMMARY_EMBEDDING_INDEX = "community_summary_embedding_idx";
+export const COMMUNITY_SUMMARY_FTX = "community_summary_ftx";
 
 /** Q&A pair dedup (G4.S3.T5): a mirror of each stored Q&A pair carries its
  *  embedded question so a new question is vector-searched against the existing
@@ -98,6 +107,9 @@ export function storeSchemaStatements(): string[] {
     // HNSW cosine vector index over Q&A question embeddings (G4.S3.T5): the dedup
     // store searches it to decide insert-vs-update for a new question.
     `CREATE VECTOR INDEX ${QA_QUESTION_EMBEDDING_INDEX} IF NOT EXISTS FOR (n:${QA_PAIR_LABEL}) ON (n.question_embedding) OPTIONS { indexConfig: { \`vector.dimensions\`: ${EMBEDDING_DIMENSIONS}, \`vector.similarity_function\`: 'cosine' } }`,
+    // G4.S9.T3 global query path: HNSW vector index over Community.summary
+    // embeddings (written by the T2 summarizer with an embedder injected).
+    `CREATE VECTOR INDEX ${COMMUNITY_SUMMARY_EMBEDDING_INDEX} IF NOT EXISTS FOR (n:${COMMUNITY_LABEL}) ON (n.embedding) OPTIONS { indexConfig: { \`vector.dimensions\`: ${EMBEDDING_DIMENSIONS}, \`vector.similarity_function\`: 'cosine' } }`,
     // Folded canonical name -> exact case-insensitive lookup (nameUpper = toUpper(name)).
     `CREATE RANGE INDEX ${ENTITY_NAME_UPPER_INDEX} IF NOT EXISTS FOR (n:${ENTITY_LABEL}) ON (n.nameUpper)`,
     // Bilingual alias search: FULLTEXT over name + aliases folds case AND diacritics ("zentraler
@@ -110,6 +122,8 @@ export function storeSchemaStatements(): string[] {
     // then section summary → locate the section, then its chunks.
     `CREATE FULLTEXT INDEX ${DOCUMENT_SUMMARY_FTX} IF NOT EXISTS FOR (n:${DOCUMENT_LABEL}) ON EACH [n.summary]`,
     `CREATE FULLTEXT INDEX ${SECTION_SUMMARY_FTX} IF NOT EXISTS FOR (n:${SECTION_LABEL}) ON EACH [n.summary]`,
+    // G4.S9.T3 global query path: BM25 fulltext over community summaries + themes.
+    `CREATE FULLTEXT INDEX ${COMMUNITY_SUMMARY_FTX} IF NOT EXISTS FOR (n:${COMMUNITY_LABEL}) ON EACH [n.summary, n.theme]`,
   ];
 }
 
@@ -150,6 +164,8 @@ const INTENDED_INDEXES: IntendedIndex[] = [
   { name: CHUNK_TEXT_FTX, labels: [CHUNK_LABEL], properties: ["text"], type: "FULLTEXT" },
   { name: DOCUMENT_SUMMARY_FTX, labels: [DOCUMENT_LABEL], properties: ["summary"], type: "FULLTEXT" },
   { name: SECTION_SUMMARY_FTX, labels: [SECTION_LABEL], properties: ["summary"], type: "FULLTEXT" },
+  { name: COMMUNITY_SUMMARY_EMBEDDING_INDEX, labels: [COMMUNITY_LABEL], properties: ["embedding"], type: "VECTOR" },
+  { name: COMMUNITY_SUMMARY_FTX, labels: [COMMUNITY_LABEL], properties: ["summary", "theme"], type: "FULLTEXT" },
 ];
 
 function sameSet(a: string[], b: string[]): boolean {

@@ -40,6 +40,7 @@ interface FakeCommunity {
   membersHash?: string;
   memberCount?: number;
   updatedAt?: string;
+  embedding?: number[];
 }
 
 class FakeGraphStore {
@@ -315,6 +316,7 @@ class FakeGraphStore {
         community.summary = String(params!.summary);
         community.theme = String(params!.theme);
         community.updatedAt = String(params!.updatedAt);
+        if (params!.embedding !== undefined) community.embedding = params!.embedding as number[];
       }
       return Promise.resolve({ records: [] });
     }
@@ -591,6 +593,37 @@ test("the orphan-less invariant holds after refresh+sync: one MEMBER edge per en
     const hasEdge = [...store.memberEdges].some((e) => e.startsWith(`${id}\u0000`));
     assert.ok(hasEdge, `community ${id} still has members or was deleted`);
   }
+});
+
+test("sync embeds each freshly written summary onto the Community node (G4.S9.T3 global retrieval)", async () => {
+  const store = new FakeGraphStore();
+  const { caleoCommunityId, sapCommunityId } = await seedTwoClusters(store);
+  const embedded: string[] = [];
+  const service = new Neo4jCommunitySummaryService({
+    driver: store.driver(),
+    summarizer: mockSummarizer(
+      new Map([[caleoCommunityId, { summary: "CALEO organizes the Sommerseminar.", theme: "Events" }]]),
+      [],
+    ),
+    embedder: {
+      embed: async (texts) => texts.map((t) => {
+        embedded.push(t);
+        return [t.length, 1];
+      }),
+    },
+  });
+
+  const result = await service.sync();
+  assert.deepEqual(result.errors, []);
+  assert.ok(embedded.includes("CALEO organizes the Sommerseminar."), "summary text embedded");
+  assert.equal(embedded.length, 2, "one embed per freshly written summary");
+  const caleoWrite = store.communities.get(caleoCommunityId)!;
+  assert.deepEqual(caleoWrite.embedding, [caleoWrite.summary!.length, 1], "embedding stored on the node");
+
+  // Unchanged second sync: no re-embed (no token burn).
+  const second = await service.sync();
+  assert.deepEqual(second.summarized, []);
+  assert.equal(embedded.length, 2, "unchanged communities are not re-embedded");
 });
 
 test("LLM failures degrade without throwing and are retried on the next sync", async () => {

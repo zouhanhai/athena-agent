@@ -345,6 +345,9 @@ export function defaultNeo4jIngest(): Neo4jIngestService | undefined {
   return new Neo4jIngestService({
     driver,
     embedder: new OpenRouterEmbedder(),
+    // G4.S9.T3: weak CO_OCCURS edges default ON; KB_CO_OCCURS_ENABLED=false
+    // disables derivation entirely (legacy graphs / opt-out).
+    coOccurs: process.env.KB_CO_OCCURS_ENABLED !== "false",
   });
 }
 
@@ -366,7 +369,12 @@ export function defaultCommunityService(): Neo4jCommunityService | undefined {
 export function defaultCommunitySummaryService(): Neo4jCommunitySummaryService | undefined {
   const driver = defaultNeo4jDriver();
   if (!driver) return undefined;
-  return new Neo4jCommunitySummaryService({ driver });
+  return new Neo4jCommunitySummaryService({
+    driver,
+    // G4.S9.T3: embed fresh summaries onto the Community nodes so the global
+    // query path can vector-match them (BM25 works without embeddings).
+    ...(process.env.EMBEDDING_OPENROUTER_KEY ? { embedder: new OpenRouterEmbedder() } : {}),
+  });
 }
 
 export function defaultAgentRegistry(): AgentRegistry {

@@ -31,6 +31,7 @@
 import { createHash } from "node:crypto";
 import { callOpenRouter } from "../../agents/llm-direct.js";
 import { refineReasoningFor } from "../../agents/refine-reasoning.js";
+import type { TextEmbedder } from "../embedding.js";
 import {
   canonicalMembershipKey,
 } from "./community.js";
@@ -256,6 +257,11 @@ const WRITE_SUMMARY_CYPHER =
   `MATCH (c:${COMMUNITY_LABEL} {id: $id})\n` +
   `SET c.summary = $summary, c.theme = $theme, c.updated_at = $updatedAt`;
 
+/** G4.S9.T3: same write with the summary embedding for the global vector index. */
+const WRITE_SUMMARY_EMBEDDED_CYPHER =
+  `MATCH (c:${COMMUNITY_LABEL} {id: $id})\n` +
+  `SET c.summary = $summary, c.theme = $theme, c.updated_at = $updatedAt, c.embedding = $embedding`;
+
 function recordGet(record: unknown, key: string): unknown {
   return (record as { get?: (key: string) => unknown }).get?.(key);
 }
@@ -293,6 +299,10 @@ export class Neo4jCommunitySummaryService {
   private readonly driver: Neo4jDriverLike;
   private readonly summarizer: CommunitySummarizer;
   private readonly promptCaps: Required<CommunityPromptCaps>;
+  /** G4.S9.T3: when set, each freshly written summary is embedded onto the
+   *  Community node so the global query path can vector-match it. Absent →
+   *  summaries stay un-embedded (BM25-only retrieval, no regression). */
+  private readonly embedder?: TextEmbedder;
 
   constructor(options: {
     driver: Neo4jDriverLike;
@@ -301,6 +311,8 @@ export class Neo4jCommunitySummaryService {
     /** Context caps for huge communities (prompt truncation, not data loss). */
     maxMembersInPrompt?: number;
     maxRelationsInPrompt?: number;
+    /** Embeds new summary texts for the community-summary vector index (G4.S9.T3). */
+    embedder?: TextEmbedder;
   }) {
     this.driver = options.driver;
     this.summarizer = options.summarizer ?? defaultCommunitySummarizer();
@@ -308,6 +320,7 @@ export class Neo4jCommunitySummaryService {
       maxMembers: options.maxMembersInPrompt ?? 60,
       maxRelations: options.maxRelationsInPrompt ?? 80,
     };
+    this.embedder = options.embedder;
   }
 
   /** One refresh pass. Resolves even when individual LLM calls fail. */
@@ -505,7 +518,23 @@ export class Neo4jCommunitySummaryService {
   private async writeSummary(id: string, summary: string, theme: string): Promise<void> {
     const session = this.driver.session();
     try {
-      await session.run(WRITE_SUMMARY_CYPHER, { id, summary, theme, updatedAt: new Date().toISOString() });
+      // G4.S9.T3: embed the summary text alongside the write so the global
+      // query path can vector-match it. Best-effort — an embedder failure must
+      // not lose the freshly generated summary (BM25 retrieval still works).
+      let embedding: number[] | undefined;
+      if (this.embedder) {
+        try {
+          embedding = (await this.embedder.embed([summary]))[0] ?? [];
+        } catch (err) {
+          console.error(
+            `[kb:community-summary] embed ${id} failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      await session.run(
+        embedding !== undefined ? WRITE_SUMMARY_EMBEDDED_CYPHER : WRITE_SUMMARY_CYPHER,
+        { id, summary, theme, updatedAt: new Date().toISOString(), ...(embedding !== undefined ? { embedding } : {}) },
+      );
     } finally {
       await session.close();
     }

@@ -824,3 +824,58 @@ test("search omits qaReference when no stored question is similar", async () => 
   const result = await service.search("public transport timetables");
   assert.equal(result.qaReference, undefined);
 });
+
+test("scope=global routes the query through the Neo4j global path and skips llm_wiki keywords", async () => {
+  const searched: Array<{ query: string; options?: { scope?: string } }> = [];
+  const neo4j = {
+    search: async (query: string, options?: { scope?: string }) => {
+      searched.push({ query, options });
+      return {
+        query,
+        hits: [
+          {
+            id: "c_caleo",
+            text: "CALEO organizes the Sommerseminar and C-Day.",
+            source: "vector" as const,
+            score: 0.9,
+            communityId: "c_caleo",
+            topic: "CALEO events",
+          },
+          { id: "d1:c1", text: "grounded chunk", source: "graph" as const, score: 1 },
+        ],
+      };
+    },
+    toolsSearch: async () => ({ query: "", hits: [] }),
+    getGraph: async () => ({ nodes: [], edges: [] }),
+  } as unknown as Neo4jRetrievalService;
+  const wikiSearched: string[] = [];
+  const service = makeService({
+    neo4j,
+    llmwiki: { search: async (q: string) => { wikiSearched.push(q); return { results: [] }; } },
+  });
+
+  const result = await service.search("what does CALEO organize?", { scope: "global" });
+
+  assert.equal(searched.length, 1);
+  assert.equal(searched[0]!.options?.scope, "global", "scope forwarded to the Neo4j store");
+  assert.deepEqual(wikiSearched, [], "global scope does not run the llm_wiki keyword source");
+  const summary = result.results.find((r) => r.title.includes("CALEO events"));
+  assert.ok(summary, "community summary mapped with a readable title");
+});
+
+test("default search keeps local behavior — no scope forwarded to the store", async () => {
+  const searched: Array<{ options?: { scope?: string } }> = [];
+  const neo4j = {
+    search: async (_query: string, options?: { scope?: string }) => {
+      searched.push({ options });
+      return { query: "", hits: [] };
+    },
+    toolsSearch: async () => ({ query: "", hits: [] }),
+    getGraph: async () => ({ nodes: [], edges: [] }),
+  } as unknown as Neo4jRetrievalService;
+  const service = makeService({ neo4j });
+
+  await service.search("bus");
+
+  assert.equal(searched[0]!.options?.scope, undefined);
+});

@@ -385,11 +385,37 @@ export class KnowledgeRetrievalService {
    */
   async search(
     query: string,
-    options: { topic?: string; retriever?: RetrieverName } = {},
+    options: { topic?: string; retriever?: RetrieverName; scope?: "local" | "global" } = {},
   ): Promise<KnowledgeSearchResponse> {
     const expandedQuery = await this.expandQuery(query);
     const results: KnowledgeSearchResult[] = [];
     const project = await this.resolveProject();
+
+    // G4.S9.T3 global scope: corpus-level QA over community summaries + member
+    // chunks. Runs ONLY the Neo4j global path — llm_wiki keyword hits are a
+    // document-level source that would pollute the corpus-level answer.
+    if (options.scope === "global") {
+      if (!this.neo4j) {
+        return { query, results };
+      }
+      const global = await this.neo4j.search(expandedQuery, {
+        scope: "global",
+        topK: 5,
+        ...(options.retriever ? { retriever: options.retriever } : {}),
+      });
+      for (const hit of global.hits) {
+        results.push(mapNeo4jHit(hit));
+      }
+      await this.trackSurfacePages(results);
+      const qaReference = this.qa ? await this.qa.findReference(query).catch(() => undefined) : undefined;
+      return {
+        query,
+        ...(expandedQuery !== query ? { expandedQuery } : {}),
+        results,
+        ...(qaReference ? { qaReference } : {}),
+      };
+    }
+
     const scope = options.topic ? await this.loadScope(options.topic, project.id) : undefined;
     const [neo4jResult, wiki] = await Promise.allSettled([
       this.neo4j
@@ -542,12 +568,17 @@ function mapWikiHit(hit: LlmWikiSearchResult): KnowledgeSearchResult {
 
 /** Map a Neo4j fused-retrieval hit to the frontend search result shape (G4.S2.T5/T11).
  *  Graph hits are now chunk hits (G4.S2.T14): `related` holds the entity + neighbors
- *  context, so the title shows "Entity → neighbor, …" instead of the chunk id. */
+ *  context, so the title shows "Entity → neighbor, …" instead of the chunk id.
+ *  G4.S9.T3: community-summary hits (global scope) title from their theme. */
 function mapNeo4jHit(hit: Neo4jSearchHit): KnowledgeSearchResult {
   const title =
-    hit.source === "graph" && hit.related?.length
-      ? `${hit.related[0]}${hit.related.length > 1 ? ` → ${hit.related.slice(1).join(", ")}` : ""}`
-      : hit.id;
+    hit.communityId !== undefined
+      ? hit.topic
+        ? `Community: ${hit.topic}`
+        : `Community ${hit.communityId}`
+      : hit.source === "graph" && hit.related?.length
+        ? `${hit.related[0]}${hit.related.length > 1 ? ` → ${hit.related.slice(1).join(", ")}` : ""}`
+        : hit.id;
   return {
     source: "neo4j",
     title,

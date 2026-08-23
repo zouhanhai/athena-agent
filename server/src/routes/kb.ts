@@ -39,6 +39,9 @@ export interface KbSearchBody {
   query?: unknown;
   /** Optional topic scope: converges retrieval to a document domain (G4.S2.T5). */
   topic?: unknown;
+  /** G4.S9.T3: "global" answers corpus-level questions over community summaries;
+   *  default "local" keeps the fused per-chunk search. */
+  scope?: unknown;
 }
 
 export interface KbUrlBody {
@@ -1042,10 +1045,19 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     if (typeof body.query !== "string" || body.query.trim().length === 0) {
       return reply.code(400).send({ error: "query is required" });
     }
+    // G4.S9.T3: scope selects the retrieval path — "local" (default, unchanged)
+    // or "global" (community-summary corpus QA).
+    const rawScope = typeof body.scope === "string" ? body.scope.trim().toLowerCase() : undefined;
+    if (rawScope !== undefined && rawScope !== "local" && rawScope !== "global") {
+      return reply.code(400).send({ error: 'scope must be "local" or "global"' });
+    }
     try {
       const topic =
         typeof body.topic === "string" && body.topic.trim().length > 0 ? body.topic.trim() : undefined;
-      return await options.retrieval!.search(body.query.trim(), { ...(topic ? { topic } : {}) });
+      return await options.retrieval!.search(body.query.trim(), {
+        ...(topic ? { topic } : {}),
+        ...(rawScope ? { scope: rawScope as "local" | "global" } : {}),
+      });
     } catch (err) {
       return reply
         .code(500)
