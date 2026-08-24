@@ -362,7 +362,8 @@ const READ_EDGES_CYPHER =
 const CO_MENTION_CYPHER =
   `MATCH (a:${ENTITY_LABEL})-[:MENTIONED_IN]->(c:Chunk)<-[:MENTIONED_IN]-(b:${ENTITY_LABEL})\n` +
   `WHERE a.nameUpper < b.nameUpper\n` +
-  `RETURN a.nameUpper AS source, b.nameUpper AS target, count(c) AS weight`;
+  `RETURN a.nameUpper AS source, b.nameUpper AS target, count(c) AS weight,\n` +
+  `       a.community_id AS sourceCommunity, b.community_id AS targetCommunity`;
 
 const WRITE_MEMBERSHIPS_CYPHER =
   `UNWIND $memberships AS m\n` +
