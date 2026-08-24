@@ -77,6 +77,13 @@ export type WikiEditRefiner = (
     type?: string;
     /** Existing frontmatter topic (preserved through the diff-refine). */
     topic?: string;
+    /** Upload/page file name for stem derivation when the body has no h1. */
+    fileName?: string;
+    /**
+     * G4.S10.T4: the edited page's wiki path — the refiner reads the
+     * document's current graph entities as the KNOWN ENTITIES baseline.
+     */
+    wikiPath?: string;
   },
 ) => Promise<WikiEditRefineResult>;
 
@@ -1094,6 +1101,9 @@ export class IngestTaskQueue {
             structural: save.structural,
             ...(save.type ? { type: save.type } : {}),
             ...(save.topic ? { topic: save.topic } : {}),
+            // G4.S10.T4: the refiner reads the page's current graph entities
+            // (KNOWN ENTITIES baseline) for the delta-grounded refine.
+            wikiPath: save.path,
           });
           this.patch(id, (t) => {
             t.refinedMarkdown = result.markdown;

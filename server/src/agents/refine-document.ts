@@ -42,6 +42,7 @@ import {
   type EntityLinker,
   type LinkNewEdge,
 } from "../kb/link/link-engine.js";
+import { WIKI_KNOWN_ENTITIES_CAP, type KnownEntity } from "../kb/store/wiki-baseline.js";
 import {
   HEADER_RELEVEL_BATCH_SIZE,
   applyPatches,
@@ -235,6 +236,12 @@ export interface RefinedDocument {
   patchReport?: PatchApplyReport;
   /** G4.S10.T1 LINK stage output — cross-document edges decided against the existing graph. */
   link_edges?: LinkNewEdge[];
+  /**
+   * G4.S10.T4: baseline renames applied by the wiki-edit delta resolution
+   * ({from → to}); transported on the ref so the Neo4j overwrite renames the
+   * graph node in place. Absent outside the wiki-edit path.
+   */
+  entity_renames?: EntityRenameRef[];
 }
 
 /**
@@ -1992,6 +1999,38 @@ export interface WikiEditRefineInput {
   diff: string;
   /** Whether the diff touched heading structure (forces a re-chunk decision). */
   structural: boolean;
+  /**
+   * G4.S10.T4 KNOWN ENTITIES baseline — this document's CURRENT entities as
+   * read from the graph (wikiPath → Document, capped at 100). The refine emits
+   * only a DELTA over this baseline; unmentioned entities are implicitly kept.
+   */
+  known_entities?: KnownEntity[];
+}
+
+/**
+ * G4.S10.T4 — one baseline→new-name rename in the wiki-edit delta contract.
+ * `type_match` reports whether the model kept the entity's baseline type
+ * (a false value is a soft signal for the audit); `reason` grounds the decision.
+ */
+export interface WikiEditRename {
+  from: string;
+  to: string;
+  type_match?: boolean;
+  reason?: string;
+}
+
+/** The raw ENTITY DELTA the wiki-edit refine emits over the KNOWN ENTITIES baseline. */
+export interface WikiEditDelta {
+  renames: WikiEditRename[];
+  added: RefinementEntity[];
+  removed: string[];
+  changed_relations: RefinementRelation[];
+}
+
+/** A rename that actually applied during resolution — transported to the store so overwrite renames the GRAPH node in place (keeping source_docs/mentions/relations). */
+export interface EntityRenameRef {
+  from: string;
+  to: string;
 }
 
 /** The incremental wiki-edit refinement output contract: RefinedDocument + what the edit introduced. */
@@ -2002,7 +2041,30 @@ export interface WikiEditRefinement extends RefinedDocument {
   new_relations: RefinementRelation[];
   /** Whether the model decided re-chunking was required (structural/large edit). */
   rechunked: boolean;
+  /**
+   * G4.S10.T4: baseline renames applied during resolution. Flows through the
+   * stored ref into the Neo4j overwrite, which renames the EXISTING graph node
+   * in place — retaining its source_docs, MENTIONED_IN edges and relations —
+   * instead of orphaning the old node and creating a fresh disconnected one.
+   */
+  entity_renames?: EntityRenameRef[];
 }
+
+/** One entity entry of the wiki-edit delta contract (added / legacy full list). */
+const WIKI_EDIT_ENTITY_SCHEMA = Type.Object({
+  name: Type.String(),
+  type: ENTITY_TYPE_SCHEMA,
+  description: Type.String(),
+  aliases: Type.Optional(Type.Array(Type.String())),
+});
+
+/** One relation entry (changed_relations / legacy lists). */
+const WIKI_EDIT_RELATION_SCHEMA = Type.Object({
+  source: Type.String(),
+  target: Type.String(),
+  keywords: Type.Array(Type.String()),
+  description: Type.String(),
+});
 
 /** JSON schema (TypeBox) of the wiki-edit refine output — constrained emit tool params. */
 export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
@@ -2031,44 +2093,34 @@ export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
       }),
     ),
   ),
-  entities: Type.Array(
+  // G4.S10.T4 DELTA-OVER-BASELINE entity contract: the prompt carries the
+  // document's KNOWN ENTITIES as the baseline; the model does NOT re-emit the
+  // full entity list — only what CHANGED against it. Entities not mentioned
+  // are implicitly kept.
+  renames: Type.Array(
     Type.Object({
-      name: Type.String(),
-      type: ENTITY_TYPE_SCHEMA,
-      description: Type.String(),
-      aliases: Type.Optional(Type.Array(Type.String())),
+      from: Type.String(),
+      to: Type.String(),
+      type_match: Type.Optional(Type.Boolean()),
+      reason: Type.Optional(Type.String()),
     }),
   ),
-  relations: Type.Array(
-    Type.Object({
-      source: Type.String(),
-      target: Type.String(),
-      keywords: Type.Array(Type.String()),
-      description: Type.String(),
-    }),
-  ),
+  added: Type.Array(WIKI_EDIT_ENTITY_SCHEMA),
+  removed: Type.Array(Type.String()),
+  changed_relations: Type.Array(WIKI_EDIT_RELATION_SCHEMA),
   keywords: Type.Array(Type.String()),
-  new_entities: Type.Array(
-    Type.Object({
-      name: Type.String(),
-      type: ENTITY_TYPE_SCHEMA,
-      description: Type.String(),
-      aliases: Type.Optional(Type.Array(Type.String())),
-    }),
-  ),
-  new_relations: Type.Array(
-    Type.Object({
-      source: Type.String(),
-      target: Type.String(),
-      keywords: Type.Array(Type.String()),
-      description: Type.String(),
-    }),
-  ),
   rechunked: Type.Boolean(),
   quality: QUALITY_SCHEMA,
+  // Legacy tolerance: a model trained on the pre-T4 full-list shape may answer
+  // with entities/relations(/new_*) instead of the delta fields. Accepted so
+  // resolution can union them over the baseline instead of failing the call.
+  entities: Type.Optional(Type.Array(WIKI_EDIT_ENTITY_SCHEMA)),
+  relations: Type.Optional(Type.Array(WIKI_EDIT_RELATION_SCHEMA)),
+  new_entities: Type.Optional(Type.Array(WIKI_EDIT_ENTITY_SCHEMA)),
+  new_relations: Type.Optional(Type.Array(WIKI_EDIT_RELATION_SCHEMA)),
 });
 
-/** The incremental wiki-edit refine system prompt (G4.S3.T10). */
+/** The incremental wiki-edit refine system prompt (G4.S3.T10; G4.S10.T4 delta-over-baseline). */
 export const WIKI_EDIT_REFINE_SYSTEM_PROMPT = `You are Athena, the INCREMENTAL wiki-edit refine pass of the athena KB (G4.S3.T10).
 
 A user manually corrected a wiki page — typically fixing a VLM/OCR mis-description in an image
@@ -2079,23 +2131,49 @@ You receive (in the user message):
   - CORRECTED markdown — the user's edit is the SOURCE OF TRUTH;
   - the PREVIOUS version of the page;
   - the DIFF showing exactly what changed (before -> after);
-  - whether the change was STRUCTURAL (headings added/removed/renamed).
+  - whether the change was STRUCTURAL (headings added/removed/renamed);
+  - KNOWN ENTITIES — this document's CURRENT entity set already stored in the knowledge graph
+    (the BASELINE), when the page was ingested before.
 
 RULES:
 1. DO NOT re-emit the corrected markdown — the caller already HAS it verbatim and uses it as the
-   source of truth. Output ONLY the EXTRACTION fields below. Never dump the document text.
+   source of truth. Output ONLY the extraction fields below. Never dump the document text.
 2. The correction is INTENTIONAL. Do NOT "fix it back" to the previous version.
-3. Compare before vs after using the DIFF. Detect every NEW entity and NEW relation the correction
-   introduces and list them in new_entities / new_relations (each must ALSO appear in the full
-   entities / relations list).
-4. Re-derive the corrected document's FULL entities, relations, keywords. For chunks: only when the
-   edit was STRUCTURAL (heading added/removed/renamed) or a large rewrite set rechunked=true; a
-   localized edit inside one section sets rechunked=false (the caller reuses its chunk boundaries).
-5. Reuse the existing type/topic when the edit did not change the document's classification.
+3. KNOWN ENTITIES is TRUSTED BASELINE: every baseline entity you do NOT mention is KEPT AS IS
+   (implicit keep). NEVER re-emit unchanged baseline entities — re-emitting invites drift, and a
+   dropped baseline entity would orphan a real graph node.
+4. Emit ONLY the ENTITY DELTA vs that baseline:
+   - renames: a baseline entity whose NAME changed in this edit ({from, to, type_match, reason});
+     keep its type unless the correction really changed what the thing is;
+   - added: genuinely NEW entities the edit introduces;
+   - removed: baseline entities the edit truly deleted from the text — a name (or alias) still
+     present anywhere in the CORRECTED markdown is NEVER removed;
+   - changed_relations: ONLY relations touching renamed/added entities or otherwise affected by
+     the edit.
+5. Re-derive summary/sections/frontmatter/keywords as usual. For chunks: only when the edit was
+   STRUCTURAL or a large rewrite set rechunked=true; a localized edit inside one section sets
+   rechunked=false (the caller reuses its chunk boundaries).
 6. Quality-check the corrected document as usual (completeness, confidence, issues, action).
 
-Emit ONLY the JSON object with the extraction fields (summary, sections, frontmatter, entities,
-relations, keywords, new_entities, new_relations, rechunked, quality) — do not include the markdown.`;
+Emit ONLY the JSON object with: summary, sections, frontmatter, renames, added, removed,
+changed_relations, keywords, rechunked, quality — do NOT include the markdown and do NOT re-emit
+the baseline entity list.`;
+
+/** Render the KNOWN ENTITIES baseline block for the wiki-edit prompt (capped). */
+export function formatKnownEntitiesBlock(knownEntities: KnownEntity[] | undefined): string {
+  const capped = (knownEntities ?? []).slice(0, WIKI_KNOWN_ENTITIES_CAP);
+  if (capped.length === 0) return "(none recorded for this page yet)";
+  return capped
+    .map((entity) => {
+      const description = entity.description?.replace(/\s+/g, " ").trim();
+      const aliases = (entity.aliases ?? []).filter((alias) => alias.trim().length > 0);
+      const parts = [`- ${entity.name} (${entity.type})`];
+      if (description) parts.push(` — ${description.slice(0, 160)}`);
+      if (aliases.length > 0) parts.push(` [aliases: ${aliases.slice(0, 6).join(", ")}]`);
+      return parts.join("");
+    })
+    .join("\n");
+}
 
 /** Build the user prompt for the incremental wiki-edit refine pass. */
 export function buildWikiEditRefinePrompt(
@@ -2106,7 +2184,7 @@ export function buildWikiEditRefinePrompt(
   const retryNudge =
     attempt === 1
       ? ""
-      : `\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_wiki_edit_refinement tool call carrying the COMPLETE corrected document.`;
+      : `\n\n[retry ${attempt - 1}] Your previous response was not usable. Respond with ONLY the emit_wiki_edit_refinement tool call carrying the COMPLETE delta.`;
   return `A user corrected this wiki page. The CORRECTED markdown is the source of truth — preserve it VERBATIM.
 
 ## CORRECTED markdown (preserve verbatim)
@@ -2123,12 +2201,18 @@ ${input.diff || "(no textual change detected)"}
 ${existing?.type ? `- existing type: ${existing.type}` : ""}
 ${existing?.topic ? `- existing topic: ${existing.topic}` : ""}
 
-Emit ONLY the EXTRACTION fields: summary, sections, frontmatter, entities, relations, keywords,
-new_entities / new_relations (what the correction introduces), rechunked, quality. Do NOT re-emit
-the markdown — the caller already holds it verbatim and uses it as the source of truth.${retryNudge}`;
+## KNOWN ENTITIES (baseline — this document's current graph entities)
+These are the BASELINE. Do NOT re-emit them. They are implicitly KEPT unless you rename or remove
+them below; emit only changes against this baseline.
+
+${formatKnownEntitiesBlock(input.known_entities)}
+
+Emit ONLY the EXTRACTION fields: summary, sections, frontmatter, renames / added / removed /
+changed_relations (the delta vs KNOWN ENTITIES), keywords, rechunked, quality. Do NOT re-emit the
+markdown and do NOT re-emit the baseline entity list — unmentioned entities are kept as is.${retryNudge}`;
 }
 
-/** Coerce a parsed wiki-edit refine payload into the contract (JSON-string args accepted). */
+/** Coerce a parsed wiki-edit refine payload into the delta contract (JSON-string args accepted). */
 
 /** Union two entity lists by name (new wins for fields, keyed on normalized name). */
 function unionEntities(
@@ -2157,38 +2241,221 @@ function unionRelations(
   return [...seen.values()];
 }
 
-export function normalizeWikiEditRefinement(raw: unknown): WikiEditRefinement {
+/**
+ * G4.S10.T4: normalize the raw LLM payload into the ENTITY DELTA shape
+ * ({renames, added, removed, changed_relations}). Legacy full-list fields
+ * (`entities` / `relations` / `new_*`) are tolerated downstream by
+ * resolveWikiEditRefinement's union, NOT folded in here.
+ */
+export function normalizeWikiEditDelta(raw: unknown): WikiEditDelta {
   const args: Record<string, unknown> =
     typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
-  // DELTA mode (G4.8): the model emits extraction fields only; the corrected
-  // markdown is re-pinned by the caller (refiner.ts) from input.markdown.
+  const renames = Array.isArray(args.renames)
+    ? args.renames
+        .filter(isRecord)
+        .map((r) => ({
+          from: String(r.from ?? ""),
+          to: String(r.to ?? ""),
+          ...(typeof r.type_match === "boolean" ? { type_match: r.type_match } : {}),
+          ...(typeof r.reason === "string" && r.reason.trim() ? { reason: r.reason.trim() } : {}),
+        }))
+        .filter((r) => r.from.trim() && r.to.trim())
+    : [];
+  return {
+    renames,
+    added: normalizeEntityList(args.added),
+    removed: Array.isArray(args.removed)
+      ? args.removed.map((name) => String(name)).filter((name) => name.trim().length > 0)
+      : [],
+    changed_relations: normalizeRelationList(args.changed_relations),
+  };
+}
+
+/**
+ * G4.S10.T4 core resolution: apply the entity DELTA over the KNOWN ENTITIES
+ * baseline. Pure. Semantics:
+ *   - UNMENTIONED baseline entities are implicitly KEPT with all their fields —
+ *     an LLM omission can no longer orphan a real graph node;
+ *   - renames update the entity's name and record the old name as an alias
+ *     (type/description preserved); only renames that hit the working set apply;
+ *   - added entities merge into the set (aliases unioned, never duplicated);
+ *   - removed drops an entity ONLY when neither its name nor any alias occurs
+ *     in the corrected text — a hallucinated removal cannot delete a real node;
+ *   - changed_relations become the document's relations, endpoints following
+ *     the rename map.
+ * Returns the FULL entity/relation set for downstream storage plus the applied
+ * renames (transported to the Neo4j overwrite for in-place graph renames).
+ */
+export function applyWikiEditDelta(
+  baseline: RefinementEntity[],
+  delta: WikiEditDelta,
+  newText: string,
+): { entities: RefinementEntity[]; relations: RefinementRelation[]; renames: EntityRenameRef[] } {
+  const entities: RefinementEntity[] = baseline.map((entity) => ({
+    ...entity,
+    ...(entity.aliases ? { aliases: [...entity.aliases] } : {}),
+  }));
+  const byFoldedName = new Map<string, RefinementEntity>();
+  for (const entity of entities) byFoldedName.set(normalizedEntityName(entity.name), entity);
+  const haystack = newText.toLowerCase();
+
+  const renameMap = new Map<string, string>();
+  const appliedRenames: EntityRenameRef[] = [];
+  const orphanedRenameTargets: WikiEditRename[] = [];
+  for (const rename of delta.renames) {
+    const target = byFoldedName.get(normalizedEntityName(rename.from));
+    if (!target || normalizedEntityName(rename.from) === normalizedEntityName(rename.to)) {
+      // No baseline node under `from` (baseline-less refine / reader degraded):
+      // remember the target — if it genuinely occurs in the corrected text it
+      // becomes an ADD below, so the new identity never silently disappears.
+      orphanedRenameTargets.push(rename);
+      continue;
+    }
+    // Old name becomes an alias: partial renames elsewhere in the page keep
+    // their mention edges, and LINK's alias lane keeps resolving both forms.
+    target.aliases = [
+      ...new Set([...(target.aliases ?? []), rename.from]).values(),
+    ].filter((alias) => alias.toUpperCase() !== rename.to.toUpperCase());
+    byFoldedName.delete(normalizedEntityName(rename.from));
+    target.name = rename.to;
+    byFoldedName.set(normalizedEntityName(rename.to), target);
+    renameMap.set(rename.from.toUpperCase(), rename.to);
+    appliedRenames.push({ from: rename.from, to: rename.to });
+  }
+
+  // Added entities merge over the set (baseline identity wins the slot; the
+  // add refreshes fields + unions aliases so nothing is duplicated).
+  for (const added of delta.added) {
+    if (!added.name.trim()) continue;
+    const existing = byFoldedName.get(normalizedEntityName(added.name));
+    if (!existing) {
+      const created: RefinementEntity = {
+        ...added,
+        aliases: added.aliases ? [...added.aliases] : [],
+      };
+      entities.push(created);
+      byFoldedName.set(normalizedEntityName(created.name), created);
+      continue;
+    }
+    existing.type = added.type || existing.type;
+    if (added.description.trim()) existing.description = added.description;
+    existing.aliases = [
+      ...new Set([...(existing.aliases ?? []), ...(added.aliases ?? [])]).values(),
+    ].filter((alias) => alias.toUpperCase() !== existing.name.toUpperCase());
+  }
+
+  // Renames whose baseline node was missing degrade to text-grounded ADDs:
+  // only when the target name really occurs in the corrected text (otherwise
+  // the rename was a hallucination and is dropped entirely).
+  for (const orphaned of orphanedRenameTargets) {
+    const foldedTo = normalizedEntityName(orphaned.to);
+    if (!foldedTo || byFoldedName.has(foldedTo)) continue;
+    if (!haystack.includes(orphaned.to.toLowerCase())) continue;
+    const created: RefinementEntity = { name: orphaned.to, type: "other", description: "", aliases: [] };
+    entities.push(created);
+    byFoldedName.set(foldedTo, created);
+  }
+
+  // Removal guard: drop ONLY entities truly absent from the corrected text
+  // (name AND aliases checked case-insensitively).
+  const removedKeys = new Set(
+    delta.removed.map((name) => normalizedEntityName(name)),
+  );
+  const kept =
+    removedKeys.size === 0
+      ? entities
+      : entities.filter((entity) => {
+          if (!removedKeys.has(normalizedEntityName(entity.name))) return true;
+          const terms = [entity.name, ...(entity.aliases ?? [])]
+            .map((term) => term.toLowerCase())
+            .filter((term) => term.length > 0);
+          const stillPresent = terms.some((term) => haystack.includes(term));
+          return stillPresent;
+        });
+
+  const reroute = (name: string): string => renameMap.get(name.toUpperCase()) ?? name;
+  const relations = delta.changed_relations.map((relation) => ({
+    ...relation,
+    source: reroute(relation.source),
+    target: reroute(relation.target),
+  }));
+
+  return { entities: kept, relations, renames: appliedRenames };
+}
+
+/**
+ * G4.S10.T4: full wiki-edit refinement resolution — normalize the raw payload,
+ * apply the entity delta over the KNOWN ENTITIES baseline, and union any LEGACY
+ * full-list fields a lenient model re-emitted (they describe real extractions
+ * too). Produces the resolved RefinedDocument-shaped refinement the rest of
+ * the pipeline (ref storage → audit → overwrite) consumes unchanged.
+ */
+export function resolveWikiEditRefinement(
+  raw: unknown,
+  baseline: RefinementEntity[],
+  correctedMarkdown: string,
+): WikiEditRefinement {
+  const args: Record<string, unknown> =
+    typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : ((raw ?? {}) as Record<string, unknown>);
   const base = normalizeRefinedDocument(args, { allowMissingMarkdown: true });
-  const newEntities = normalizeEntityList(args.new_entities);
-  const newRelations = normalizeRelationList(args.new_relations);
+  const delta = normalizeWikiEditDelta(args);
+  const resolved = applyWikiEditDelta(baseline, delta, correctedMarkdown);
+
+  // Legacy tolerance: a model answering in the pre-T4 full-list shape carries
+  // real extraction under entities/relations(/new_*) — union them over the
+  // resolved set instead of dropping them.
+  const legacyEntities = normalizeEntityList(args.entities);
+  const legacyNewEntities = normalizeEntityList(args.new_entities);
+  const legacyRelations = normalizeRelationList(args.relations);
+  const legacyNewRelations = normalizeRelationList(args.new_relations);
+
+  const entities = unionEntities(
+    unionEntities(resolved.entities, legacyEntities),
+    legacyNewEntities,
+  );
+  const relations = unionRelations(
+    unionRelations(resolved.relations, legacyRelations),
+    legacyNewRelations,
+  );
   return {
     ...base,
-    // G4.S8.T18 hardening: insist the "new" items are ALSO part of the full
-    // lists. The prompt demands it, but a lenient model can write them only
-    // under new_* -- without this union the overwrite would silently drop the
-    // correction's entities/relations from the graph (observed: CALEO Office
-    // was returned in new_entities only and never landed in Neo4j).
-    entities: unionEntities(base.entities, newEntities),
-    relations: unionRelations(base.relations, newRelations),
-    new_entities: newEntities,
-    new_relations: newRelations,
+    entities,
+    relations,
+    // new_* bookkeeping = what THIS edit introduced (the delta itself).
+    new_entities: rerouteDeltaNames(delta, resolved.renames),
+    new_relations: relations,
+    entity_renames: resolved.renames,
     rechunked: args.rechunked === true,
   };
 }
 
-/** Extract the structured wiki-edit refinement from an assistant response (emit tool or text JSON). */
-export function extractWikiEditRefinement(message: AssistantMessageLike): WikiEditRefinement {
+/** Apply the applied-rename map to the delta's added names (bookkeeping stays consistent). */
+function rerouteDeltaNames(delta: WikiEditDelta, renames: EntityRenameRef[]): RefinementEntity[] {
+  const rename = renameFor(renames.map((r) => ({ from: r.from, to: r.to, similarity: 1, evidence: "" })));
+  return delta.added.map((entity) => ({ ...entity, name: rename(entity.name) }));
+}
+
+/** Local adapter so EntityRenameRef[] can ride renameFor's LinkMerge shape. */
+function appliedRenamesToMerges(renames: EntityRenameRef[]): Array<{ from: string; to: string; similarity: number; evidence: string }> {
+  return renames.map((r) => ({ from: r.from, to: r.to, similarity: 1, evidence: "" }));
+}
+
+/**
+ * Extract the RAW structured wiki-edit payload from an assistant response (emit
+ * tool or text JSON). Resolution against the KNOWN ENTITIES baseline happens in
+ * resolveWikiEditRefinement (runWikiEditRefine composes the two).
+ */
+export function extractWikiEditRefinement(message: AssistantMessageLike): Record<string, unknown> {
   for (const part of message.content ?? []) {
     if (
       part.type === "toolCall" &&
       (part as AssistantToolCallPart).name === EMIT_WIKI_EDIT_REFINE_TOOL &&
       "arguments" in part
     ) {
-      return normalizeWikiEditRefinement((part as AssistantToolCallPart).arguments);
+      const raw = (part as AssistantToolCallPart).arguments;
+      return typeof raw === "string"
+        ? (JSON.parse(raw) as Record<string, unknown>)
+        : ((raw ?? {}) as Record<string, unknown>);
     }
   }
   const text = (message.content ?? [])
@@ -2199,7 +2466,7 @@ export function extractWikiEditRefinement(message: AssistantMessageLike): WikiEd
   if (text) {
     const parsed = tryParseNestedJson(text);
     if (parsed !== undefined) {
-      return normalizeWikiEditRefinement(parsed);
+      return typeof parsed === "string" ? (JSON.parse(parsed) as Record<string, unknown>) : (parsed as Record<string, unknown>);
     }
   }
   throw new Error("wiki edit refine: assistant returned no structured output");
@@ -2239,6 +2506,7 @@ export function fallbackWikiEditRefinement(
     keywords: [],
     new_entities: [],
     new_relations: [],
+    entity_renames: [],
     // A structural edit always re-chunks; a localized edit keeps the structure.
     rechunked: input.structural,
     quality: {
@@ -2338,18 +2606,35 @@ export async function auditWikiEditDocument(
 }
 
 /**
- * G4.S10.T1 LINK stage for the wiki-edit delta-refine: identical engine and
- * ordering contract as the upload path, extended to the incremental fields —
- * new_entities / new_relations follow the merge renames so the "what did this
- * edit introduce" bookkeeping stays consistent with the re-linked document.
+ * G4.S10.T4 LINK stage for the wiki-edit delta-refine: the SAME engine and
+ * ordering contract as the upload path, but it runs on the DELTA candidates
+ * only (added entities + rename targets — baseline entities already ARE graph
+ * nodes). Merge decisions rename the full resolved set (entities, relations,
+ * new_* bookkeeping AND entity_renames), so a "GALILEO Office → CALEO Office"
+ * edit re-links onto the existing CALEO node before audit/store.
  */
 async function applyWikiLinkStage(
   linker: EntityLinker | undefined,
   doc: WikiEditRefinement,
 ): Promise<WikiEditRefinement> {
-  if (!linker || (doc.entities ?? []).length === 0) return doc;
+  if (!linker) return doc;
+  const renames = doc.entity_renames ?? [];
+  // Delta candidates = added ∪ rename targets (deduped case-insensitively).
+  // Baseline entities are skipped: they came FROM the graph.
+  const candidateByName = new Map<string, LinkCandidateLike>();
+  for (const entity of doc.new_entities ?? []) {
+    candidateByName.set(entity.name.toUpperCase(), entity);
+  }
+  const renamedTargets = renames
+    .map((rename) => (doc.entities ?? []).find((e) => e.name === rename.to))
+    .filter((entity): entity is NonNullable<typeof entity> => Boolean(entity));
+  for (const entity of renamedTargets) {
+    if (!candidateByName.has(entity.name.toUpperCase())) candidateByName.set(entity.name.toUpperCase(), entity);
+  }
+  const candidates = [...candidateByName.values()];
+  if (candidates.length === 0) return doc;
   try {
-    const decisions = await linker(doc.entities ?? []);
+    const decisions = await linker(candidates);
     if (decisions.merges.length === 0 && decisions.new_edges.length === 0) return doc;
     const merged = applyMergesToEntities(doc.entities ?? [], doc.relations ?? [], decisions.merges);
     const rename = renameFor(decisions.merges);
@@ -2367,6 +2652,9 @@ async function applyWikiLinkStage(
       ...merged,
       new_entities: (doc.new_entities ?? []).map(renamed),
       new_relations: (doc.new_relations ?? []).map(reroute),
+      // A rename whose target merged onto a canonical node re-points `to` so
+      // the store renames onto the EXISTING identity (or no-ops via its guard).
+      entity_renames: (doc.entity_renames ?? []).map((entry) => ({ ...entry, to: rename(entry.to) })),
       ...(decisions.new_edges.length > 0 ? { link_edges: decisions.new_edges } : {}),
     };
   } catch (err) {
@@ -2374,6 +2662,14 @@ async function applyWikiLinkStage(
     console.warn(`[refine_document] wiki-edit link stage FAILED (degraded to unlinked): ${message}`);
     return doc;
   }
+}
+
+/** Minimal structural shape applyWikiLinkStage feeds the linker. */
+interface LinkCandidateLike {
+  name: string;
+  type?: string;
+  description?: string;
+  aliases?: string[];
 }
 
 export async function runWikiEditRefine(
@@ -2395,10 +2691,17 @@ export async function runWikiEditRefine(
         model: options.modelId,
         reasoningEffort,
       });
-      const extracted = extractWikiEditRefinement(message);
-      // G4.S10.T1 LINK stage — SAME engine as the upload pipeline, SAME fixed
-      // order: delta-refine → link → audit. Renames/merges discovered on edit
-      // re-link onto the existing graph nodes before the audit reviews them.
+      // G4.S10.T4: resolve the DELTA over the KNOWN ENTITIES baseline —
+      // unmentioned baseline entities are implicitly kept with all connections.
+      const extracted = resolveWikiEditRefinement(
+        extractWikiEditRefinement(message),
+        toBaselineEntities(input.known_entities),
+        input.markdown,
+      );
+      // G4.S10.T1/T4 LINK stage — SAME engine as the upload pipeline, SAME fixed
+      // order: delta-refine → link → audit. Runs on the DELTA candidates
+      // (renames + added); merges discovered on edit re-link onto existing nodes
+      // before the audit reviews them.
       const linked = await applyWikiLinkStage(options.entityLinker, extracted);
       // Mandatory audit for wiki-edit saves (T19): canonicalize names /
       // close endpoints with a cheap independent session. Never fatal.
@@ -2412,13 +2715,23 @@ export async function runWikiEditRefine(
         return { document: audited, retries: attempt - 1 };
       } catch (auditErr) {
         console.warn(`[refine_document] wiki-edit audit skipped (${auditErr instanceof Error ? auditErr.message : String(auditErr)}) — keeping extraction`);
-        return { document: extracted, retries: attempt - 1 };
+        return { document: { ...extracted }, retries: attempt - 1 };
       }
     } catch (err) {
       lastError = err;
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/** KnownEntity baseline → RefinementEntity working set (description grounded when present). */
+function toBaselineEntities(knownEntities: KnownEntity[] | undefined): RefinementEntity[] {
+  return (knownEntities ?? []).map((known) => ({
+    name: known.name,
+    type: known.type || "other",
+    description: known.description ?? "",
+    aliases: known.aliases ? [...known.aliases] : [],
+  }));
 }
 
 /** Map a Pi-style thinking level onto the canonical OpenRouter effort set. */

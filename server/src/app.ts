@@ -88,6 +88,7 @@ import { Neo4jCommunitySummaryService } from "./kb/store/community-summary.js";
 import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { EntityGraphService } from "./kb/store/graph.js";
 import { Neo4jExistingGraphApi } from "./kb/store/entity-match.js";
+import { readWikiKnownEntities } from "./kb/store/wiki-baseline.js";
 import { Neo4jRelinkGraphPort } from "./kb/store/relink-graph.js";
 import { KbRelinkService } from "./kb/relink/relink-service.js";
 import { linkCandidates, type EntityLinker } from "./kb/link/link-engine.js";
@@ -329,12 +330,23 @@ export function defaultTaskQueue(): IngestTaskQueue {
   // Delete-cascade hook (G4.S8.T14 follow-up): purge dedup entries when a page
   // is deleted so the same file can be re-ingested afterwards.
   ingest.attachDedupStore(dedup);
+  // G4.S10.T4: KNOWN ENTITIES baseline reader for the wiki-edit delta-refine —
+  // one capped graph query per edit (undefined without a Neo4j driver).
+  const driverForBaseline = defaultNeo4jDriver();
   return new IngestTaskQueue({
     parser: new DoclingParser(),
     ingest,
     refiner: createAthenaRefiner({ entityLinker }),
     // G4.S3.T10: wiki-edit diff-refine (corrected markdown + diff → RAG overwrite).
-    wikiRefiner: createAthenaWikiEditRefiner({ entityLinker }),
+    wikiRefiner: createAthenaWikiEditRefiner({
+      entityLinker,
+      ...(driverForBaseline
+        ? {
+            readBaselineEntities: (wikiPath: string) =>
+              readWikiKnownEntities(driverForBaseline, wikiPath),
+          }
+        : {}),
+    }),
     dedup,
     // G4.S2.T4: the lean Neo4j RAG store is wired only when NEO4J_PASSWORD is
     // set (see .env.local / deployment). When absent the ingesting_neo4j stage

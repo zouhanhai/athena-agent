@@ -339,6 +339,21 @@ const STRIP_PROVENANCE_CYPHER =
 /** The orphan guard both sweeps share: empty provenance list. */
 const NO_PROVENANCE_GUARD_CYPHER = `(e.source_docs IS NULL OR size(e.source_docs) = 0)`;
 
+/**
+ * G4.S10.T4: apply wiki-edit baseline RENAMES in place, BEFORE the provenance
+ * strip / entity writes — the node keeps its source_docs, MENTIONED_IN edges
+ * and relations; only its name (and folded identity) changes. Guards:
+ *   - a rename whose TARGET identity already exists on another node is skipped
+ *     (the subsequent entity write converges onto that existing node instead —
+ *     plain merge semantics, no duplicate identity);
+ *   - idempotent: after the first run no node carries fromUpper → no-op.
+ */
+const APPLY_ENTITY_RENAMES_CYPHER =
+  `UNWIND $renames AS r
+   MATCH (e:${ENTITY_LABEL} {nameUpper: r.fromUpper})
+   WHERE NOT EXISTS { MATCH (t:${ENTITY_LABEL} {nameUpper: r.toUpper}) }
+   SET e.name = r.to, e.nameUpper = r.toUpper`;
+
 function entityWriteParams(
   entity: RefinementEntity,
   documentId: string,
@@ -769,6 +784,24 @@ export class Neo4jIngestService {
       // G4.S10.T1: same global-mutex write phase as ingest() — wiki-edit
       // overwrites serialize against parallel uploads on shared entities.
       const { relationOutcome } = await globalGraphWriteMutex.runExclusive(async () => {
+        // G4.S10.T4: baseline renames FIRST — the renamed node must already
+        // carry its NEW identity before the strip re-derives provenance, so
+        // source_docs/MENTIONED_IN/relations survive the rename untouched.
+        const renames = input.ref.entity_renames ?? [];
+        if (renames.length > 0) {
+          await session.run(APPLY_ENTITY_RENAMES_CYPHER, {
+            renames: renames
+              .filter((r) => r.from.trim() && r.to.trim())
+              .map((r) => ({
+                from: r.to === r.from ? r.to : r.from,
+                to: r.to,
+                fromUpper: foldName(r.from),
+                toUpper: foldName(r.to),
+              }))
+              .filter((r) => r.fromUpper !== r.toUpper),
+          });
+        }
+
         // G4.S10.T2 provenance REBUILD (mirrors the mention-edge rebuild below):
         // strip this document's path from every entity BEFORE re-appending it for
         // the corrected extraction — an entity the new version no longer mentions

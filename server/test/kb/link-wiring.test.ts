@@ -161,20 +161,19 @@ test("upload ref carries cross-document link_edges into the store contract", asy
   });
 });
 
-test("wiki-edit pipeline reuses the SAME linker after delta-refine and BEFORE its audit (rename auto re-link)", async () => {
+test("wiki-edit pipeline reuses the SAME linker on the DELTA candidates, before its audit (rename auto re-link)", async () => {
   const events: string[] = [];
   const { calls, caller } = scriptedRefineCaller(
     JSON.stringify({
       summary: "Edited page.",
       sections: [],
       frontmatter: { type: "concept", topic: "corporate/onboarding" },
-      entities: [
-        { name: "galleo Office", type: "org", description: "renamed in edit" },
-        { name: "CALEO", type: "org", description: "the group" },
-      ],
-      relations: [{ source: "galleo Office", target: "CALEO", keywords: ["part_of"], description: "rel" }],
-      new_entities: [{ name: "galleo Office", type: "org", description: "renamed in edit" }],
-      new_relations: [],
+      // G4.S10.T4 delta contract: the baseline (KNOWN ENTITIES) had
+      // "CALEO Office"; the edit's typo'd text says "galleo Office".
+      renames: [{ from: "CALEO Office", to: "galleo Office", type_match: true, reason: "name changed in the edit" }],
+      added: [],
+      removed: [],
+      changed_relations: [{ source: "galleo Office", target: "CALEO", keywords: ["part_of"], description: "rel" }],
       keywords: [],
       rechunked: false,
       quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
@@ -189,6 +188,10 @@ test("wiki-edit pipeline reuses the SAME linker after delta-refine and BEFORE it
       before: "# CALEO onboarding\n\nThe CALEO Office handles onboarding.\n",
       diff: "-The CALEO Office handles onboarding.\n+The galleo Office handles onboarding.\n",
       structural: false,
+      known_entities: [
+        { name: "CALEO Office", type: "org", description: "the office" },
+        { name: "CALEO", type: "org", description: "the group" },
+      ],
     },
     undefined,
     { httpCaller: caller, entityLinker: relinkLinker(events) },
@@ -197,7 +200,11 @@ test("wiki-edit pipeline reuses the SAME linker after delta-refine and BEFORE it
   const auditCallIndex = calls.findIndex((c) => c.systemPrompt === AUDIT_ENTITIES_PROMPT);
   assert.ok(auditCallIndex >= 1, "wiki audit session ran");
   assert.equal(events.length, 1, "same engine invoked exactly once");
-  assert.ok(events[0]!.startsWith("link:galleo Office"), "linker ran on the extracted candidates");
+  assert.equal(
+    events[0],
+    "link:galleo Office",
+    "linker ran on the DELTA candidates ONLY (the rename target) — baseline nodes are already graph citizens",
+  );
 
   // Rename re-linked: document now carries ONLY the canonical node, and the
   // re-linked name is NOT new — it IS the existing graph node.
@@ -205,6 +212,16 @@ test("wiki-edit pipeline reuses the SAME linker after delta-refine and BEFORE it
   assert.ok(!document.entities.some((e) => e.name === "galleo Office"));
   assert.deepEqual(document.new_entities, [], "a rename onto an existing node introduces nothing new");
   assert.equal(document.relations[0]!.source, "CALEO Office", "relation endpoints redirected");
+  assert.deepEqual(
+    document.entity_renames ?? [],
+    [{ from: "CALEO Office", to: "CALEO Office" }],
+    "the applied rename's target follows the LINK merge onto the canonical node",
+  );
+  const renamedEntity = document.entities.find((e) => e.name === "CALEO Office")!;
+  assert.ok(
+    (renamedEntity.aliases ?? []).some((a) => a.toUpperCase() === "GALLEO OFFICE"),
+    "the pre-rename spelling rides along as an alias for mention/alias lanes",
+  );
 
   // The audit reviewed the MERGED set.
   assert.ok(calls[auditCallIndex]!.userContent.includes("[CALEO Office]"));

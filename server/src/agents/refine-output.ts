@@ -141,6 +141,13 @@ export interface RefineOutputRef {
     relation: string;
     evidence_quote: string;
   }>;
+  /**
+   * G4.S10.T4: baseline renames applied by the wiki-edit delta-refine
+   * ({from → to}, folded matching). The Neo4j overwrite applies them IN PLACE
+   * before the provenance strip so the renamed node keeps its source_docs,
+   * MENTIONED_IN edges and relations. Absent outside the wiki-edit path.
+   */
+  entity_renames?: Array<{ from: string; to: string }>;
 }
 
 export interface StoreRefinementOptions {
@@ -1086,6 +1093,7 @@ export async function storeRefinementOutput(
     mode: options.mode ?? "single",
     section_paths: options.section_paths ?? [],
     ...(doc.link_edges && doc.link_edges.length > 0 ? { link_edges: doc.link_edges } : {}),
+    ...(doc.entity_renames && doc.entity_renames.length > 0 ? { entity_renames: doc.entity_renames } : {}),
   };
 }
 

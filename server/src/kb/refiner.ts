@@ -83,6 +83,12 @@ export function createAthenaRefiner(
  * through `runWikiEditRefine`'s DIRECT OpenRouter transport — same as the
  * upload path — gaining the unified reasoning strategy, timeout/retry and
  * provider.ignore; NO Pi runtime is created at all.
+ *
+ * G4.S10.T4: when a `wikiPath` is provided AND a `readBaselineEntities` reader
+ * is wired, the page's CURRENT graph entities are fetched (one capped query)
+ * and injected into the refine prompt as the KNOWN ENTITIES baseline — the
+ * refine then emits only a delta over that baseline (renames/added/removed),
+ * and applied renames ride the stored ref into the graph-side overwrite.
  */
 export function createAthenaWikiEditRefiner(
   options: {
@@ -90,6 +96,13 @@ export function createAthenaWikiEditRefiner(
     retries?: number;
     /** G4.S10.T1 LINK stage — same engine as the upload path, before the audit. */
     entityLinker?: import("../kb/link/link-engine.js").EntityLinker;
+    /**
+     * G4.S10.T4 KNOWN ENTITIES baseline reader (wikiPath → current entities,
+     * capped). Undefined/degrading → the refine runs without a baseline.
+     */
+    readBaselineEntities?: (wikiPath: string) => Promise<import("../kb/store/wiki-baseline.js").KnownEntity[]>;
+    /** Test seam: override the refine LLM transport (same as the upload refiner). */
+    httpCaller?: import("../agents/refine-document.js").RefineLlmCaller;
   } = {},
 ): WikiEditRefiner {
   return async (input: {
@@ -101,15 +114,40 @@ export function createAthenaWikiEditRefiner(
     topic?: string;
     /** Upload/page file name for stem derivation when the body has no h1 (G4.S8.T18). */
     fileName?: string;
+    /** G4.S10.T4: the edited page's wiki path — resolves the baseline entities. */
+    wikiPath?: string;
   }) => {
     const existing = {
       ...(input.type ? { type: input.type } : {}),
       ...(input.topic ? { topic: input.topic } : {}),
     };
+    // Baseline read is best-effort: a reader failure degrades to "no
+    // baseline" (the edit then behaves like a plain delta-refine) — never
+    // blocks the save.
+    let knownEntities: import("../kb/store/wiki-baseline.js").KnownEntity[] | undefined;
+    if (input.wikiPath && options.readBaselineEntities) {
+      try {
+        knownEntities = await options.readBaselineEntities(input.wikiPath);
+      } catch (err) {
+        console.warn(
+          `[refiner] wiki-edit baseline read failed (${err instanceof Error ? err.message : String(err)}) — refining without KNOWN ENTITIES`,
+        );
+      }
+    }
     const { document } = await runWikiEditRefine(
-      { markdown: input.markdown, before: input.before, diff: input.diff, structural: input.structural },
+      {
+        markdown: input.markdown,
+        before: input.before,
+        diff: input.diff,
+        structural: input.structural,
+        ...(knownEntities && knownEntities.length > 0 ? { known_entities: knownEntities } : {}),
+      },
       existing,
-      { retries: options.retries, entityLinker: options.entityLinker },
+      {
+        retries: options.retries,
+        entityLinker: options.entityLinker,
+        ...(options.httpCaller ? { httpCaller: options.httpCaller } : {}),
+      },
     );
     // G4.S8.T18: the wiki-edit path runs the SAME deterministic placeholder scan
     // over its rebuilt markdown — objective defects force review_required here too.

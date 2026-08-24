@@ -6,36 +6,39 @@ import {
   buildWikiEditRefinePrompt,
   extractWikiEditRefinement,
   fallbackWikiEditRefinement,
-  normalizeWikiEditRefinement,
+  normalizeWikiEditDelta,
+  resolveWikiEditRefinement,
   runWikiEditRefine,
-  type WikiEditRefinement,
   type WikiEditRefineInput,
 } from "../src/agents/refine-document.js";
 
-const sampleWikiEdit: WikiEditRefinement = {
-  markdown: "# Runbook\n\nThe image shows a dark sky.\n\nSteps here.",
+/**
+ * G4.S10.T4 contract: the wiki-edit refine emits an ENTITY DELTA over the
+ * KNOWN ENTITIES baseline (renames/added/removed/changed_relations). These
+ * tests pin the prompt contract + extraction/resolution behavior.
+ */
+
+// Delta-mode payload: NO full entity list re-emission — only the delta.
+const sampleWikiDelta = {
   summary: "The corrected runbook.",
   sections: [{ title: "Runbook", summary: "The corrected runbook." }],
   frontmatter: { type: "concept", topic: "ops" },
-  chunks: [
-    { id: "c1", text: "# Runbook\n\nThe image shows a dark sky.", heading_path: "Runbook" },
-    { id: "c2", text: "Steps here.", heading_path: "Runbook" },
-  ],
-  entities: [
-    { name: "CALEO", type: "org", description: "An organization" },
-    { name: "ZOB München", type: "location", description: "The corrected place name" },
-  ],
-  relations: [
+  renames: [{ from: "GALILEO Office", to: "ZOB München", type_match: true, reason: "image description corrected" }],
+  added: [{ name: "ZOB München", type: "location", description: "The corrected place name" }],
+  removed: ["Ghost Spa"],
+  changed_relations: [
     { source: "CALEO", target: "ZOB München", keywords: ["organisiert"], description: "CALEO runs the ZOB." },
   ],
   keywords: ["runbook", "zob"],
-  new_entities: [{ name: "ZOB München", type: "location", description: "The corrected place name" }],
-  new_relations: [
-    { source: "CALEO", target: "ZOB München", keywords: ["organisiert"], description: "CALEO runs the ZOB." },
-  ],
   rechunked: false,
   quality: { complete: true, confidence: 0.9, issues: [], action: "auto_accept" },
 };
+
+const KNOWN_ENTITIES = [
+  { name: "CALEO", type: "org", description: "An organization" },
+  { name: "GALILEO Office", type: "location", description: "Office at Galileostraße." },
+  { name: "Ghost Spa", type: "other", description: "stale place" },
+];
 
 function makeCaller(opts: {
   throws?: Error;
@@ -49,7 +52,7 @@ function makeCaller(opts: {
     prompts.push(ctx.userContent);
     efforts.push(ctx.reasoningEffort);
     if (opts.throws) throw opts.throws;
-    const content = opts.contentText ?? JSON.stringify(opts.payload ?? sampleWikiEdit);
+    const content = opts.contentText ?? JSON.stringify(opts.payload ?? sampleWikiDelta);
     return {
       usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
       message: { role: "assistant", content: [{ type: "text", text: content }] },
@@ -65,9 +68,13 @@ const input: WikiEditRefineInput = {
   structural: false,
 };
 
-test("runWikiEditRefine sends the corrected text + diff and preserves the corrected markdown verbatim", async () => {
+test("runWikiEditRefine sends the corrected text + diff and resolves over the KNOWN ENTITIES baseline", async () => {
   const { caller, prompts } = makeCaller();
-  const { document } = await runWikiEditRefine(input, { type: "concept", topic: "ops" }, { httpCaller: caller });
+  const { document } = await runWikiEditRefine(
+    { ...input, known_entities: KNOWN_ENTITIES },
+    { type: "concept", topic: "ops" },
+    { httpCaller: caller },
+  );
 
   const prompt = prompts[0]!;
   assert.ok(prompt.includes("# Runbook\n\nThe image shows a dark sky."), "corrected text present");
@@ -77,11 +84,17 @@ test("runWikiEditRefine sends the corrected text + diff and preserves the correc
   assert.ok(prompt.includes("structural (heading structure changed): false"));
   assert.ok(prompt.includes("existing topic: ops"));
 
-  // The corrected markdown is emitted verbatim (the emit contract returns it).
-  assert.equal(document.markdown, sampleWikiEdit.markdown);
+  // G4.S10.T4 resolution: rename applied over the baseline, unmentioned CALEO
+  // implicitly kept, removal honored (Ghost Spa absent from the corrected text).
+  const names = (document.entities ?? []).map((e) => e.name).sort();
+  assert.deepEqual(names, ["CALEO", "ZOB München"]);
+  const renamed = document.entities!.find((e) => e.name === "ZOB München")!;
+  assert.equal(renamed.type, "location");
+  assert.ok((renamed.aliases ?? []).some((a) => a.toUpperCase() === "GALILEO OFFICE"), "old name rides along as alias");
+  assert.deepEqual(document.entity_renames ?? [], [{ from: "GALILEO Office", to: "ZOB München" }]);
 });
 
-test("runWikiEditRefine surfaces the flagged NEW entities/relations + the re-chunk decision", async () => {
+test("runWikiEditRefine surfaces the DELTA as new_entities/new_relations + the re-chunk decision", async () => {
   const { caller } = makeCaller();
   const { document } = await runWikiEditRefine(input, undefined, { httpCaller: caller });
   assert.deepEqual(document.new_entities.map((e) => e.name), ["ZOB München"]);
@@ -89,24 +102,27 @@ test("runWikiEditRefine surfaces the flagged NEW entities/relations + the re-chu
   assert.equal(document.rechunked, false);
 });
 
-test("normalizeWikiEditRefinement tolerates JSON-string args and defaulted fields", () => {
-  const doc = normalizeWikiEditRefinement(JSON.stringify({ ...sampleWikiEdit, rechunked: true }));
+test("resolveWikiEditRefinement tolerates JSON-string payloads and defaulted delta fields", () => {
+  const doc = resolveWikiEditRefinement(JSON.stringify({ ...sampleWikiDelta, rechunked: true }), [], "");
   assert.equal(doc.rechunked, true);
   assert.equal(doc.new_entities.length, 1);
-  assert.equal(doc.rechunked, true);
-  const minimal = normalizeWikiEditRefinement({ markdown: "# X", summary: "", sections: [], frontmatter: { type: "a", topic: "b" }, chunks: [], entities: [], relations: [], keywords: [], quality: { complete: true, confidence: 1, issues: [], action: "auto_accept" } });
+  const minimal = resolveWikiEditRefinement(
+    { summary: "", sections: [], frontmatter: { type: "a", topic: "b" }, chunks: [], renames: [], added: [], removed: [], changed_relations: [], keywords: [], quality: { complete: true, confidence: 1, issues: [], action: "auto_accept" } },
+    [],
+    "",
+  );
   assert.deepEqual(minimal.new_entities, []);
   assert.deepEqual(minimal.new_relations, []);
+  assert.deepEqual(minimal.entities, []);
   assert.equal(minimal.rechunked, false);
 });
 
-test("extractWikiEditRefinement accepts plain-text JSON too", () => {
-  const doc = extractWikiEditRefinement({
+test("extractWikiEditRefinement returns the RAW structured payload (tool args or text JSON)", () => {
+  const raw = extractWikiEditRefinement({
     role: "assistant",
-    content: [{ type: "text", text: JSON.stringify(sampleWikiEdit) }],
+    content: [{ type: "text", text: JSON.stringify(sampleWikiDelta) }],
   });
-  assert.equal(doc.markdown, sampleWikiEdit.markdown);
-  assert.equal(doc.rechunked, false);
+  assert.equal(normalizeWikiEditDelta(raw).added.length, 1);
 });
 
 test("extractWikiEditRefinement throws when there is no structured output", () => {
@@ -133,14 +149,19 @@ test("buildWikiEditRefinePrompt includes the retry nudge after the first attempt
   assert.ok(retry.includes("[retry 1]"));
 });
 
-test("the incremental prompt now uses DELTA mode: no full-markdown dump, extraction only", () => {
+test("the incremental prompt is DELTA-over-BASELINE: no markdown dump, no full entity list", () => {
   assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /DO NOT re-emit the corrected markdown/i);
   assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /source of truth/i);
-  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /Output ONLY the EXTRACTION fields/i);
-  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /new_entities \/ new_relations/);
+  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /renames[\s\S]*added[\s\S]*removed[\s\S]*changed_relations/);
+  assert.match(WIKI_EDIT_REFINE_SYSTEM_PROMPT, /implicitly KEPT|implicit keep/i);
+  assert.match(
+    WIKI_EDIT_REFINE_SYSTEM_PROMPT,
+    /do NOT re-emit\s+the baseline entity list/i,
+    "full-entity re-emission invites drift — the T4 regression",
+  );
 });
 
-test("G4.S8.T20: the USER prompt is delta-mode too — it never asks the model to re-emit the markdown", () => {
+test("G4.S8.T20: the USER prompt is delta-mode too — it never asks the model to re-emit the markdown or the entity list", () => {
   const prompt = buildWikiEditRefinePrompt(input, undefined, 1);
   assert.doesNotMatch(
     prompt,
