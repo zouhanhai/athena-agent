@@ -15,6 +15,7 @@ const {
   addUrl,
   removeTask,
   retryTask,
+  markReviewResolved,
   chunkProgress,
   chunkEta,
 } = useIngestTasks();
@@ -28,11 +29,21 @@ onMounted(() => {
   nowTimer = setInterval(() => {
     now.value = Date.now();
   }, 1000);
+  // G4.S9.T24: when a wiki review is resolved for a page, drop that task's
+  // "pending review" badge immediately (it used to freeze on the refine-time
+  // snapshot until reload).
+  window.addEventListener("athena:wiki-review-cleared", onWikiReviewCleared);
 });
 
 onBeforeUnmount(() => {
   if (nowTimer) clearInterval(nowTimer);
+  window.removeEventListener("athena:wiki-review-cleared", onWikiReviewCleared);
 });
+
+function onWikiReviewCleared(event: Event): void {
+  const detail = (event as CustomEvent<{ path?: string }>).detail;
+  if (detail?.path) markReviewResolved(detail.path);
+}
 
 const ACCEPT_HINT = "application/pdf,.docx,.xlsx,.pptx,image/*,.html,.epub,.csv,.md,.txt";
 

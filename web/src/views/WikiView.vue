@@ -260,6 +260,9 @@ async function resolveListedIssue(issueId: string): Promise<void> {
   try {
     const next = await updateWikiReviewState(path, issueId, "resolve");
     reviewState.value = next;
+    // G4.S9.T24: tell the Uploads list the review gate cleared for this page so
+    // its stale "pending review" badge disappears immediately.
+    window.dispatchEvent(new CustomEvent("athena:wiki-review-cleared", { detail: { path } }));
   } catch (err) {
     reviewActionError.value = err instanceof Error ? err.message : String(err);
   } finally {

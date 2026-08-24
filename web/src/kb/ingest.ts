@@ -16,6 +16,9 @@ export interface IngestTaskItem {
   progress: number;
   error?: string;
   dedup?: IngestTask["dedup"];
+  /** G4.S9.T24: wiki page path of the task's output (when known), used to
+   *  clear the review badge on wiki-review resolve. */
+  wikiPath?: string;
   stages: IngestTask["stages"];
   refinement?: IngestTask["refinement"];
   reviewRequired?: boolean;
@@ -307,5 +310,16 @@ export function useIngestTasks(options: UseIngestTasksOptions = {}) {
     });
   }
 
-  return { tasks, submitting, submitError, addFile, addUrl, removeTask, retryTask, chunkProgress, chunkEta };
+  /** G4.S9: wiki-review resolve event → clear the matching task's review badge
+   *  (the badge previously froze on the refine-time snapshot). */
+  function markReviewResolved(wikiPath: string): void {
+    for (const task of tasks.value) {
+      if (task.wikiPath === wikiPath) {
+        task.reviewRequired = false;
+        if (task.refinement?.quality) task.refinement.quality.action = "auto_accept";
+      }
+    }
+  }
+
+  return { tasks, submitting, submitError, addFile, addUrl, removeTask, retryTask, markReviewResolved, chunkProgress, chunkEta };
 }
