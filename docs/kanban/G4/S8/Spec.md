@@ -1,10 +1,10 @@
 ---
-id: s8
+id: G4.S8
 title: "G4.S8: Ingest pipeline robustness — docling cache, key separation, refine delta contract"
 layer: S
 parent: G4
 owner: consultant
-status: in_progress
+status: approved
 milestone: M4
 acceptance_criteria:
   - "Parse caching: re-uploading an identical local PDF skips docling (SHA-256 sidecar), keyed on source content, not filename"
