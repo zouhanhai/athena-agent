@@ -254,6 +254,10 @@ export interface IngestTask {
   id: string;
   /** Original filename or URL being ingested. */
   source: string;
+  /** Wiki page path of the task's output (when known). Surfaced to the
+   *  frontend so the Uploads review badge can be cleared on wiki-review
+   *  resolve (G4.S10.T4 / web review-cleared event). */
+  wikiPath?: string;
   /** Parse input (file path or URL) retained so retry can re-run docling. */
   input?: string;
   /** Parsed markdown retained so retry can re-run ingest stages without re-parsing. */
@@ -941,6 +945,7 @@ export class IngestTaskQueue {
               const title = extractPageTitle(refinedMarkdown ?? markdown!) ?? stemTitle(fileName!);
               const documentId = task.documentId ?? documentIdFrom(source, source);
               const wikiPath = wikiPathFor(fileName!, preclassified);
+              if (wikiPath) this.patch(id, (t) => { t.wikiPath = wikiPath; });
               return this.neo4j!.ingest({
                 ref: refinementRef!,
                 documentId,
@@ -1094,7 +1099,9 @@ export class IngestTaskQueue {
         this.setStep(id, "refinement", "refine_document", "running");
         try {
           console.log(`[tasks:${id}] wiki-edit refine start (${save.path})`);
-          const result = await this.wikiRefiner({
+          // G4.S10.T4: surface the wiki path so the uploads badge can be cleared
+        this.patch(id, (t) => { t.wikiPath = save.path; });
+        const result = await this.wikiRefiner({
             markdown: save.afterRag,
             before: save.beforeRag,
             diff: save.diff,
