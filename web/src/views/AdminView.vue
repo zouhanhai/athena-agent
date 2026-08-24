@@ -73,6 +73,13 @@ function communitiesCell(report: KbAuditReport): string {
     : `${report.communities.communities} (+${changed})`;
 }
 
+/** G4.S10.T3: re-link cost/coverage per history row (candidates·merges·edges). */
+function relinkCell(report: KbAuditReport): string {
+  if (!report.relink) return "—";
+  const { candidateCount, mergesApplied, newEdgesCreated } = report.relink;
+  return `${candidateCount}c · ${mergesApplied}m · ${newEdgesCreated}e`;
+}
+
 function formatStartedAt(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
@@ -404,6 +411,11 @@ onMounted(() => {
               {{ latestReport.communities.entitiesWithoutCommunity }}, summaries
               {{ latestReport.communities.summariesPresent }}/{{ latestReport.communities.summariesTotal }}
             </li>
+            <li v-if="latestReport.relink" data-testid="kb-relink-summary">
+              Re-link: {{ latestReport.relink.candidateCount }} candidate(s), {{ latestReport.relink.mergesApplied }} merge(s),
+              {{ latestReport.relink.newEdgesCreated }} new edge(s), {{ latestReport.relink.unmergedCount }} unmerged,
+              {{ latestReport.relink.llmCalls }} LLM call(s)
+            </li>
           </ul>
         </div>
 
@@ -416,6 +428,7 @@ onMounted(() => {
               <th>Repairs</th>
               <th>Orphans</th>
               <th>Communities</th>
+              <th>Re-link</th>
               <th>Duration</th>
             </tr>
           </thead>
@@ -431,11 +444,59 @@ onMounted(() => {
               <td>{{ report.fileCheck.repaired }}</td>
               <td>{{ report.orphans.removed.length }}</td>
               <td>{{ communitiesCell(report) }}</td>
+              <td>{{ relinkCell(report) }}</td>
               <td>{{ (report.durationMs / 1000).toFixed(1) }}s</td>
             </tr>
           </tbody>
         </table>
         <p v-else class="audit-hint">No audit reports yet.</p>
+
+        <!-- G4.S10.T3: weekly full-graph re-link drill-in (alongside the
+             community-quality section below) — summary counts + capped samples. -->
+        <div
+          v-if="latestReport?.relink"
+          class="relink-details"
+          data-testid="kb-relink-details"
+        >
+          <h4 class="relink-title">Weekly re-link ({{ latestReport.relink.trigger }})</h4>
+          <p class="audit-hint">
+            Scanned {{ latestReport.relink.scannedEntities }} entity/ies —
+            {{ latestReport.relink.incrementalEntities }} via the incremental
+            (changed-provenance / low-degree) sweep. Samples are capped; totals in the summary above.
+          </p>
+          <p v-if="latestReport.relink.errors.length > 0" class="admin-error">
+            {{ latestReport.relink.errors.join(" | ") }}
+          </p>
+          <div class="relink-block">
+            <span class="relink-label">Merges applied</span>
+            <ul v-if="latestReport.relink.merges.length > 0" class="relink-list">
+              <li v-for="(merge, i) in latestReport.relink.merges" :key="i">
+                {{ merge.from }} → {{ merge.to }}
+                <span class="relink-sim">(similarity {{ merge.similarity.toFixed(2) }})</span>
+              </li>
+            </ul>
+            <span v-else class="audit-hint">none</span>
+          </div>
+          <div class="relink-block">
+            <span class="relink-label">Unmerged candidates</span>
+            <ul v-if="latestReport.relink.unmergedCandidates.length > 0" class="relink-list">
+              <li v-for="(pair, i) in latestReport.relink.unmergedCandidates" :key="i">
+                {{ pair.a }} ↔ {{ pair.b }}
+                <span class="relink-sim">(similarity {{ pair.similarity.toFixed(2) }}, {{ pair.reasons.join(", ") }})</span>
+              </li>
+            </ul>
+            <span v-else class="audit-hint">none</span>
+          </div>
+          <div class="relink-block">
+            <span class="relink-label">New edges</span>
+            <ul v-if="latestReport.relink.newEdges.length > 0" class="relink-list">
+              <li v-for="(edge, i) in latestReport.relink.newEdges" :key="i">
+                {{ edge.source }} -[{{ edge.relation }}]-&gt; {{ edge.target }}
+              </li>
+            </ul>
+            <span v-else class="audit-hint">none</span>
+          </div>
+        </div>
       </div>
 
       <div class="admin-section">
@@ -811,6 +872,47 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--caleo-text-secondary);
+}
+
+/* G4.S10.T3 weekly re-link drill-in */
+.relink-details {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 8px;
+  background: var(--caleo-body-bg);
+}
+
+.relink-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--caleo-text);
+}
+
+.relink-block {
+  margin-top: 8px;
+}
+
+.relink-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--caleo-text-secondary);
+}
+
+.relink-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--caleo-text);
+}
+
+.relink-sim {
+  color: var(--caleo-text-secondary);
+  font-size: 12px;
 }
 
 .invite-link {

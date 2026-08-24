@@ -531,6 +531,33 @@ export interface KbCommunityQuality {
   summariesUnchanged?: number;
 }
 
+/**
+ * G4.S10.T3 weekly full-graph re-link report. Present on audit rows when the
+ * re-link service is wired; {trigger:"weekly"} identifies THIS flow regardless
+ * of what triggered the audit run.
+ */
+export interface KbRelinkReport {
+  trigger: "weekly";
+  /** Entities scanned by the deterministic pre-scan (no LLM). */
+  scannedEntities: number;
+  /** Candidate pairs fed to adjudication (+ incremental feeds). */
+  candidateCount: number;
+  /** LLM adjudication calls actually made (cost observability). */
+  llmCalls: number;
+  mergesApplied: number;
+  unmergedCount: number;
+  newEdgesCreated: number;
+  /** Entities additionally covered by the changed-provenance / low-degree sweep. */
+  incrementalEntities: number;
+  /** Applied merges — capped sample, see counts above for totals. */
+  merges: Array<{ from: string; to: string; similarity: number; evidence: string }>;
+  /** Candidates left unlinked, with similarity — capped sample. */
+  unmergedCandidates: Array<{ a: string; b: string; similarity: number; reasons: string[] }>;
+  /** Created cross-document edges — capped sample. */
+  newEdges: Array<{ source: string; target: string; relation: string; evidence_quote: string }>;
+  errors: string[];
+}
+
 export interface KbAuditReport {
   id?: string;
   trigger: KbAuditTrigger;
@@ -546,6 +573,7 @@ export interface KbAuditReport {
   fileCheck: KbAuditFileCheck;
   orphans: KbAuditOrphanSweep;
   communities?: KbCommunityQuality;
+  relink?: KbRelinkReport;
 }
 
 /** Error carrying the HTTP status so the UI can special-case 409 (a run is

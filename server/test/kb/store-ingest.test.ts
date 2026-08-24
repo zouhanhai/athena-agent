@@ -182,15 +182,20 @@ test("ingest stores the Document node with topic, type, md_ref, title, keywords 
       !c.query.includes("UNWIND $sections"),
   );
   assert.ok(docQuery, "Document MERGE issued");
-  assert.deepEqual(docQuery!.params, {
-    id: "doc",
-    topic: "sap/consolidation/bcs",
-    type: "report",
-    mdRef: "/storage/doc/markdown.md",
-    title: "Sommerseminar",
-    keywords: ["bcs", "consolidation"],
-    summary: "A BCS consolidation report covering the CALEO group.",
-  });
+  assert.deepEqual(
+    { ...docQuery!.params, ingestedAt: typeof docQuery!.params!.ingestedAt },
+    {
+      id: "doc",
+      topic: "sap/consolidation/bcs",
+      type: "report",
+      mdRef: "/storage/doc/markdown.md",
+      title: "Sommerseminar",
+      keywords: ["bcs", "consolidation"],
+      summary: "A BCS consolidation report covering the CALEO group.",
+      // G4.S10.T3: ingestion watermark for the weekly re-link's incremental sweep.
+      ingestedAt: "string",
+    },
+  );
 });
 
 test("ingest initializes the Document lifecycle fields with COALESCE defaults (G4.S3.T1)", async () => {

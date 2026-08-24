@@ -410,11 +410,15 @@ export class Neo4jIngestService {
 
     const session = this.driver.session();
     try {
+      // G4.S10.T3: ingestion watermark — the weekly re-link's incremental sweep
+      // resolves "source_docs changed since last audit" from this timestamp.
+      const ingestedAt = new Date().toISOString();
       await session.run(
         `MERGE (d:${DOCUMENT_LABEL} {id: $id})
          SET d.topic = $topic, d.type = $type, d.md_ref = $mdRef, d.title = $title,
              d.keywords = $keywords, d.summary = $summary,
-             d.read_count = COALESCE(d.read_count, 0), d.confidence = COALESCE(d.confidence, 1.0)`,
+             d.read_count = COALESCE(d.read_count, 0), d.confidence = COALESCE(d.confidence, 1.0),
+             d.ingested_at = $ingestedAt`,
         {
           id: input.documentId,
           topic: input.ref.frontmatter?.topic ?? "",
@@ -423,6 +427,7 @@ export class Neo4jIngestService {
           title: input.title,
           keywords: input.ref.keywords ?? [],
           summary: input.ref.summary ?? "",
+          ingestedAt,
         },
       );
 
@@ -618,7 +623,8 @@ export class Neo4jIngestService {
              d.last_edit_ref = $lastEditRef,
              d.title = $title,
              d.keywords = $keywords, d.summary = $summary,
-             d.read_count = COALESCE(d.read_count, 0), d.confidence = COALESCE(d.confidence, 1.0)`,
+             d.read_count = COALESCE(d.read_count, 0), d.confidence = COALESCE(d.confidence, 1.0),
+             d.ingested_at = $ingestedAt`,
         {
           id: documentId,
           topic: input.ref.frontmatter?.topic ?? "",
@@ -628,6 +634,7 @@ export class Neo4jIngestService {
           title: input.title,
           keywords: input.ref.keywords ?? [],
           summary: input.ref.summary ?? "",
+          ingestedAt: new Date().toISOString(),
         },
       );
 

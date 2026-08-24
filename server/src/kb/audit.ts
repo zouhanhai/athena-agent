@@ -12,6 +12,7 @@ import {
 import { defaultRefinementOutputDir } from "../agents/refine-document.js";
 import type { ReviewReport } from "./review.js";
 import type { KbCommunityQuality } from "./community-maintenance.js";
+import type { KbRelinkReport } from "./relink/relink-service.js";
 import type {
   KbAuditFileCheck,
   KbAuditOrphanSweep,
@@ -119,6 +120,13 @@ export interface KbAuditServiceOptions {
   /** G4.S9.T4 community-quality snapshot source (KbCommunityMaintenanceService).
    *  Optional — without it the report simply has no communities block. */
   communities?: { quality(): Promise<KbCommunityQuality> };
+  /** G4.S10.T3 weekly full-graph re-link (deterministic pre-scan + candidate
+   *  adjudication through the T1 link engine). Optional — without it the
+   *  report has no relink block. `sinceIso` receives the previous run's
+   *  startedAt so the pass can also sweep entities whose provenance changed. */
+  relink?: {
+    run(input: { sinceIso?: string }): Promise<KbRelinkReport>;
+  };
   /** Injectable clock (tests). */
   now?: () => Date;
   /** Injectable recursive-remove (tests). */
@@ -148,6 +156,7 @@ export class KbAuditService {
   private readonly runsStore: KbAuditRunsStore;
   private readonly graph?: KbAuditGraphPort;
   private readonly communities?: KbAuditServiceOptions["communities"];
+  private readonly relink?: NonNullable<KbAuditServiceOptions["relink"]>;
   private readonly wikiDir?: string;
   private readonly refinementRoot: string;
   private readonly graceHours: number;
@@ -160,6 +169,7 @@ export class KbAuditService {
     this.runsStore = options.runsStore;
     this.graph = options.graph;
     this.communities = options.communities;
+    this.relink = options.relink;
     this.wikiDir = options.wikiDir;
     this.refinementRoot = resolve(
       options.refinementRoot ?? process.env.REFINEMENT_OUTPUT_DIR ?? defaultRefinementOutputDir(),
@@ -183,6 +193,14 @@ export class KbAuditService {
     this.running = true;
     const startedAt = this.nowImpl();
     try {
+      // G4.S10.T3 watermark for the re-link's incremental sweep: everything
+      // ingested after the PREVIOUS audit's start counts as "changed".
+      let previousStartedAt: string | undefined;
+      try {
+        previousStartedAt = (await this.runsStore.latest())?.startedAt;
+      } catch {
+        previousStartedAt = undefined; // persistence hiccup → full sweep still runs
+      }
       const review = await this.review.reviewAll({});
       const fileCheck = await this.checkFiles();
       const orphans = await this.sweepOrphans(fileCheck.details);
@@ -198,6 +216,20 @@ export class KbAuditService {
           );
         }
       }
+      // G4.S10.T3 stage 5 — weekly full-graph re-link: deterministic pre-scan
+      // → candidate adjudication through the T1 link engine → atomic apply.
+      // Best-effort like every other stage: a failure degrades to a details
+      // line and the report simply carries no relink block.
+      let relink: KbRelinkReport | undefined;
+      if (this.relink) {
+        try {
+          relink = await this.relink.run(
+            previousStartedAt ? { sinceIso: previousStartedAt } : {},
+          );
+        } catch (err) {
+          fileCheck.details.push(`re-link section skipped: ${messageOf(err)}`);
+        }
+      }
       const end = this.nowImpl();
       const record: KbAuditRunRecord = {
         id: `kbaudit-${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -208,6 +240,7 @@ export class KbAuditService {
         fileCheck,
         orphans,
         ...(communities ? { communities } : {}),
+        ...(relink ? { relink } : {}),
       };
       await this.runsStore.insert(record);
       return record;

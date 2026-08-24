@@ -88,6 +88,8 @@ import { Neo4jCommunitySummaryService } from "./kb/store/community-summary.js";
 import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { EntityGraphService } from "./kb/store/graph.js";
 import { Neo4jExistingGraphApi } from "./kb/store/entity-match.js";
+import { Neo4jRelinkGraphPort } from "./kb/store/relink-graph.js";
+import { KbRelinkService } from "./kb/relink/relink-service.js";
 import { linkCandidates, type EntityLinker } from "./kb/link/link-engine.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
@@ -116,6 +118,10 @@ export interface BuildAppOptions {
    *  community-quality snapshot). Default: wired from the Neo4j driver when
    *  available, undefined otherwise (endpoint then reports 500). */
   communityMaintenance?: KbCommunityMaintenanceService;
+  /** G4.S10.T3 weekly full-graph re-link service. Default: wired from the
+   *  Neo4j driver when available; undefined otherwise (the audit then simply
+   *  omits the relink block). */
+  relink?: KbRelinkService;
   /**
    * G4.S8.T15: start the in-server weekly audit scheduler on ready. Only the
    * real server entry opts in (default false) so the test suite's buildApp()
@@ -498,19 +504,41 @@ export function defaultLogoStore(): LogoStore {
 
 /** G4.S8.T15: the weekly knowledge-base audit — review pass (existing
  *  reviewAll) + WikiPage-vs-disk file re-check (T14 cascade repairs) + orphan
- *  refinement sweep + G4.S9.T4 community-quality snapshot, persisted one
- *  report row per run. */
+ *  refinement sweep + G4.S9.T4 community-quality snapshot + G4.S10.T3 weekly
+ *  full-graph re-link, persisted one report row per run. */
 export function defaultKbAuditService(
   review: KbReviewService,
   runsStore: KbAuditRunsStore,
   communities?: KbCommunityMaintenanceService,
+  relink?: KbRelinkService,
 ): KbAuditService {
   return new KbAuditService({
     review,
     runsStore,
     graph: defaultNeo4jIngest(),
     ...(communities ? { communities } : {}),
+    ...(relink ? { relink } : {}),
     wikiDir: process.env.LLM_WIKI_WIKI_DIR || undefined,
+  });
+}
+
+/**
+ * G4.S10.T3: the weekly full-graph re-link over the SAME Neo4j driver the
+ * ingest-time LINK uses — deterministic pre-scan embedder + adjudication LLM +
+ * multi-lane matcher all reuse existing infra. Undefined without a driver
+ * (the audit then omits the relink block).
+ */
+export function defaultRelinkService(): KbRelinkService | undefined {
+  const driver = defaultNeo4jDriver();
+  if (!driver) return undefined;
+  const embedder = process.env.EMBEDDING_OPENROUTER_KEY
+    ? new OpenRouterEmbedder()
+    : undefined;
+  return new KbRelinkService({
+    graph: new Neo4jRelinkGraphPort({ driver }),
+    ...(embedder ? { embedder } : {}),
+    llm: defaultRefineLlmCaller(),
+    existingGraphApi: new Neo4jExistingGraphApi({ driver, ...(embedder ? { embedder } : {}) }),
   });
 }
 
@@ -586,9 +614,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   // weekly audit's community-quality section share this one instance).
   const communityMaintenance =
     options.communityMaintenance ?? defaultCommunityMaintenance();
+  // G4.S10.T3: the weekly full-graph re-link (audit stage + report block).
+  const relink = options.relink ?? defaultRelinkService();
   const audit =
     options.audit ??
-    defaultKbAuditService(options.review ?? review, auditRunsStore, communityMaintenance);
+    defaultKbAuditService(options.review ?? review, auditRunsStore, communityMaintenance, relink);
   let auditScheduler: KbAuditScheduler | undefined;
 
   app.addHook("onReady", async () => {

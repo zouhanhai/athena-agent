@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import type { ReviewReport } from "./review.js";
 import type { KbCommunityQuality } from "./community-maintenance.js";
+import type { KbRelinkReport } from "./relink/relink-service.js";
 
 /** Which path triggered an audit run. */
 export type KbAuditTrigger = "scheduled" | "manual";
@@ -40,6 +41,10 @@ export interface KbAuditRunRecord {
    *  wired: a read-only snapshot for weekly audits, the full recompute report
    *  (with changedSinceLast etc.) for manual recompute rows. */
   communities?: KbCommunityQuality;
+  /** G4.S10.T3 weekly full-graph re-link report ({trigger:"weekly"}). Present
+   *  when the re-link service was wired; absent on skips/failures (a failing
+   *  re-link degrades to a fileCheck.details line). */
+  relink?: KbRelinkReport;
 }
 
 export interface KbAuditRunsStore {
@@ -88,12 +93,12 @@ export interface PostgresKbAuditRunsStoreOptions {
 
 const INSERT_SQL = `
   INSERT INTO kb_audit_runs
-    (id, trigger, started_at, duration_ms, review, file_check, orphans, communities)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    (id, trigger, started_at, duration_ms, review, file_check, orphans, communities, relink)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `;
 
 const SELECT_COLUMNS =
-  "id, trigger, started_at, duration_ms, review, file_check, orphans, communities";
+  "id, trigger, started_at, duration_ms, review, file_check, orphans, communities, relink";
 
 function rowToRecord(row: { get(key: string): unknown }): KbAuditRunRecord {
   return {
@@ -106,6 +111,9 @@ function rowToRecord(row: { get(key: string): unknown }): KbAuditRunRecord {
     orphans: row.get("orphans") as KbAuditOrphanSweep,
     ...(row.get("communities")
       ? { communities: row.get("communities") as KbCommunityQuality }
+      : {}),
+    ...(row.get("relink")
+      ? { relink: row.get("relink") as KbRelinkReport }
       : {}),
   };
 }
@@ -147,6 +155,10 @@ export class PostgresKbAuditRunsStore implements KbAuditRunsStore {
     await this.pool.query(
       `ALTER TABLE kb_audit_runs ADD COLUMN IF NOT EXISTS communities JSONB`,
     );
+    // G4.S10.T3 migration: the weekly full-graph re-link report block.
+    await this.pool.query(
+      `ALTER TABLE kb_audit_runs ADD COLUMN IF NOT EXISTS relink JSONB`,
+    );
   }
 
   async insert(record: KbAuditRunRecord): Promise<void> {
@@ -160,6 +172,7 @@ export class PostgresKbAuditRunsStore implements KbAuditRunsStore {
       JSON.stringify(record.fileCheck),
       JSON.stringify(record.orphans),
       record.communities ? JSON.stringify(record.communities) : null,
+      record.relink ? JSON.stringify(record.relink) : null,
     ]);
   }
 
