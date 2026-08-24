@@ -11,7 +11,7 @@ acceptance_criteria:
   - "Co-occurrence edge option: chunks that mention several entities within a window produce weak RELATION edges (cooc- prefix or a dedicated CO_OCCURS type) with a configurable threshold, mitigating sparse-relation 'half-orphans' without duplicating LLM relations."
   - "Half-orphan handling: entities with no explicit relation now participate in retrieval (they belong to a community via mention edges) — the previous 'orphan' class is gone or visibly reduced."
   - "Tests: community detection on the Sommerseminar corpus yields a stable partition including the CALEO-centric community; community summary endpoint returns content; global query uses the summary path; co-occurrence edges appear for shared-chunk entities; existing server suite stays green."
-status: in_progress
+status: approved
 ---
 
 # G4.S9: Graph community clustering, global QA and co-occurrence edges
