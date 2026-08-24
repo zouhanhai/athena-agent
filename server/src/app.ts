@@ -53,7 +53,7 @@ import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
 import { WikiReviewStateService } from "./kb/review-state.js";
-import { defaultRefinementOutputDir } from "./agents/refine-document.js";
+import { defaultRefineLlmCaller, defaultRefinementOutputDir } from "./agents/refine-document.js";
 import { defaultCodeOutputDir } from "./kb/store/code.js";
 import { KbReviewService, scheduleKbReview } from "./kb/review.js";
 import { KbAuditScheduler, KbAuditService } from "./kb/audit.js";
@@ -87,6 +87,8 @@ import { Neo4jCommunityService } from "./kb/store/community.js";
 import { Neo4jCommunitySummaryService } from "./kb/store/community-summary.js";
 import { Neo4jRetrievalService, type Reranker } from "./kb/store/retrieval.js";
 import { EntityGraphService } from "./kb/store/graph.js";
+import { Neo4jExistingGraphApi } from "./kb/store/entity-match.js";
+import { linkCandidates, type EntityLinker } from "./kb/link/link-engine.js";
 import { LlamaCppReranker } from "./kb/store/rerank.js";
 import { createNeo4jDriver, neo4jConfigFromEnv } from "./kb/store/driver.js";
 import { DOCUMENT_LABEL, IS_DOCUMENT_TYPE, WIKIPAGE_LABEL, type Neo4jDriverLike } from "./kb/store/schema.js";
@@ -310,6 +312,10 @@ export function defaultTaskQueue(): IngestTaskQueue {
   const community = defaultCommunityService();
   // G4.S9.T2: summaries synced after each clustering refresh (same contract).
   const communitySummaries = defaultCommunitySummaryService();
+  // G4.S10.T1: the LINK stage consults the EXISTING graph between refine and
+  // audit on BOTH channels (upload + wiki-edit). Undefined when no Neo4j
+  // driver — the pipelines then run unchanged (no linking).
+  const entityLinker = defaultEntityLinker();
   const ingest = defaultIngestService(neo4j, community, communitySummaries);
   const dedup = new ContentDedupStore({
     loadExisting: async () => ingest.existingWikiContent(),
@@ -320,9 +326,9 @@ export function defaultTaskQueue(): IngestTaskQueue {
   return new IngestTaskQueue({
     parser: new DoclingParser(),
     ingest,
-    refiner: createAthenaRefiner(),
+    refiner: createAthenaRefiner({ entityLinker }),
     // G4.S3.T10: wiki-edit diff-refine (corrected markdown + diff → RAG overwrite).
-    wikiRefiner: createAthenaWikiEditRefiner(),
+    wikiRefiner: createAthenaWikiEditRefiner({ entityLinker }),
     dedup,
     // G4.S2.T4: the lean Neo4j RAG store is wired only when NEO4J_PASSWORD is
     // set (see .env.local / deployment). When absent the ingesting_neo4j stage
@@ -354,6 +360,23 @@ export function defaultNeo4jIngest(): Neo4jIngestService | undefined {
     // disables derivation entirely (legacy graphs / opt-out).
     coOccurs: process.env.KB_CO_OCCURS_ENABLED !== "false",
   });
+}
+
+/**
+ * G4.S10.T1 LINK stage production wiring: candidates → existing-graph matches
+ * (exact/alias/substring/BM25+vector) → deterministic merges + one bounded
+ * json_schema adjudication for ambiguous cases (retry/repair/degrade inside
+ * the engine). Undefined without a Neo4j driver — linking then no-ops.
+ */
+export function defaultEntityLinker(): EntityLinker | undefined {
+  const driver = defaultNeo4jDriver();
+  if (!driver) return undefined;
+  const existingGraphApi = new Neo4jExistingGraphApi({
+    driver,
+    embedder: process.env.EMBEDDING_OPENROUTER_KEY ? new OpenRouterEmbedder() : undefined,
+  });
+  const llm = defaultRefineLlmCaller();
+  return (candidates) => linkCandidates({ candidates, existingGraphApi, llm });
 }
 
 /**

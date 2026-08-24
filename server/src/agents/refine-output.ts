@@ -130,6 +130,17 @@ export interface RefineOutputRef {
   mode: RefinementMode;
   /** h1 section heading paths produced by the two-stage split (two-stage mode only). */
   section_paths: string[];
+  /**
+   * G4.S10.T1 LINK stage output: cross-document edges decided against the
+   * EXISTING graph (endpoints validated ∈ candidates∪existing, evidence
+   * ≤80 chars). Flows into the Neo4j store with the rest of the ref.
+   */
+  link_edges?: Array<{
+    source: string;
+    target: string;
+    relation: string;
+    evidence_quote: string;
+  }>;
 }
 
 export interface StoreRefinementOptions {
@@ -1074,6 +1085,7 @@ export async function storeRefinementOutput(
     sections: doc.sections ?? [],
     mode: options.mode ?? "single",
     section_paths: options.section_paths ?? [],
+    ...(doc.link_edges && doc.link_edges.length > 0 ? { link_edges: doc.link_edges } : {}),
   };
 }
 

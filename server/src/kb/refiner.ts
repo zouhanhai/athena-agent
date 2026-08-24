@@ -43,7 +43,12 @@ async function readStored(path: string | undefined, fallback: string): Promise<s
 }
 
 /** Build the default Athena refiner for the ingest pipeline. */
-export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refiner {
+export function createAthenaRefiner(
+  options: RefineDocumentOptions & {
+    /** G4.S10.T1 LINK stage (runs before the audit gate). */
+    entityLinker?: import("../kb/link/link-engine.js").EntityLinker;
+  } = {},
+): Refiner {
   return async (markdown: string, topicHint?: string, fileName?: string) => {
     const tool = createRefineDocumentTool({} as never, options);
     const result = await tool.execute(
@@ -80,7 +85,12 @@ export function createAthenaRefiner(options: RefineDocumentOptions = {}): Refine
  * provider.ignore; NO Pi runtime is created at all.
  */
 export function createAthenaWikiEditRefiner(
-  options: { storageDir?: string; retries?: number } = {},
+  options: {
+    storageDir?: string;
+    retries?: number;
+    /** G4.S10.T1 LINK stage — same engine as the upload path, before the audit. */
+    entityLinker?: import("../kb/link/link-engine.js").EntityLinker;
+  } = {},
 ): WikiEditRefiner {
   return async (input: {
     markdown: string;
@@ -99,7 +109,7 @@ export function createAthenaWikiEditRefiner(
     const { document } = await runWikiEditRefine(
       { markdown: input.markdown, before: input.before, diff: input.diff, structural: input.structural },
       existing,
-      { retries: options.retries },
+      { retries: options.retries, entityLinker: options.entityLinker },
     );
     // G4.S8.T18: the wiki-edit path runs the SAME deterministic placeholder scan
     // over its rebuilt markdown — objective defects force review_required here too.

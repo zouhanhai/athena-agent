@@ -17,6 +17,7 @@ import { readFile } from "node:fs/promises";
 import type { RefineOutputRef } from "../../agents/refine-output.js";
 import type { RefinementChunk, RefinementEntity } from "../../agents/refine-document.js";
 import type { TextEmbedder } from "../embedding.js";
+import { globalGraphWriteMutex } from "./mutex.js";
 import {
   CHUNK_LABEL,
   CO_OCCURS_TYPE,
@@ -290,6 +291,54 @@ function embedText(chunk: RefinementChunk): string {
   return chunk.context ? `${chunk.context}\n${chunk.text}` : chunk.text;
 }
 
+/**
+ * G4.S10.T1: the entity MERGE now accumulates source provenance — every
+ * document that mentions an entity is recorded on the node (`source_docs`,
+ * `wiki_paths`), so merges across documents converge provenance and deletion
+ * protection can read the same lists. Idempotent under re-ingest.
+ */
+const WRITE_ENTITY_CYPHER =
+  `MERGE (e:${ENTITY_LABEL} {name: $name})
+   SET e.aliases = $aliases, e.type = $type, e.description = $description, e.nameUpper = $nameUpper,
+       e.source_docs = CASE
+         WHEN e.source_docs IS NULL THEN [$documentId]
+         WHEN $documentId IN e.source_docs THEN e.source_docs
+         ELSE e.source_docs + $documentId END,
+       e.wiki_paths = CASE
+         WHEN $wikiPath IS NULL THEN e.wiki_paths
+         WHEN e.wiki_paths IS NULL THEN [$wikiPath]
+         WHEN $wikiPath IN e.wiki_paths THEN e.wiki_paths
+         ELSE e.wiki_paths + $wikiPath END`;
+
+function entityWriteParams(
+  entity: RefinementEntity,
+  documentId: string,
+  wikiPath: string | undefined,
+): Record<string, unknown> {
+  return {
+    ...entityNodeProps(entity),
+    documentId,
+    wikiPath: wikiPath ?? null,
+  };
+}
+
+/**
+ * LINK's cross-document edges ride the SAME RELATION consistency layer as the
+ * extraction's own relations: the semantic keyword becomes the edge's keyword
+ * tag, the evidence quote its description (endpoints MERGE-created, truthful
+ * landed counts).
+ */
+function linkEdgesToRelations(
+  ref: RefineOutputRef,
+): Array<{ source: string; target: string; keywords: string[]; description: string }> {
+  return (ref.link_edges ?? []).map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+    keywords: [edge.relation],
+    description: edge.evidence_quote,
+  }));
+}
+
 export class Neo4jIngestService {
   private readonly driver: Neo4jDriverLike;
   private readonly embedder: TextEmbedder;
@@ -444,40 +493,49 @@ export class Neo4jIngestService {
         );
       }
 
-      for (const entity of input.ref.entities ?? []) {
-        await session.run(
-          `MERGE (e:${ENTITY_LABEL} {name: $name})
-           SET e.aliases = $aliases, e.type = $type, e.description = $description, e.nameUpper = $nameUpper`,
-          entityNodeProps(entity),
+      // G4.S10.T1: entity/relation/link writes run under the GLOBAL graph
+      // write mutex — parallel uploads consult the existing graph concurrently
+      // (the LINK stage) but serialize their write phases, so shared-entity
+      // merges and provenance appends can never interleave/lose updates.
+      const { relationOutcome } = await globalGraphWriteMutex.runExclusive(async () => {
+        for (const entity of input.ref.entities ?? []) {
+          await session.run(
+            WRITE_ENTITY_CYPHER,
+            entityWriteParams(entity, input.documentId, input.wikiPath),
+          );
+        }
+
+        // G4.S8.T16 consistency layer: missing endpoints MERGE-created, edges never silently
+        // dropped, landed count read back from the DB (see writeRelations).
+        const outcome = await this.writeRelations(session, [
+          ...(input.ref.relations ?? []),
+          ...linkEdgesToRelations(input.ref),
+        ]);
+
+        // Entity → Chunk mention links (G4.S2.T14): each Entity is MERGE'd to every Chunk
+        // whose text mentions its name/alias, so the graph retriever can fall through from
+        // a matched entity to the chunks that actually answer a query. Skipped when no
+        // entity is mentioned in any chunk. Runs AFTER the consistency creates so the
+        // created endpoints can link too.
+        const pairs = mentionPairs(
+          [...(input.ref.entities ?? []), ...outcome.createdEndpoints],
+          chunks,
+          input.documentId,
         );
-      }
+        if (pairs.length > 0) {
+          await session.run(
+            `UNWIND $mentions AS m
+             MATCH (e:${ENTITY_LABEL} {name: m.entityName})
+             MATCH (c:${CHUNK_LABEL} {id: m.chunkId})
+             MERGE (e)-[:${MENTIONED_IN_TYPE}]->(c)`,
+            { mentions: pairs },
+          );
+        }
 
-      // G4.S8.T16 consistency layer: missing endpoints MERGE-created, edges never silently
-      // dropped, landed count read back from the DB (see writeRelations).
-      const relationOutcome = await this.writeRelations(session, input.ref.relations ?? []);
-
-      // Entity → Chunk mention links (G4.S2.T14): each Entity is MERGE'd to every Chunk
-      // whose text mentions its name/alias, so the graph retriever can fall through from
-      // a matched entity to the chunks that actually answer a query. Skipped when no
-      // entity is mentioned in any chunk. Runs AFTER the consistency creates so the
-      // created endpoints can link too.
-      const mentions = mentionPairs(
-        [...(input.ref.entities ?? []), ...relationOutcome.createdEndpoints],
-        chunks,
-        input.documentId,
-      );
-      if (mentions.length > 0) {
-        await session.run(
-          `UNWIND $mentions AS m
-           MATCH (e:${ENTITY_LABEL} {name: m.entityName})
-           MATCH (c:${CHUNK_LABEL} {id: m.chunkId})
-           MERGE (e)-[:${MENTIONED_IN_TYPE}]->(c)`,
-          { mentions },
-        );
-      }
-
-      // G4.S9.T3 weak co-occurrence edges from the fresh mention state.
-      await this.writeCoOccurrences(session, mentions);
+        // G4.S9.T3 weak co-occurrence edges from the fresh mention state.
+        await this.writeCoOccurrences(session, pairs);
+        return { relationOutcome: outcome };
+      });
 
       return {
         chunksStored: chunks.length,
@@ -668,60 +726,67 @@ export class Neo4jIngestService {
         );
       }
 
-      for (const entity of input.ref.entities ?? []) {
+      // G4.S10.T1: same global-mutex write phase as ingest() — wiki-edit
+      // overwrites serialize against parallel uploads on shared entities.
+      const { relationOutcome } = await globalGraphWriteMutex.runExclusive(async () => {
+        for (const entity of input.ref.entities ?? []) {
+          await session.run(
+            WRITE_ENTITY_CYPHER,
+            entityWriteParams(entity, documentId, input.wikiPath),
+          );
+        }
+
+        // G4.S8.T16 consistency layer (same as ingest): MERGE-create missing endpoints, truthful
+        // landed counts. Created endpoints join the mention pass; the T14 cascade cleanup below
+        // still runs AFTER these creates.
+        const outcome = await this.writeRelations(session, [
+          ...(input.ref.relations ?? []),
+          ...linkEdgesToRelations(input.ref),
+        ]);
+
+        const pairs = mentionPairs([...(input.ref.entities ?? []), ...outcome.createdEndpoints], chunks, documentId);
+        // G4.S8.T20 mention-edge REBUILD: prune the MENTIONED_IN edges on this
+        // document's SURVIVING chunks before merging the fresh pairs. A section
+        // whose corrected text no longer mentions an entity must lose its old
+        // edge — otherwise the whole-graph stale-drop below treats the entity as
+        // still mentioned and keeps its relations alive forever (accumulation,
+        // not rebuild). Scoped by documentId, so other documents' mentions are
+        // untouched (cross-doc safe).
         await session.run(
-          `MERGE (e:${ENTITY_LABEL} {name: $name})
-           SET e.aliases = $aliases, e.type = $type, e.description = $description, e.nameUpper = $nameUpper`,
-          entityNodeProps(entity),
+          `MATCH (c:${CHUNK_LABEL} {documentId: $documentId})<-[r:${MENTIONED_IN_TYPE}]-()
+           DELETE r`,
+          { documentId },
         );
-      }
+        if (pairs.length > 0) {
+          await session.run(
+            `UNWIND $mentions AS m
+             MATCH (e:${ENTITY_LABEL} {name: m.entityName})
+             MATCH (c:${CHUNK_LABEL} {id: m.chunkId})
+             MERGE (e)-[:${MENTIONED_IN_TYPE}]->(c)`,
+            { mentions: pairs },
+          );
+        }
 
-      // G4.S8.T16 consistency layer (same as ingest): MERGE-create missing endpoints, truthful
-      // landed counts. Created endpoints join the mention pass; the T14 cascade cleanup below
-      // still runs AFTER these creates.
-      const relationOutcome = await this.writeRelations(session, input.ref.relations ?? []);
+        // G4.S9.T3: rebuild weak co-occurrence edges from the corrected mention
+        // state — the write recomputes global weights, the cleanup pass drops
+        // edges whose backing mentions vanished, BEFORE the orphan-entity sweep
+        // below (a lingering CO_OCCURS edge would otherwise keep a dead entity
+        // alive via `(e)--()`).
+        await this.writeCoOccurrences(session, pairs);
 
-      const mentions = mentionPairs([...(input.ref.entities ?? []), ...relationOutcome.createdEndpoints], chunks, documentId);
-      // G4.S8.T20 mention-edge REBUILD: prune the MENTIONED_IN edges on this
-      // document's SURVIVING chunks before merging the fresh pairs. A section
-      // whose corrected text no longer mentions an entity must lose its old
-      // edge — otherwise the whole-graph stale-drop below treats the entity as
-      // still mentioned and keeps its relations alive forever (accumulation,
-      // not rebuild). Scoped by documentId, so other documents' mentions are
-      // untouched (cross-doc safe).
-      await session.run(
-        `MATCH (c:${CHUNK_LABEL} {documentId: $documentId})<-[r:${MENTIONED_IN_TYPE}]-()
-         DELETE r`,
-        { documentId },
-      );
-      if (mentions.length > 0) {
+        // Stale graph cleanup: relations between entities that the (corrected)
+        // corpus no longer mentions anywhere, and fully orphaned Entity nodes.
         await session.run(
-          `UNWIND $mentions AS m
-           MATCH (e:${ENTITY_LABEL} {name: m.entityName})
-           MATCH (c:${CHUNK_LABEL} {id: m.chunkId})
-           MERGE (e)-[:${MENTIONED_IN_TYPE}]->(c)`,
-          { mentions },
+          `MATCH (a:${ENTITY_LABEL})-[r:${ENTITY_RELATION_TYPE}]->(b:${ENTITY_LABEL})
+           WHERE NOT (a)-[:${MENTIONED_IN_TYPE}]->(:${CHUNK_LABEL})
+             AND NOT (b)-[:${MENTIONED_IN_TYPE}]->(:${CHUNK_LABEL})
+           DELETE r`,
         );
-      }
-
-      // G4.S9.T3: rebuild weak co-occurrence edges from the corrected mention
-      // state — the write recomputes global weights, the cleanup pass drops
-      // edges whose backing mentions vanished, BEFORE the orphan-entity sweep
-      // below (a lingering CO_OCCURS edge would otherwise keep a dead entity
-      // alive via `(e)--()`).
-      await this.writeCoOccurrences(session, mentions);
-
-      // Stale graph cleanup: relations between entities that the (corrected)
-      // corpus no longer mentions anywhere, and fully orphaned Entity nodes.
-      await session.run(
-        `MATCH (a:${ENTITY_LABEL})-[r:${ENTITY_RELATION_TYPE}]->(b:${ENTITY_LABEL})
-         WHERE NOT (a)-[:${MENTIONED_IN_TYPE}]->(:${CHUNK_LABEL})
-           AND NOT (b)-[:${MENTIONED_IN_TYPE}]->(:${CHUNK_LABEL})
-         DELETE r`,
-      );
-      await session.run(
-        `MATCH (e:${ENTITY_LABEL}) WHERE NOT (e)--() DELETE e`,
-      );
+        await session.run(
+          `MATCH (e:${ENTITY_LABEL}) WHERE NOT (e)--() DELETE e`,
+        );
+        return { relationOutcome: outcome };
+      });
 
       return {
         chunksStored: chunks.length,

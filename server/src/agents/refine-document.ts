@@ -35,6 +35,12 @@ import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT, DOC_TYPES } from "../kb/taxono
 import { callOpenRouter, resolveRefineModel, type OpenRouterCallParams } from "./llm-direct.js";
 import { refineReasoningFor } from "./refine-reasoning.js";
 import {
+  applyMergesToEntities,
+  renameFor,
+  type EntityLinker,
+  type LinkNewEdge,
+} from "../kb/link/link-engine.js";
+import {
   HEADER_RELEVEL_BATCH_SIZE,
   applyPatches,
   applyPatchesWithReport,
@@ -225,6 +231,8 @@ export interface RefinedDocument {
   quality: RefinementQuality;
   /** G4.S8.T16 instrumentation of the local patch cycle (absent when no patches were emitted). */
   patchReport?: PatchApplyReport;
+  /** G4.S10.T1 LINK stage output — cross-document edges decided against the existing graph. */
+  link_edges?: LinkNewEdge[];
 }
 
 /**
@@ -330,6 +338,12 @@ export interface RefinedDocumentDelta {
   quality: RefinementQuality;
   /** Optional location-addressed text edits; Athena applies them locally to rebuild markdown. */
   patches?: RefinementPatch[];
+  /**
+   * G4.S10.T1 LINK stage output: cross-document edges the linker decided
+   * against the EXISTING graph (endpoints already validated ∈ candidates∪existing).
+   * Never emitted by the extraction LLM itself — attached between refine and audit.
+   */
+  link_edges?: LinkNewEdge[];
 }
 
 /** Stage-1 emit schema: corrected heading level per header index (T3 two-stage). */
@@ -422,6 +436,13 @@ export interface RefineDocumentOptions {
   globalMergeImpl?: (refinements: RefinedDocument[], topicHint?: string) => Promise<RefinedDocument>;
   /** Inject the big-output store (tests). Default: storeRefinementOutput (disk). */
   storeImpl?: RefinementStore;
+  /**
+   * G4.S10.T1 LINK stage: match the extracted candidates against the EXISTING
+   * graph (merge/typed-edge decisions). Runs AFTER extraction+validation and
+   * BEFORE the entity audit, so the audit reviews the MERGED set. Absent =
+   * pipeline unchanged (no linking).
+   */
+  entityLinker?: EntityLinker;
 }
 
 /** Big-output store signature: persist the full doc, return the small ref. */
@@ -959,6 +980,7 @@ export function buildRefinedDocument(markdown: string, delta: RefinedDocumentDel
     relations: delta.relations,
     keywords: delta.keywords,
     quality: delta.quality,
+    ...(delta.link_edges && delta.link_edges.length > 0 ? { link_edges: delta.link_edges } : {}),
     ...(report.emitted > 0 ? { patchReport: report } : {}),
   };
 }
@@ -1306,7 +1328,7 @@ export interface LargeRefineResult {
  * FOUND". Legacy payloads without occurrences fall back to fuzzy location via
  * whitespace-normalized search of the name itself.
  */
-const AUDIT_ENTITIES_PROMPT = `You are the final consistency auditor for a knowledge-graph extraction.
+export const AUDIT_ENTITIES_PROMPT = `You are the final consistency auditor for a knowledge-graph extraction.
 You receive a document's extracted ENTITIES and RELATIONS plus, for each name, an excerpt of the
 document text around one real occurrence (labeled [name]). Rewrite the lists so that:
 
@@ -1547,11 +1569,45 @@ export const AUDIT_ENTITIES_SCHEMA = Type.Object({
   ),
 });
 
+/**
+ * G4.S10.T1 LINK stage (shared by both pipelines): run the channel-agnostic
+ * linker over the extracted candidates, rename merged candidates onto their
+ * canonical existing nodes and attach the validated cross-document edges.
+ * Runs BETWEEN delta extraction/validation and the entity audit so the audit
+ * reviews the MERGED set. Best-effort: a linker failure degrades to the
+ * unlinked extraction — linking never blocks ingestion.
+ */
+async function applyLinkStage(
+  linker: EntityLinker | undefined,
+  entities: RefinementEntity[],
+  relations: RefinementRelation[],
+): Promise<{ entities: RefinementEntity[]; relations: RefinementRelation[]; link_edges?: LinkNewEdge[] }> {
+  if (!linker || entities.length === 0) return { entities, relations };
+  try {
+    const decisions = await linker(entities);
+    if (decisions.merges.length === 0 && decisions.new_edges.length === 0) {
+      return { entities, relations };
+    }
+    const merged = applyMergesToEntities(entities, relations, decisions.merges);
+    console.warn(
+      `[refine_document] link stage: ${decisions.merges.length} merge(s), ${decisions.new_edges.length} edge(s) decided against the existing graph`,
+    );
+    return {
+      ...merged,
+      ...(decisions.new_edges.length > 0 ? { link_edges: decisions.new_edges } : {}),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[refine_document] link stage FAILED (degraded to unlinked): ${message}`);
+    return { entities, relations };
+  }
+}
+
 async function runRefinePass(
   caller: RefineLlmCaller,
   markdown: string,
   topicHint: string | undefined,
-  options: Pick<RefineDocumentOptions, "systemPrompt" | "retries" | "modelId">,
+  options: Pick<RefineDocumentOptions, "systemPrompt" | "retries" | "modelId" | "entityLinker">,
 ): Promise<{
   document: RefinedDocument;
   assistant: AssistantMessageLike;
@@ -1618,10 +1674,14 @@ async function runRefinePass(
         continue;
       }
 
+      // G4.S10.T1 LINK stage — pipeline order is FIXED: refine → link → audit
+      // → store. Linking first means the audit reviews the MERGED/decided set.
+      const linked = await applyLinkStage(options.entityLinker, delta.entities ?? [], delta.relations ?? []);
+
       // G4.S8.T19 MANDATORY audit gate: EVERY validated document gets ONE
       // independent consistency session over entities/relations. Adopted only
       // when the audited rewrite itself validates; otherwise keep pre-audit.
-      const audit = await runEntityAudit(caller, markdown, delta, { modelId: options.modelId });
+      const audit = await runEntityAudit(caller, markdown, { ...delta, ...linked }, { modelId: options.modelId });
 
       return {
         document: buildRefinedDocument(markdown, audit.delta),
@@ -2193,6 +2253,13 @@ export interface WikiEditRefineOptions {
   httpCaller?: RefineLlmCaller;
   /** Model id sent to OpenRouter (default: env ATHENA_REFINE_MODEL / deepseek default). */
   modelId?: string;
+  /**
+   * G4.S10.T1 LINK stage (SAME engine as the upload path): after the delta
+   * refine extracts entities/relations and BEFORE its audit gate, candidates
+   * are matched against the existing graph — a rename like "galleo Office" →
+   * "CALEO Office" re-links onto the existing node automatically.
+   */
+  entityLinker?: EntityLinker;
 }
 
 /**
@@ -2254,6 +2321,45 @@ export async function auditWikiEditDocument(
   };
 }
 
+/**
+ * G4.S10.T1 LINK stage for the wiki-edit delta-refine: identical engine and
+ * ordering contract as the upload path, extended to the incremental fields —
+ * new_entities / new_relations follow the merge renames so the "what did this
+ * edit introduce" bookkeeping stays consistent with the re-linked document.
+ */
+async function applyWikiLinkStage(
+  linker: EntityLinker | undefined,
+  doc: WikiEditRefinement,
+): Promise<WikiEditRefinement> {
+  if (!linker || (doc.entities ?? []).length === 0) return doc;
+  try {
+    const decisions = await linker(doc.entities ?? []);
+    if (decisions.merges.length === 0 && decisions.new_edges.length === 0) return doc;
+    const merged = applyMergesToEntities(doc.entities ?? [], doc.relations ?? [], decisions.merges);
+    const rename = renameFor(decisions.merges);
+    const renamed = <E extends { name: string }>(entity: E): E => ({ ...entity, name: rename(entity.name) });
+    const reroute = <R extends { source: string; target: string }>(relation: R): R => ({
+      ...relation,
+      source: rename(relation.source),
+      target: rename(relation.target),
+    });
+    console.warn(
+      `[refine_document] wiki-edit link stage: ${decisions.merges.length} merge(s), ${decisions.new_edges.length} edge(s) decided against the existing graph`,
+    );
+    return {
+      ...doc,
+      ...merged,
+      new_entities: (doc.new_entities ?? []).map(renamed),
+      new_relations: (doc.new_relations ?? []).map(reroute),
+      ...(decisions.new_edges.length > 0 ? { link_edges: decisions.new_edges } : {}),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[refine_document] wiki-edit link stage FAILED (degraded to unlinked): ${message}`);
+    return doc;
+  }
+}
+
 export async function runWikiEditRefine(
   input: WikiEditRefineInput,
   existing?: { type?: string; topic?: string },
@@ -2274,10 +2380,14 @@ export async function runWikiEditRefine(
         reasoningEffort,
       });
       const extracted = extractWikiEditRefinement(message);
+      // G4.S10.T1 LINK stage — SAME engine as the upload pipeline, SAME fixed
+      // order: delta-refine → link → audit. Renames/merges discovered on edit
+      // re-link onto the existing graph nodes before the audit reviews them.
+      const linked = await applyWikiLinkStage(options.entityLinker, extracted);
       // Mandatory audit for wiki-edit saves (T19): canonicalize names /
       // close endpoints with a cheap independent session. Never fatal.
       try {
-        const audited = await auditWikiEditDocument(httpCaller, input.markdown, extracted, options.modelId);
+        const audited = await auditWikiEditDocument(httpCaller, input.markdown, linked, options.modelId);
         if (audited !== extracted) {
           // audit applied (logged inside auditWikiEditDocument)
         } else {
