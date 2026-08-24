@@ -1,10 +1,9 @@
 ---
 id: G4.S10
 title: "G4.S10: Graph-aware entity linking — ingest-time merge/link step + weekly re-link in the audit"
+owner: pm
 layer: S
 parent: G4
-owner: pm
-status: backlog
 acceptance_criteria:
   - "Ingest pipeline gains a LINK stage between refine and store: refine output (candidate entities/relations) is matched against the EXISTING graph (vector/BM25 similarity + name/alias overlap), producing merges (candidate→existing identity), new cross-document RELATION edges (with evidence quotes), and untouched standalone entities. Applied deterministically where similarity is high; LLM decision only for ambiguous cases."
   - "Pipeline ORDER is fixed: refine → LINK → audit → store. LINK runs before the audit so the audit reviews the MERGED/decided entity set (final names, closure, merge-correctness); refine-only output is the degrade path."
@@ -17,6 +16,7 @@ acceptance_criteria:
   - "Code channel: deterministic nameUpper merge already covers code-object identity; no LLM merge needed. OPTIONAL extension (future ticket): cross-channel link between document entities and code entities (e.g. a doc mentions a CDS view present in the code graph)."
   - "Community refresh runs AFTER linking so merged entities land in one community (fixes CALEO vs CALEO Office split by naming similarity where type+evidence supports it)."
   - "Tests: pipeline-order test, parallel-upload race test, link-retry-degradation test, link contract bounds test, merge-dedup test, provenance-accumulation test, wiki-edit link reuse test, weekly re-link report test; server suite green; push required before done."
+status: in_progress
 ---
 
 # G4.S10: Graph-aware entity linking
