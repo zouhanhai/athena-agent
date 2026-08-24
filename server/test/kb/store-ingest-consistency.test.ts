@@ -79,7 +79,7 @@ function makeRef(overrides: Partial<RefineOutputRef> = {}): RefineOutputRef {
 
 const baseChunks = [{ id: "c1", text: "CALEO hosts.", heading_path: "# H" }];
 
-test("missing relation endpoints are MERGE-created as Entities (type unknown / keyword-inferred), never silently dropped", async () => {
+test("missing relation endpoints are MERGE-created as Entities (type other / keyword-inferred), never silently dropped", async () => {
   // CALEO is declared; MALLORCA + MAX MUSTERMANN are NOT — the old code dropped these edges.
   const { driver, calls } = makeDriver({ existingNameUppers: ["CALEO"] });
   const service = new Neo4jIngestService({
@@ -106,13 +106,14 @@ test("missing relation endpoints are MERGE-created as Entities (type unknown / k
   const createdNames = creates.map((c) => c.params!.name);
   assert.deepEqual([...createdNames].sort(), ["Ghost Hotel", "Mallorca", "Max Mustermann"]);
 
-  // keyword heuristic: event-ish keyword → event; person-ish → person; nothing → unknown
+  // keyword heuristic: event-ish keyword → event; person-ish → person; nothing → "other"
+  // (G4.S10.T2 closed enum — "other" routes matching through the LLM path)
   const mallorca = creates.find((c) => c.params!.name === "Mallorca")!;
   assert.equal(mallorca.params!.type, "event");
   const max = creates.find((c) => c.params!.name === "Max Mustermann")!;
   assert.equal(max.params!.type, "person");
   const ghost = creates.find((c) => c.params!.name === "Ghost Hotel")!;
-  assert.equal(ghost.params!.type, "unknown");
+  assert.equal(ghost.params!.type, "other");
 
   // every created entity carries nameUpper + the relation's description
   for (const c of creates) {

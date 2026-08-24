@@ -35,7 +35,9 @@ import { TYPE_CRITERIA_PROMPT, TOPIC_TREE_PROMPT, DOC_TYPES } from "../kb/taxono
 import { callOpenRouter, resolveRefineModel, type OpenRouterCallParams } from "./llm-direct.js";
 import { refineReasoningFor } from "./refine-reasoning.js";
 import {
+  ENTITY_TYPES,
   applyMergesToEntities,
+  normalizeEntityType,
   renameFor,
   type EntityLinker,
   type LinkNewEdge,
@@ -271,6 +273,15 @@ const PATCH_ONE_OF = Type.Union([
   Type.Object({ op: Type.Literal("delete_paragraph"), index: Type.Number() }),
 ]);
 
+/**
+ * G4.S10.T2: entity types are a CLOSED enum — the emit schemas hard-validate it
+ * (constrained transports reject invalid types before parse) and the parse layer
+ * (`normalizeEntityList`) folds synonyms / clamps out-of-enum values to "other",
+ * so ad-hoc type strings (observed: organization/group leaking beside org) can
+ * no longer reach the graph.
+ */
+const ENTITY_TYPE_SCHEMA = Type.Union(ENTITY_TYPES.map((t) => Type.Literal(t)));
+
 /** Shared quality sub-schema (G4.S8.T16: optional anchored issues for T17). */
 const QUALITY_SCHEMA = Type.Object({
   complete: Type.Boolean(),
@@ -301,7 +312,7 @@ export const REFINED_DOCUMENT_DELTA_SCHEMA = Type.Object({
   entities: Type.Array(
     Type.Object({
       name: Type.String(),
-      type: Type.String(),
+      type: ENTITY_TYPE_SCHEMA,
       description: Type.String(),
       aliases: Type.Optional(Type.Array(Type.String())),
       occurrences: Type.Optional(Type.Array(Type.String())),
@@ -367,7 +378,7 @@ export const GLOBAL_MERGE_SCHEMA = Type.Object({
   entities: Type.Array(
     Type.Object({
       name: Type.String(),
-      type: Type.String(),
+      type: ENTITY_TYPE_SCHEMA,
       description: Type.String(),
       aliases: Type.Optional(Type.Array(Type.String())),
     }),
@@ -712,12 +723,17 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const asStringArray = (v: unknown): string[] | undefined =>
   Array.isArray(v) && v.every((item) => typeof item === "string") ? v : undefined;
 
-/** Coerce a parsed entities array into the refinement contract (occurrences carried through, T19). */
+/**
+ * Coerce a parsed entities array into the refinement contract (occurrences carried through, T19).
+ * G4.S10.T2: the type is HARD-normalized at parse time — synonym-folded
+ * (organization/group→org, place→location, …) and clamped onto the closed enum;
+ * out-of-enum junk becomes "other" instead of leaking ad-hoc types into the graph.
+ */
 export function normalizeEntityList(raw: unknown): RefinementEntity[] {
   return Array.isArray(raw)
     ? raw.filter(isRecord).map((e) => ({
         name: String(e.name ?? ""),
-        type: String(e.type ?? "other"),
+        type: normalizeEntityType(typeof e.type === "string" ? e.type : undefined),
         description: String(e.description ?? ""),
         aliases: asStringArray(e.aliases) ?? [],
         occurrences: asStringArray(e.occurrences) ?? [],
@@ -1555,7 +1571,7 @@ export const AUDIT_ENTITIES_SCHEMA = Type.Object({
   entities: Type.Array(
     Type.Object({
       name: Type.String(),
-      type: Type.String(),
+      type: ENTITY_TYPE_SCHEMA,
       description: Type.Optional(Type.String()),
     }),
   ),
@@ -2018,7 +2034,7 @@ export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
   entities: Type.Array(
     Type.Object({
       name: Type.String(),
-      type: Type.String(),
+      type: ENTITY_TYPE_SCHEMA,
       description: Type.String(),
       aliases: Type.Optional(Type.Array(Type.String())),
     }),
@@ -2035,7 +2051,7 @@ export const WIKI_EDIT_REFINE_SCHEMA = Type.Object({
   new_entities: Type.Array(
     Type.Object({
       name: Type.String(),
-      type: Type.String(),
+      type: ENTITY_TYPE_SCHEMA,
       description: Type.String(),
       aliases: Type.Optional(Type.Array(Type.String())),
     }),

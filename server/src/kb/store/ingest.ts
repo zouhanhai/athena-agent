@@ -262,7 +262,8 @@ export function sectionChain(documentId: string, headingPath: string): Array<{ i
 
 /**
  * G4.S8.T16 keyword heuristic for MERGE-created relation endpoints: guess the entity type from the
- * RELATION keywords (event-organizing / person-participating verbs), defaulting to "unknown".
+ * RELATION keywords (event-organizing / person-participating verbs), defaulting to "other"
+ * (G4.S10.T2 closed enum — "other" routes matching through the LLM path, never a wrong auto-merge).
  * Deliberately conservative — a wrong guess only colors a node, a missing edge loses knowledge.
  */
 const EVENT_KEYWORDS = [
@@ -276,10 +277,10 @@ const PERSON_KEYWORDS = [
 
 export function inferEndpointTypeFromKeywords(keywords: string[] | undefined): string {
   const joined = (keywords ?? []).join(" ").toLowerCase();
-  if (!joined) return "unknown";
+  if (!joined) return "other";
   if (EVENT_KEYWORDS.some((k) => joined.includes(k))) return "event";
   if (PERSON_KEYWORDS.some((k) => joined.includes(k))) return "person";
-  return "unknown";
+  return "other";
 }
 
 /**
@@ -292,7 +293,26 @@ function embedText(chunk: RefinementChunk): string {
 }
 
 /**
- * G4.S10.T1: the entity MERGE now accumulates source provenance — every
+ * G4.S10.T2 shared provenance-append fragments. Every entity write path
+ * (declared extraction entities, LINK-merged candidates under their canonical
+ * name, MERGE-created relation endpoints) funnels through these CASE blocks:
+ * append the current documentId / wikiPath unless already present — idempotent
+ * under re-ingest, join semantics for cross-document merges.
+ */
+const APPEND_SOURCE_DOC_CYPHER =
+  `e.source_docs = CASE
+         WHEN e.source_docs IS NULL THEN [$documentId]
+         WHEN $documentId IN e.source_docs THEN e.source_docs
+         ELSE e.source_docs + $documentId END`;
+const APPEND_WIKI_PATH_CYPHER =
+  `e.wiki_paths = CASE
+         WHEN $wikiPath IS NULL THEN e.wiki_paths
+         WHEN e.wiki_paths IS NULL THEN [$wikiPath]
+         WHEN $wikiPath IN e.wiki_paths THEN e.wiki_paths
+         ELSE e.wiki_paths + $wikiPath END`;
+
+/**
+ * G4.S10.T1/T2: the entity MERGE accumulates source provenance — every
  * document that mentions an entity is recorded on the node (`source_docs`,
  * `wiki_paths`), so merges across documents converge provenance and deletion
  * protection can read the same lists. Idempotent under re-ingest.
@@ -300,15 +320,24 @@ function embedText(chunk: RefinementChunk): string {
 const WRITE_ENTITY_CYPHER =
   `MERGE (e:${ENTITY_LABEL} {name: $name})
    SET e.aliases = $aliases, e.type = $type, e.description = $description, e.nameUpper = $nameUpper,
-       e.source_docs = CASE
-         WHEN e.source_docs IS NULL THEN [$documentId]
-         WHEN $documentId IN e.source_docs THEN e.source_docs
-         ELSE e.source_docs + $documentId END,
-       e.wiki_paths = CASE
-         WHEN $wikiPath IS NULL THEN e.wiki_paths
-         WHEN e.wiki_paths IS NULL THEN [$wikiPath]
-         WHEN $wikiPath IN e.wiki_paths THEN e.wiki_paths
-         ELSE e.wiki_paths + $wikiPath END`;
+       ${APPEND_SOURCE_DOC_CYPHER},
+       ${APPEND_WIKI_PATH_CYPHER}`;
+
+/**
+ * G4.S10.T2 explicit provenance STRIP: remove one document's path from every
+ * entity's source_docs / wiki_paths lists. Runs in the delete cascade (the
+ * document is going away) and at the START of an overwrite's write phase
+ * (rebuild-not-accumulate: a corrected version that no longer mentions an
+ * entity must not keep protecting it).
+ */
+const STRIP_PROVENANCE_CYPHER =
+  `MATCH (e:${ENTITY_LABEL})
+   WHERE $documentId IN coalesce(e.source_docs, []) OR $wikiPath IN coalesce(e.wiki_paths, [])
+   SET e.source_docs = [x IN coalesce(e.source_docs, []) WHERE x <> $documentId],
+       e.wiki_paths = [x IN coalesce(e.wiki_paths, []) WHERE x <> $wikiPath]`;
+
+/** The orphan guard both sweeps share: empty provenance list. */
+const NO_PROVENANCE_GUARD_CYPHER = `(e.source_docs IS NULL OR size(e.source_docs) = 0)`;
 
 function entityWriteParams(
   entity: RefinementEntity,
@@ -507,10 +536,14 @@ export class Neo4jIngestService {
 
         // G4.S8.T16 consistency layer: missing endpoints MERGE-created, edges never silently
         // dropped, landed count read back from the DB (see writeRelations).
-        const outcome = await this.writeRelations(session, [
-          ...(input.ref.relations ?? []),
-          ...linkEdgesToRelations(input.ref),
-        ]);
+        const outcome = await this.writeRelations(
+          session,
+          [
+            ...(input.ref.relations ?? []),
+            ...linkEdgesToRelations(input.ref),
+          ],
+          { documentId: input.documentId, wikiPath: input.wikiPath },
+        );
 
         // Entity → Chunk mention links (G4.S2.T14): each Entity is MERGE'd to every Chunk
         // whose text mentions its name/alias, so the graph retriever can fall through from
@@ -729,6 +762,15 @@ export class Neo4jIngestService {
       // G4.S10.T1: same global-mutex write phase as ingest() — wiki-edit
       // overwrites serialize against parallel uploads on shared entities.
       const { relationOutcome } = await globalGraphWriteMutex.runExclusive(async () => {
+        // G4.S10.T2 provenance REBUILD (mirrors the mention-edge rebuild below):
+        // strip this document's path from every entity BEFORE re-appending it for
+        // the corrected extraction — an entity the new version no longer mentions
+        // must not keep a stale protection entry. Other documents' paths untouched.
+        await session.run(STRIP_PROVENANCE_CYPHER, {
+          documentId,
+          wikiPath: input.wikiPath ?? null,
+        });
+
         for (const entity of input.ref.entities ?? []) {
           await session.run(
             WRITE_ENTITY_CYPHER,
@@ -739,10 +781,14 @@ export class Neo4jIngestService {
         // G4.S8.T16 consistency layer (same as ingest): MERGE-create missing endpoints, truthful
         // landed counts. Created endpoints join the mention pass; the T14 cascade cleanup below
         // still runs AFTER these creates.
-        const outcome = await this.writeRelations(session, [
-          ...(input.ref.relations ?? []),
-          ...linkEdgesToRelations(input.ref),
-        ]);
+        const outcome = await this.writeRelations(
+          session,
+          [
+            ...(input.ref.relations ?? []),
+            ...linkEdgesToRelations(input.ref),
+          ],
+          { documentId, wikiPath: input.wikiPath },
+        );
 
         const pairs = mentionPairs([...(input.ref.entities ?? []), ...outcome.createdEndpoints], chunks, documentId);
         // G4.S8.T20 mention-edge REBUILD: prune the MENTIONED_IN edges on this
@@ -776,6 +822,9 @@ export class Neo4jIngestService {
 
         // Stale graph cleanup: relations between entities that the (corrected)
         // corpus no longer mentions anywhere, and fully orphaned Entity nodes.
+        // G4.S10.T2: the orphan sweep additionally requires EMPTY provenance —
+        // an entity whose source_docs still lists a document survives here even
+        // if invariant drift left it edge-less (explicit deletion protection).
         await session.run(
           `MATCH (a:${ENTITY_LABEL})-[r:${ENTITY_RELATION_TYPE}]->(b:${ENTITY_LABEL})
            WHERE NOT (a)-[:${MENTIONED_IN_TYPE}]->(:${CHUNK_LABEL})
@@ -783,7 +832,7 @@ export class Neo4jIngestService {
            DELETE r`,
         );
         await session.run(
-          `MATCH (e:${ENTITY_LABEL}) WHERE NOT (e)--() DELETE e`,
+          `MATCH (e:${ENTITY_LABEL}) WHERE NOT (e)--() AND ${NO_PROVENANCE_GUARD_CYPHER} DELETE e`,
         );
         return { relationOutcome: outcome };
       });
@@ -812,7 +861,9 @@ export class Neo4jIngestService {
    *    (both edge-linked and `documentId`-property-linked nodes) and the Document
    *    node itself. MENTIONED_IN edges die with their Chunk nodes.
    * 3. AFTER all documents: orphan-entity rule — Entities with ZERO remaining
-   *    MENTIONED_IN edges are DETACH DELETEd (their RELATION edges die with them);
+   *    MENTIONED_IN edges AND an EMPTY source_docs list are DETACH DELETEd
+   *    (G4.S10.T2 explicit provenance protection: either condition alone retains
+   *    the entity; its RELATION edges die with it when removed);
    *    entities still mentioned by other documents are retained (the shared
    *    nameUpper MERGE means cross-document entities must survive). Batch-scoped:
    *    an entity shared by two deleted documents is only orphaned at the end.
@@ -882,6 +933,14 @@ export class Neo4jIngestService {
         );
         await session.run(`MATCH (d:${DOCUMENT_LABEL} {id: $id}) DETACH DELETE d`, { id: documentId });
         result.documentsRemoved += 1;
+        // G4.S10.T2 explicit provenance cleanup: the deleted document's path
+        // leaves every entity's source_docs / wiki_paths BEFORE the orphan rule
+        // below reads them — an entity retained only by THIS document must not
+        // stay protected by a stale entry.
+        await session.run(STRIP_PROVENANCE_CYPHER, {
+          documentId,
+          wikiPath: input.wikiPath,
+        });
       }
 
       // The page's own WikiPage node(s) — drop them once no Document references them
@@ -895,9 +954,13 @@ export class Neo4jIngestService {
       );
 
       // 3. Orphan entities — scoped AFTER all documentIds in this delete are processed.
+      // G4.S10.T2 explicit deletion protection: an entity is removable ONLY when
+      // its provenance is exhausted (source_docs empty) AND no MENTIONED_IN edge
+      // remains — either condition alone retains it (mirrors + makes explicit the
+      // mention-count protection).
       result.entitiesRemoved += await this.deleteCounting(
         session,
-        `MATCH (e:${ENTITY_LABEL}) WHERE NOT (e)-[:${MENTIONED_IN_TYPE}]->()
+        `MATCH (e:${ENTITY_LABEL}) WHERE NOT (e)-[:${MENTIONED_IN_TYPE}]->() AND ${NO_PROVENANCE_GUARD_CYPHER}
          DETACH DELETE e RETURN count(e) AS n`,
         {},
       );
@@ -966,9 +1029,11 @@ export class Neo4jIngestService {
    *
    * 1. Resolve every endpoint's folded name (nameUpper) against the graph; endpoints with no
    *    exact Entity match are MERGE-created first — type inferred from the relation keywords
-   *    or "unknown", description from the relation. A closed-world validation failure upstream
+   *    or "other", description from the relation. A closed-world validation failure upstream
    *    must never cost an edge here.
-   * 2. MERGE each edge and read back the DB's count so `relationsStored` is what ACTUALLY
+   * 2. G4.S10.T2: BOTH create and match join the source provenance (the document references
+   *    the endpoint even when no chunk text mentions it verbatim).
+   * 3. MERGE each edge and read back the DB's count so `relationsStored` is what ACTUALLY
    *    landed, not the input length (the old code dropped nameUpper mismatches silently and
    *    reported the input count).
    *
@@ -977,6 +1042,7 @@ export class Neo4jIngestService {
   private async writeRelations(
     session: Neo4jSessionLike,
     relations: RefineOutputRef["relations"],
+    provenance: { documentId: string; wikiPath?: string },
   ): Promise<{ relationsStored: number; endpointEntitiesCreated: number; createdEndpoints: RefinementEntity[] }> {
     const usable = relations.filter((r) => r.source?.trim() && r.target?.trim());
     if (usable.length === 0) return { relationsStored: 0, endpointEntitiesCreated: 0, createdEndpoints: [] };
@@ -1001,7 +1067,8 @@ export class Neo4jIngestService {
       (found?.records ?? []).map((r) => String(r.get?.("name") ?? "")).filter(Boolean),
     );
 
-    // 1c. MERGE-create the missing endpoints (ON CREATE keeps existing entities untouched).
+    // 1c. MERGE-create the missing endpoints (ON CREATE keeps existing entities untouched);
+    // provenance appends on BOTH branches (G4.S10.T2).
     let endpointEntitiesCreated = 0;
     const createdEndpoints: RefinementEntity[] = [];
     for (const [key, endpoint] of endpoints) {
@@ -1013,12 +1080,15 @@ export class Neo4jIngestService {
       await session.run(
         `MERGE (e:${ENTITY_LABEL} {nameUpper: $nameUpper})
          ON CREATE SET e.name = $name, e.type = $type, e.description = $description,
-                       e.aliases = [], e.source = 'relation-endpoint'`,
+                       e.aliases = [], e.source = 'relation-endpoint'
+         SET ${APPEND_SOURCE_DOC_CYPHER}, ${APPEND_WIKI_PATH_CYPHER}`,
         {
           nameUpper: key,
           name: endpoint.name,
           type,
           description: owningRelation?.description ?? "",
+          documentId: provenance.documentId,
+          wikiPath: provenance.wikiPath ?? null,
         },
       );
       endpointEntitiesCreated += 1;

@@ -110,22 +110,47 @@ export const LINK_LLM_RETRIES = 3;
 export const LINK_TOP_K = 5;
 
 /**
+ * G4.S10.T2: the CLOSED entity-type enum of the refinement channel. The emit
+ * schemas hard-validate it, the parse layer clamps to it, and the migration
+ * rewrites stored values onto it.
+ */
+export const ENTITY_TYPES = ["org", "person", "product", "event", "location", "concept", "other"] as const;
+export type EntityType = (typeof ENTITY_TYPES)[number];
+/** Everything outside the enum folds here ("未知→LLM 路径" — other never merges deterministically). */
+export const DEFAULT_ENTITY_TYPE: EntityType = "other";
+
+/**
  * Type normalization BEFORE matching (G4.S10 Spec §3): observed leakage like
  * organization/group beside org must not split identities; place/location are
  * folded too. Unknown/`other` types never merge deterministically — they go to
- * the LLM ("other→prompt LLM").
+ * the LLM ("other→prompt LLM"). The SAME map drives the one-off migration
+ * (`provenance-migration.ts`) so stored values and matching agree.
  */
-const TYPE_NORMALIZATION_MAP: Record<string, string> = {
+export const ENTITY_TYPE_SYNONYM_MAP: Record<string, string> = {
   organization: "org",
   group: "org",
   company: "org",
   place: "location",
   city: "location",
+  unknown: "other",
 };
+
+const TYPE_NORMALIZATION_MAP = ENTITY_TYPE_SYNONYM_MAP;
 
 export function normalizeLinkType(raw: string | undefined): string {
   const folded = (raw ?? "").trim().toLowerCase();
   return TYPE_NORMALIZATION_MAP[folded] ?? folded;
+}
+
+/**
+ * G4.S10.T2 parse-time clamp for STORED entity types: synonym-fold first, then
+ * force the closed enum — any value that is not a documented type becomes
+ * "other" instead of leaking ad-hoc strings into the graph. (Code-channel
+ * domain types never pass through here; they bypass LLM refinement entirely.)
+ */
+export function normalizeEntityType(raw: string | undefined): EntityType {
+  const folded = normalizeLinkType(raw);
+  return (ENTITY_TYPES as readonly string[]).includes(folded) ? (folded as EntityType) : DEFAULT_ENTITY_TYPE;
 }
 
 // --- engine -------------------------------------------------------------------
