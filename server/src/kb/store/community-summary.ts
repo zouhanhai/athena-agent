@@ -250,7 +250,7 @@ const PRUNE_MEMBER_EDGES_CYPHER =
 
 const DELETE_STALE_CYPHER =
   `UNWIND $staleIds AS id\n` +
-  `MATCH (c:${COMMUNITY_LABEL} {id})\n` +
+  `MATCH (c:${COMMUNITY_LABEL} {id: id})\n` +
   `DETACH DELETE c`;
 
 const WRITE_SUMMARY_CYPHER =
