@@ -55,6 +55,24 @@ mentions it, with edges grounded in evidence.
   can the entity be deleted (mirrors the existing mention-count protection,
   makes it explicit).
 
+### 2b. Type normalization and type-aware merging (prerequisite for LINK)
+
+- Refinement already tags each entity with a preset type enum
+  (`org | person | product | event | location | concept | other`) using the
+  source-document context — keep that as the primary signal (the document is
+  the richest context for typing).
+- Enforce the enum: the refinement schema hard-validates `type ∈ enum`
+  (today the prompt lists it but the schema does not constrain it — observed
+  `organization` / `group` leaking in beside `org`).
+- LINK applies a normalization map BEFORE matching:
+  `organization→org`, `group` (org context)→`org`, `place→location`, etc.
+  so merge candidates compare on a single canonical type set.
+- Merge rule is type-aware: same canonical type + high similarity → MERGE
+  candidate; different canonical types (CALEO org vs CALEO Office location)
+  → NEVER merge, instead propose a typed edge (HAS_OFFICE / PART_OF /
+  EMPLOYS… decided by LINK/LLM). Missing/`other` type → route to the LLM
+  ambiguity path.
+
 ### 3. Concurrency strategy (decision here)
 
 - Default: **serialized write phase** — LINK reads run in parallel; writes
