@@ -218,9 +218,9 @@ export class KnowledgeRetrievalService {
 
   /** GET /api/kb/graph → the entity-relation graph from the Neo4j store
    *  (G4.S2.T10). Empty when the store is not wired. */
-  async getGraph(): Promise<KnowledgeGraph> {
+  async getGraph(topic?: string): Promise<KnowledgeGraph> {
     if (!this.neo4j) return { nodes: [], edges: [] };
-    const raw = await this.neo4j.getGraph();
+    const raw = await this.neo4j.getGraph(topic);
     return {
       nodes: raw.nodes.map((n) => ({
         id: n.id,

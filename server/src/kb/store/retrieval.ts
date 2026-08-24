@@ -694,11 +694,19 @@ export class Neo4jRetrievalService {
   /** GET /api/kb/graph → the full entity-relation graph stored in Neo4j
    *  (Entity nodes + RELATION edges). Case-insensitive: node names are returned
    *  canonical. */
-  async getGraph(): Promise<Neo4jGraphExport> {
+  async getGraph(topic?: string): Promise<Neo4jGraphExport> {
     const session = this.options.driver.session();
     try {
+      // G4.S10 topic filter: when a topic is selected, only entities that are
+      // MENTIONED_IN a chunk of that topic participate; edges are kept only
+      // between surviving nodes.
+      const match = topic
+        ? `MATCH (n:${ENTITY_LABEL}) WHERE EXISTS { MATCH (n)-[:MENTIONED_IN]->(:Chunk {topic: $topic}) }`
+        : `MATCH (n:${ENTITY_LABEL})`;
+      const params = topic ? { topic } : {};
       const nodesResult = (await session.run(
-        `MATCH (n:${ENTITY_LABEL}) RETURN n.name AS name, n.type AS type`,
+        `${match} RETURN n.name AS name, n.type AS type`,
+        params,
       )) as Neo4jRunResultLike;
       const nodes: Neo4jGraphNode[] = [];
       for (const record of nodesResult?.records ?? []) {
@@ -712,9 +720,15 @@ export class Neo4jRetrievalService {
         });
       }
 
+      const edgeMatch = topic
+        ? `MATCH (a:${ENTITY_LABEL})-[r:${ENTITY_RELATION_TYPE}]->(b:${ENTITY_LABEL})
+           WHERE (a)-[:MENTIONED_IN]->(:Chunk {topic: $topic})
+             AND (b)-[:MENTIONED_IN]->(:Chunk {topic: $topic})`
+        : `MATCH (a:${ENTITY_LABEL})-[r:${ENTITY_RELATION_TYPE}]->(b:${ENTITY_LABEL})`;
       const edgesResult = (await session.run(
-        `MATCH (a:${ENTITY_LABEL})-[r:${ENTITY_RELATION_TYPE}]->(b:${ENTITY_LABEL})
+        `${edgeMatch}
          RETURN a.name AS source, b.name AS target`,
+        params,
       )) as Neo4jRunResultLike;
       const edges: Neo4jGraphEdge[] = [];
       for (const record of edgesResult?.records ?? []) {

@@ -993,7 +993,8 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
 
   app.get("/api/kb/graph", async (request, reply) => {
     try {
-      const graph = await options.retrieval!.getGraph();
+      const { topic } = request.query as { topic?: string };
+      const graph = await options.retrieval!.getGraph(topic);
       return graph;
     } catch (err) {
       return reply
