@@ -652,7 +652,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     // KB_AUDIT_ENABLED (default true) / KB_AUDIT_DAY / KB_AUDIT_HOUR.
     if (options.auditScheduler) {
       auditScheduler = new KbAuditScheduler({ service: audit, runsStore: auditRunsStore });
-      await auditScheduler.start();
+      // Fire-and-forget: a missed weekly window must NOT block server boot
+      // (the catch-up run can take minutes on a large graph → Fastify onReady
+      // 10s hook would time out). Schedule/arm happens in the background.
+      void auditScheduler.start().catch((err: unknown) => {
+        console.error("[audit-scheduler] start failed:", err instanceof Error ? err.message : String(err));
+      });
     }
   });
 
