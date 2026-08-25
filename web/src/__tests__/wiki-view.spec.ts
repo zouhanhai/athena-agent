@@ -436,6 +436,14 @@ describe("WikiView", () => {
       await expandFolder(wrapper, "Untagged");
       await flushPromises();
 
+      // Nested headings: expand the top-level "Title" node first so its h2
+      // children (Setup) are in the DOM (large-doc tree collapse behavior).
+      const titleItem = wrapper
+        .findAll(".t-tree__item")
+        .find((i) => i.text().includes("Title"));
+      expect(titleItem).toBeDefined();
+      await titleItem!.trigger("click");
+      await flushPromises();
       const headingItem = wrapper
         .findAll(".t-tree__item")
         .find((i) => i.text().includes("Setup"));

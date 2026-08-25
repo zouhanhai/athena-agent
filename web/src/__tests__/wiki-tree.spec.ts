@@ -181,11 +181,17 @@ describe("attachHeadings (G3.S5.T6)", () => {
     const sap = tree.find((n) => n.name === "sap")!;
     const fiori = sap.children!.find((n) => n.name === "fiori")!;
     const f1 = fiori.children!.find((n) => n.name === "f1.md")!;
-    expect(f1.children).toEqual([
-      { name: "Title", path: "sap/f1.md#title", isDir: false, isHeading: true, level: 1, anchorId: "title" },
-      { name: "Setup", path: "sap/f1.md#setup", isDir: false, isHeading: true, level: 2, anchorId: "setup" },
-      { name: "Sub", path: "sap/f1.md#sub", isDir: false, isHeading: true, level: 3, anchorId: "sub" },
-    ]);
+    // G3.S5.T6 / large-doc: headings are NESTED by level (h1 → h2 → h3…),
+    // not a flat list — the tree starts collapsed, deeper levels expand on
+    // click so a big document doesn't explode the sidebar.
+    expect(f1.children).toHaveLength(1);
+    const title = f1.children![0]!;
+    expect(title).toMatchObject({ name: "Title", path: "sap/f1.md#title", isHeading: true, level: 1 });
+    expect(title.children).toHaveLength(1);
+    const setup = title.children![0]!;
+    expect(setup).toMatchObject({ name: "Setup", path: "sap/f1.md#setup", isHeading: true, level: 2 });
+    expect(setup.children).toHaveLength(1);
+    expect(setup.children![0]).toMatchObject({ name: "Sub", path: "sap/f1.md#sub", isHeading: true, level: 3 });
   });
 
   it("does not touch other files or folders", () => {

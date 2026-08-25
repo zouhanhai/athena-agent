@@ -192,14 +192,7 @@ export function attachHeadings(
       if (node.isDir) {
         if (walk(node.children ?? [])) return true;
       } else if (node.path === filePath) {
-        node.children = headings.map((h) => ({
-          name: h.text,
-          path: `${filePath}#${h.id}`,
-          isDir: false,
-          isHeading: true,
-          level: h.level,
-          anchorId: h.id,
-        }));
+        node.children = nestHeadings(headings, filePath);
         return true;
       }
     }
@@ -207,4 +200,34 @@ export function attachHeadings(
   };
   walk(next);
   return next;
+}
+
+
+/**
+ * Nest the flat heading outline into a hierarchy so h1 → h2 → h3 … nest
+ * instead of being one long flat list (large docs have hundreds of headers;
+ * the tree starts collapsed and expands on click).
+ */
+function nestHeadings(headings: WikiHeading[], filePath: string): WikiTreeNode[] {
+  const root: WikiTreeNode[] = [];
+  interface StackItem { level: number; children: WikiTreeNode[] }
+  const stack: StackItem[] = [];
+  for (const h of headings) {
+    const node: WikiTreeNode = {
+      name: h.text,
+      path: `${filePath}#${h.id}`,
+      isDir: false,
+      isHeading: true,
+      level: h.level,
+      anchorId: h.id,
+    };
+    while (stack.length > 0 && h.level <= stack[stack.length - 1].level) stack.pop();
+    if (stack.length === 0) {
+      root.push(node);
+    } else {
+      stack[stack.length - 1].children.push(node);
+    }
+    stack.push({ level: h.level, children: node.children = [] });
+  }
+  return root;
 }

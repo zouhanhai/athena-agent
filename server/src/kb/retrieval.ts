@@ -251,9 +251,16 @@ export class KnowledgeRetrievalService {
 
   /** GET /api/kb/graph/topics → distinct topics seen in wiki pages, sorted. */
   async getGraphTopics(): Promise<string[]> {
-    const { id } = await this.resolveProject();
-    const pages = await this.llmwiki.listWikiPages(id);
+    const { id, wikiDir } = await this.resolveProject();
     const topics = new Set<string>();
+    // Local-disk first: the wiki is a local directory — scan it directly so
+    // big pages llm_wiki's HTTP API refuses (413) still contribute their
+    // frontmatter topic (large-file fix).
+    if (wikiDir) {
+      const diskTopics = await scanTopicsFromDisk(wikiDir);
+      for (const t of diskTopics) topics.add(t);
+    }
+    const pages = await this.llmwiki.listWikiPages(id);
     for (const page of pages) {
       if (page.topic) topics.add(page.topic);
     }
@@ -275,8 +282,13 @@ export class KnowledgeRetrievalService {
 
   /** GET /api/kb/wiki/page?path= → markdown content of a wiki page. */
   async readWikiPage(path: string): Promise<WikiPage> {
-    const { id } = await this.resolveProject();
-    const page = await this.llmwiki.readFile(id, path);
+    const { id, wikiDir } = await this.resolveProject();
+    // LARGE-FILE FIX: the wiki is a local directory; read it straight from
+    // disk for the display layer instead of round-tripping through llm_wiki's
+    // HTTP API, which 413s on big pages (e.g. 2.4MB Group Reporting). The
+    // llm_wiki client remains the fallback for projects without a local dir.
+    const disk = wikiDir ? await readWikiFileFromDisk(wikiDir, path) : null;
+    const page = disk ?? (await this.llmwiki.readFile(id, path));
     await this.trackReadCount(path);
     return page;
   }
@@ -287,8 +299,9 @@ export class KnowledgeRetrievalService {
    * inflate the popularity counter as a side effect of a review action.
    */
   async readWikiPageRaw(path: string): Promise<string> {
-    const { id } = await this.resolveProject();
-    const page = await this.llmwiki.readFile(id, path);
+    const { id, wikiDir } = await this.resolveProject();
+    const disk = wikiDir ? await readWikiFileFromDisk(wikiDir, path) : null;
+    const page = disk ?? (await this.llmwiki.readFile(id, path));
     return page.content;
   }
 
@@ -628,3 +641,63 @@ function topicFromPath(path: string): string | undefined {
   const dir = match[1]!;
   return dir.length > 0 ? dir : undefined;
 }
+
+
+/**
+ * Read a wiki page file directly from the on-disk wiki directory.
+ * Path-traversal-safe: only resolves under wikiDir, strips a leading wiki/.
+ * Returns null when the file does not exist on disk so callers fall back.
+ */
+async function readWikiFileFromDisk(
+  wikiDir: string,
+  path: string,
+): Promise<{ path: string; content: string } | null> {
+  const relative = path.startsWith("wiki/") ? path.slice("wiki/".length) : path;
+  if (relative.includes("..") || relative.includes("\\") || relative.startsWith("/")) {
+    return null;
+  }
+  const full = join(wikiDir, relative);
+  try {
+    const content = await readFile(full, "utf-8");
+    return { path, content };
+  } catch {
+    return null;
+  }
+}
+
+
+/**
+ * Recursively scan the on-disk wiki directory for *.md files and collect
+ * their frontmatter `topic:` values without touching llm_wiki (which 413s
+ * on large pages). Skips unreadable files.
+ */
+async function scanTopicsFromDisk(wikiDir: string): Promise<string[]> {
+  const { readdir } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const topics = new Set<string>();
+  const walk = async (dir: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full);
+      } else if (e.name.endsWith(".md")) {
+        try {
+          const content = await readFile(full, "utf-8");
+          const fm = parseFrontmatter(content);
+          if (fm.topic) topics.add(fm.topic);
+        } catch {
+          // unreadable → skip
+        }
+      }
+    }
+  };
+  await walk(wikiDir);
+  return Array.from(topics);
+}
+

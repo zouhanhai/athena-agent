@@ -521,13 +521,24 @@ const displayTree = computed(() =>
   ),
 );
 
-/** Auto-expand the selected file node so its heading outline is visible. */
+/** Auto-expand the selected file node so its heading outline is visible,
+ *  plus the first heading level (h1/h2) so users see the top outline without
+ *  exploding the tree — deeper levels expand on click. */
 watch(displayTree, async () => {
   await nextTick();
   const path = activePath.value;
   if (!path || headings.value.length === 0) return;
   if (treeRef.value?.getItem?.(path)) {
     treeRef.value.setExpanded(path, true);
+  }
+  // Expand top-level heading nodes (h1/h2) nested under the active file.
+  const item = treeRef.value?.getItem?.(path) as { children?: unknown[] } | undefined;
+  const kids = (item as { children?: Array<{ data?: WikiTreeNode }> } | undefined)?.children ?? [];
+  for (const kid of kids) {
+    const node = kid.data;
+    if (node?.isHeading && (node.level ?? 2) <= 2) {
+      treeRef.value?.setExpanded(node.path, true);
+    }
   }
 });
 
