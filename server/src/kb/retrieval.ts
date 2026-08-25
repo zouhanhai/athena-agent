@@ -271,12 +271,21 @@ export class KnowledgeRetrievalService {
    *  frontmatter metadata (type + topic) so the frontend can group pages
    *  dynamically by view (Topic/Type/All) without duplicating files (G2.S5.T11). */
   async getWikiTree(): Promise<LlmWikiFileNode[]> {
-    const { id } = await this.resolveProject();
+    const { id, wikiDir } = await this.resolveProject();
     const [tree, pages] = await Promise.all([
       this.llmwiki.getFileTree(id, { root: "wiki", recursive: true }),
       this.llmwiki.listWikiPages(id),
     ]);
     const meta = new Map(pages.map((p) => [p.path, p]));
+    // LARGE-FILE FIX: llm_wiki's listWikiPages silently drops pages over its
+    // API size ceiling (413) — read frontmatter from disk for any page the
+    // API missed, so big docs still get topic/type grouping in the wiki tree.
+    if (wikiDir) {
+      const diskMeta = await scanWikiMetadataFromDisk(wikiDir);
+      for (const [path, fm] of diskMeta) {
+        if (!meta.has(path)) meta.set(path, fm);
+      }
+    }
     return attachWikiMetadata(tree.files, meta);
   }
 
@@ -699,5 +708,48 @@ async function scanTopicsFromDisk(wikiDir: string): Promise<string[]> {
   };
   await walk(wikiDir);
   return Array.from(topics);
+}
+
+
+/**
+ * Scan the on-disk wiki directory for *.md frontmatter (topic/type/etc.),
+ * returning a path → metadata map. Complements llm_wiki's listWikiPages for
+ * pages its HTTP API refuses (large files).
+ */
+async function scanWikiMetadataFromDisk(
+  wikiDir: string,
+): Promise<Map<string, { path: string; type?: string; topic?: string }>> {
+  const { readdir } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const meta = new Map<string, { path: string; type?: string; topic?: string }>();
+  const walk = async (dir: string, rel: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        await walk(full, childRel);
+      } else if (e.name.endsWith(".md")) {
+        try {
+          const content = await readFile(full, "utf-8");
+          const fm = parseFrontmatter(content);
+          meta.set(`wiki/${childRel}`, {
+            path: `wiki/${childRel}`,
+            ...(fm.type ? { type: fm.type } : {}),
+            ...(fm.topic ? { topic: fm.topic } : {}),
+          });
+        } catch {
+          // unreadable → skip
+        }
+      }
+    }
+  };
+  await walk(wikiDir, "");
+  return meta;
 }
 
