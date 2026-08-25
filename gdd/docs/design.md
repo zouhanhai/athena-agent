@@ -414,6 +414,10 @@ PATH: docs/kanban/G4/S3/T12.md
 ```
 Standard ticket file path convention: `docs/kanban/Gx/Sx/Tx.md`.
 
+> The plugin's ref parser (`gdd/plugin/src/ticket-ref.ts`) is deliberately lenient: any dispatch
+> message containing either a `Gx.Sy.Tz` ref or a `…/Gx/Sy/Tz.md` path is recognized. The structured
+> format above is the convention (grep-friendly, unambiguous), not a hard requirement.
+
 ## 14. Ticket Granularity + Parallel Workers
 
 - **Ticket granularity**: one ticket = one testable feature change (feature-level commit).

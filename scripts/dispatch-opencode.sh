@@ -20,6 +20,7 @@
 #   --agent <name>     Agent to use (default: build)
 #   --port  <port>     OpenCode serve port (default: 4096)
 #   --monitor <md>     ticket path → also start monitor-ticket.sh for it
+#                      (resolved from repo scripts/, fallback /home/hh/scripts/)
 #   --title <t>        overrides positional title
 #   --no-verify        skip the post-dispatch busy check
 # =============================================================================
@@ -133,12 +134,15 @@ fi
 
 # optional monitor
 if [ -n "$MONITOR" ]; then
-  if [ -x /home/hh/scripts/monitor-ticket.sh ]; then
-    nohup /home/hh/scripts/monitor-ticket.sh "$MONITOR" "$SID" 60 300 \
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  MONITOR_SH="$SCRIPT_DIR/monitor-ticket.sh"          # in-repo copy preferred
+  [ -x "$MONITOR_SH" ] || MONITOR_SH="/home/hh/scripts/monitor-ticket.sh"  # host fallback
+  if [ -x "$MONITOR_SH" ]; then
+    nohup "$MONITOR_SH" "$MONITOR" "$SID" 60 300 \
       > /tmp/monitor-ticket.log 2>&1 &
-    grn "monitor-ticket started for $MONITOR (sess $SID)"
+    grn "monitor-ticket started for $MONITOR (sess $SID) via $MONITOR_SH"
   else
-    red "monitor-ticket.sh not found on this host — skipping monitor"
+    red "monitor-ticket.sh not found (repo scripts/ or /home/hh/scripts/) — skipping monitor"
   fi
 fi
 

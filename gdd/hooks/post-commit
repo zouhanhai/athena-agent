@@ -76,8 +76,11 @@ for spec in $SPECS; do
     cd "$REPO_ROOT/gdd" || exit 1
     # Local credential: `gh auth token` (gh CLI) or GITHUB_TOKEN; the athena
     # employee store is only an optional fallback when running inside athena.
-    export GITHUB_EMPLOYEE="${GITHUB_EMPLOYEE:-zouha108@caleo.com}"
-    export DATABASE_URL="${DATABASE_URL:-postgres://hh@/athena?host=/var/run/postgresql}"
+    # Machine-specific fallbacks live in gdd/hooks/sync.env (gitignored) so the
+    # shipped hook stays project-neutral — no personal tokens/URLs in git.
+    if [ -f "$REPO_ROOT/gdd/hooks/sync.env" ]; then
+      set -a; . "$REPO_ROOT/gdd/hooks/sync.env"; set +a
+    fi
     if [ -f "$REPO_ROOT/server/.env.local" ]; then set -a; . "$REPO_ROOT/server/.env.local"; set +a; fi
     npx tsx src/sync-github.ts create "$spec" --owner "$GH_OWNER" --repo "$GH_REPO"
   ) >> "$LOG" 2>&1 || echo "kanban-hook: sync $spec FAILED (see $LOG)" >> "$LOG"

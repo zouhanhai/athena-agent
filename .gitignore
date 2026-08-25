@@ -7,3 +7,4 @@ server/.env.local
 # Python bytecode / caches — never track .pyc (caused 6900XT merge conflicts)
 __pycache__/
 *.pyc
+gdd/hooks/sync.env

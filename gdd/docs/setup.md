@@ -117,8 +117,25 @@ git add docs/kanban/G1/S1/T2.md && git commit -m "docs(kanban): T2 done"
 cat ~/.athena-tmp/kanban-hook.log   # → "kanban-hook: sync G1.S1 (<owner>/<repo>)"
 ```
 
-> The hook derives `owner/repo` from the repo's **primary remote** (`caleo` preferred, then `origin`),
-> supporting both HTTPS and SSH github.com URLs. If it cannot derive them it logs a skip message.
+> The hook derives `owner/repo` from the repo's **primary remote** (`caleo` preferred, then `origin`) —
+> supporting both HTTPS and SSH github.com URLs. If owner/repo cannot be derived from any remote, the
+> hook logs a skip message to the log file and exits without syncing.
+
+## Split deployment — plan agent and worker on different machines
+
+The standard topology is one machine / one clone: Hermes (planning) and OpenCode (worker) share the
+repo, so commits, hooks and credentials are all local. GDD also works **split** (plan agent on
+machine A, worker on machine B), with three rules:
+
+- **Install the post-commit hook in EVERY clone that commits board files** (`bash
+  gdd/hooks/install-kanban-hook.sh` per clone). A clone without the hook silently produces no sync.
+- **Every machine that should SYNC needs its own local credential.** Preferred: `gh auth login`
+  (or `GITHUB_TOKEN`). Inside-athena machines may instead provide `DATABASE_URL` (+ optional
+  `GITHUB_EMPLOYEE`) via **`gdd/hooks/sync.env`** (gitignored — never commit tokens); the shipped
+  hook contains no credentials.
+- **Dispatch goes over the network**: point the dispatch flow at the worker's `opencode serve`
+  endpoint (SSH or tunnel) instead of localhost. Keep helper scripts (e.g. `monitor-ticket.sh`)
+  in the repo's `scripts/` so every clone carries them.
 
 ## Step 4 — Run `sync-github` to project the board onto GitHub
 
