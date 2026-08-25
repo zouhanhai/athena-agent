@@ -189,8 +189,38 @@ test("refineLargeDocument P1: ALL sections failing still yields chunks + review_
   assert.equal(result.document.quality.action, "review_required");
 });
 
-test("splitByRefinedH1 P5: flat docling output (single deep header level) descends h2..h6 before size cuts", () => {
-  // GR-shaped degenerate case: ONE h1 title, real structure only at h5
+test("splitByRefinedH1 P5: flat docling output descends h2..h6 AND packs micro-sections into header-aligned parts", () => {
+  // GR-shaped degenerate case: ONE h1 title, real structure ONLY at h5 (deep level),
+  // 80 chapters × ~10KB → unpaced splitting would yield 81 micro-sections (81 LLM
+  // calls); size cuts would slice mid-chapter. Expect FEW parts, every cut ON a
+  // header boundary.
+  const chapterBody = "x".repeat(10_000);
+  const md = [
+    "# Flat Report",
+    ...Array.from({ length: 80 }, (_, i) => `##### Chapter ${i}\n\n${chapterBody}`),
+  ].join("\n\n");
+  assert.ok(Buffer.byteLength(md, "utf8") > SECTION_MAX_BYTES_DEFAULT, "fixture must exceed the per-section budget");
+
+  const sections = splitByRefinedH1(md);
+
+  // packed into few parts (NOT exploded into 81 micro-calls)
+  assert.ok(sections.length >= 2 && sections.length <= 4, `expected 2-4 packed parts, got ${sections.length}`);
+  for (const section of sections) {
+    assert.ok(
+      Buffer.byteLength(section.markdown, "utf8") <= SECTION_MAX_BYTES_DEFAULT,
+      "every packed part respects the byte budget",
+    );
+  }
+  // every cut lands EXACTLY on a header boundary — no mid-chapter slicing
+  assert.match(sections[0].markdown, /^# Flat Report/);
+  assert.equal(sections[1].heading_path, "Chapter 52");
+  assert.ok(sections[1].markdown.startsWith("##### Chapter 52"));
+  // content preserved end-to-end
+  const joined = sections.map((s) => s.markdown).join("\n\n");
+  for (let i = 0; i < 80; i += 7) assert.ok(joined.includes(`Chapter ${i}\n`), `Chapter ${i} present`);
+});
+
+test("splitByRefinedH1 P5: a small flat doc keeps per-section granularity below the pack threshold", () => {
   const md = [
     "# Group Reporting",
     ...Array.from({ length: 8 }, (_, i) => `##### Chapter ${i}\n\nchapter ${i} body`),
@@ -198,12 +228,11 @@ test("splitByRefinedH1 P5: flat docling output (single deep header level) descen
 
   const sections = splitByRefinedH1(md);
 
-  assert.ok(sections.length > 1, "must NOT return one giant section when deeper structure exists");
-  // the lone h1 title becomes the leading block; chapters split at their real h5 boundaries
-  assert.equal(sections[0].heading_path, "");
-  assert.equal(sections[0].markdown, "# Group Reporting");
-  assert.equal(sections[1].heading_path, "Chapter 0");
+  // 9 sections ≤ threshold → granularity kept, descent still found the h5 structure
   assert.equal(sections.length, 9);
+  assert.equal(sections[0].heading_path, "");
+  assert.equal(sections[1].heading_path, "Chapter 0");
+  assert.match(sections[8].markdown, /chapter 7 body/);
 });
 
 test("SECTION_MAX_BYTES default is 512KB and env-tunable (G4.S10.T5 P4)", async () => {

@@ -1395,8 +1395,8 @@ export async function refineLargeDocument(
 
 /**
  * P1 degraded-section stub: wrap the ORIGINAL section markdown as a deterministic
- * refinement (mechanical chunks via refined-h1 split inside the section, no entities)
- * flagged review_required, so mergeRefinements keeps both the text and the honest gate.
+ * refinement (paragraph-semantic chunks, no entities) flagged review_required, so
+ * mergeRefinements keeps both the text and the honest gate.
  */
 function degradedSectionDocument(section: MarkdownSection, topicHint: string | undefined, error: string): RefinedDocument {
   return {
@@ -1404,7 +1404,7 @@ function degradedSectionDocument(section: MarkdownSection, topicHint: string | u
     summary: "",
     sections: [],
     frontmatter: { type: "document", topic: topicHint ?? "unclassified" },
-    chunks: mechanicalWikiEditChunks(section.markdown),
+    chunks: splitParagraphSemantic(section.markdown, {}),
     entities: [],
     relations: [],
     keywords: [],

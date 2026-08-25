@@ -551,20 +551,73 @@ export function previewMarkdown(markdown: string, maxChars = REFINE_PREVIEW_MAX_
 }
 
 /**
+ * Above this many sibling sections on a descent level, splitting is considered
+ * degenerate (a hostile flat doc can carry thousands of deep headers) and the
+ * micro-sections get PACKED consecutively up to the per-section budget instead
+ * of exploding into thousands of tiny LLM calls (G4.S10.T5 P5).
+ */
+const FLAT_SPLIT_PACK_THRESHOLD = 64;
+
+/**
  * Split re-leveled markdown at h1 boundaries into sections. Flat docling output often has
  * fewer than 2 usable h1s (sometimes a single title, real structure only at deeper levels),
  * so descend h2 → … → h6 to find the shallowest level that yields MULTIPLE sections before
  * giving up (G4.S10.T5 P5): header-level boundaries keep parts semantically coherent, while
- * raw size cuts slice mid-chapter.
+ * raw size cuts slice mid-chapter. When that level yields a PATHOLOGICAL number of
+ * micro-sections, they are packed consecutively up to the budget so the part count stays
+ * bounded AND every cut lands on a header boundary.
  */
 export function splitByRefinedH1(markdown: string): MarkdownSection[] {
   const h1Sections = splitByHeadingLevel(markdown, 1);
   if (h1Sections.length > 1) return h1Sections;
   for (let level = 2; level <= 6; level++) {
     const sections = splitByHeadingLevel(markdown, level);
-    if (sections.length > 1) return sections;
+    if (sections.length > 1) {
+      return sections.length > FLAT_SPLIT_PACK_THRESHOLD
+        ? packConsecutiveSections(sections, sectionMaxBytes())
+        : sections;
+    }
   }
   return h1Sections.length > 0 ? h1Sections : splitByHeadingLevel(markdown, 2);
+}
+
+/**
+ * Merge consecutive small sections into groups of at most `maxBytes` (G4.S10.T5 P5):
+ * the FIRST member's heading names the group; later groups cut from the same base
+ * heading carry the `(part N)` suffix used by the size splitter. Oversized single
+ * members pass through untouched (enforceSectionSize handles them as the true last resort).
+ */
+function packConsecutiveSections(sections: MarkdownSection[], maxBytes: number): MarkdownSection[] {
+  const groups: MarkdownSection[] = [];
+  const counts = new Map<string, number>();
+  let lines: string[] = [];
+  let base = "";
+  let bytes = 0;
+  let open = false;
+  const flush = () => {
+    if (!open) return;
+    const n = (counts.get(base) ?? 0) + 1;
+    counts.set(base, n);
+    groups.push({
+      heading_path: n === 1 ? base : `${base} (part ${n})`,
+      markdown: lines.join("\n\n").trim(),
+    });
+    lines = [];
+    bytes = 0;
+    open = false;
+  };
+  for (const section of sections) {
+    const size = Buffer.byteLength(section.markdown, "utf8");
+    if (open && bytes + size > maxBytes) flush();
+    if (!open) {
+      base = section.heading_path.replace(/\s+\(part \d+\)$/, "");
+      open = true;
+    }
+    lines.push(section.markdown);
+    bytes += size;
+  }
+  flush();
+  return groups;
 }
 
 /**
