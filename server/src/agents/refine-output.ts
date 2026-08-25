@@ -32,8 +32,21 @@ export const REFINE_SINGLE_READ_MAX_BYTES = 1024 * 1024;
 /** Header re-level batch size (~30-50 headers per LLM call, tens of KB/batch). */
 export const HEADER_RELEVEL_BATCH_SIZE = 40;
 
-/** Target max size of one two-stage section (<1MB each, fits context with output inflation). */
-export const SECTION_MAX_BYTES = 1024 * 1024;
+/**
+ * Target max size of one two-stage section. Default 512KB ≈ 130K tokens of input per
+ * refine call (≈4 chars/token): empirically deepseek-v4-flash starts returning empty or
+ * invalid structured output near ~260K tokens/call — both ~1.05MB Group Reporting parts
+ * died exactly there on 2026-08-25 while every smaller document succeeded. 512KB keeps
+ * a 2x margin under that edge while still dwarfing any healthy single-section call.
+ * Env-tunable via SECTION_MAX_BYTES (bytes) for ops without a redeploy.
+ */
+export const SECTION_MAX_BYTES_DEFAULT = 512 * 1024;
+
+/** Resolve the per-section byte budget per call so env changes apply without restart. */
+export function sectionMaxBytes(env: string = process.env.SECTION_MAX_BYTES ?? ""): number {
+  const parsed = Number(env);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : SECTION_MAX_BYTES_DEFAULT;
+}
 
 /** Default preview size (chars) returned by the big-output ref. */
 export const REFINE_PREVIEW_MAX_CHARS = 2000;
@@ -537,10 +550,21 @@ export function previewMarkdown(markdown: string, maxChars = REFINE_PREVIEW_MAX_
   return `${collapsed.slice(0, Math.max(0, maxChars - 1))}…`;
 }
 
-/** Split re-leveled markdown at h1 boundaries into sections; falls back to h2 when the doc has no h1. */
+/**
+ * Split re-leveled markdown at h1 boundaries into sections. Flat docling output often has
+ * fewer than 2 usable h1s (sometimes a single title, real structure only at deeper levels),
+ * so descend h2 → … → h6 to find the shallowest level that yields MULTIPLE sections before
+ * giving up (G4.S10.T5 P5): header-level boundaries keep parts semantically coherent, while
+ * raw size cuts slice mid-chapter.
+ */
 export function splitByRefinedH1(markdown: string): MarkdownSection[] {
   const h1Sections = splitByHeadingLevel(markdown, 1);
-  return h1Sections.length > 1 ? h1Sections : splitByHeadingLevel(markdown, 2);
+  if (h1Sections.length > 1) return h1Sections;
+  for (let level = 2; level <= 6; level++) {
+    const sections = splitByHeadingLevel(markdown, level);
+    if (sections.length > 1) return sections;
+  }
+  return h1Sections.length > 0 ? h1Sections : splitByHeadingLevel(markdown, 2);
 }
 
 /**
@@ -642,7 +666,7 @@ function splitByHeadingLevel(markdown: string, level: number): MarkdownSection[]
 }
 
 /** Hard-split any section that still exceeds the per-section budget (paragraph boundaries). */
-export function enforceSectionSize(sections: MarkdownSection[], maxBytes = SECTION_MAX_BYTES): MarkdownSection[] {
+export function enforceSectionSize(sections: MarkdownSection[], maxBytes = sectionMaxBytes()): MarkdownSection[] {
   const out: MarkdownSection[] = [];
   for (const section of sections) {
     if (Buffer.byteLength(section.markdown, "utf8") <= maxBytes) {

@@ -447,7 +447,7 @@ export interface RefineDocumentOptions {
   /** Stage-1 header batch size (~30-50 headers/call). Default: HEADER_RELEVEL_BATCH_SIZE. */
   headerBatchSize?: number;
   /** Inject the stage-1 header judge (tests). Default: judgeHeaderLevelsLLM (LLM). */
-  judgeHeaderLevelsImpl?: (blocks: HeaderBlock[]) => Promise<HeaderBlock[]>;
+  judgeHeaderLevelsImpl?: (blocks: HeaderBlock[]) => Promise<JudgeHeaderLevelsResult>;
   /** Inject the stage-2 per-section full pass (tests). Default: runRefinePass (LLM). */
   refineSectionImpl?: (section: MarkdownSection, topicHint?: string) => Promise<RefinedDocument>;
   /** Inject the global merge pass (tests). Default: runGlobalMerge (LLM). */
@@ -1241,15 +1241,29 @@ export function extractGlobalMerge(message: AssistantMessageLike): GlobalRefinem
   return { frontmatter, entities, relations, keywords, summary, sections, quality };
 }
 
+/** Result of the stage-1 header re-level, including batch-failure accounting (G4.S10.T5 P3). */
+export interface JudgeHeaderLevelsResult {
+  /** The (possibly re-leveled) blocks — failed batches keep their ORIGINAL levels. */
+  blocks: HeaderBlock[];
+  /** Total batches dispatched. */
+  batches: number;
+  /**
+   * Batches whose LLM call or parse failed. A failed batch is never worse (original levels
+   * kept) but degrades the downstream split — counted + logged, no longer silently swallowed.
+   */
+  failedBatches: number;
+}
+
 /** Stage-1 production implementation: judge header levels in batches (LOCAL, no full doc). */
 export async function judgeHeaderLevelsLLM(
   caller: RefineLlmCaller,
   blocks: HeaderBlock[],
   options: Pick<RefineDocumentOptions, "headerBatchSize" | "systemPrompt" | "modelId"> = {},
-): Promise<HeaderBlock[]> {
+): Promise<JudgeHeaderLevelsResult> {
   const batchSize = options.headerBatchSize ?? HEADER_RELEVEL_BATCH_SIZE;
   const batches = batchHeaderBlocks(blocks, batchSize);
   const corrected: HeaderBlock[] = [];
+  let failedBatches = 0;
   for (const batch of batches) {
     let levels = new Map<number, number>();
     try {
@@ -1262,23 +1276,40 @@ export async function judgeHeaderLevelsLLM(
         reasoningEffort: refineReasoningFor("extraction").effort,
       });
       levels = extractHeaderLevels(message);
-    } catch {
-      // never worse: a failed batch keeps its original levels
+    } catch (err) {
+      // never worse: a failed batch keeps its original levels — but it IS accounted (P3)
+      failedBatches += 1;
+      console.warn(
+        `[refine-large] header-relevel batch failed (${batch.length} headers, indices ${batch[0]?.index}-${batch[batch.length - 1]?.index}): ${err instanceof Error ? err.message : String(err)} — keeping original levels`,
+      );
     }
     for (const block of batch) {
       corrected.push({ ...block, level: levels.get(block.index) ?? block.level });
     }
   }
-  return corrected;
+  return {
+    blocks: corrected,
+    batches: batches.length,
+    failedBatches,
+  };
 }
 
 /**
  * T3 two-stage refinement for >1MB docs (G4.S1 Spec):
  *   Stage 1 — local header re-level (batched, header text + a few following paragraphs).
- *   Stage 2 — split by the refined h1 boundary into semantically-complete sections (<1MB each), then
+ *   Stage 2 — split by the refined h1 boundary into semantically-complete sections (<512KB each), then
  *             per-section full pass (chunk + entity + keyword + type/topic), then one global merge pass.
  * NOTE: chunked refinement loses cross-section entity/relation correlation — single-read is preferred
  * sub-1MB (see refineDocumentWithRouting).
+ *
+ * G4.S10.T5 hardening:
+ * - P1 per-section fault isolation: one failing section degrades ONLY itself (original
+ *   markdown kept as mechanical chunks + flagged); the document NEVER collapses to the
+ *   mechanical 0-chunk fallback because of one hostile section.
+ * - P2 full-chain observability: blocks / batches / section count+headings / per-section
+ *   outcome+duration / merge outcome are all logged under `[refine-large]`.
+ * - Merge degradation: a failing globalMerge falls back to deterministic concatenation of
+ *   the section documents instead of throwing away the whole refinement.
  */
 export async function refineLargeDocument(
   markdown: string,
@@ -1286,19 +1317,116 @@ export async function refineLargeDocument(
   topicHint?: string,
 ): Promise<LargeRefineResult> {
   const { preamble, blocks } = splitByHeaders(markdown);
-  const releveled = await stages.judgeHeaderLevels(blocks);
-  const md = rebuildMarkdown(preamble, releveled);
-  const sections = enforceSectionSize(splitByRefinedH1(md));
-  const refinements: RefinedDocument[] = [];
-  for (const section of sections) {
-    refinements.push(await stages.refineSection(section, topicHint));
+  console.log(`[refine-large] blocks=${blocks.length}`);
+  const judged = await stages.judgeHeaderLevels(blocks);
+  if (judged.failedBatches > 0) {
+    console.warn(`[refine-large] releveled fail-batches=${judged.failedBatches}/${judged.batches} — affected headers keep original levels`);
+  } else {
+    console.log(`[refine-large] releveled ok (${judged.batches} batch${judged.batches === 1 ? "" : "es"})`);
   }
-  const document = await stages.globalMerge(refinements, topicHint);
-  return { document, sections: sections.map((section) => section.heading_path) };
+  const md = rebuildMarkdown(preamble, judged.blocks);
+  const sections = enforceSectionSize(splitByRefinedH1(md));
+  const headingList = sections.map((s) => s.heading_path || "(preamble)");
+  const shown = headingList.slice(0, 12).join(", ");
+  console.log(
+    `[refine-large] sections=${sections.length} [${shown}${headingList.length > 12 ? `, …+${headingList.length - 12} more` : ""}]`,
+  );
+
+  const refinements: RefinedDocument[] = [];
+  const degradedSections: string[] = [];
+  const sectionOutcomes: SectionOutcome[] = [];
+  for (const [i, section] of sections.entries()) {
+    const label = `${i + 1}/${sections.length}`;
+    const heading = section.heading_path || "(preamble)";
+    const startedAt = Date.now();
+    try {
+      refinements.push(await stages.refineSection(section, topicHint));
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      console.log(`[refine-large] section ${label} "${heading}" ok (${seconds}s)`);
+      sectionOutcomes.push({ heading_path: heading, status: "ok", seconds: Number(seconds) });
+    } catch (err) {
+      // P1: isolate — keep the ORIGINAL section markdown as a degraded stub so its text
+      // survives into chunks; never let one section kill the whole document.
+      const message = err instanceof Error ? err.message : String(err);
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      degradedSections.push(section.heading_path);
+      refinements.push(degradedSectionDocument(section, topicHint ?? undefined, message));
+      console.warn(`[refine-large] section ${label} "${heading}" DEGRADED (${seconds}s): ${message}`);
+      sectionOutcomes.push({ heading_path: heading, status: "degraded", seconds: Number(seconds), error: message });
+    }
+  }
+
+  let document: RefinedDocument;
+  const mergeStartedAt = Date.now();
+  try {
+    document = await stages.globalMerge(refinements, topicHint);
+    const seconds = ((Date.now() - mergeStartedAt) / 1000).toFixed(1);
+    console.log(`[refine-large] merge ok (${seconds}s, ${refinements.length} sections)`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    document = mergeRefinements(refinements);
+    const seconds = ((Date.now() - mergeStartedAt) / 1000).toFixed(1);
+    console.warn(`[refine-large] merge DEGRADED (${seconds}s): ${message} — concatenated ${refinements.length} section docs deterministically`);
+  }
+
+  if (degradedSections.length > 0) {
+    document = {
+      ...document,
+      quality: {
+        ...document.quality,
+        complete: false,
+        action: "review_required",
+        issues: [
+          ...(document.quality?.issues ?? []),
+          `two-stage degradation: ${degradedSections.length}/${sections.length} sections kept as original markdown after LLM failure — degraded: ${degradedSections.join("; ")}`,
+        ],
+      },
+    };
+  }
+
+  return {
+    document,
+    sections: sections.map((section) => section.heading_path),
+    degradedSections,
+    headerRelevelFailedBatches: judged.failedBatches,
+    sectionOutcomes,
+  };
+}
+
+/**
+ * P1 degraded-section stub: wrap the ORIGINAL section markdown as a deterministic
+ * refinement (mechanical chunks via refined-h1 split inside the section, no entities)
+ * flagged review_required, so mergeRefinements keeps both the text and the honest gate.
+ */
+function degradedSectionDocument(section: MarkdownSection, topicHint: string | undefined, error: string): RefinedDocument {
+  return {
+    markdown: section.markdown,
+    summary: "",
+    sections: [],
+    frontmatter: { type: "document", topic: topicHint ?? "unclassified" },
+    chunks: mechanicalWikiEditChunks(section.markdown),
+    entities: [],
+    relations: [],
+    keywords: [],
+    quality: {
+      complete: false,
+      confidence: 0,
+      issues: [`section "${section.heading_path}" LLM pass failed: ${error}`],
+      action: "review_required",
+    },
+  };
+}
+
+/** P2: one section's two-stage outcome + duration (post-mortem evidence). */
+export interface SectionOutcome {
+  heading_path: string;
+  status: "ok" | "degraded";
+  seconds: number;
+  error?: string;
 }
 
 export interface LargeRefineStages {
-  judgeHeaderLevels: (blocks: HeaderBlock[]) => Promise<HeaderBlock[]>;
+  judgeHeaderLevels: (blocks: HeaderBlock[]) => Promise<JudgeHeaderLevelsResult>;
   refineSection: (section: MarkdownSection, topicHint?: string) => Promise<RefinedDocument>;
   globalMerge: (refinements: RefinedDocument[], topicHint?: string) => Promise<RefinedDocument>;
 }
@@ -1307,6 +1435,12 @@ export interface LargeRefineResult {
   document: RefinedDocument;
   /** h1 section heading paths produced by the two-stage split. */
   sections: string[];
+  /** P1: heading paths whose per-section pass failed — original markdown kept, review required. */
+  degradedSections: string[];
+  /** P3: stage-1 relevel batches that failed and kept original levels. */
+  headerRelevelFailedBatches: number;
+  /** P2: per-section outcome + duration for post-mortems. */
+  sectionOutcomes: SectionOutcome[];
 }
 
 /**
@@ -1842,6 +1976,8 @@ export function createRefineDocumentTool(
         let document: RefinedDocument;
         let sectionPaths: string[] = [];
         let headerRelevelFallback = false;
+        // G4.S10.T5: two-stage hardening evidence surfaced in tool details.
+        let largeRefine: Pick<LargeRefineResult, "degradedSections" | "headerRelevelFailedBatches" | "sectionOutcomes"> | undefined;
         if (mode === "two-stage") {
           const result = await refineLargeDocument(
             textMarkdown,
@@ -1860,6 +1996,11 @@ export function createRefineDocumentTool(
           );
           document = result.document;
           sectionPaths = result.sections;
+          largeRefine = {
+            degradedSections: result.degradedSections,
+            headerRelevelFailedBatches: result.headerRelevelFailedBatches,
+            sectionOutcomes: result.sectionOutcomes,
+          };
         } else {
           const single = await runRefinePass(httpCaller, textMarkdown, params.topic_hint, options);
           document = single.document;
@@ -1871,7 +2012,7 @@ export function createRefineDocumentTool(
             console.warn("[refine_document] flat headers + zero patches applied — running batched HEADER_RELEVEL recovery");
             const split = splitByHeaders(document.markdown);
             const releveled = await judgeHeaderLevelsLLM(httpCaller, split.blocks, options);
-            const recovered = rebuildMarkdown(split.preamble, releveled);
+            const recovered = rebuildMarkdown(split.preamble, releveled.blocks);
             document = {
               ...document,
               markdown: recovered,
@@ -1946,6 +2087,8 @@ export function createRefineDocumentTool(
               : {}),
             ...(headerRelevelFallback ? { headerRelevelFallback } : {}),
             ...(headerCompletion ? { headerCompletion } : {}),
+            // G4.S10.T5: two-stage hardening evidence (P1/P2/P3) in the tool details.
+            ...(largeRefine ? { largeRefine } : {}),
           },
         };
       } catch (err) {
