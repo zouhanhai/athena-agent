@@ -70,6 +70,9 @@ export interface KnowledgeToolDefinition extends ToolDefinition {
   sources: string[];
 }
 
+/** Max chars returned by wiki_read_page before truncation (~12K tokens). */
+const WIKI_PAGE_RESULT_CAP = 48_000;
+
 /**
  * Local on-disk wiki root (LARGE-FILE FIX): llm_wiki's HTTP API 413s on big
  * pages; reading the file straight off disk has no ceiling.
@@ -149,7 +152,16 @@ export function createKnowledgeTools(services: KnowledgeToolServices): Knowledge
           const { wikiDir } = resolveWikiDir();
           const relative = params.path.startsWith("wiki/") ? params.path.slice("wiki/".length) : params.path;
           if (wikiDir && !relative.includes("..") && !relative.startsWith("/")) {
-            const content = await readFile(join(wikiDir, relative), "utf-8");
+            let content = await readFile(join(wikiDir, relative), "utf-8");
+            // Cap the tool result: a 2.4MB page (~600K tokens) floods the agent
+            // context and stalls the session. Return a head window + guidance.
+            if (content.length > WIKI_PAGE_RESULT_CAP) {
+              const total = content.length;
+              content =
+                `${content.slice(0, WIKI_PAGE_RESULT_CAP)}\n\n` +
+                `[TRUNCATED] Page is ${total.toLocaleString()} chars; showing the first ${WIKI_PAGE_RESULT_CAP.toLocaleString()}. ` +
+                `For specific topics prefer wiki_search, or read a section via search_knowledge.`;
+            }
             return textResult(`# ${params.path}\n\n${content}`);
           }
         } catch {
