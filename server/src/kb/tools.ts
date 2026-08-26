@@ -14,6 +14,9 @@
  */
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import type { LlmWikiClient } from "./llmwiki.js";
 import type { AgenticRetrievalService, WebSearchProvider } from "./agentic-rag.js";
 
@@ -65,6 +68,16 @@ export interface KnowledgeToolDefinition extends ToolDefinition {
   requireCapability: CapabilityRequirement;
   /** Knowledge source id(s) this tool targets. */
   sources: string[];
+}
+
+/**
+ * Local on-disk wiki root (LARGE-FILE FIX): llm_wiki's HTTP API 413s on big
+ * pages; reading the file straight off disk has no ceiling.
+ */
+function resolveWikiDir(): { wikiDir?: string } {
+  const fromEnv = process.env.LLM_WIKI_WIKI_DIR;
+  if (fromEnv) return { wikiDir: fromEnv };
+  return { wikiDir: join(homedir(), "athena-data", "wiki", "wiki") };
 }
 
 function textResult(text: string): Promise<AgentToolResult<unknown>> {
@@ -130,6 +143,18 @@ export function createKnowledgeTools(services: KnowledgeToolServices): Knowledge
       requireCapability: { allOf: ["wiki"] },
       sources: ["llmwiki"],
       async execute(_toolCallId, params: { path: string }) {
+        // LARGE-FILE FIX: read directly from disk first (no size ceiling);
+        // llm_wiki API 413s on big pages (2.4MB Group Reporting failed here).
+        try {
+          const { wikiDir } = resolveWikiDir();
+          const relative = params.path.startsWith("wiki/") ? params.path.slice("wiki/".length) : params.path;
+          if (wikiDir && !relative.includes("..") && !relative.startsWith("/")) {
+            const content = await readFile(join(wikiDir, relative), "utf-8");
+            return textResult(`# ${params.path}\n\n${content}`);
+          }
+        } catch {
+          // fall through to llm_wiki API
+        }
         const projectId = await getProjectId();
         const page = await services.llmwiki.readFile(projectId, params.path);
         return textResult(`# ${page.path}\n\n${page.content}`);
