@@ -32,6 +32,19 @@ import {
   TaskNotFoundError,
 } from "../kb/tasks.js";
 import { KbAuditAlreadyRunningError } from "../kb/audit.js";
+import {
+  buildAssistPrompt,
+  HEADER_REVIEW_ASSIST_MAX_CHARS,
+  ASSIST_SUGGESTIONS_SCHEMA,
+  HeaderReviewAssistTooLargeError,
+  HeaderReviewNotPendingError,
+  HeaderReviewOpError,
+  parseAssistSuggestions,
+} from "../kb/header-review.js";
+import type { HeaderReviewSettingsStore } from "../kb/header-review-settings.js";
+import type { RefineLlmCaller } from "../agents/refine-document.js";
+import { defaultRefineLlmCaller } from "../agents/refine-document.js";
+import type { HeaderEditOp } from "../kb/header-review.js";
 
 export interface KbRequestBody {
   title?: unknown;
@@ -77,6 +90,13 @@ export interface KbRouteOptions {
   auth?: AuthService;
   /** Per-page review workflow (G4.S8.T17): GET/POST /api/kb/wiki/review-state. */
   reviewState?: WikiReviewStateService;
+  /** G4.S10.T7: post-parsing header-review gate surface — project settings
+   *  store + the assist LLM caller (refinement judge path; injectable for tests,
+   *  default: defaultRefineLlmCaller()). */
+  headerReview?: {
+    settings: HeaderReviewSettingsStore;
+    assistLlm?: RefineLlmCaller;
+  };
   /** Agent registry (G4.S8.T10): code-intake channels accept agent invitation
    *  tokens (the same credential the WS `register` frame validates) as an
    *  alternative to an employee session token. Optional — when absent only the
@@ -102,6 +122,20 @@ function isUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.trim().length === 0) return false;
   const trimmed = value.trim();
   return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+}
+
+/** Extract the text content of an assistant-style message (refinement judge
+ *  convention: content = [{type:"text", text}]). */
+function assistantText(message: { content?: Array<{ type?: string; text?: string }> }): string {
+  const part = message.content?.find((p) => p.type === "text" && typeof p.text === "string");
+  return part?.text ?? "";
+}
+
+/** Strip markdown ```json fences around a JSON payload (a common LLM slip). */
+function stripFences(raw: string): string {
+  const trimmed = raw.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)```$/.exec(trimmed);
+  return fenced ? fenced[1]!.trim() : trimmed;
 }
 
 function safeFilename(filename: string): string {
@@ -416,6 +450,253 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
+
+  // --- G4.S10.T7: post-parsing header review gate (card editor surface) ---
+
+  /** Guard: the task must exist and be paused in header review. */
+  const headerReviewGuard = (err: unknown, reply: FastifyReply): boolean => {
+    if (err instanceof TaskNotFoundError) {
+      reply.code(404).send({ error: err.message });
+      return true;
+    }
+    if (err instanceof HeaderReviewNotPendingError) {
+      reply.code(409).send({ error: err.message });
+      return true;
+    }
+    if (err instanceof HeaderReviewOpError) {
+      reply.code(400).send({ error: err.message });
+      return true;
+    }
+    if (err instanceof HeaderReviewAssistTooLargeError) {
+      reply.code(413).send({ error: err.message });
+      return true;
+    }
+    return false;
+  };
+
+  /** GET /api/kb/task/:id/header-review → the detected outline (cards + T6 TOC
+   *  match info) + the persisted draft. 404 unknown task; 409 not paused. */
+  app.get("/api/kb/task/:id/header-review", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const { id } = request.params as { id?: string };
+    try {
+      const view = options.taskQueue.getHeaderReviewOutline(id!);
+      if (view.state !== "pending") {
+        return reply.code(409).send({ error: `task ${id} is not paused in header review (state=${view.state ?? "none"})` });
+      }
+      return view;
+    } catch (err) {
+      if (headerReviewGuard(err, reply)) return;
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** PUT /api/kb/task/:id/header-review/draft { ops } → validate + apply ops
+   *  against the detected outline; persisted (in-memory + JSON sidecar). */
+  app.put("/api/kb/task/:id/header-review/draft", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const { id } = request.params as { id?: string };
+    const body = (request.body ?? {}) as { ops?: unknown };
+    if (!Array.isArray(body.ops)) {
+      return reply.code(400).send({ error: "ops must be an array of draft edits" });
+    }
+    try {
+      const draft = await options.taskQueue.putHeaderReviewDraft(id!, body.ops as HeaderEditOp[]);
+      return draft;
+    } catch (err) {
+      if (headerReviewGuard(err, reply)) return;
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** POST /api/kb/task/:id/header-review/approve { who?, ops? } → bake the
+   *  curated draft into the parsed markdown IDEMPOTENTLY (rule-based header
+   *  rewrite; bodies verbatim), record the header_review report and release the
+   *  task into refinement. `ops` (optional) replaces the draft first. */
+  app.post("/api/kb/task/:id/header-review/approve", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const { id } = request.params as { id?: string };
+    const body = (request.body ?? {}) as { who?: unknown; ops?: unknown };
+    try {
+      if (Array.isArray(body.ops)) {
+        await options.taskQueue.putHeaderReviewDraft(id!, body.ops as HeaderEditOp[]);
+      }
+      const who = typeof body.who === "string" && body.who.trim() ? body.who.trim() : undefined;
+      return await options.taskQueue.approveHeaderReview(id!, who);
+    } catch (err) {
+      if (headerReviewGuard(err, reply)) return;
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** POST /api/kb/task/:id/header-review/skip → old behavior: release the task
+   *  straight into LLM grading without touching the markdown. */
+  app.post("/api/kb/task/:id/header-review/skip", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    const { id } = request.params as { id?: string };
+    try {
+      return await options.taskQueue.skipHeaderReview(id!);
+    } catch (err) {
+      if (headerReviewGuard(err, reply)) return;
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** POST /api/kb/task/:id/header-review/assist { rows, samples } → Athena
+   *  suggestions through the refinement judge path (same caller + json_schema +
+   *  repair). NEVER auto-applied: returns suggestion chips; the client converts
+   *  them to draft ops. Employee-session gated (LLM cost). 48K-char cap: an
+   *  oversized payload is refused — the client samples sections instead. */
+  const requireAssistEmployee = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<boolean> => {
+    if (!options.auth) {
+      reply.code(500).send({ error: "assist requires the auth service" });
+      return false;
+    }
+    const employee = await currentEmployee(request, options.auth);
+    if (!employee) {
+      reply.code(401).send({ error: "unauthorized" });
+      return false;
+    }
+    return true;
+  };
+
+  app.post("/api/kb/task/:id/header-review/assist", async (request, reply) => {
+    if (!options.taskQueue) {
+      return reply.code(500).send({ error: "ingestion task queue not configured" });
+    }
+    if (!(await requireAssistEmployee(request, reply))) return;
+    const { id } = request.params as { id?: string };
+    const body = (request.body ?? {}) as {
+      rows?: unknown;
+      samples?: unknown;
+    };
+    try {
+      const view = options.taskQueue.getHeaderReviewOutline(id!);
+      const cards = view.cards;
+      const rows = Array.isArray(body.rows)
+        ? body.rows.filter(
+            (r): r is { index: number; text: string; level: number } =>
+              r !== null && typeof r === "object" &&
+              typeof (r as Record<string, unknown>).index === "number" &&
+              typeof (r as Record<string, unknown>).text === "string",
+          )
+        : [];
+      if (rows.length === 0) {
+        return reply.code(400).send({ error: "rows must contain the sampled outline (index/text/level)" });
+      }
+      const samples = Array.isArray(body.samples)
+        ? body.samples.filter(
+            (s): s is { headingId: string; text: string } =>
+              s !== null && typeof s === "object" &&
+              typeof (s as Record<string, unknown>).headingId === "string" &&
+              typeof (s as Record<string, unknown>).text === "string",
+          )
+        : [];
+      const clampedRows = rows.map((r) => ({
+        index: r.index,
+        text: r.text.slice(0, 80),
+        level: Math.max(1, Math.min(6, Math.round(r.level))),
+      }));
+      // REFUSE oversized payloads outright: the client must sample sections
+      // itself (600K-token docs never reach the LLM in one call). The prompt
+      // builder's internal trimming stays as a second net for borderline sizes.
+      const rawChars =
+        rows.reduce((n, r) => n + r.text.length, 0) +
+        samples.reduce((n, s) => n + s.text.length, 0) +
+        rows.length * 24 + samples.length * 24;
+      if (rawChars > HEADER_REVIEW_ASSIST_MAX_CHARS) {
+        throw new HeaderReviewAssistTooLargeError(
+          `assist input is ${rawChars} chars — over the ${HEADER_REVIEW_ASSIST_MAX_CHARS}-char LLM cap; sample fewer/shorter sections client-side`,
+        );
+      }
+      const built = buildAssistPrompt(clampedRows, samples);
+      const caller = options.headerReview?.assistLlm ?? defaultRefineLlmCaller();
+      const validIndexes = new Set(cards.map((c) => c.index));
+      let output = "";
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await caller({
+          systemPrompt:
+            attempt === 0
+              ? "You curate markdown document heading outlines. Return STRICT JSON matching the requested schema — no prose, no markdown fences."
+              : "Your previous response was not parseable. Return ONLY the JSON object matching the schema exactly.",
+          userContent: built.userContent,
+          schema: ASSIST_SUGGESTIONS_SCHEMA,
+          maxTokens: 2048,
+          reasoningEffort: "none",
+        });
+        const text = assistantText(result.message);
+        output = text;
+        const parsed = JSON.parse(stripFences(text));
+        const suggestions = parseAssistSuggestions(parsed ?? null, cards.length, validIndexes);
+        if (suggestions.length > 0 || attempt === 1) {
+          return {
+            suggestions,
+            inputsServed: { headings: clampedRows.length, sampleChars: built.samplesChars, truncatedSamples: built.truncatedSamples },
+          };
+        }
+      }
+      // unreachable — the loop above returns on both attempts
+      return { suggestions: [], inputsServed: { headings: clampedRows.length } };
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        return reply.code(502).send({ error: "assist returned unparseable JSON: " + err.message });
+      }
+      if (headerReviewGuard(err, reply)) return;
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** GET /api/kb/header-review/settings → project gate config (enabled,
+   *  minHeaders, templateWords). Readable from the card editor. */
+  app.get("/api/kb/header-review/settings", async (_request, reply) => {
+    if (!options.headerReview?.settings) {
+      return reply.code(500).send({ error: "header-review settings store not configured" });
+    }
+    try {
+      return await options.headerReview.settings.get();
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** PUT /api/kb/header-review/settings → persist project config (admin-gated;
+   *  surfaced in the Admin console). Whole-object patch. */
+  const settingsHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!options.headerReview?.settings) {
+      return reply.code(500).send({ error: "header-review settings store not configured" });
+    }
+    if (!(await requireAdmin(request, reply))) return;
+    const body = (request.body ?? {}) as {
+      enabled?: unknown;
+      minHeaders?: unknown;
+      templateWords?: unknown;
+    };
+    try {
+      return await options.headerReview.settings.update({
+        ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+        ...(typeof body.minHeaders === "number" && Number.isFinite(body.minHeaders)
+          ? { minHeaders: body.minHeaders }
+          : {}),
+        ...(Array.isArray(body.templateWords)
+          ? { templateWords: body.templateWords as string[] }
+          : {}),
+      });
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+  app.put("/api/kb/header-review/settings", settingsHandler);
 
   /** Delete a wiki page from llm_wiki (G2.S5.T12). */
   const deleteDocHandler = async (request: FastifyRequest, reply: FastifyReply) => {

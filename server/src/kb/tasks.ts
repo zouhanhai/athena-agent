@@ -34,6 +34,25 @@ import { parseUi5Units, type Ui5Unit } from "./codeparse/ui5.js";
 import { parseDdicTables, type DdicTable } from "./codeparse/ddic.js";
 import { storeCodeOutput, renderCodeMarkdown, storeAbapOutput, renderAbapMarkdown, storeUi5Output, renderUi5Markdown, type CodeProvenance } from "./store/code.js";
 import { storeDdicOutput, renderDdicMarkdown } from "./store/ddic.js";
+import {
+  applyOps,
+  cardsFromMarkdown,
+  cardsToTocNode,
+  countCardChanges,
+  countHeadings,
+  detectHeaderReviewOutline,
+  defaultHeaderReviewDraftDir,
+  rewriteMarkdown,
+  withLevels,
+  HeaderReviewNotPendingError,
+  HeaderReviewOpError,
+  type HeaderEditOp,
+  type HeaderReviewCard,
+  type HeaderReviewOutline,
+} from "./header-review.js";
+import type { HeaderReviewSettingsStore } from "./header-review-settings.js";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 /** Athena refinement runner (G4.S1.T4): one full-doc LLM pass, returns the small
  *  big-output ref + the full re-leveled markdown for downstream consumption.
@@ -114,7 +133,7 @@ export interface WikiSaveContext {
 
 export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
-export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
+export type TaskStatus = "pending" | "parsing" | "header_review" | "refining" | "ingesting" | "done" | "failed";
 
 /**
  * G4.S8.T19 pipeline review: WHY the Neo4j ingest stage was a no-op (marked
@@ -350,6 +369,39 @@ export interface IngestTask {
     method?: "hash" | "chunks";
     existingSource?: string;
   };
+  /**
+   * G4.S10.T7: the post-parsing header-review gate. Present when the review
+   * pause engaged (or ran): `pending` = the human is curating headers in the
+   * card editor; `approved` = the curated draft was written back to the parsed
+   * markdown + released into refinement; `skipped` = old behavior (straight to
+   * LLM grading). The report {who, edits, duration} is captured on resolve.
+   */
+  headerReview?: {
+    state: "pending" | "approved" | "skipped";
+    pausedAt?: number;
+    resolvedAt?: number;
+    who?: string;
+    durationMs?: number;
+    edits?: {
+      ops: number;
+      bold: number;
+      moves: number;
+      levels: number;
+    };
+  };
+  /** G4.S10.T7: the in-memory draft (ops list + timestamp) the reviewer edits
+   *  against — persisted as a JSON sidecar and reloaded when missing. */
+  headerDraft?: {
+    ops: HeaderEditOp[];
+    updatedAt: number;
+  };
+  /** G4.S10.T7: the detected outline (cards + T6 TOC match info) cached at the
+   *  pause so the editor serves a stable baseline across draft PUTs. */
+  headerReviewOutline?: HeaderReviewOutline;
+  /** G4.S10.T7: set when the header-review gate releases the task (approve or
+   *  skip) — the resume run must NOT re-check content dedup (the parsed content
+   *  was already checked; the corrected headers would false-positive chunks). */
+  headerReviewResumed?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -443,6 +495,45 @@ export function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+/** Shape guard for a draft op (the PUT payload contract). */
+function isHeaderEditOp(op: unknown): op is HeaderEditOp {
+  if (op === null || typeof op !== "object") return false;
+  const o = op as Record<string, unknown>;
+  switch (o.type) {
+    case "move":
+      return (
+        typeof o.index === "number" &&
+        (o.parentId === null || typeof o.parentId === "string") &&
+        typeof o.position === "number"
+      );
+    case "promote":
+    case "demote":
+    case "bold":
+      return typeof o.index === "number";
+    case "level":
+      return typeof o.index === "number" && typeof o.level === "number";
+    default:
+      return false;
+  }
+}
+
+/** Summarize a draft op list into the header_review report edits counter. */
+function summarizeEdits(ops: HeaderEditOp[]): NonNullable<IngestTask["headerReview"]>["edits"] {
+  let moves = 0;
+  let bold = 0;
+  let levels = 0;
+  for (const op of ops) {
+    switch (op.type) {
+      case "move": moves += 1; break;
+      case "bold": bold += 1; break;
+      case "promote":
+      case "demote":
+      case "level": levels += 1; break;
+    }
+  }
+  return { ops: ops.length, bold, moves, levels };
+}
+
 /** Stable source key for a CDS intake (filename stem without the DDL ext). */
 export function sourceName(input: CdsIntakeInput): string {
   if (input.filename) {
@@ -513,6 +604,17 @@ export interface IngestTaskQueueOptions {
    * the same stamping the upload path performs via ingestLlmWiki's reviewGate.
    */
   frontmatter?: Pick<WikiFrontmatterSyncer, "update" | "readLifecycle">;
+  /**
+   * G4.S10.T7: the post-parsing header-review gate. When wired AND the project
+   * settings have `enabled: true`, documents with ≥ `minHeaders` headings land
+   * in `pending_header_review` instead of auto-advancing to refinement; tiny
+   * docs / disabled projects bypass the gate (old behavior). `draftDir` is the
+   * JSON sidecar directory for persisted drafts (default: athena-data/header-review).
+   */
+  headerReview?: {
+    settings: HeaderReviewSettingsStore;
+    draftDir?: string;
+  };
 }
 
 export interface IngestSubmitResult {
@@ -540,6 +642,10 @@ export class IngestTaskQueue {
   private readonly communitySummaries?: Pick<Neo4jCommunitySummaryService, "sync">;
   private readonly dedup?: ContentDedupStore;
   private readonly frontmatter?: Pick<WikiFrontmatterSyncer, "update" | "readLifecycle">;
+  /** G4.S10.T7: the header-review gate settings store (shared with the routes so
+   *  the admin settings surface edits the instance the gate decision reads). */
+  readonly headerReviewSettings?: HeaderReviewSettingsStore;
+  private readonly headerReviewDraftDir: string;
   private readonly tasks = new Map<string, IngestTask>();
   /** First-observed progress timestamp per task, the anchor for the rolling
    *  ms-per-chunk ETA on the ingesting_neo4j stage (G4.S3.T9). */
@@ -556,6 +662,8 @@ export class IngestTaskQueue {
     this.communitySummaries = options.communitySummaries;
     this.dedup = options.dedup;
     this.frontmatter = options.frontmatter;
+    this.headerReviewSettings = options.headerReview?.settings;
+    this.headerReviewDraftDir = options.headerReview?.draftDir ?? defaultHeaderReviewDraftDir();
   }
 
   /**
@@ -595,6 +703,218 @@ export class IngestTaskQueue {
 
   getTask(id: string): IngestTask | undefined {
     return this.tasks.get(id);
+  }
+
+  private mustGetTask(id: string): IngestTask {
+    const task = this.tasks.get(id);
+    if (!task) throw new TaskNotFoundError(`task not found: ${id}`);
+    return task;
+  }
+
+  /**
+   * G4.S10.T7: the post-parsing pause decision + application. Returns true when
+   * the task is (or stays) paused — the caller must NOT advance to refinement.
+   * Rules: enabled project flag AND enough headings (tiny-doc auto-skip); a
+   * task that already ran the gate (approved/skipped) never pauses again.
+   */
+  private async maybePauseForHeaderReview(id: string, markdown: string): Promise<boolean> {
+    const task = this.tasks.get(id);
+    if (!task) return false;
+    if (task.headerReview?.state === "pending") return true; // retry during the pause stays paused
+    if (task.headerReview?.state === "approved" || task.headerReview?.state === "skipped") return false;
+    if (!this.headerReviewSettings) return false;
+    const settings = await this.headerReviewSettings.get();
+    if (!settings.enabled) return false;
+    if (countHeadings(markdown) < settings.minHeaders) return false;
+    const outline = await detectHeaderReviewOutline(markdown, task.outline);
+    this.patch(id, (t) => {
+      t.status = "header_review";
+      t.progress = 35;
+      t.headerReview = { state: "pending", pausedAt: Date.now() };
+      t.headerReviewOutline = outline;
+    });
+    console.log(
+      `[tasks:${id}] header review PAUSED (${outline.headingCount} headings, JSON sidecar dir ${this.headerReviewDraftDir})`,
+    );
+    return true;
+  }
+
+  private ensureHeaderReviewOutline(task: IngestTask): HeaderReviewOutline {
+    let outline = task.headerReviewOutline;
+    if (!outline && task.markdown) {
+      // e.g. a task restored mid-pause without the cached outline — re-detect lazily.
+      outline = {
+        cards: withLevels(cardsFromMarkdown(task.markdown)),
+        headingCount: countHeadings(task.markdown),
+      };
+      task.headerReviewOutline = outline;
+    }
+    if (!outline) {
+      throw new HeaderReviewNotPendingError(`task ${task.id} has no parsed markdown to review`);
+    }
+    return outline;
+  }
+
+  private requirePendingHeaderReview(task: IngestTask): void {
+    if (task.headerReview?.state !== "pending") {
+      throw new HeaderReviewNotPendingError(`task ${task.id} is not paused in header review`);
+    }
+  }
+
+  private async persistHeaderReviewDraft(id: string, draft: { ops: HeaderEditOp[]; updatedAt: number }): Promise<void> {
+    try {
+      await mkdir(this.headerReviewDraftDir, { recursive: true });
+      await writeFile(join(this.headerReviewDraftDir, `${id}.json`), JSON.stringify(draft, null, 2), "utf8");
+    } catch (err) {
+      console.warn(`[tasks:${id}] header-review draft sidecar write failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async pruneHeaderReviewDraft(id: string): Promise<void> {
+    try {
+      await unlink(join(this.headerReviewDraftDir, `${id}.json`));
+    } catch {
+      // best-effort: missing sidecar is fine
+    }
+  }
+
+  /** Load a persisted draft sidecar for a task (survival net across restarts). */
+  async loadHeaderReviewDraft(id: string): Promise<{ ops: HeaderEditOp[]; updatedAt: number } | undefined> {
+    try {
+      const raw = JSON.parse(await readFile(join(this.headerReviewDraftDir, `${id}.json`), "utf8")) as {
+        ops?: unknown;
+        updatedAt?: unknown;
+      };
+      if (!Array.isArray(raw.ops)) return undefined;
+      const ops = raw.ops.filter((op): op is HeaderEditOp => isHeaderEditOp(op));
+      if (ops.length === 0) return undefined;
+      return { ops, updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now() };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * G4.S10.T7: GET the reviewable outline — the detected cards (original md
+   * levels + tree), the T6 TOC match info (docling sidecar merged) and the
+   * persisted draft when one exists.
+   */
+  getHeaderReviewOutline(id: string): {
+    taskId: string;
+    state: "pending" | "approved" | "skipped" | null;
+    headingCount: number;
+    cards: HeaderReviewCard[];
+    toc?: HeaderReviewOutline["toc"];
+    tocHints?: HeaderReviewOutline["tocHints"];
+    draft: { ops: HeaderEditOp[]; updatedAt: number } | null;
+    changes: number;
+  } {
+    const task = this.mustGetTask(id);
+    const outline = this.ensureHeaderReviewOutline(task);
+    return {
+      taskId: id,
+      state: task.headerReview?.state ?? null,
+      headingCount: outline.headingCount,
+      cards: withLevels(outline.cards),
+      ...(outline.toc ? { toc: outline.toc } : {}),
+      ...(outline.tocHints ? { tocHints: outline.tocHints } : {}),
+      draft: task.headerDraft ?? null,
+      changes: task.headerDraft ? countCardChanges(withLevels(outline.cards)) : 0,
+    };
+  }
+
+  /**
+   * G4.S10.T7: PUT a draft — validate + apply the ops against the detected
+   * outline, keep the op list (persisted as a JSON sidecar — awaited so the
+   * draft is durable before the caller hears back), return the resulting cards
+   * + how many changed vs the original detection.
+   */
+  async putHeaderReviewDraft(
+    id: string,
+    ops: HeaderEditOp[],
+  ): Promise<{ ops: HeaderEditOp[]; cards: HeaderReviewCard[]; changes: number; updatedAt: number }> {
+    const task = this.mustGetTask(id);
+    this.requirePendingHeaderReview(task);
+    if (!Array.isArray(ops) || ops.length === 0) {
+      throw new HeaderReviewOpError("draft ops must be a non-empty array");
+    }
+    const outline = this.ensureHeaderReviewOutline(task);
+    const cards = applyOps(outline.cards, ops); // throws HeaderReviewOpError on contract violations
+    const updatedAt = Date.now();
+    const draft = { ops, updatedAt };
+    task.headerDraft = draft;
+    await this.persistHeaderReviewDraft(id, draft);
+    return { ops, cards: withLevels(cards), changes: countCardChanges(withLevels(cards)), updatedAt };
+  }
+
+  /**
+   * G4.S10.T7: approve — bake the curated draft into the parsed markdown
+   * IDEMPOTENTLY (heading lines only; bodies verbatim), export the curated
+   * hierarchy as the refiner's TOC (T6 TOC-first grading treats it as ground
+   * truth), record the header_review report {who, edits, duration} and release
+   * the task into refinement.
+   */
+  async approveHeaderReview(
+    id: string,
+    who?: string,
+  ): Promise<{
+    ok: true;
+    edits: NonNullable<IngestTask["headerReview"]>["edits"];
+    changes: number;
+  }> {
+    const task = this.mustGetTask(id);
+    this.requirePendingHeaderReview(task);
+    const outline = this.ensureHeaderReviewOutline(task);
+    const ops = task.headerDraft?.ops ?? [];
+    const cards = applyOps(outline.cards, ops);
+    const { markdown: corrected } = rewriteMarkdown(task.markdown!, cards);
+    const tocTree = cardsToTocNode(cards);
+    const pausedAt = task.headerReview?.pausedAt ?? Date.now();
+    const resolvedAt = Date.now();
+    const edits = summarizeEdits(ops);
+    this.patch(id, (t) => {
+      t.markdown = corrected;
+      t.outline = tocTree;
+      t.headerReview = {
+        state: "approved",
+        who: who ?? "operator",
+        pausedAt,
+        resolvedAt,
+        durationMs: resolvedAt - pausedAt,
+        edits,
+      };
+      t.headerDraft = undefined;
+      t.headerReviewResumed = true;
+    });
+    await this.pruneHeaderReviewDraft(id);
+    const changes = countCardChanges(cards);
+    void this.run(id, task.input!, task.source); // release into refinement
+    return { ok: true, edits, changes };
+  }
+
+  /**
+   * G4.S10.T7: reject/skip — keep OLD behavior (straight to LLM grading): no
+   * markdown changes, no curated TOC; the task is released into refinement
+   * exactly as before the gate existed.
+   */
+  async skipHeaderReview(id: string): Promise<{ ok: true }> {
+    const task = this.mustGetTask(id);
+    this.requirePendingHeaderReview(task);
+    const pausedAt = task.headerReview?.pausedAt ?? Date.now();
+    const resolvedAt = Date.now();
+    this.patch(id, (t) => {
+      t.headerReview = {
+        state: "skipped",
+        pausedAt,
+        resolvedAt,
+        durationMs: resolvedAt - pausedAt,
+      };
+      t.headerDraft = undefined;
+      t.headerReviewResumed = true;
+    });
+    await this.pruneHeaderReviewDraft(id);
+    void this.run(id, task.input!, task.source);
+    return { ok: true };
   }
 
   /**
@@ -825,11 +1145,22 @@ export class IngestTaskQueue {
     }
 
     // --- content dedup (G2.S5.T14): skip both pipelines on exact/chunk duplicate ---
-    if (this.dedup) {
+    // G4.S10.T7: the RESUME run skips the re-check — the parsed content already
+    // passed; the corrected headers would false-positive the chunk match.
+    if (this.dedup && !task.headerReviewResumed) {
       const dup = await this.dedup.check(markdown);
       if (dup.duplicate) {
         return this.markDedup(id, dup.method, dup.existingSource);
       }
+    }
+
+    // --- G4.S10.T7: post-parsing header review gate (human curation) ---
+    // Documents land in `pending_header_review` instead of auto-advancing to
+    // refinement when the project gate is enabled and the doc is not tiny.
+    // approve → the curated draft is baked into the md idempotently + released;
+    // skip → old behavior (straight to LLM grading / T6 TOC-first grading).
+    if (await this.maybePauseForHeaderReview(id, markdown)) {
+      return;
     }
 
     // --- Ingesting: refinement first, then llm_wiki + Neo4j run in PARALLEL ---
