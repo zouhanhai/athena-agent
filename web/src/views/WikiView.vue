@@ -524,7 +524,7 @@ const displayTree = computed(() =>
 /* G4 large-doc UX: draggable sidebar width (persisted). */
 const treeWidth = ref(Number(localStorage.getItem("wiki-tree-width") || 280));
 function startTreeResize(e: MouseEvent): void {
-  const pane = e.target.previousElementSibling as HTMLElement | null;
+  const pane = (e.target as HTMLElement | null)?.previousElementSibling as HTMLElement | null;
   if (!pane) return;
   const startX = e.clientX;
   const startW = pane.getBoundingClientRect().width;

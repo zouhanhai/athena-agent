@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useIngestTasks } from "@/kb/ingest";
 import type { IngestTaskItem } from "@/kb/ingest";
 import type { IngestTaskStage } from "@/api/kb";
+import HeaderReviewEditor from "@/components/HeaderReviewEditor.vue";
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
@@ -19,6 +20,42 @@ const {
   chunkProgress,
   chunkEta,
 } = useIngestTasks();
+
+/** G4.S10.T7: the card editor is open for this task id (rendered inline). */
+const editingHeadersFor = ref<string | null>(null);
+/** Tasks paused in header review (status badge + upload-area notice). */
+const headerReviewTasks = ref<Set<string>>(new Set());
+
+function openHeaderReview(taskId: string): void {
+  editingHeadersFor.value = taskId;
+}
+
+function closeHeaderReview(): void {
+  editingHeadersFor.value = null;
+}
+
+function onHeadersResolved(taskId: string, kind: "approve" | "skip"): void {
+  headerReviewTasks.value.delete(taskId);
+  editTrack(taskId, kind);
+}
+
+/** Track edits so the approve action refreshes tasks once resolved. */
+function editTrack(_taskId: string, _kind: string): void {
+  // the poller refreshes the task list; nothing else needed here
+}
+
+/** Keep the upload-area notice in sync with tasks paused in header review. */
+watch(
+  () => tasks.value,
+  (list) => {
+    const next = new Set<string>();
+    for (const t of list) {
+      if (t.status === "header_review" || t.headerReview?.state === "pending") next.add(t.id);
+    }
+    headerReviewTasks.value = next;
+  },
+  { deep: true },
+);
 
 /** Live clock (G4.S3.T9): ticks every second while the view is mounted so the
  *  elapsed timer and the RAG ETA re-render even between task polls. */
@@ -171,6 +208,11 @@ function reviewRequired(task: IngestTaskItem): boolean {
   return task.refinement?.quality?.action === "review_required";
 }
 
+/** G4.S10.T7: is this task paused for header curation? */
+function inHeaderReview(task: IngestTaskItem): boolean {
+  return task.status === "header_review" || task.headerReview?.state === "pending";
+}
+
 // --- G4.S8.T17: expandable quality-issue details per task ---
 
 interface UploadsQualityIssue {
@@ -275,6 +317,12 @@ function stepMark(status: string): string {
         </t-button>
       </div>
 
+      <!-- G4.S10.T7: the wiki upload area points paused documents at the card editor -->
+      <p v-if="headerReviewTasks.size > 0" class="upload-notice" data-testid="upload-header-review-notice">
+        {{ headerReviewTasks.size }} document(s) are paused for header review — open the task below to curate
+        the detected outline in the card editor before refinement.
+      </p>
+
       <p v-if="submitError" class="upload-error">{{ submitError }}</p>
     </div>
 
@@ -284,18 +332,45 @@ function stepMark(status: string): string {
         No uploads yet. Drop a file or paste a URL above to start ingesting.
       </p>
       <div v-else class="task-list">
-        <div v-for="task in tasks" :key="task.id" class="task-item">
+        <div v-for="task in tasks" :key="task.id" class="task-item" :class="{ 'task-item-editing': editingHeadersFor === task.id }">
+          <!-- G4.S10.T7: the card editor replaces the task item while open -->
+          <div v-if="editingHeadersFor === task.id" class="task-editor-host" data-testid="header-review-editor-host">
+            <HeaderReviewEditor
+              :task-id="task.id"
+              :source="task.source"
+              @close="closeHeaderReview"
+              @resolved="onHeadersResolved(task.id, $event)"
+            />
+          </div>
+          <template v-else>
           <div class="task-head">
             <span class="task-source" :title="task.source">{{ task.source }}</span>
             <span class="task-badge" :class="task.status">{{ task.status }}</span>
             <span
-              v-if="reviewRequired(task) || qualityIssues(task).length > 0"
+              v-if="inHeaderReview(task)"
+              class="task-review-badge"
+              title="The parsed outline awaits header curation in the card editor"
+            >
+              header review pending
+            </span>
+            <span
+              v-else-if="reviewRequired(task) || qualityIssues(task).length > 0"
               class="task-review-badge"
               title="Refinement left review items for this document; confirm or dismiss them in the wiki page"
             >
               pending review
             </span>
             <div class="task-actions">
+              <t-button
+                v-if="inHeaderReview(task)"
+                size="small"
+                theme="warning"
+                variant="outline"
+                data-testid="open-header-review"
+                @click="openHeaderReview(task.id)"
+              >
+                Review headers
+              </t-button>
               <t-button
                 v-if="hasFailedStage(task)"
                 size="small"
@@ -370,6 +445,7 @@ function stepMark(status: string): string {
             </div>
           </div>
           <p v-if="hasFailedStage(task)" class="task-stage-error">{{ friendlyError(task) }}</p>
+          </template>
         </div>
       </div>
     </div>
@@ -484,6 +560,27 @@ function stepMark(status: string): string {
   margin: 0;
   color: var(--caleo-error);
   font-size: 13px;
+}
+
+/* G4.S10.T7: upload-area notice when documents wait for header curation */
+.upload-notice {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--caleo-warning, #b5851d);
+  background: rgba(217, 155, 32, 0.08);
+  border: 1px solid rgba(217, 155, 32, 0.35);
+  border-radius: 6px;
+}
+
+/* G4.S10.T7: the card editor takes over the task item while open */
+.task-item-editing {
+  padding: 8px;
+}
+
+.task-editor-host {
+  height: 72vh;
+  min-height: 420px;
 }
 
 .task-list-wrap {

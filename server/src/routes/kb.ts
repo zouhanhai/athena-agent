@@ -40,6 +40,7 @@ import {
   HeaderReviewNotPendingError,
   HeaderReviewOpError,
   parseAssistSuggestions,
+  sampleSectionsFromMarkdown,
 } from "../kb/header-review.js";
 import type { HeaderReviewSettingsStore } from "../kb/header-review-settings.js";
 import type { RefineLlmCaller } from "../agents/refine-document.js";
@@ -136,6 +137,29 @@ function stripFences(raw: string): string {
   const trimmed = raw.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)```$/.exec(trimmed);
   return fenced ? fenced[1]!.trim() : trimmed;
+}
+
+const ASSIST_SAMPLE_CHARS = 200;
+
+/** G4.S10.T7: extract ≤`ASSIST_SAMPLE_CHARS` verbatim body samples from the
+ *  parsed markdown for the requested heading indexes (capped at 60 samples).
+ *  The client cannot sample — it never holds bodies. Never throws: a missing
+ *  task / index yields an empty sample set, not a failed assist call. */
+export function extractAssistSamples(
+  taskQueue: { getHeaderReviewMarkdown(id: string): string | undefined },
+  taskId: string,
+  indexes: unknown[],
+): { headingId: string; text: string }[] {
+  try {
+    const markdown = taskQueue.getHeaderReviewMarkdown(taskId);
+    if (!markdown) return [];
+    const wanted = indexes
+      .map((v) => Number(v))
+      .filter((v) => Number.isInteger(v) && v >= 0);
+    return sampleSectionsFromMarkdown(markdown, wanted, ASSIST_SAMPLE_CHARS, 60);
+  } catch {
+    return [];
+  }
 }
 
 function safeFilename(filename: string): string {
@@ -580,6 +604,10 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
     const body = (request.body ?? {}) as {
       rows?: unknown;
       samples?: unknown;
+      /** G4.S10.T7: card indexes the client wants BODY samples for (suspicious
+       *  sections) — the server extracts ≤200-char verbatim samples from the
+       *  parsed markdown (the client never holds bodies, so it cannot sample). */
+      sampleIndexes?: unknown;
     };
     try {
       const view = options.taskQueue.getHeaderReviewOutline(id!);
@@ -595,14 +623,19 @@ export function registerKbRoutes(app: FastifyInstance, options: KbRouteOptions):
       if (rows.length === 0) {
         return reply.code(400).send({ error: "rows must contain the sampled outline (index/text/level)" });
       }
-      const samples = Array.isArray(body.samples)
-        ? body.samples.filter(
-            (s): s is { headingId: string; text: string } =>
-              s !== null && typeof s === "object" &&
-              typeof (s as Record<string, unknown>).headingId === "string" &&
-              typeof (s as Record<string, unknown>).text === "string",
-          )
-        : [];
+      let samples: { headingId: string; text: string }[] = [];
+      if (Array.isArray(body.samples)) {
+        samples = body.samples.filter(
+          (s): s is { headingId: string; text: string } =>
+            s !== null && typeof s === "object" &&
+            typeof (s as Record<string, unknown>).headingId === "string" &&
+            typeof (s as Record<string, unknown>).text === "string",
+        );
+      } else if (Array.isArray(body.sampleIndexes)) {
+        // server-side section sampling from the parsed markdown (the client
+        // never holds bodies)
+        samples = extractAssistSamples(options.taskQueue, id!, body.sampleIndexes);
+      }
       const clampedRows = rows.map((r) => ({
         index: r.index,
         text: r.text.slice(0, 80),

@@ -564,6 +564,28 @@ export interface AssistSample {
   text: string;
 }
 
+/** Extract ≤`maxChars` verbatim body samples for the requested heading indexes
+ *  from the parsed markdown (G4.S10.T7 assist — the client never holds bodies,
+ *  so the server samples suspicious sections). Collapses whitespace. */
+export function sampleSectionsFromMarkdown(
+  markdown: string,
+  indexes: number[],
+  maxChars = 200,
+  maxSamples = 60,
+): AssistSample[] {
+  const { blocks } = parseHeaderBlocks(markdown);
+  const byIndex = new Map(blocks.map((b) => [b.index, b]));
+  const out: AssistSample[] = [];
+  for (const index of indexes) {
+    if (out.length >= maxSamples) break;
+    const block = byIndex.get(index);
+    if (!block) continue;
+    const body = block.lines.join("\n").replace(/\s+/g, " ").trim().slice(0, maxChars);
+    if (body) out.push({ headingId: String(index), text: body });
+  }
+  return out;
+}
+
 export interface HeaderAssistSuggestion {
   kind: "demote-to-bold" | "set-level" | "reparent";
   targetIds: string[];

@@ -17,6 +17,11 @@ import {
   runKbAudit,
   type KbAuditReport,
 } from "@/api/kb";
+import {
+  getHeaderReviewSettings,
+  putHeaderReviewSettings,
+  type HeaderReviewSettings,
+} from "@/api/kb";
 
 const KB_EDIT = "kb.edit";
 const DEFAULT_LOGO = "/athena-logo-ai.png";
@@ -49,6 +54,51 @@ const auditRunning = ref(false);
 const auditError = ref("");
 const auditNotice = ref("");
 const auditReports = ref<KbAuditReport[]>([]);
+
+// G4.S10.T7: project-level header-review gate settings.
+const hrEnabled = ref(false);
+const hrMinHeaders = ref(32);
+const hrTemplateWords = ref("");
+const hrSaving = ref(false);
+const hrError = ref("");
+const hrNotice = ref("");
+
+async function loadHrSettings(): Promise<void> {
+  try {
+    const settings: HeaderReviewSettings = await getHeaderReviewSettings();
+    hrEnabled.value = settings.enabled;
+    hrMinHeaders.value = settings.minHeaders;
+    hrTemplateWords.value = settings.templateWords.join("\n");
+  } catch (err) {
+    hrError.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
+async function saveHrSettings(): Promise<void> {
+  hrSaving.value = true;
+  hrError.value = "";
+  hrNotice.value = "";
+  try {
+    const words = hrTemplateWords.value
+      .split(/[\n,;]+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length > 0);
+    const updated = await putHeaderReviewSettings({
+      enabled: hrEnabled.value,
+      minHeaders: hrMinHeaders.value,
+      templateWords: words,
+    });
+    hrEnabled.value = updated.enabled;
+    hrMinHeaders.value = updated.minHeaders;
+    hrTemplateWords.value = updated.templateWords.join("\n");
+    hrNotice.value = "Saved — uploads will honor the new gate settings.";
+    setTimeout(() => (hrNotice.value = ""), 4000);
+  } catch (err) {
+    hrError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    hrSaving.value = false;
+  }
+}
 
 const latestReport = computed<KbAuditReport | null>(
   () => auditReports.value[0] ?? null,
@@ -278,6 +328,7 @@ onMounted(() => {
     return;
   }
   void loadAll();
+  void loadHrSettings();
 });
 </script>
 
@@ -550,6 +601,46 @@ onMounted(() => {
             {{ copied ? "Copied!" : "Copy" }}
           </button>
         </div>
+      </div>
+
+      <!-- G4.S10.T7: project-level header-review gate configuration -->
+      <div class="admin-section">
+        <h3 class="section-title">Header review gate</h3>
+        <p class="admin-hint">
+          Pause documents after parsing so a human curates the detected outline in the card editor
+          (tiny docs with fewer than <code>minHeaders</code> headings skip the pause).
+        </p>
+        <label class="hr-admin-row" data-testid="hr-settings">
+          <input v-model="hrEnabled" type="checkbox" data-testid="hr-enabled" />
+          <span>Pause after parsing (pending_header_review)</span>
+        </label>
+        <div class="hr-admin-row">
+          <span>Minimum headings before the gate engages:</span>
+          <input v-model.number="hrMinHeaders" type="number" min="1" max="10000" class="hr-admin-input" data-testid="hr-min-headers" />
+        </div>
+        <div class="hr-admin-row">
+          <span>Bulk template-demotion word list (one per line — persisted per project):</span>
+        </div>
+        <textarea
+          v-model="hrTemplateWords"
+          class="hr-admin-words"
+          rows="5"
+          data-testid="hr-template-words"
+          placeholder="Purpose&#10;Prerequisites&#10;Related Information"
+        />
+        <div class="hr-admin-row">
+          <button
+            type="button"
+            class="invite-button"
+            :disabled="hrSaving"
+            data-testid="hr-save"
+            @click="saveHrSettings"
+          >
+            {{ hrSaving ? "Saving…" : "Save header-review settings" }}
+          </button>
+          <span v-if="hrNotice" class="audit-hint" data-testid="hr-notice">{{ hrNotice }}</span>
+        </div>
+        <p v-if="hrError" class="admin-error" data-testid="hr-error">{{ hrError }}</p>
       </div>
     </div>
   </section>
@@ -925,5 +1016,38 @@ onMounted(() => {
   background: var(--caleo-body-bg);
   color: var(--caleo-text);
   overflow-wrap: anywhere;
+}
+
+/* G4.S10.T7: header-review gate settings */
+.hr-admin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--caleo-text);
+}
+
+.hr-admin-input {
+  width: 90px;
+  padding: 4px 8px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: var(--caleo-body-bg);
+  color: var(--caleo-text);
+  font-size: 12px;
+}
+
+.hr-admin-words {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0;
+  padding: 6px;
+  border: 1px solid var(--caleo-border);
+  border-radius: 6px;
+  background: var(--caleo-body-bg);
+  color: var(--caleo-text);
+  font-size: 12px;
+  font-family: inherit;
 }
 </style>

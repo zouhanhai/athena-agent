@@ -705,6 +705,13 @@ export class IngestTaskQueue {
     return this.tasks.get(id);
   }
 
+  /** G4.S10.T7: the parsed markdown behind a header-review pause — used by the
+   *  assist endpoint for server-side section sampling (the client never holds
+   *  bodies). Undefined for unknown tasks. */
+  getHeaderReviewMarkdown(id: string): string | undefined {
+    return this.tasks.get(id)?.markdown;
+  }
+
   private mustGetTask(id: string): IngestTask {
     const task = this.tasks.get(id);
     if (!task) throw new TaskNotFoundError(`task not found: ${id}`);
@@ -835,15 +842,15 @@ export class IngestTaskQueue {
   ): Promise<{ ops: HeaderEditOp[]; cards: HeaderReviewCard[]; changes: number; updatedAt: number }> {
     const task = this.mustGetTask(id);
     this.requirePendingHeaderReview(task);
-    if (!Array.isArray(ops) || ops.length === 0) {
-      throw new HeaderReviewOpError("draft ops must be a non-empty array");
+    if (!Array.isArray(ops)) {
+      throw new HeaderReviewOpError("draft ops must be an array of draft edits");
     }
     const outline = this.ensureHeaderReviewOutline(task);
     const cards = applyOps(outline.cards, ops); // throws HeaderReviewOpError on contract violations
     const updatedAt = Date.now();
     const draft = { ops, updatedAt };
-    task.headerDraft = draft;
-    await this.persistHeaderReviewDraft(id, draft);
+    task.headerDraft = ops.length > 0 ? draft : undefined;
+    await this.persistHeaderReviewDraft(id, ops.length > 0 ? draft : { ops: [], updatedAt });
     return { ops, cards: withLevels(cards), changes: countCardChanges(withLevels(cards)), updatedAt };
   }
 
