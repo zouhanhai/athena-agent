@@ -521,6 +521,31 @@ const displayTree = computed(() =>
   ),
 );
 
+/* G4 large-doc UX: draggable sidebar width (persisted). */
+const treeWidth = ref(Number(localStorage.getItem("wiki-tree-width") || 280));
+function startTreeResize(e: MouseEvent): void {
+  const pane = e.target.previousElementSibling as HTMLElement | null;
+  if (!pane) return;
+  const startX = e.clientX;
+  const startW = pane.getBoundingClientRect().width;
+  const onMove = (ev: MouseEvent) => {
+    const w = Math.min(720, Math.max(180, Math.round(startW + ev.clientX - startX)));
+    pane.style.width = `${w}px`;
+    treeWidth.value = w;
+  };
+  const onUp = () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    localStorage.setItem("wiki-tree-width", String(treeWidth.value));
+  };
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+}
+
 /** Auto-expand the selected file node so its heading outline is visible,
  *  plus the first heading level (h1/h2) so users see the top outline without
  *  exploding the tree — deeper levels expand on click. */
@@ -766,7 +791,7 @@ watch(
     </t-dialog>
 
     <div class="wiki-body">
-      <aside class="wiki-tree-pane">
+      <aside class="wiki-tree-pane" :style="{ width: treeWidth + 'px' }">
         <p v-if="treeError" class="wiki-error">{{ treeError }}</p>
         <p v-else-if="treeLoading" class="wiki-status">Loading wiki tree...</p>
         <p v-else-if="tree.length === 0" class="wiki-status">
@@ -796,6 +821,11 @@ watch(
           </template>
         </t-tree>
       </aside>
+      <div
+        class="wiki-tree-resizer"
+        title="拖拽调节宽度"
+        @mousedown.prevent="startTreeResize"
+      ></div>
 
       <div ref="contentPaneEl" class="wiki-content-pane">
         <p v-if="contentError" class="wiki-error">{{ contentError }}</p>
@@ -1171,7 +1201,7 @@ watch(
 }
 
 .wiki-tree-pane {
-  width: 280px;
+  /* width 由内联样式控制(可拖拽, 默认 280, localStorage 持久化) */
   flex-shrink: 0;
   padding: 12px;
   background: var(--caleo-surface);
@@ -1192,7 +1222,20 @@ watch(
   overflow-y: auto;
 }
 
-.wiki-tree :deep(.t-tree__item) {
+
+.wiki-tree-resizer {
+  flex-shrink: 0;
+  width: 5px;
+  margin: 0 3px;
+  cursor: col-resize;
+  border-radius: 3px;
+  background: transparent;
+}
+.wiki-tree-resizer:hover,
+.wiki-tree-resizer:active {
+  background: var(--caleo-border);
+}
+\n.wiki-tree :deep(.t-tree__item) {
   color: var(--caleo-text);
 }
 
