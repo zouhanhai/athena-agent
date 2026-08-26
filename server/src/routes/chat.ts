@@ -451,7 +451,11 @@ export function registerChatRoutes(app: FastifyInstance, options: ChatRouteOptio
     }
 
     try {
+      console.log(`[chat-debug] prompt start user=${userId} len=${finalPrompt.length}`);
+      const t0 = Date.now();
       const replyText = await agent.prompt(finalPrompt);
+      console.log(`[chat-debug] prompt done ms=${Date.now() - t0} replyLen=${(replyText || "").length}`);
+
       await persistTurn(options.historyStore, {
         employeeId: userId,
         page,
