@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import logging
 import os
 import re
@@ -228,6 +229,45 @@ def derive_stem(source: str) -> str:
     return sanitize_stem(Path(name).name)
 
 
+def extract_outline(result) -> dict | None:
+    """Export the document's heading outline (PDF bookmark layer) as a JSON tree.
+
+    Docling derives the section hierarchy from the PDF outline/bookmarks when the
+    source has them. The exported shape is exactly the TOC-first grading input:
+    ``{"text": "", "level": 0, "children": [...]}`` with structural levels (root = 0,
+    first section level = 1). Purely structural (nesting depth), so a malformed
+    level field in a docling release can never skew the pre-order walk.
+
+    Never blocks parsing: any failure returns None (no outline sidecar is written).
+    """
+    try:
+        document = result.document
+        sections = getattr(document, "sections", None)
+        if sections is None:
+            texts = getattr(document, "texts", None) or []
+            sections = [t for t in texts if getattr(t, "label", "") == "section-heading"]
+        root: dict = {"text": "", "level": 0, "children": []}
+        if not sections:
+            return None
+
+        def walk(children: list, level: int, out: list) -> None:
+            for child in children:
+                if not getattr(child, "heading", False):
+                    continue
+                text = (getattr(child, "text", None) or "").strip()
+                if not text:
+                    continue
+                entry: dict = {"text": text[:512], "level": level, "children": []}
+                walk(getattr(child, "children", None) or [], level + 1, entry["children"])
+                out.append(entry)
+
+        walk(sections, 1, root["children"])
+        return root if root["children"] else None
+    except Exception as err:  # pragma: no cover - defensive: never break parsing
+        log.warning("outline extraction failed (no outline sidecar): %s", err)
+        return None
+
+
 def mark_vlm_descriptions(markdown: str) -> str:
     """Italicise docling's VLM picture-description blocks so a human viewing the
     wiki can tell a machine-generated image description apart from the source text.
@@ -271,8 +311,8 @@ def mark_vlm_descriptions(markdown: str) -> str:
 
 def parse_document(
     source: str, output_dir: Path, images_dir: Path | None, stem: str
-) -> str:
-    """Run docling conversion and return the markdown content.
+) -> tuple[str, object]:
+    """Run docling conversion and return (markdown content, conversion result).
 
     When ``images_dir`` is given (G3.S5.T5), the extracted picture images are
     exported to disk and the markdown references them via relative URIs so the
@@ -293,8 +333,8 @@ def parse_document(
             artifacts_dir=rel_artifacts,
             image_mode=ImageRefMode.REFERENCED,
         )
-        return mark_vlm_descriptions(out_path.read_text(encoding="utf-8"))
-    return mark_vlm_descriptions(result.document.export_to_markdown())
+        return mark_vlm_descriptions(out_path.read_text(encoding="utf-8")), result
+    return mark_vlm_descriptions(result.document.export_to_markdown()), result
 
 
 def main(argv: list[str]) -> int:
@@ -336,7 +376,7 @@ def main(argv: list[str]) -> int:
 
     stem = derive_stem(source)
     try:
-        markdown = parse_document(source, output_dir, image_export_dir, stem)
+        markdown, result = parse_document(source, output_dir, image_export_dir, stem)
     except Exception as err:  # docling raises a variety of backend errors
         log.error("parse failed: %s", err)
         return 1
@@ -347,6 +387,14 @@ def main(argv: list[str]) -> int:
 
     out_path = output_dir / f"{stem}.md"
     out_path.write_text(markdown, encoding="utf-8")
+    # G4.S10.T6: export the docling heading outline (PDF bookmark layer) beside the
+    # markdown so the ingest pipeline can use the document's OWN hierarchy for
+    # TOC-first header grading. Best-effort: no outline → no sidecar, never fails.
+    outline = extract_outline(result)
+    if outline:
+        (output_dir / f"{stem}.outline.json").write_text(
+            json.dumps(outline, ensure_ascii=False), encoding="utf-8"
+        )
     log.info("wrote %s (%d chars)", out_path, len(markdown))
     print(out_path)
     return 0

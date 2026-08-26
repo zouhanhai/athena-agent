@@ -49,11 +49,18 @@ export function createAthenaRefiner(
     entityLinker?: import("../kb/link/link-engine.js").EntityLinker;
   } = {},
 ): Refiner {
-  return async (markdown: string, topicHint?: string, fileName?: string) => {
+  return async (markdown: string, topicHint?: string, fileName?: string, outline?: unknown) => {
     const tool = createRefineDocumentTool({} as never, options);
     const result = await tool.execute(
       "refine_document",
-      { markdown, ...(topicHint ? { topic_hint: topicHint } : {}), ...(fileName ? { file_name: fileName } : {}) },
+      {
+        markdown,
+        ...(topicHint ? { topic_hint: topicHint } : {}),
+        ...(fileName ? { file_name: fileName } : {}),
+        // G4.S10.T6: the docling XML-outline sidecar (PDF bookmark layer) feeds the
+        // pdf-outline header-grading source for TOC-first refine.
+        ...(outline !== undefined ? { outline } : {}),
+      },
       undefined,
       undefined,
       {} as never,

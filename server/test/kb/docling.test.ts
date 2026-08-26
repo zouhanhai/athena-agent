@@ -25,6 +25,7 @@ function makeParser(opts: {
     readFileImpl: async (path) => {
       readCalls.push(path);
       if (path.endsWith(".sha256")) return opts.sidecar?.[path] ?? "deadbeef";
+      if (path.endsWith(".outline.json")) return opts.sidecar?.[path] ?? opts.markdown ?? "# Doc";
       return opts.markdown ?? "# Doc";
     },
     mkdirImpl: async () => {},
@@ -57,11 +58,53 @@ test("parse invokes python parse_doc.py with input + shared input-dir + --images
       ],
     ],
   ]);
-  assert.deepEqual(readCalls, ["/shared/input/report.pdf.md"]);
+  assert.deepEqual(readCalls, ["/shared/input/report.pdf.md", "/shared/input/report.pdf.md.outline.json"]);
   assert.equal(result.markdown, "# Report\n\nBody");
   assert.equal(result.outputPath, "/shared/input/report.pdf.md");
   assert.equal(result.stem, "report.pdf");
   assert.equal(result.imagesDir, "/shared/input/images/report.pdf");
+  assert.equal(result.outline, null, "missing/unusable outline sidecar → no TOC (never blocks)");
+});
+
+test("parse returns the docling outline from the .outline.json sidecar (TOC-first grading input)", async () => {
+  const outlineJson = JSON.stringify({
+    text: "",
+    level: 0,
+    children: [
+      { text: "Chapter One", level: 1, children: [{ text: "Sub One", level: 2, children: [] }] },
+      { text: "Chapter Two", level: 1, children: [] },
+    ],
+  });
+  const { parser } = makeParser({
+    stdout: "/shared/input/report.pdf.md\n",
+    markdown: "# Report\n\nBody",
+    hash: "abc",
+    sidecar: { "/shared/input/report.pdf.md.outline.json": outlineJson },
+  });
+  const result = await parser.parse("/tmp/report.pdf");
+
+  // the parsed tree carries the SAME structural hierarchy the grader consumes
+  assert.ok(result.outline, "outline sidecar parsed");
+  assert.equal(result.outline!.text, "");
+  assert.equal(result.outline!.level, 0);
+  assert.deepEqual(
+    result.outline!.children!.map((c) => [c.text, c.level, c.children?.map((g) => g.text) ?? []]),
+    [
+      ["Chapter One", 1, ["Sub One"]],
+      ["Chapter Two", 1, []],
+    ],
+  );
+});
+
+test("parse invalidates a malformed outline sidecar (null, never blocks)", async () => {
+  const { parser } = makeParser({
+    stdout: "/shared/input/report.pdf.md\n",
+    markdown: "# Report",
+    hash: "abc",
+    sidecar: { "/shared/input/report.pdf.md.outline.json": "not json {{{" },
+  });
+  const result = await parser.parse("/tmp/report.pdf");
+  assert.equal(result.outline, null);
 });
 
 test("parse writes a sha256 sidecar after a fresh parse", async () => {

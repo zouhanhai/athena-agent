@@ -45,6 +45,12 @@ export type Refiner = (
   topicHint?: string,
   /** G4.S8.T18: upload file name — keeps the refine storage stem name-derived. */
   fileName?: string,
+  /**
+   * G4.S10.T6: docling-detected outline (PDF bookmark layer) — parsed from the
+   * `<stem>.outline.json` sidecar by `DoclingParser.parse`. Fed to the refine's
+   * `pdf-outline` header-grading source for TOC-first grading.
+   */
+  outline?: unknown,
 ) => Promise<{
   ref: RefineOutputRef;
   markdown: string;
@@ -269,6 +275,11 @@ export interface IngestTask {
    *  is the absolute export dir; `relativeDir` is the layout relative to the
    *  markdown file (`images/<stem>`), which the page refs already use. */
   images?: { sourceDir: string; relativeDir: string };
+  /**
+   * G4.S10.T6: docling-detected outline (PDF bookmark layer) from the parse step,
+   * retained so retry can pass it to the refiner (TOC-first header grading).
+   */
+  outline?: unknown;
   status: TaskStatus;
   /** Overall progress 0-100. */
   progress: number;
@@ -792,6 +803,7 @@ export class IngestTaskQueue {
           t.documentId = parsed.stem || documentIdFrom(source, source);
           t.markdown = markdown;
           t.fileName = fileName;
+          t.outline = parsed.outline ?? undefined;
           t.images = parsed.imagesDir
             ? {
                 sourceDir: parsed.imagesDir,
@@ -839,7 +851,7 @@ export class IngestTaskQueue {
         this.setStep(id, "refinement", "refine_document", "running");
         try {
           console.log(`[tasks:${id}] refinement start`);
-          const result = await this.refiner(markdown!, undefined, fileName);
+          const result = await this.refiner(markdown!, undefined, fileName, task.outline);
           refinedMarkdown = result.markdown;
           ragMarkdown = result.ragMarkdown;
           refinementRef = result.ref;

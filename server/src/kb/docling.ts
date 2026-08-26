@@ -13,8 +13,18 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { parseTocInput, type TocNode } from "../agents/header-toc.js";
 
 const execFileAsync = promisify(execFile);
+
+/** Read the docling outline sidecar (`<md>.outline.json`); null when absent/unusable. */
+async function readOutline(readFileImpl: (path: string) => Promise<string>, mdPath: string): Promise<TocNode | null> {
+  try {
+    return parseTocInput(await readFileImpl(`${mdPath}.outline.json`));
+  } catch {
+    return null;
+  }
+}
 
 export interface DoclingParseOptions {
   /** Input file path or URL to parse. */
@@ -34,6 +44,13 @@ export interface DoclingParseResult {
    * not exist (or be empty) when the document has no images.
    */
   imagesDir: string;
+  /**
+   * G4.S10.T6: docling-detected heading outline (PDF bookmark layer) parsed from
+   * the `<stem>.outline.json` sidecar written next to the markdown. Null when the
+   * document has no usable outline. Feeds the `pdf-outline` header-grading source
+   * (TOC-first refine) — never blocks parsing when absent.
+   */
+  outline: TocNode | null;
 }
 
 export interface DoclingParserOptions {
@@ -184,6 +201,7 @@ export class DoclingParser {
               outputPath: expectedMd,
               stem: expectedMd.replace(/\.md$/i, "").split("/").pop() ?? "document",
               imagesDir,
+              outline: await readOutline(this.readFileImpl, expectedMd),
             };
           }
         }
@@ -217,6 +235,7 @@ export class DoclingParser {
       outputPath: resolved,
       stem: resolved.replace(/\.md$/i, "").split("/").pop() ?? "document",
       imagesDir,
+      outline: await readOutline(this.readFileImpl, resolved),
     };
   }
 }
