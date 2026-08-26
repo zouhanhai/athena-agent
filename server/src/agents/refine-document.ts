@@ -71,6 +71,16 @@ import {
   type RefineOutputRef,
   type RefinementMode,
 } from "./refine-output.js";
+import {
+  DEFAULT_HEADER_GRADING_SOURCES,
+  applyTocToMarkdown,
+  firstGradedToc,
+  tocFirstJudge,
+  type HeaderGradingContext,
+  type HeaderGradingReport,
+  type HeaderGradingSource,
+  type TocDepthMapping,
+} from "./header-toc.js";
 
 /** Provider id (default "athena" — Pi-resolvable provider; custom ids like
  *  athena-ingest/athenaingest are NOT resolved by ModelRuntime.completeSimple
@@ -424,6 +434,20 @@ export interface RefineDocumentParams {
    * the generic "document" fallback — on every store path.
    */
   file_name?: string;
+  /**
+   * G4.S10.T6 external TOC: a TOC passed at refine/upload time (e.g. the SAP
+   * Help Portal `fullToc` fetched by the uploader). Any reasonable shape is
+   * accepted (array of titles / nested {title, children} / the docling outline
+   * JSON). When present and ≥1 heading matches, the deterministic TOC-first
+   * header grading replaces the LLM judge (mode "toc" in the report).
+   */
+  toc?: unknown;
+  /**
+   * G4.S10.T6 docling-detected outline (PDF bookmark layer), parsed by
+   * `DoclingParser` from the `<stem>.outline.json` sidecar next to the parsed
+   * markdown. Fed to the `pdf-outline` header-grading source.
+   */
+  outline?: unknown;
 }
 
 export interface RefineDocumentOptions {
@@ -448,6 +472,16 @@ export interface RefineDocumentOptions {
   headerBatchSize?: number;
   /** Inject the stage-1 header judge (tests). Default: judgeHeaderLevelsLLM (LLM). */
   judgeHeaderLevelsImpl?: (blocks: HeaderBlock[]) => Promise<JudgeHeaderLevelsResult>;
+  /**
+   * G4.S10.T6 TOC-first header grading: the `HeaderGradingSource` chain tried
+   * BEFORE the LLM judge. When a source yields a TOC that grades ≥1 heading, the
+   * deterministic TOC hierarchy wins (document's own hierarchy = ground truth);
+   * otherwise the behavior is unchanged (LLM judge, mode "llm"). Default:
+   * DEFAULT_HEADER_GRADING_SOURCES (pdf-outline → markdown-toc-preamble → external).
+   */
+  headerGradingSources?: HeaderGradingSource[];
+  /** G4.S10.T6 parameterized TOC-depth → md-level mapping (default D4→h1 … D8→h5). */
+  tocDepthMapping?: TocDepthMapping;
   /** Inject the stage-2 per-section full pass (tests). Default: runRefinePass (LLM). */
   refineSectionImpl?: (section: MarkdownSection, topicHint?: string) => Promise<RefinedDocument>;
   /** Inject the global merge pass (tests). Default: runGlobalMerge (LLM). */
@@ -1252,6 +1286,18 @@ export interface JudgeHeaderLevelsResult {
    * kept) but degrades the downstream split — counted + logged, no longer silently swallowed.
    */
   failedBatches: number;
+  /**
+   * G4.S10.T6 header-grading mode: "toc" when a TOC source graded the blocks
+   * deterministically, "llm" when the LLM judge ran (the pre-T6 path). Set by
+   * `tocFirstJudge`; a bare LLM judge leaves it unset.
+   */
+  headerMode?: "toc" | "llm";
+  /** TOC mode only: the provider name that produced the TOC. */
+  tocSource?: string;
+  /** TOC mode only: md headings matched to TOC nodes. */
+  tocMatched?: number;
+  /** TOC mode only: TOC nodes in the flattened pre-order walk. */
+  tocTotal?: number;
 }
 
 /** Stage-1 production implementation: judge header levels in batches (LOCAL, no full doc). */
@@ -1390,6 +1436,12 @@ export async function refineLargeDocument(
     degradedSections,
     headerRelevelFailedBatches: judged.failedBatches,
     sectionOutcomes,
+    headerGrading: {
+      mode: judged.headerMode ?? "llm",
+      ...(judged.tocSource ? { source: judged.tocSource } : {}),
+      ...(judged.tocMatched !== undefined ? { tocMatched: judged.tocMatched } : {}),
+      ...(judged.tocTotal !== undefined ? { tocTotal: judged.tocTotal } : {}),
+    },
   };
 }
 
@@ -1441,6 +1493,11 @@ export interface LargeRefineResult {
   headerRelevelFailedBatches: number;
   /** P2: per-section outcome + duration for post-mortems. */
   sectionOutcomes: SectionOutcome[];
+  /**
+   * G4.S10.T6: how stage-1 header grading ran — "toc" (deterministic TOC
+   * hierarchy) or "llm" (the judgeHeaderLevelsLLM fallback, unchanged pre-T6).
+   */
+  headerGrading: HeaderGradingReport;
 }
 
 /**
@@ -1947,6 +2004,9 @@ export function createRefineDocumentTool(
       markdown: Type.String(),
       topic_hint: Type.Optional(Type.String()),
       file_name: Type.Optional(Type.String()),
+      // G4.S10.T6: external TOC (SAP Help fullToc / docling outline JSON) — any shape.
+      toc: Type.Optional(Type.Unknown()),
+      outline: Type.Optional(Type.Unknown()),
     }),
     executionMode: "sequential",
     async execute(
@@ -1972,6 +2032,25 @@ export function createRefineDocumentTool(
       let validationRetries: Array<{ attempt: number; errors: string[] }> = [];
       let audit: EntityAuditResult | undefined;
 
+      // G4.S10.T6 TOC-first header grading: the provider chain tries the docling PDF
+      // outline → markdown TOC preamble → explicit external TOC; the first TOC that
+      // grades ≥1 heading becomes the ground truth for header levels (mode "toc").
+      // Nothing usable → the existing LLM judge path, unchanged (mode "llm").
+      const gradingCtx: HeaderGradingContext = {
+        markdown: textMarkdown,
+        ...(params.outline !== undefined ? { outline: params.outline } : {}),
+        ...(params.toc !== undefined ? { externalToc: params.toc } : {}),
+      };
+      const gradingSources = options.headerGradingSources ?? DEFAULT_HEADER_GRADING_SOURCES;
+      const llmJudge = (blocks: HeaderBlock[]) => judgeHeaderLevelsLLM(httpCaller, blocks, options);
+      const composedJudge = (blocks: HeaderBlock[]) =>
+        tocFirstJudge(blocks, gradingCtx, {
+          sources: gradingSources,
+          depthMapping: options.tocDepthMapping,
+          fallback: llmJudge,
+        });
+      let headerGrading: HeaderGradingReport | undefined;
+
       try {
         let document: RefinedDocument;
         let sectionPaths: string[] = [];
@@ -1982,9 +2061,7 @@ export function createRefineDocumentTool(
           const result = await refineLargeDocument(
             textMarkdown,
             {
-              judgeHeaderLevels:
-                options.judgeHeaderLevelsImpl ??
-                ((blocks) => judgeHeaderLevelsLLM(httpCaller, blocks, options)),
+              judgeHeaderLevels: options.judgeHeaderLevelsImpl ?? composedJudge,
               refineSection:
                 options.refineSectionImpl ??
                 (async (section, hint) => (await runRefinePass(httpCaller, section.markdown, hint, options)).document),
@@ -1996,6 +2073,7 @@ export function createRefineDocumentTool(
           );
           document = result.document;
           sectionPaths = result.sections;
+          headerGrading = result.headerGrading;
           largeRefine = {
             degradedSections: result.degradedSections,
             headerRelevelFailedBatches: result.headerRelevelFailedBatches,
@@ -2005,20 +2083,50 @@ export function createRefineDocumentTool(
           const single = await runRefinePass(httpCaller, textMarkdown, params.topic_hint, options);
           document = single.document;
 
-          // G4.S8.T16 deterministic recovery: the model applied ZERO heading patches to a FLAT
-          // document (>3 same-level headings) → run the batched HEADER_RELEVEL stage as a fallback.
-          const report = document.patchReport ?? { emitted: 0, applied: 0, dropped: [] };
-          if (report.applied === 0 && isFlatHeaderMarkdown(document.markdown)) {
-            console.warn("[refine_document] flat headers + zero patches applied — running batched HEADER_RELEVEL recovery");
-            const split = splitByHeaders(document.markdown);
-            const releveled = await judgeHeaderLevelsLLM(httpCaller, split.blocks, options);
-            const recovered = rebuildMarkdown(split.preamble, releveled.blocks);
+          // G4.S10.T6 single-pass TOC-first: when a TOC source grades ≥1 heading of the
+          // final markdown, the document's OWN hierarchy wins deterministically over any
+          // LLM re-leveling (patches / flat recovery) — the TOC tree is re-applied as the
+          // source of truth.
+          const toc = await firstGradedToc(splitByHeaders(document.markdown).blocks, gradingCtx, gradingSources, options.tocDepthMapping);
+          if (toc) {
+            const tocApplied = applyTocToMarkdown(document.markdown, toc.tree, options.tocDepthMapping);
             document = {
               ...document,
-              markdown: recovered,
-              chunks: splitParagraphSemantic(recovered, { summary: document.summary }),
+              markdown: tocApplied.markdown,
+              chunks: splitParagraphSemantic(tocApplied.markdown, { summary: document.summary }),
             };
-            headerRelevelFallback = true;
+            headerGrading = {
+              mode: "toc",
+              source: toc.source.name,
+              tocMatched: toc.graded.matched,
+              tocTotal: toc.graded.total,
+            };
+            console.log(
+              `[refine_document] TOC-first grading: ${toc.graded.matched}/${toc.graded.total} headings matched (${toc.source.name})`,
+            );
+          } else {
+            // G4.S8.T16 deterministic recovery: the model applied ZERO heading patches to
+            // a FLAT document (>3 same-level headings) → run the batched HEADER_RELEVEL
+            // stage as a fallback (TOC-composed: still TOC-first, LLM fallback).
+            const report = document.patchReport ?? { emitted: 0, applied: 0, dropped: [] };
+            if (report.applied === 0 && isFlatHeaderMarkdown(document.markdown)) {
+              console.warn("[refine_document] flat headers + zero patches applied — running batched HEADER_RELEVEL recovery");
+              const split = splitByHeaders(document.markdown);
+              const releveled = await composedJudge(split.blocks);
+              const recovered = rebuildMarkdown(split.preamble, releveled.blocks);
+              document = {
+                ...document,
+                markdown: recovered,
+                chunks: splitParagraphSemantic(recovered, { summary: document.summary }),
+              };
+              headerRelevelFallback = true;
+              headerGrading = {
+                mode: releveled.headerMode ?? "llm",
+                ...(releveled.tocSource ? { source: releveled.tocSource } : {}),
+                ...(releveled.tocMatched !== undefined ? { tocMatched: releveled.tocMatched } : {}),
+                ...(releveled.tocTotal !== undefined ? { tocTotal: releveled.tocTotal } : {}),
+              };
+            }
           }
           usage = single.usage;
           retries = single.retries;
@@ -2030,10 +2138,12 @@ export function createRefineDocumentTool(
         // tree with ZERO h1 escaped both the T16 flat-recovery trigger and the
         // contract. Enforce deterministically, keeping counters truthful. The
         // TWO-STAGE layout keeps its by-design h1 sections (only a MISSING title
-        // is promoted there); the single pass enforces exactly one h1.
+        // is promoted there); the single pass enforces exactly one h1. A TOC-graded
+        // document likewise keeps its by-design multi-h1 hierarchy.
         let headerCompletion: { promoted: number; demoted: number } | undefined;
+        const tocMultiH1 = headerGrading?.mode === "toc";
         const completion = completeHeaderHierarchy(document.markdown, {
-          ...(mode === "two-stage" ? { demoteSurplus: false } : {}),
+          ...(mode === "two-stage" || tocMultiH1 ? { demoteSurplus: false } : {}),
         });
         if (completion.changed) {
           console.warn(
@@ -2046,7 +2156,7 @@ export function createRefineDocumentTool(
           };
           headerCompletion = { promoted: completion.promoted, demoted: completion.demoted };
         }
-        if (!hasSingleH1(document.markdown) && mode !== "two-stage") {
+        if (!hasSingleH1(document.markdown) && mode !== "two-stage" && headerGrading?.mode !== "toc") {
           console.error("[refine_document] single-h1 contract STILL violated after completion — flagging for review");
         }
         // G4.S8.T18 deterministic placeholder pre-check: objective defects force
@@ -2063,6 +2173,7 @@ export function createRefineDocumentTool(
           stem: deriveStemWithFileName(fileAPrime, params.file_name),
           mode,
           section_paths: sectionPaths,
+          ...(headerGrading ? { headerGrading } : {}),
           ...(imageRefsStripped ? { ragMarkdown } : {}),
         });
         return {
@@ -2089,6 +2200,8 @@ export function createRefineDocumentTool(
             ...(headerCompletion ? { headerCompletion } : {}),
             // G4.S10.T5: two-stage hardening evidence (P1/P2/P3) in the tool details.
             ...(largeRefine ? { largeRefine } : {}),
+            // G4.S10.T6: which header-grading mode produced the hierarchy + TOC evidence.
+            ...(headerGrading ? { headerGrading } : {}),
           },
         };
       } catch (err) {

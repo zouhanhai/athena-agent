@@ -25,6 +25,7 @@ import type {
   RefinementSectionSummary,
   RefinedDocument,
 } from "./refine-document.js";
+import type { HeaderGradingReport } from "./header-toc.js";
 
 /** Conservative single-read cap (Spec: ~500KB-1MB md; >1MB must chunk). Measured: 827pg SAP = 2.17MB. */
 export const REFINE_SINGLE_READ_MAX_BYTES = 1024 * 1024;
@@ -161,6 +162,13 @@ export interface RefineOutputRef {
    * MENTIONED_IN edges and relations. Absent outside the wiki-edit path.
    */
   entity_renames?: Array<{ from: string; to: string }>;
+  /**
+   * G4.S10.T6 TOC-first header grading: which header-grading mode produced this
+   * hierarchy ("toc" = deterministic TOC, "llm" = judgeHeaderLevelsLLM) + the
+   * TOC evidence (source provider, matched/total). Absent when no grading step
+   * ran (single-pass docs the LLM patch path handled: pre-T6 unchanged).
+   */
+  header_grading?: HeaderGradingReport;
 }
 
 export interface StoreRefinementOptions {
@@ -175,6 +183,11 @@ export interface StoreRefinementOptions {
    * `rag_md_ref` falls back to `md_ref` when no separate copy is needed.
    */
   ragMarkdown?: string;
+  /**
+   * G4.S10.T6 TOC-first header grading report — carried on the ref so the
+   * operator/Uploads can see which mode produced the hierarchy.
+   */
+  headerGrading?: HeaderGradingReport;
   /** Injectable mkdir for tests. */
   mkdir?: (path: string) => Promise<void>;
   /** Injectable writeFile for tests. */
@@ -1169,6 +1182,7 @@ export async function storeRefinementOutput(
     sections: doc.sections ?? [],
     mode: options.mode ?? "single",
     section_paths: options.section_paths ?? [],
+    ...(options.headerGrading ? { header_grading: options.headerGrading } : {}),
     ...(doc.link_edges && doc.link_edges.length > 0 ? { link_edges: doc.link_edges } : {}),
     ...(doc.entity_renames && doc.entity_renames.length > 0 ? { entity_renames: doc.entity_renames } : {}),
   };
