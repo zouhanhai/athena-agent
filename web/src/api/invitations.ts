@@ -88,10 +88,16 @@ export interface InviteResult {
 }
 
 /** POST /api/invitations (admin) → invite an employee, returning the generated link. */
-export async function sendInvite(email: string): Promise<InviteResult> {
+export async function sendInvite(
+  email: string,
+  sessionToken: string,
+): Promise<InviteResult> {
   return request<InviteResult>("/api/invitations", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionToken}`,
+    },
     body: JSON.stringify({ email }),
   });
 }

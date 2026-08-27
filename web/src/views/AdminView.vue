@@ -295,7 +295,7 @@ async function onInvite() {
   inviteError.value = "";
   inviteResult.value = null;
   try {
-    inviteResult.value = await sendInvite(email);
+    inviteResult.value = await sendInvite(email, sessionToken());
     inviteEmail.value = "";
     copied.value = false;
   } catch (err) {
