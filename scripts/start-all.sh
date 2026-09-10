@@ -36,7 +36,10 @@ load_openrouter_key() {
     return  # already set
   fi
   local b64
-  b64=$(sed -n 's/.*echo \([A-Za-z0-9+/=]\{16,\}\).*base64.*/\1/p' "$HOME/.bashrc" 2>/dev/null | head -1)
+  # Skip commented lines: a retired key must never be resurrected from a "# ..." comment
+  # (the 2026-08-21 dead-key removal left its base64 in a comment and this function kept
+  # decoding it until 2026-09-10).
+  b64=$(grep -v '^[[:space:]]*#' "$HOME/.bashrc" 2>/dev/null | sed -n 's/.*echo \([A-Za-z0-9+/=]\{16,\}\).*base64.*/\1/p' | head -1)
   if [ -n "$b64" ]; then
     export OPENROUTER_API_KEY="$(echo "$b64" | base64 -d 2>/dev/null)"
     [ -n "${OPENROUTER_API_KEY:-}" ] && log "Loaded OPENROUTER_API_KEY from ~/.bashrc (decoded)"
