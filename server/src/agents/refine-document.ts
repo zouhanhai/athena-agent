@@ -14,8 +14,10 @@
  *
  * Structured output is enforced with provider-side constrained sampling: the direct HTTP path requests a
  * JSON object whose shape IS the refinement output contract (json_schema wrapped response_format), so the
- * model cannot drift into free-text JSON. There are NO tools on the direct path — the model returns plain
- * JSON matching the contract.
+ * model cannot drift into free-text JSON. Endpoints that reject json_schema (deepseek-v4.1-flash on the
+ * DeepSeek endpoint, 2026-09) degrade transparently to json_object — the contract stays in this prompt and
+ * the extractors validate/normalize (see llm-direct.ts). There are NO tools on the direct path — the model
+ * returns plain JSON matching the contract.
  *
  * Big-output handling (G4.S1.T3): the FULL re-leveled markdown + chunks land on disk/storage
  * (`storeRefinementOutput`); `refine_document` returns only the SMALL metadata + refs
@@ -88,7 +90,7 @@ import {
  *  provider. Key separation from chat pending a Pi custom-provider path
  *  (G4.S8 T2 — see S8 Spec). */
 export const ATHENA_PROVIDER = "athena";
-export const ATHENA_MODEL = "~deepseek/deepseek-v4-flash-latest";
+export const ATHENA_MODEL = "deepseek/deepseek-v4.1-flash";
 
 /**
  * G4.S8.T2 — the direct-OpenRouter caller seam. The three refinement LLM calls (stage-1 header
@@ -451,7 +453,7 @@ export interface RefineDocumentParams {
 }
 
 export interface RefineDocumentOptions {
-  /** Model id sent to OpenRouter (default: env ATHENA_REFINE_MODEL or "~deepseek/deepseek-v4-flash-latest"). */
+  /** Model id sent to OpenRouter (default: env ATHENA_REFINE_MODEL or "deepseek/deepseek-v4.1-flash"). */
   modelId?: string;
   /**
    * Inject the direct-OpenRouter caller (tests stub the HTTP layer). Default: a wrapper over
@@ -1997,7 +1999,7 @@ export function createRefineDocumentTool(
       "pattern). >1MB docs use the two-stage path (local header re-level → h1 split → per-section).",
     promptGuidelines: [
       "Use for the ingest refinement step: pass the raw docling markdown, get the small refinement ref back (md_ref to the full re-leveled markdown + chunks on disk).",
-      "Calls OpenRouter directly (dedicated athena key) with deepseek-v4-flash-latest, reasoning effort NONE (no thinking tokens), hard timeout + retry.",
+      "Calls OpenRouter directly (dedicated athena key) with deepseek-v4.1-flash, reasoning effort NONE (no thinking tokens), hard timeout + retry.",
       "Sub-1MB docs are refined in ONE full-doc read; >1MB docs use two-stage refinement (local header pass → split → per-section pass).",
     ],
     parameters: Type.Object({

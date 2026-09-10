@@ -7,7 +7,7 @@ test("createAgent creates athena-provider AgentSession (DEFAULT_PROVIDER)", asyn
   const agent = await createAgent();
   try {
     assert.ok(agent.session, "should return AgentSession");
-    assert.equal(agent.model, "athena/~deepseek/deepseek-v4-flash-latest");
+    assert.equal(agent.model, "athena/deepseek/deepseek-v4.1-flash");
   } finally {
     agent.dispose();
   }

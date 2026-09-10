@@ -342,7 +342,7 @@ test("callOpenRouter body carries provider.ignore from ATHENA_REFINE_PROVIDER_IG
     fetchImpl,
     retries: 0,
   });
-  assert.deepEqual(bodies[0]!.provider, { ignore: ["Alibaba"] }, "default provider ignore list excludes Alibaba (~deepseek routes stably to Relace)");
+  assert.deepEqual(bodies[0]!.provider, { ignore: ["Alibaba"] }, "default provider ignore list stays [Alibaba] (legacy ~deepseek route tuning; harmless for v4.1)");
 
   await callOpenRouter({ systemPrompt: "s", userContent: "u" } as OpenRouterCallParams, {
     apiKey: "k",

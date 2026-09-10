@@ -19,7 +19,7 @@ import { createDefaultAgenticRetrieval } from "../kb/agentic-defaults.js";
 export interface CreateAgentOptions {
   /** Provider id. Default: "openrouter" */
   providerId?: string;
-  /** Model id within the provider. Default: "~deepseek/deepseek-v4-flash-latest" */
+  /** Model id within the provider. Default: "deepseek/deepseek-v4.1-flash" */
   modelId?: string;
   /** Global Pi config dir. Default: ~/.pi/agent */
   agentDir?: string;
@@ -57,7 +57,7 @@ export interface Agent {
 }
 
 const DEFAULT_PROVIDER = "athena";
-const DEFAULT_MODEL = "~deepseek/deepseek-v4-flash-latest";
+const DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash";
 
 /**
  * Create an AgentSession wrapping the Pi SDK (ModelRuntime + OpenRouter).

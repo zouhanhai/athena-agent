@@ -110,7 +110,7 @@ document images** (at the same relative position as the source), while **LightRA
 - **LightRAG pipeline is native/unmodified**: `ingestText` (chunking → embedding → pgvector
   vector + NetworkX entity graph). It has NO agent — it uses the LLM only for embedding + entity extraction.
 - **llm_wiki pipeline uses its own built-in agent** (NOT Pi) to classify the doc into a category
-  dir; both systems run on **OpenRouter** (`~deepseek/deepseek-v4-flash-latest` main).
+  dir; both systems run on **OpenRouter** (`deepseek/deepseek-v4.1-flash` main).
 - **Independent pipelines**: changing llm_wiki ingest (e.g. classification) does NOT affect
   LightRAG ingest (`ingestLightRag` is separate from `ingestLlmWiki`).
 
@@ -129,7 +129,7 @@ wiki/sap/consolidation/GroupReporting.pdf.md              (type: report, topic: 
   event / source / person / entity / concept (disambiguation in docs/taxonomy.md).
 - `topic` = hierarchical slash path (e.g. `sap/s4hana/consolidation`), `isValidTopic` supports
   arbitrary depth. Reuses existing topics for consistency.
-- Classification prompt uses the **llm_wiki built-in agent** (OpenRouter `~deepseek/deepseek-v4-flash-latest`).
+- Classification prompt uses the **llm_wiki built-in agent** (OpenRouter `deepseek/deepseek-v4.1-flash`).
 - Fallback: local heuristic `localClassify` (also taxonomy-based) if the agent fails.
 - WikiView has **topic view** and **type view**; no flat "All" view.
 - Cross-page wikilinks ([[ ]]) relationships are built by llm_wiki's graph index later (not in ingest).
@@ -138,12 +138,12 @@ wiki/sap/consolidation/GroupReporting.pdf.md              (type: report, topic: 
 
 | System | Main model | Provider |
 |--------|-----------|----------|
-| llm_wiki built-in agent | `~deepseek/deepseek-v4-flash-latest` | OpenRouter |
-| LightRAG | `~deepseek/deepseek-v4-flash-latest` (LLM) + `qwen/qwen3-embedding-8b` (embedding) | OpenRouter |
-| Pi / athena server | `~deepseek/deepseek-v4-flash-latest` | OpenRouter |
-| Local Hermes | `~deepseek/deepseek-v4-flash-latest` | OpenRouter |
+| llm_wiki built-in agent | `deepseek/deepseek-v4.1-flash` | OpenRouter |
+| LightRAG | `deepseek/deepseek-v4.1-flash` (LLM) + `qwen/qwen3-embedding-8b` (embedding) | OpenRouter |
+| Pi / athena server | `deepseek/deepseek-v4.1-flash` | OpenRouter |
+| Local Hermes | `deepseek/deepseek-v4.1-flash` | OpenRouter |
 
-Using `~...-latest` so all systems auto-follow the newest DeepSeek V4 Flash without manual updates.
+Using the pinned `deepseek/deepseek-v4.1-flash` since 2026-09-10 — the `~deepseek/deepseek-v4-flash-latest` moving alias is no longer used anywhere in the stack.
 
 ## 3. Capabilities Pattern (Core Routing Mechanism, Referencing WeKnora)
 

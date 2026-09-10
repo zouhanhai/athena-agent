@@ -11,10 +11,18 @@
  *
  * Key separation: the refinement pipeline reads a DEDICATED key chain (G4.S8.T16):
  * env ATHENA_OPENROUTER_KEY → auth.json["athenaingest"] → auth.json["athena"].
- * The model defaults to `~deepseek/deepseek-v4-flash-latest` (maxTokens 65536, output
- * $0.28/M), overridable via env `ATHENA_REFINE_MODEL`; unreliable providers are excluded
- * via env ATHENA_REFINE_PROVIDER_IGNORE (default ["Alibaba"], routes ~deepseek stably
- * to Relace).
+ * The model defaults to `deepseek/deepseek-v4.1-flash` (maxTokens 65536, output
+ * $0.60/M, 1M context), overridable via env `ATHENA_REFINE_MODEL`; providers to avoid
+ * come from env ATHENA_REFINE_PROVIDER_IGNORE (default ["Alibaba"] — kept because it
+ * still steers the legacy `~deepseek/...` alias routes; it is a no-op for v4.1, whose
+ * endpoints are DeepSeek / Novita / DeepInfra).
+ *
+ * response_format: schema'd calls request `json_schema` constrained sampling. When the
+ * model's available endpoints reject that type (v4.1 currently resolves to the DeepSeek
+ * endpoint on the athena account's provider allowlist, which answers HTTP 400 "This
+ * response_format type is unavailable now"), the call degrades ONCE per process to
+ * `json_object` — the schema contract stays in the system prompt and the extractors
+ * validate/normalize the result.
  */
 
 import { homedir } from "node:os";
@@ -22,8 +30,8 @@ import { join } from "node:path";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-/** Default refinement model (G4.S8.T2): deepseek-v4-flash-latest, 65536 maxTokens, 1.31M context. */
-export const ATHENA_REFINE_MODEL = "~deepseek/deepseek-v4-flash-latest";
+/** Default refinement model (G4.S8.T2; v4.1 since 2026-09-10): deepseek-v4.1-flash, 65536 maxTokens, 1M context. */
+export const ATHENA_REFINE_MODEL = "deepseek/deepseek-v4.1-flash";
 
 export const ATHENA_REFINE_MAX_TOKENS = 65536;
 export const OPENROUTER_TIMEOUT_MS = 120_000;
@@ -33,7 +41,11 @@ export interface OpenRouterCallParams {
   model?: string;
   systemPrompt: string;
   userContent: string;
-  /** Optional JSON schema hints folded into the prompt (the helper requests json_object format). */
+  /**
+   * Optional JSON schema for the call. Requested as `response_format: json_schema`
+   * (constrained sampling) with a transparent per-process degrade to json_object on
+   * endpoints that reject that type — so the prompt must keep describing the shape.
+   */
   schema?: unknown;
   /** Max output tokens. Default 65536 (deepseek ceiling). */
   maxTokens?: number;
@@ -102,9 +114,10 @@ export function resolveRefineModel(env: NodeJS.ProcessEnv = process.env): string
 /**
  * G4.S8.T16: OpenRouter provider exclusion for the refinement calls. Returns the
  * parsed ATHENA_REFINE_PROVIDER_IGNORE env value (comma-separated provider names)
- * or the measured default ["Alibaba"] when unset. Verified in production: model
- * "~deepseek/deepseek-v4-flash-latest" (the "~" prefix is REQUIRED — the bare id
- * is not a valid OpenRouter model) with Alibaba ignored routes stably to Relace.
+ * or the measured default ["Alibaba"] when unset. Originally tuned for the
+ * "~deepseek/deepseek-v4-flash-latest" moving alias (with Alibaba ignored it routed
+ * stably to Relace). Kept as the default — it is harmless for the pinned
+ * deepseek-v4.1-flash id, whose endpoints are DeepSeek / Novita / DeepInfra.
  */
 export const REFINE_PROVIDER_IGNORE_DEFAULT = ["Alibaba"];
 
@@ -119,6 +132,31 @@ export function resolveRefineProviderIgnore(env: NodeJS.ProcessEnv = process.env
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Models whose live endpoints rejected `response_format: json_schema` — degraded for this process. */
+const schemaUnsupportedModels = new Set<string>();
+
+/**
+ * OpenRouter `response_format` for a schema'd call (G4.S8.T6): a TypeBox schema always
+ * carries `type: "object"`, so it must be wrapped in the json_schema envelope — the bare
+ * spread produced `{ type: "object", ... }`, which OpenRouter rejected with HTTP 400 on
+ * EVERY call.
+ */
+function jsonSchemaFormat(schema: unknown): Record<string, unknown> {
+  return {
+    type: "json_schema",
+    json_schema: { name: "refinement_result", strict: true, schema },
+  };
+}
+
+/**
+ * True when a 400 body reports that the endpoint cannot serve the requested
+ * response_format. Live sample (DeepSeek first-party, 2026-09-10):
+ * `{"error":{"message":"This response_format type is unavailable now",...}}`.
+ */
+function isJsonSchemaUnsupported(raw: string): boolean {
+  return /response_format/i.test(raw) && /unavailable|unsupported|not supported/i.test(raw);
+}
 
 /**
  * Call OpenRouter directly (no agent loop, reasoning OFF) with a hard timeout + retry/backoff.
@@ -147,49 +185,58 @@ export async function callOpenRouter(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const attemptMaxTokens = bumpCount === 0 ? maxTokens : Math.min(maxTokens * 2 ** bumpCount, 256_000);
+      // G4.S8.T6 (P0): schema'd calls request provider-side constrained sampling through the
+      // json_schema envelope (a TypeBox schema always carries `type: "object"`; the bare spread
+      // 400s on every call). 2026-09-10: when the model's available endpoints reject json_schema
+      // the call degrades to json_object ONCE per process — the schema contract stays in the
+      // system prompt and the extractors validate/normalize the payload. After that the probe is
+      // skipped for the model, so re-enabling structured outputs later (provider/allowlist
+      // change) restores json_schema on the next process start.
+      const wantsSchema = params.schema !== undefined;
+      const probingSchema = wantsSchema && !schemaUnsupportedModels.has(model);
       const body: Record<string, unknown> = {
         model,
         messages,
         max_tokens: attemptMaxTokens,
-        response_format: { type: "json_object" },
+        response_format: probingSchema ? jsonSchemaFormat(params.schema) : { type: "json_object" },
         // G4.S8.T16 unified reasoning strategy: task-class effort from
         // refineReasoningFor() — "none" for extraction calls (default; qwen ignores
         // enable_thinking, so effort=none is the only reliable suppression),
         // thinking allowed for analysis-class calls via REFINE_REASONING_ANALYSIS.
         reasoning: { effort: params.reasoningEffort ?? "none" },
       };
-      // G4.S8.T16 provider exclusion: route away from unreliable providers
-      // (~deepseek + ignore Alibaba → stably Relace). Value from env
-      // ATHENA_REFINE_PROVIDER_IGNORE, default ["Alibaba"].
+      // G4.S8.T16 provider exclusion: route away from unreliable providers. Value from env
+      // ATHENA_REFINE_PROVIDER_IGNORE, default ["Alibaba"] (a no-op for v4.1's endpoints).
       const providerIgnore = resolveRefineProviderIgnore();
       if (providerIgnore.length > 0) {
         body.provider = { ignore: providerIgnore };
       }
-      if (params.schema !== undefined) {
-        // G4.S8.T6 (P0): a TypeBox schema carries `type: "object"` — spreading it onto response_format
-        // produced `{ type: "object", required, properties }` which OpenRouter rejected with HTTP 400
-        // on EVERY call. Wrap it correctly so OpenRouter's json_schema constrained sampling applies.
-        body.response_format = {
-          type: "json_schema",
-          json_schema: {
-            name: "refinement_result",
-            strict: true,
-            schema: params.schema,
+
+      const send = (responseFormat: Record<string, unknown>) => {
+        body.response_format = responseFormat;
+        return fetchImpl(OPENROUTER_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
           },
-        };
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      };
+
+      let res = await send(body.response_format as Record<string, unknown>);
+      let raw = await res.text();
+      // Transparent json_schema → json_object degrade (see the body comment above). One extra
+      // round trip, once per process per model; retry accounting is untouched.
+      if (probingSchema && res.status === 400 && isJsonSchemaUnsupported(raw)) {
+        schemaUnsupportedModels.add(model);
+        console.warn(
+          `[refine] ${model}: endpoint rejects response_format json_schema — degrading to json_object (schema contract stays in the system prompt)`,
+        );
+        res = await send({ type: "json_object" });
+        raw = await res.text();
       }
-
-      const res = await fetchImpl(OPENROUTER_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      const raw = await res.text();
       const payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       if (!res.ok) {
         const status = res.status;

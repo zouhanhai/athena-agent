@@ -33,7 +33,7 @@ export const EMIT_AGENTIC_UPDATE_TOOL = "emit_agentic_update";
 
 /** Default provider/model for the judge (same dedicated Athena channel as refinement). */
 export const AGENTIC_PROVIDER = "athena";
-export const AGENTIC_MODEL = "~deepseek/deepseek-v4-flash-latest";
+export const AGENTIC_MODEL = "deepseek/deepseek-v4.1-flash";
 
 const PLAN_SCHEMA = Type.Object({
   action: Type.Union([Type.Literal("clarify"), Type.Literal("decompose"), Type.Literal("direct")]),

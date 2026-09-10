@@ -222,7 +222,59 @@ test("callOpenRouter retries when content is empty but reasoning is present, bum
     }
     return jsonResponse({}, "{\"ok\":1}");
   });
-  const result = await callOpenRouter({ systemPrompt: "s", userContent: "u" }, { apiKey: "k", fetchImpl, retries: 1 });
+  const result = await callOpenRouter({ systemPrompt: "s", userContent: "u" }, { apiKey: "sk-test", fetchImpl, retries: 1 });
   assert.equal(calls.length, 2);
   assert.equal(JSON.parse(result.text).ok, 1);
+});
+
+// --- 2026-09-10: json_schema → json_object degrade (deepseek-v4.1-flash on the DeepSeek endpoint) ---
+
+/** Live shape returned by DeepSeek first-party for a json_schema response_format (2026-09-10). */
+const JSON_SCHEMA_400 =
+  '{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"{\\"error\\":{\\"message\\":\\"This response_format type is unavailable now\\",\\"type\\":\\"invalid_request_error\\",\\"param\\":null,\\"code\\":\\"invalid_request_error\\"}}","provider_name":"DeepSeek","is_byok":false,"provider_error_code":"invalid_request_error"}}}';
+
+test("degrade: a 400 'response_format unavailable' on a schema call re-issues the SAME attempt as json_object and succeeds", async () => {
+  const { calls, fetchImpl } = makeFetch((_url, init) => {
+    const body = JSON.parse(init.body as string) as { response_format: { type: string } };
+    if (body.response_format.type === "json_schema") return jsonFromString(JSON_SCHEMA_400, 400);
+    return jsonResponse({}, JSON.stringify({ levels: [{ index: 0, level: 2 }] }));
+  });
+  const schema = { type: "object", properties: { levels: { type: "array" } }, required: ["levels"] };
+  const result = await callOpenRouter(
+    { model: "test/degradable-model", systemPrompt: "sys", userContent: "user", schema },
+    { apiKey: "sk-test", fetchImpl, retries: 0 },
+  );
+
+  assert.equal(calls.length, 2, "the rejected json_schema call + the json_object re-issue (no retry budget consumed)");
+  const first = JSON.parse(calls[0]!.init.body as string) as { response_format: { type: string } };
+  const second = JSON.parse(calls[1]!.init.body as string) as { response_format: { type: string } };
+  assert.equal(first.response_format.type, "json_schema", "first attempt still asks for constrained sampling");
+  assert.equal(second.response_format.type, "json_object", "degraded attempt asks for plain JSON");
+  assert.deepEqual(JSON.parse(result.text), { levels: [{ index: 0, level: 2 }] });
+});
+
+test("degrade: sticky per process — later schema calls for the same model skip the probe", async () => {
+  const { calls, fetchImpl } = makeFetch(() => jsonResponse({}, '{"ok":1}'));
+  const schema = { type: "object", properties: { ok: { type: "number" } } };
+  await callOpenRouter(
+    { model: "test/degradable-model", systemPrompt: "s", userContent: "u", schema },
+    { apiKey: "sk-test", fetchImpl, retries: 0 },
+  );
+  assert.equal(calls.length, 1, "no json_schema probe on subsequent calls for the degraded model");
+  const body = JSON.parse(calls[0]!.init.body as string) as { response_format: { type: string } };
+  assert.equal(body.response_format.type, "json_object");
+});
+
+test("degrade: an unrelated 400 on a schema call is NOT degraded — single attempt, throws", async () => {
+  const { calls, fetchImpl } = makeFetch(() => jsonFromString('{"error":{"message":"bad request"}}', 400));
+  const schema = { type: "object" };
+  await assert.rejects(
+    () =>
+      callOpenRouter(
+        { model: "test/strict-model", systemPrompt: "s", userContent: "u", schema },
+        { apiKey: "sk-test", fetchImpl, retries: 0 },
+      ),
+    OpenRouterError,
+  );
+  assert.equal(calls.length, 1, "unrelated 400s must not trigger the json_object re-issue");
 });

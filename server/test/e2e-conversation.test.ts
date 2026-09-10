@@ -55,7 +55,7 @@ function makeFailingManager(): AgentManager {
           throw new Error("service not started");
         },
       } as never,
-      model: "openrouter/~deepseek/deepseek-v4-flash-latest",
+      model: "openrouter/deepseek/deepseek-v4.1-flash",
       packages: [],
       extensionErrors: [],
       prompt: async () => {

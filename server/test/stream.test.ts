@@ -43,7 +43,7 @@ function makeFakeAgent(deltas: string[]): {
 
   const agent = {
     session,
-    model: "openrouter/~deepseek/deepseek-v4-flash-latest",
+    model: "openrouter/deepseek/deepseek-v4.1-flash",
     packages: [],
     extensionErrors: [],
     prompt: async () => "",
@@ -145,7 +145,7 @@ test("streamAgentChat emits a clarify event from a search_knowledge tool result 
   };
   const agent = {
     session,
-    model: "openrouter/~deepseek/deepseek-v4-flash-latest",
+    model: "openrouter/deepseek/deepseek-v4.1-flash",
     packages: [],
     extensionErrors: [],
     prompt: async () => "",

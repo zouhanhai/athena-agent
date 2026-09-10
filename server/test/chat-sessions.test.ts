@@ -50,7 +50,7 @@ function makeStubAgent(session: FakeSession): Agent {
   };
   return {
     session: s,
-    model: "openrouter/~deepseek/deepseek-v4-flash-latest",
+    model: "openrouter/deepseek/deepseek-v4.1-flash",
     packages: [],
     extensionErrors: [],
     prompt: async () => "mock reply",
