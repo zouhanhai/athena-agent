@@ -260,7 +260,7 @@ describe("AdminView invites (G4.S3.T11)", () => {
     await wrapper.find(".invite-input").setValue("carol@caleo.com");
     await wrapper.find(".invite-button").trigger("click");
     await flushPromises();
-    expect(sendInviteMock).toHaveBeenCalledWith("carol@caleo.com");
+    expect(sendInviteMock).toHaveBeenCalledWith("carol@caleo.com", expect.any(String));
     const link = wrapper.find(".invite-link");
     expect(link.text()).toBe("http://localhost:5173/register?token=abc");
     expect(wrapper.find(".copy-button").exists()).toBe(true);

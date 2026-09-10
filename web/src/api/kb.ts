@@ -102,7 +102,7 @@ export type ManualQaMode = "merge" | "overwrite" | "add-anyway";
 
 export type TaskStageName = "parsing" | "refinement" | "ingesting_llmwiki" | "ingesting_neo4j";
 export type StageStatus = "pending" | "running" | "done" | "failed";
-export type TaskStatus = "pending" | "parsing" | "refining" | "ingesting" | "done" | "failed";
+export type TaskStatus = "pending" | "parsing" | "header_review" | "refining" | "ingesting" | "done" | "failed";
 
 /** Per-system sub-step (G3.S5.T2): docling / llm_wiki / Neo4j phases. */
 export interface IngestTaskStep {
@@ -171,6 +171,16 @@ export interface IngestTask {
     duplicate: boolean;
     method?: "hash" | "chunks";
     existingSource?: string;
+  };
+  /** G4.S10.T7: post-parsing header-review gate state (pause/approve/skip) +
+   *  the {who, edits, duration} report once resolved. */
+  headerReview?: {
+    state: "pending" | "approved" | "skipped";
+    pausedAt?: number;
+    resolvedAt?: number;
+    who?: string;
+    durationMs?: number;
+    edits?: { ops: number; bold: number; moves: number; levels: number };
   };
   createdAt: number;
   updatedAt: number;
@@ -432,6 +442,133 @@ export async function retryTask(taskId: string): Promise<IngestTask> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ taskId }),
+  });
+}
+
+// --- G4.S10.T7: post-parsing header review gate (card editor surface) --------
+
+/** One draggable card of the detected outline. `level` is the derived tree
+ *  depth (root children = 1); `bold` = demoted-to-bold paragraph. */
+export interface HeaderReviewCard {
+  id: string;
+  index: number;
+  text: string;
+  originalLevel: number;
+  originalOrder: number;
+  originalParentId: string | null;
+  bold: boolean;
+  parentId: string | null;
+  order: number;
+  level: number;
+  // Mirror-server extra fields the server may include (kept for compatibility)
+  childrenCount?: number;
+}
+
+export type HeaderEditOp =
+  | { type: "move"; index: number; parentId: string | null; position: number }
+  | { type: "promote"; index: number }
+  | { type: "demote"; index: number }
+  | { type: "level"; index: number; level: number }
+  | { type: "bold"; index: number };
+
+export interface HeaderReviewOutlineView {
+  taskId: string;
+  state: "pending" | "approved" | "skipped" | null;
+  headingCount: number;
+  cards: HeaderReviewCard[];
+  toc?: { mode: "toc" | "none"; source?: string; matched?: number; total?: number };
+  /** T6 hint per heading index (apply-TOC-levels chips). */
+  tocHints?: Record<string, { matched: boolean; suggestedLevel: number }>;
+  draft: { ops: HeaderEditOp[]; updatedAt: number } | null;
+  changes: number;
+}
+
+export interface HeaderReviewDraftView {
+  ops: HeaderEditOp[];
+  cards: HeaderReviewCard[];
+  changes: number;
+  updatedAt: number;
+}
+
+export interface HeaderReviewSettings {
+  enabled: boolean;
+  minHeaders: number;
+  templateWords: string[];
+}
+
+export interface HeaderAssistSuggestion {
+  kind: "demote-to-bold" | "set-level" | "reparent";
+  targetIds: string[];
+  level?: number;
+  parentId?: string | null;
+  reason: string;
+}
+
+/** GET /api/kb/task/:id/header-review → the detected outline + draft. */
+export async function getHeaderReviewOutline(taskId: string): Promise<HeaderReviewOutlineView> {
+  return request<HeaderReviewOutlineView>(`${KB_BASE}/task/${encodeURIComponent(taskId)}/header-review`);
+}
+
+/** PUT /api/kb/task/:id/header-review/draft { ops } → validate + apply ops. */
+export async function putHeaderReviewDraft(taskId: string, ops: HeaderEditOp[]): Promise<HeaderReviewDraftView> {
+  return request<HeaderReviewDraftView>(`${KB_BASE}/task/${encodeURIComponent(taskId)}/header-review/draft`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ops }),
+  });
+}
+
+/** POST .../header-review/approve { who? } → bake draft into md + release. */
+export async function approveHeaderReview(
+  taskId: string,
+  who?: string,
+): Promise<{ ok: true; edits: NonNullable<IngestTask["headerReview"]>["edits"]; changes: number }> {
+  return request(`${KB_BASE}/task/${encodeURIComponent(taskId)}/header-review/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...(who ? { who } : {}) }),
+  });
+}
+
+/** POST .../header-review/skip → release without touching the markdown. */
+export async function skipHeaderReview(taskId: string): Promise<{ ok: true }> {
+  return request(`${KB_BASE}/task/${encodeURIComponent(taskId)}/header-review/skip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
+/** POST .../header-review/assist { rows, samples } → Athena suggestion chips.
+ *  Never auto-applied; 48K-char cap enforced server-side. */
+export async function assistHeaderReview(
+  taskId: string,
+  input: {
+    rows: { index: number; text: string; level: number }[];
+    samples?: { headingId: string; text: string }[];
+    /** Server-side section sampling: the server extracts body samples from the
+     *  parsed markdown (the client never holds bodies). */
+    sampleIndexes?: number[];
+  },
+): Promise<{ suggestions: HeaderAssistSuggestion[] }> {
+  return request(`${KB_BASE}/task/${encodeURIComponent(taskId)}/header-review/assist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/** GET /api/kb/header-review/settings → project gate config. */
+export async function getHeaderReviewSettings(): Promise<HeaderReviewSettings> {
+  return request<HeaderReviewSettings>(`${KB_BASE}/header-review/settings`);
+}
+
+/** PUT /api/kb/header-review/settings → persist project config (admin). */
+export async function putHeaderReviewSettings(patch: Partial<HeaderReviewSettings>): Promise<HeaderReviewSettings> {
+  return request<HeaderReviewSettings>(`${KB_BASE}/header-review/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
   });
 }
 

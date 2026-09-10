@@ -68,12 +68,13 @@ describe("invitations API", () => {
     });
   });
 
-  it("sendInvite POSTs the email to /api/invitations", async () => {
+  it("sendInvite POSTs the email with the admin Bearer token", async () => {
     fetchMock.mockResolvedValue(ok({ ok: true }));
-    await sendInvite("carol@caleo.com");
+    await sendInvite("carol@caleo.com", "tok-123");
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/invitations");
     expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer tok-123");
     expect(JSON.parse(init.body)).toEqual({ email: "carol@caleo.com" });
   });
 
@@ -85,7 +86,7 @@ describe("invitations API", () => {
         expiresInMs: 604800000,
       }),
     );
-    const result = await sendInvite("carol@caleo.com");
+    const result = await sendInvite("carol@caleo.com", "tok-123");
     expect(result.inviteUrl).toBe("http://localhost:5173/register?token=abc");
     expect(result.expiresInMs).toBe(604800000);
   });

@@ -21,6 +21,8 @@ export interface IngestTaskItem {
   wikiPath?: string;
   stages: IngestTask["stages"];
   refinement?: IngestTask["refinement"];
+  /** G4.S10.T7: post-parsing header-review gate state. */
+  headerReview?: IngestTask["headerReview"];
   reviewRequired?: boolean;
   createdAt: number;
   updatedAt: number;

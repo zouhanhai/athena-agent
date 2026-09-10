@@ -52,8 +52,13 @@ import {
 import { KnowledgeIngestService } from "./kb/ingest.js";
 import { KnowledgeRetrievalService } from "./kb/retrieval.js";
 import { WikiFrontmatterSyncer } from "./kb/wiki-frontmatter.js";
+import { FileHeaderReviewSettingsStore } from "./kb/header-review-settings.js";
 import { WikiReviewStateService } from "./kb/review-state.js";
-import { defaultRefineLlmCaller, defaultRefinementOutputDir } from "./agents/refine-document.js";
+import {
+  defaultRefineLlmCaller,
+  defaultRefinementOutputDir,
+  type RefineLlmCaller,
+} from "./agents/refine-document.js";
 import { defaultCodeOutputDir } from "./kb/store/code.js";
 import { KbReviewService, scheduleKbReview } from "./kb/review.js";
 import { KbAuditScheduler, KbAuditService } from "./kb/audit.js";
@@ -140,6 +145,12 @@ export interface BuildAppOptions {
    *  defaultChatHistoryStore() (Postgres when DATABASE_URL is set). */
   historyStore?: ChatHistoryStore;
   taskQueue?: IngestTaskQueue;
+  /** G4.S10.T7: post-parsing header-review gate — settings store shared with
+   *  the task queue + injectable assist LLM caller (refinement judge path). */
+  headerReview?: {
+    settings?: FileHeaderReviewSettingsStore;
+    assistLlm?: RefineLlmCaller;
+  };
   /** G4.S8.T17: per-page wiki review workflow (GET/POST review-state).
    *  Default: built from the retrieval service + the canonical syncer. */
   reviewState?: WikiReviewStateService;
@@ -310,7 +321,7 @@ export function createDefaultReranker(): Reranker | undefined {
   return new LlamaCppReranker({ baseUrl: url });
 }
 
-export function defaultTaskQueue(): IngestTaskQueue {
+export function defaultTaskQueue(headerReview?: { settings: FileHeaderReviewSettingsStore }): IngestTaskQueue {
   // G4.S8.T14: one shared Neo4j ingest service drives both the ingest stage and
   // the delete cascade (undefined when NEO4J_PASSWORD is unset → both no-op).
   const neo4j = defaultNeo4jIngest();
@@ -330,6 +341,11 @@ export function defaultTaskQueue(): IngestTaskQueue {
   // Delete-cascade hook (G4.S8.T14 follow-up): purge dedup entries when a page
   // is deleted so the same file can be re-ingested afterwards.
   ingest.attachDedupStore(dedup);
+  // G4.S10.T7: post-parsing header review gate — per-project settings
+  // (enabled / tiny-doc minHeaders / bulk template words), persisted JSON.
+  // SHARED with the routes: the same store instance serves both the queue's
+  // gate decision and the /api/kb/header-review/settings surface.
+  const headerReviewSettings = headerReview?.settings ?? new FileHeaderReviewSettingsStore();
   // G4.S10.T4: KNOWN ENTITIES baseline reader for the wiki-edit delta-refine —
   // one capped graph query per edit (undefined without a Neo4j driver).
   const driverForBaseline = defaultNeo4jDriver();
@@ -337,6 +353,8 @@ export function defaultTaskQueue(): IngestTaskQueue {
     parser: new DoclingParser(),
     ingest,
     refiner: createAthenaRefiner({ entityLinker }),
+    // G4.S10.T7: the card-editor gate pauses after parsing; approve/skip release.
+    headerReview: { settings: headerReviewSettings },
     // G4.S3.T10: wiki-edit diff-refine (corrected markdown + diff → RAG overwrite).
     wikiRefiner: createAthenaWikiEditRefiner({
       entityLinker,
@@ -711,8 +729,16 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   // dedup store (attachDedupStore) — a SECOND defaultIngestService() here had no
   // dedup, so doc/delete silently skipped the dedup purge and a delete followed
   // by re-upload short-circuited as a hash duplicate.
-  const kbQueue = options.taskQueue ?? defaultTaskQueue();
+  const kbQueue = options.taskQueue ?? defaultTaskQueue(
+    options.headerReview?.settings ? { settings: options.headerReview.settings } : undefined,
+  );
   const kbIngest = options.ingest ?? kbQueue.ingest;
+  // G4.S10.T7: the header-review settings store shared with the queue (so the
+  // admin surface edits the SAME instance the gate decision reads).
+  const headerReviewSettings =
+    options.headerReview?.settings
+    ?? kbQueue.headerReviewSettings
+    ?? new FileHeaderReviewSettingsStore();
   registerKbRoutes(app, {
     ingest: kbIngest,
     retrieval,
@@ -722,6 +748,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     mappings,
     taskQueue: kbQueue,
     maxFileSize: options.maxFileSize,
+    headerReview: {
+      settings: headerReviewSettings,
+      ...(options.headerReview?.assistLlm ? { assistLlm: options.headerReview.assistLlm } : {}),
+    },
     // G4.S8.T15: manual audit trigger + report history (admin-gated).
     audit,
     auditRunsStore,
